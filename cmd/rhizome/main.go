@@ -21,10 +21,12 @@ import (
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/cliui"
 	configcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/config"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/cron"
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal/daemon"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/gateway"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/mcp"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/migrate"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/model"
+	networkcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/network"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/onboard"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/skills"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/status"
@@ -132,11 +134,13 @@ rhizome --no-color status`,
 		onboard.NewOnboardCommand(),
 		agent.NewAgentCommand(),
 		auth.NewAuthCommand(),
+		daemon.NewDaemonCommand(),
 		gateway.NewGatewayCommand(),
 		status.NewStatusCommand(),
 		cron.NewCronCommand(),
 		mcp.NewMCPCommand(),
 		migrate.NewMigrateCommand(),
+		networkcmd.NewNetworkCommand(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
 		updater.NewUpdateCommand("rhizome"),
