@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
 const (

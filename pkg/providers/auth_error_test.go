@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/providers/common"
+	"github.com/stpinkie/rhizome/pkg/providers/common"
 )
 
 func TestClassifyError_HTTPErrorStatus(t *testing.T) {

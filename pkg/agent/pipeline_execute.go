@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Rhizome - Ultra-lightweight personal AI agent
 
 package agent
 
@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/stpinkie/rhizome/pkg/bus"
+	"github.com/stpinkie/rhizome/pkg/constants"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/providers"
+	"github.com/stpinkie/rhizome/pkg/tools"
+	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
 func toolErrorSummary(result *tools.ToolResult) string {

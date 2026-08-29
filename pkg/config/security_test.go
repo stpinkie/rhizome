@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Rhizome - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Rhizome contributors
 
 package config
 
@@ -38,8 +38,8 @@ func TestSecurityPath(t *testing.T) {
 	}{
 		{
 			name:      "standard path",
-			configDir: "/home/user/.picoclaw/config.json",
-			want:      "/home/user/.picoclaw/.security.yml",
+			configDir: "/home/user/.rhizome/config.json",
+			want:      "/home/user/.rhizome/.security.yml",
 		},
 		{
 			name:      "nested path",
@@ -254,8 +254,8 @@ skills:
 			Tools: original.Tools,
 		}
 
-		t.Setenv("PICOCLAW_CHANNELS_QQ_APP_SECRET", "qq_app_secret_env")
-		t.Setenv("PICOCLAW_TOOLS_WEB_BRAVE_API_KEYS", "brave_key_env,abc")
+		t.Setenv("RHIZOME_CHANNELS_QQ_APP_SECRET", "qq_app_secret_env")
+		t.Setenv("RHIZOME_TOOLS_WEB_BRAVE_API_KEYS", "brave_key_env,abc")
 
 		require.NoError(t, env.Parse(envCfg))
 		// Channel env overrides need explicit handling since ChannelsConfig is map-based

@@ -1,16 +1,16 @@
 //go:build azidentity
 
-// PicoClaw - Ultra-lightweight personal AI agent
+// Rhizome - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 Rhizome contributors
 
 package providers
 
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 // With the azidentity build tag, an azure config with no api_key must succeed

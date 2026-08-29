@@ -1,8 +1,8 @@
 > [README](../project/README.ja.md) に戻る
 
-# 🖥️ PicoClaw ハードウェア互換性リスト
+# 🖥️ Rhizome ハードウェア互換性リスト
 
-PicoClaw はほぼすべての Linux デバイスで動作します。このページでは、検証済みのチップ、製品、開発ボードを記録しています。
+Rhizome はほぼすべての Linux デバイスで動作します。このページでは、検証済みのチップ、製品、開発ボードを記録しています。
 
 **お使いのハードウェアがリストにない場合は？** PR を送信して追加してください！ハードウェアベンダーの貢献と共同プロモーションを歓迎します。
 
@@ -59,7 +59,7 @@ PicoClaw はほぼすべての Linux デバイスで動作します。このペ�
 
 ## 2. 検証済み製品（発売日順）
 
-PicoClaw でテスト済みのコンシューマー製品、ルーター、産業用デバイス。
+Rhizome でテスト済みのコンシューマー製品、ルーター、産業用デバイス。
 
 | 年 | 製品 | アーキテクチャ | SoC | RAM | カテゴリ |
 |----|------|----------------|-----|-----|----------|
@@ -97,7 +97,7 @@ PicoClaw でテスト済みのコンシューマー製品、ルーター、産�
 
 ### Android スマートフォン（Termux 経由）
 
-1GB 以上の RAM を搭載した ARM64 Android スマートフォン（2015年以降）。[Termux](https://github.com/termux/termux-app) をインストールし、`proot` を使用して PicoClaw を実行します。
+1GB 以上の RAM を搭載した ARM64 Android スマートフォン（2015年以降）。[Termux](https://github.com/termux/termux-app) をインストールし、`proot` を使用して Rhizome を実行します。
 
 > セットアップ手順は [README：古い Android スマートフォンで実行](../project/README.ja.md#-run-on-old-android-phones) を参照してください。
 
@@ -130,14 +130,14 @@ PicoClaw でテスト済みのコンシューマー製品、ルーター、産�
 
 ```bash
 # 1. お使いのアーキテクチャ向けをダウンロード
-wget https://github.com/sipeed/picoclaw/releases/latest/download/picoclaw_Linux_arm64.tar.gz
-tar xzf picoclaw_Linux_arm64.tar.gz
+wget https://github.com/stpinkie/rhizome/releases/latest/download/rhizome_Linux_arm64.tar.gz
+tar xzf rhizome_Linux_arm64.tar.gz
 
 # 2. 初期化
-./picoclaw onboard
+./rhizome onboard
 
 # 3. テスト
-./picoclaw agent -m "Hello, what board am I running on?"
+./rhizome agent -m "Hello, what board am I running on?"
 ```
 
 利用可能なビルド：`linux-amd64`, `linux-arm64`, `linux-arm`, `linux-riscv64`, `linux-loong64`, `linux-mipsle`

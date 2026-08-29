@@ -8,14 +8,14 @@ build/
 *.dylib
 *.test
 *.out
-/picoclaw
-/picoclaw-test
+/rhizome
+/rhizome-test
 cmd/**/workspace
 
-# Picoclaw specific
+# Rhizome specific
 
-# PicoClaw
-.picoclaw/
+# Rhizome
+.rhizome/
 config.json
 sessions/
 build/
@@ -69,6 +69,7 @@ web/backend/dist/*
 !web/backend/dist/.gitkeep
 
 .claude/
+.devin/
 
 docker/data
 

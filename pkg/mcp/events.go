@@ -1,8 +1,8 @@
 package mcp
 
 import (
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 )
 
 func (m *Manager) publishServerEvent(

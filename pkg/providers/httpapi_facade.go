@@ -1,6 +1,6 @@
 package providers
 
-import httpapi "github.com/sipeed/picoclaw/pkg/providers/httpapi"
+import httpapi "github.com/stpinkie/rhizome/pkg/providers/httpapi"
 
 type (
 	GeminiProvider = httpapi.GeminiProvider

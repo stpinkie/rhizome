@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/isolation"
+	"github.com/stpinkie/rhizome/pkg/isolation"
 )
 
 // ClaudeCliProvider implements LLMProvider using the claude CLI as a subprocess.

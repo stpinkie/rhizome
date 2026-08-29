@@ -11,9 +11,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/media"
-	toolshared "github.com/sipeed/picoclaw/pkg/tools/shared"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/media"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 // MockMCPManager is a mock implementation of MCPManager interface for testing
@@ -324,7 +324,7 @@ func TestMCPTool_Execute_PublishesRuntimeEvents(t *testing.T) {
 	ctx := toolshared.WithToolContext(context.Background(), "telegram", "chat-1")
 	ctx = toolshared.WithToolMessageContext(ctx, "msg-1", "")
 	ctx = toolshared.WithToolSessionContext(ctx, "main", "session-1", nil)
-	result := mcpTool.Execute(ctx, map[string]any{"query": "picoclaw"})
+	result := mcpTool.Execute(ctx, map[string]any{"query": "rhizome"})
 	if result == nil || result.IsError {
 		t.Fatalf("Execute result = %+v", result)
 	}

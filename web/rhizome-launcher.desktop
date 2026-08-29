@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Rhizome Launcher
+Comment=Web-based configuration and management UI for Rhizome
+Exec=rhizome-launcher
+Icon=rhizome-launcher
+Terminal=true
+Type=Application
+Categories=Utility;Network;
+Keywords=rhizome;ai;agent;bot;

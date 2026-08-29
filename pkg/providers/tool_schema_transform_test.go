@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	providercommon "github.com/sipeed/picoclaw/pkg/providers/common"
+	providercommon "github.com/stpinkie/rhizome/pkg/providers/common"
 )
 
 type toolCaptureProvider struct {

@@ -4,8 +4,8 @@ ARG TARGETPLATFORM
 
 RUN apk add --no-cache ca-certificates tzdata
 
-COPY $TARGETPLATFORM/picoclaw /usr/local/bin/picoclaw
-COPY $TARGETPLATFORM/picoclaw-launcher /usr/local/bin/picoclaw-launcher
+COPY $TARGETPLATFORM/rhizome /usr/local/bin/rhizome
+COPY $TARGETPLATFORM/rhizome-launcher /usr/local/bin/rhizome-launcher
 
-ENTRYPOINT ["picoclaw-launcher"]
+ENTRYPOINT ["rhizome-launcher"]
 CMD ["-console", "-public", "-no-browser"]

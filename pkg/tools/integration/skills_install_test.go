@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/stpinkie/rhizome/pkg/skills"
 )
 
 type mockInstallRegistry struct{}

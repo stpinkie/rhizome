@@ -9,33 +9,33 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
-// GetPicoclawHome returns the picoclaw home directory.
-// Priority: $PICOCLAW_HOME > ~/.picoclaw
-func GetPicoclawHome() string {
+// GetRhizomeHome returns the rhizome home directory.
+// Priority: $RHIZOME_HOME > ~/.rhizome
+func GetRhizomeHome() string {
 	return config.GetHome()
 }
 
-// GetDefaultConfigPath returns the default path to the picoclaw config file.
+// GetDefaultConfigPath returns the default path to the rhizome config file.
 func GetDefaultConfigPath() string {
 	if configPath := os.Getenv(config.EnvConfig); configPath != "" {
 		return configPath
 	}
-	return filepath.Join(GetPicoclawHome(), "config.json")
+	return filepath.Join(GetRhizomeHome(), "config.json")
 }
 
-// FindPicoclawBinary locates the picoclaw executable.
+// FindRhizomeBinary locates the rhizome executable.
 // Search order:
-//  1. PICOCLAW_BINARY environment variable (explicit override)
+//  1. RHIZOME_BINARY environment variable (explicit override)
 //  2. Same directory as the current executable
-//  3. Falls back to "picoclaw" and relies on $PATH
-func FindPicoclawBinary() string {
-	binaryName := "picoclaw"
+//  3. Falls back to "rhizome" and relies on $PATH
+func FindRhizomeBinary() string {
+	binaryName := "rhizome"
 	if runtime.GOOS == "windows" {
-		binaryName = "picoclaw.exe"
+		binaryName = "rhizome.exe"
 	}
 
 	if p := os.Getenv(config.EnvBinary); p != "" {
@@ -45,14 +45,14 @@ func FindPicoclawBinary() string {
 	}
 
 	if exe, err := os.Executable(); err == nil {
-		logger.Debugf("Trying to find picoclaw binary in %s", exe)
+		logger.Debugf("Trying to find rhizome binary in %s", exe)
 		candidate := filepath.Join(filepath.Dir(exe), binaryName)
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate
 		}
 	}
 
-	return "picoclaw"
+	return "rhizome"
 }
 
 func appendUniqueIP(addrs []string, seen map[string]struct{}, value string) []string {

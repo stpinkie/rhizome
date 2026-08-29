@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 func TestSaveWeixinBindingReturnsSuccessWhenRestartFails(t *testing.T) {

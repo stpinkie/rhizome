@@ -4,36 +4,36 @@
 
 ## ⚙️ Konfigurasi
 
-Fail konfigurasi: `~/.picoclaw/config.json`
+Fail konfigurasi: `~/.rhizome/config.json`
 
 ### Pemboleh Ubah Persekitaran
 
-Anda boleh menggantikan laluan lalai menggunakan pemboleh ubah persekitaran. Ini berguna untuk pemasangan mudah alih, deployment dalam container, atau menjalankan picoclaw sebagai system service. Pemboleh ubah ini saling bebas dan mengawal laluan yang berbeza.
+Anda boleh menggantikan laluan lalai menggunakan pemboleh ubah persekitaran. Ini berguna untuk pemasangan mudah alih, deployment dalam container, atau menjalankan rhizome sebagai system service. Pemboleh ubah ini saling bebas dan mengawal laluan yang berbeza.
 
 | Pemboleh Ubah     | Penerangan                                                                                                                                          | Laluan Lalai              |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `PICOCLAW_CONFIG` | Menindih laluan ke fail konfigurasi. Ini memberitahu picoclaw secara terus fail `config.json` yang perlu dimuatkan, dengan mengabaikan lokasi lain. | `~/.picoclaw/config.json` |
-| `PICOCLAW_HOME`   | Menindih direktori root untuk data picoclaw. Ini mengubah lokasi lalai bagi `workspace` dan direktori data lain.                                    | `~/.picoclaw`             |
+| `RHIZOME_CONFIG` | Menindih laluan ke fail konfigurasi. Ini memberitahu rhizome secara terus fail `config.json` yang perlu dimuatkan, dengan mengabaikan lokasi lain. | `~/.rhizome/config.json` |
+| `RHIZOME_HOME`   | Menindih direktori root untuk data rhizome. Ini mengubah lokasi lalai bagi `workspace` dan direktori data lain.                                    | `~/.rhizome`             |
 
 **Contoh:**
 
 ```bash
-# Jalankan picoclaw menggunakan fail config tertentu
+# Jalankan rhizome menggunakan fail config tertentu
 # Laluan workspace akan dibaca daripada fail config tersebut
-PICOCLAW_CONFIG=/etc/picoclaw/production.json picoclaw gateway
+RHIZOME_CONFIG=/etc/rhizome/production.json rhizome gateway
 
-# Jalankan picoclaw dengan semua data disimpan di /opt/picoclaw
-# Config akan dimuatkan dari lalai ~/.picoclaw/config.json
-# Workspace akan dicipta di /opt/picoclaw/workspace
-PICOCLAW_HOME=/opt/picoclaw picoclaw agent
+# Jalankan rhizome dengan semua data disimpan di /opt/rhizome
+# Config akan dimuatkan dari lalai ~/.rhizome/config.json
+# Workspace akan dicipta di /opt/rhizome/workspace
+RHIZOME_HOME=/opt/rhizome rhizome agent
 
 # Gunakan kedua-duanya untuk setup yang disesuaikan sepenuhnya
-PICOCLAW_HOME=/srv/picoclaw PICOCLAW_CONFIG=/srv/picoclaw/main.json picoclaw gateway
+RHIZOME_HOME=/srv/rhizome RHIZOME_CONFIG=/srv/rhizome/main.json rhizome gateway
 ```
 
 ### Konfigurasi Streaming
 
-Provider streaming menggunakan double opt-in dan dimatikan secara lalai. Agent hanya mencuba streaming apabila saluran semasa mempunyai `settings.streaming.enabled: true`, entry model aktif mempunyai `streaming.enabled: true`, dan kedua-dua provider serta saluran menyokong streaming. Jika mana-mana syarat tiada, PicoClaw menggunakan laluan permintaan bukan streaming biasa.
+Provider streaming menggunakan double opt-in dan dimatikan secara lalai. Agent hanya mencuba streaming apabila saluran semasa mempunyai `settings.streaming.enabled: true`, entry model aktif mempunyai `streaming.enabled: true`, dan kedua-dua provider serta saluran menyokong streaming. Jika mana-mana syarat tiada, Rhizome menggunakan laluan permintaan bukan streaming biasa.
 
 Pico WebUI ialah saluran pertama yang disambungkan sepenuhnya. Pico mencipta mesej assistant pertama dengan wire message sedia ada `message.create`, kemudian mengemas kini mesej yang sama dengan `message.update`; tiada jenis wire message Pico baharu ditambah.
 
@@ -76,16 +76,16 @@ Contoh mengaktifkan streaming:
 | `channel_list.<name>.settings.streaming.min_growth_chars` | int | Lalai Pico selepas diaktifkan: `1` | Pertambahan aksara minimum sebelum menghantar kemas kini pertengahan; kandungan akhir sentiasa dihantar |
 | `model_list[].streaming.enabled` | bool | `false` | Membenarkan entry model ini mencuba permintaan provider streaming |
 
-Pemboleh ubah persekitaran Telegram lama masih serasi: `PICOCLAW_CHANNELS_TELEGRAM_STREAMING_ENABLED`, `PICOCLAW_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS`, dan `PICOCLAW_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS`. Ia hanya digunakan untuk settings Telegram dan tidak mengaktifkan atau mengubah `settings.streaming` Pico.
+Pemboleh ubah persekitaran Telegram lama masih serasi: `RHIZOME_CHANNELS_TELEGRAM_STREAMING_ENABLED`, `RHIZOME_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS`, dan `RHIZOME_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS`. Ia hanya digunakan untuk settings Telegram dan tidak mengaktifkan atau mengubah `settings.streaming` Pico.
 
-Tingkah laku kegagalan adalah konservatif: jika streaming gagal sebelum mana-mana chunk kelihatan dihantar, PicoClaw mencuba semula sekali melalui laluan `Chat()` biasa. Jika chunk sudah dipaparkan kepada pengguna, PicoClaw tidak menghantar jawapan bukan streaming kedua untuk mengelakkan output berganda.
+Tingkah laku kegagalan adalah konservatif: jika streaming gagal sebelum mana-mana chunk kelihatan dihantar, Rhizome mencuba semula sekali melalui laluan `Chat()` biasa. Jika chunk sudah dipaparkan kepada pengguna, Rhizome tidak menghantar jawapan bukan streaming kedua untuk mengelakkan output berganda.
 
 ### Susun Atur Workspace
 
-PicoClaw menyimpan data dalam workspace yang dikonfigurasikan (lalai: `~/.picoclaw/workspace`):
+Rhizome menyimpan data dalam workspace yang dikonfigurasikan (lalai: `~/.rhizome/workspace`):
 
 ```
-~/.picoclaw/workspace/
+~/.rhizome/workspace/
 ├── sessions/          # Sesi perbualan dan sejarah
 ├── memory/            # Memori jangka panjang (MEMORY.md)
 ├── state/             # Keadaan persisten (saluran terakhir, dll.)
@@ -102,14 +102,14 @@ PicoClaw menyimpan data dalam workspace yang dikonfigurasikan (lalai: `~/.picocl
 
 Secara lalai, skill dimuatkan daripada:
 
-1. `~/.picoclaw/workspace/skills` (workspace)
-2. `~/.picoclaw/skills` (global)
+1. `~/.rhizome/workspace/skills` (workspace)
+2. `~/.rhizome/skills` (global)
 3. `<current-working-directory>/skills` (builtin)
 
 Untuk setup lanjutan/ujian, anda boleh menindih root builtin skills dengan:
 
 ```bash
-export PICOCLAW_BUILTIN_SKILLS=/path/to/skills
+export RHIZOME_BUILTIN_SKILLS=/path/to/skills
 ```
 
 ### Menggunakan Skill dan Arahan Dari Saluran Chat
@@ -141,7 +141,7 @@ dammi le ultime news
 
 ### 🔒 Security Sandbox
 
-PicoClaw berjalan dalam persekitaran bersandbox secara lalai. Agen hanya boleh mengakses fail dan melaksanakan arahan dalam workspace yang dikonfigurasikan.
+Rhizome berjalan dalam persekitaran bersandbox secara lalai. Agen hanya boleh mengakses fail dan melaksanakan arahan dalam workspace yang dikonfigurasikan.
 
 #### Konfigurasi Lalai
 
@@ -149,7 +149,7 @@ PicoClaw berjalan dalam persekitaran bersandbox secara lalai. Agen hanya boleh m
 {
   "agents": {
     "defaults": {
-      "workspace": "~/.picoclaw/workspace",
+      "workspace": "~/.rhizome/workspace",
       "restrict_to_workspace": true
     }
   }
@@ -158,7 +158,7 @@ PicoClaw berjalan dalam persekitaran bersandbox secara lalai. Agen hanya boleh m
 
 | Option                  | Default                 | Description                               |
 | ----------------------- | ----------------------- | ----------------------------------------- |
-| `workspace`             | `~/.picoclaw/workspace` | Direktori kerja untuk agen                |
+| `workspace`             | `~/.rhizome/workspace` | Direktori kerja untuk agen                |
 | `restrict_to_workspace` | `true`                  | Hadkan akses fail/arahan kepada workspace |
 
 #### Tools yang Dilindungi
@@ -205,7 +205,7 @@ Walaupun dengan `restrict_to_workspace: false`, tool `exec` menyekat arahan berb
 
 #### Had yang Diketahui: Proses Anak Daripada Build Tools
 
-Pengawal keselamatan exec hanya memeriksa baris arahan yang PicoClaw lancarkan secara terus. Ia tidak memeriksa secara rekursif proses anak yang dilancarkan oleh tools pembangun yang dibenarkan seperti `make`, `go run`, `cargo`, `npm run`, atau skrip build tersuai.
+Pengawal keselamatan exec hanya memeriksa baris arahan yang Rhizome lancarkan secara terus. Ia tidak memeriksa secara rekursif proses anak yang dilancarkan oleh tools pembangun yang dibenarkan seperti `make`, `go run`, `cargo`, `npm run`, atau skrip build tersuai.
 
 Ini bermakna arahan peringkat atas masih boleh mengkompil atau melancarkan binari lain selepas ia melepasi semakan awal pengawal. Dalam amalan, anggap build script, Makefile, package script, dan binari terjana sebagai kod boleh laksana yang memerlukan tahap semakan yang sama seperti arahan shell terus.
 
@@ -213,7 +213,7 @@ Untuk persekitaran yang lebih berisiko:
 
 * Semak build script sebelum pelaksanaan.
 * Utamakan kelulusan/semakan manual untuk aliran kerja compile-and-run.
-* Jalankan PicoClaw dalam container atau VM jika anda memerlukan pengasingan yang lebih kuat daripada pengawal terbina dalam.
+* Jalankan Rhizome dalam container atau VM jika anda memerlukan pengasingan yang lebih kuat daripada pengawal terbina dalam.
 
 #### Contoh Ralat
 
@@ -246,7 +246,7 @@ Jika anda perlu membenarkan agen mengakses laluan di luar workspace:
 **Kaedah 2: Pemboleh ubah persekitaran**
 
 ```bash
-export PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE=false
+export RHIZOME_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE=false
 ```
 
 > ⚠️ **Amaran**: Menyahaktifkan sekatan ini membenarkan agen mengakses mana-mana laluan pada sistem anda. Gunakan dengan berhati-hati hanya dalam persekitaran terkawal.
@@ -265,7 +265,7 @@ Semua laluan berkongsi sekatan workspace yang sama — tiada cara untuk memintas
 
 ### Heartbeat (Tugasan Berkala)
 
-PicoClaw boleh melaksanakan tugasan berkala secara automatik. Cipta fail `HEARTBEAT.md` dalam workspace anda:
+Rhizome boleh melaksanakan tugasan berkala secara automatik. Cipta fail `HEARTBEAT.md` dalam workspace anda:
 
 ```markdown
 # Periodic Tasks

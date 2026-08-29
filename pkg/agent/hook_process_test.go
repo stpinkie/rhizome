@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/isolation"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/isolation"
+	"github.com/stpinkie/rhizome/pkg/providers"
 )
 
 func TestProcessHook_HelperProcess(t *testing.T) {
-	if os.Getenv("PICOCLAW_HOOK_HELPER") != "1" {
+	if os.Getenv("RHIZOME_HOOK_HELPER") != "1" {
 		return
 	}
 	if err := runProcessHookHelper(); err != nil {
@@ -197,7 +197,7 @@ func TestAgentLoop_MountProcessHook_IsolationSupportsRelativeDirAndCommand(t *te
 	defer cleanup()
 
 	root := t.TempDir()
-	t.Setenv(config.EnvHome, filepath.Join(root, "picoclaw-home"))
+	t.Setenv(config.EnvHome, filepath.Join(root, "rhizome-home"))
 	binDir := filepath.Join(root, "bin")
 	hookDir := filepath.Join(root, "hooks")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -263,11 +263,11 @@ func processHookHelperCommand() []string {
 
 func processHookHelperEnv(mode, eventLog string) []string {
 	env := []string{
-		"PICOCLAW_HOOK_HELPER=1",
-		"PICOCLAW_HOOK_MODE=" + mode,
+		"RHIZOME_HOOK_HELPER=1",
+		"RHIZOME_HOOK_MODE=" + mode,
 	}
 	if eventLog != "" {
-		env = append(env, "PICOCLAW_HOOK_EVENT_LOG="+eventLog)
+		env = append(env, "RHIZOME_HOOK_EVENT_LOG="+eventLog)
 	}
 	return env
 }
@@ -342,8 +342,8 @@ func waitForFileContains(t *testing.T, path, substring string) {
 }
 
 func runProcessHookHelper() error {
-	mode := os.Getenv("PICOCLAW_HOOK_MODE")
-	eventLog := os.Getenv("PICOCLAW_HOOK_EVENT_LOG")
+	mode := os.Getenv("RHIZOME_HOOK_MODE")
+	eventLog := os.Getenv("RHIZOME_HOOK_EVENT_LOG")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), processHookReadBufferSize)

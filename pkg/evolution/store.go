@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/fileutil"
-	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/stpinkie/rhizome/pkg/fileutil"
+	"github.com/stpinkie/rhizome/pkg/skills"
 )
 
 type Store struct {

@@ -1,6 +1,6 @@
-# 🖥️ PicoClaw Hardware Compatibility List
+# 🖥️ Rhizome Hardware Compatibility List
 
-PicoClaw runs on virtually any Linux device. This page tracks verified chips, products, and development boards.
+Rhizome runs on virtually any Linux device. This page tracks verified chips, products, and development boards.
 
 **Your hardware not listed?** Submit a PR to add it! Hardware vendors are welcome to contribute and co-promote.
 
@@ -57,7 +57,7 @@ PicoClaw runs on virtually any Linux device. This page tracks verified chips, pr
 
 ## 2. Verified Products (by release date)
 
-Consumer products, routers, and industrial devices that have been tested with PicoClaw.
+Consumer products, routers, and industrial devices that have been tested with Rhizome.
 
 | Year | Product | Arch | SoC | RAM | Category |
 |------|---------|------|-----|-----|----------|
@@ -95,7 +95,7 @@ Consumer products, routers, and industrial devices that have been tested with Pi
 
 ### Android Phones (via Termux)
 
-Any ARM64 Android phone (2015+) with 1GB+ RAM. Install [Termux](https://github.com/termux/termux-app), use `proot` to run PicoClaw.
+Any ARM64 Android phone (2015+) with 1GB+ RAM. Install [Termux](https://github.com/termux/termux-app), use `proot` to run Rhizome.
 
 > See the [Android Termux Guide](android-termux.md) for setup instructions.
 
@@ -128,14 +128,14 @@ Any ARM64 Android phone (2015+) with 1GB+ RAM. Install [Termux](https://github.c
 
 ```bash
 # 1. Download for your architecture
-wget https://github.com/sipeed/picoclaw/releases/latest/download/picoclaw_Linux_arm64.tar.gz
-tar xzf picoclaw_Linux_arm64.tar.gz
+wget https://github.com/stpinkie/rhizome/releases/latest/download/rhizome_Linux_arm64.tar.gz
+tar xzf rhizome_Linux_arm64.tar.gz
 
 # 2. Initialize
-./picoclaw onboard
+./rhizome onboard
 
 # 3. Test
-./picoclaw agent -m "Hello, what board am I running on?"
+./rhizome agent -m "Hello, what board am I running on?"
 ```
 
 Available builds: `linux-amd64`, `linux-arm64`, `linux-arm`, `linux-riscv64`, `linux-loong64`, `linux-mipsle`

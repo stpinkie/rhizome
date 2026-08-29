@@ -1,35 +1,35 @@
 services:
   # ─────────────────────────────────────────────
-  # PicoClaw Agent (one-shot query)
-  #   docker compose -f docker/docker-compose.yml run --rm picoclaw-agent -m "Hello"
+  # Rhizome Agent (one-shot query)
+  #   docker compose -f docker/docker-compose.yml run --rm rhizome-agent -m "Hello"
   # ─────────────────────────────────────────────
-  picoclaw-agent:
+  rhizome-agent:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-agent
+    image: docker.io/sipeed/rhizome:latest
+    container_name: rhizome-agent
     profiles:
       - agent
     # Uncomment to access host network; leave commented unless needed.
     #extra_hosts:
     #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/root/.picoclaw
-    entrypoint: ["picoclaw", "agent"]
+      - ./data:/root/.rhizome
+    entrypoint: ["rhizome", "agent"]
     stdin_open: true
     tty: true
 
   # ─────────────────────────────────────────────
-  # PicoClaw Gateway (Long-running Bot)
+  # Rhizome Gateway (Long-running Bot)
   #   docker compose -f docker/docker-compose.yml --profile gateway up
   # ─────────────────────────────────────────────
-  picoclaw-gateway:
+  rhizome-gateway:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-gateway
+    image: docker.io/sipeed/rhizome:latest
+    container_name: rhizome-gateway
     restart: unless-stopped
     profiles:
       - gateway
@@ -37,28 +37,28 @@ services:
     #extra_hosts:
     #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/root/.picoclaw
+      - ./data:/root/.rhizome
 
   # ─────────────────────────────────────────────
-  # PicoClaw Launcher (Web Console + Gateway)
+  # Rhizome Launcher (Web Console + Gateway)
   #   docker compose -f docker/docker-compose.yml --profile launcher up
   # ─────────────────────────────────────────────
-  picoclaw-launcher:
+  rhizome-launcher:
     build:
       context: ..
       dockerfile: docker/Dockerfile.launcher
-    image: docker.io/sipeed/picoclaw:launcher
-    container_name: picoclaw-launcher
+    image: docker.io/sipeed/rhizome:launcher
+    container_name: rhizome-launcher
     restart: unless-stopped
     profiles:
       - launcher
     environment:
-      - PICOCLAW_GATEWAY_HOST=0.0.0.0
+      - RHIZOME_GATEWAY_HOST=0.0.0.0
       # Set a fixed dashboard token instead of a random one each restart.
       # If not set, a random token is generated and printed to the console on startup.
-      #- PICOCLAW_LAUNCHER_TOKEN=your-secret-token-here
+      #- RHIZOME_LAUNCHER_TOKEN=your-secret-token-here
     ports:
       - "18800:18800"
       - "18790:18790"
     volumes:
-      - ./data:/root/.picoclaw
+      - ./data:/root/.rhizome

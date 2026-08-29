@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/web/backend/utils"
+	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/web/backend/utils"
 )
 
 type systemVersionResponse struct {
@@ -46,14 +46,14 @@ var (
 	// staying independent from cross-file init ordering.
 	versionCmdTimeout           = 15 * time.Second
 	maxVersionResolveAttempts   = 3
-	findPicoclawBinaryForInfo   = resolveGatewayBinaryForVersionInfo
-	runPicoclawVersionOutput    = executePicoclawVersion
+	findRhizomeBinaryForInfo   = resolveGatewayBinaryForVersionInfo
+	runRhizomeVersionOutput    = executeRhizomeVersion
 	currentGatewayVersionState  = gatewayVersionState
 	launcherBuildInfoForVersion = fallbackSystemVersionInfoFromConfig
 	versionInfoCache            = newSystemVersionCache()
 	ansiEscapePattern           = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	versionLinePattern          = regexp.MustCompile(
-		`^(?:[^A-Za-z0-9]*\s*)?picoclaw(?:\.exe)?\s+([^\s(]+)` +
+		`^(?:[^A-Za-z0-9]*\s*)?rhizome(?:\.exe)?\s+([^\s(]+)` +
 			`(?:\s+\(git:\s*([^)]+)\))?\s*$`,
 	)
 )
@@ -73,7 +73,7 @@ func (h *Handler) handleGetVersion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveSystemVersionInfo prefers the actual picoclaw binary version output,
+// resolveSystemVersionInfo prefers the actual rhizome binary version output,
 // and falls back to launcher build metadata when command execution fails.
 func (h *Handler) resolveSystemVersionInfo(ctx context.Context) systemVersionResponse {
 	for range maxVersionResolveAttempts {
@@ -106,7 +106,7 @@ func (h *Handler) resolveSystemVersionInfoUncached(ctx context.Context) systemVe
 
 	fallback := fallbackSystemVersionInfo()
 
-	execPath := strings.TrimSpace(findPicoclawBinaryForInfo())
+	execPath := strings.TrimSpace(findRhizomeBinaryForInfo())
 	if execPath == "" {
 		return fallback
 	}
@@ -114,12 +114,12 @@ func (h *Handler) resolveSystemVersionInfoUncached(ctx context.Context) systemVe
 	cmdCtx, cancel := context.WithTimeout(ctx, versionCmdTimeout)
 	defer cancel()
 
-	output, err := runPicoclawVersionOutput(cmdCtx, execPath)
+	output, err := runRhizomeVersionOutput(cmdCtx, execPath)
 	if err != nil {
 		return fallback
 	}
 
-	parsed, ok := parsePicoclawVersionOutput(output)
+	parsed, ok := parseRhizomeVersionOutput(output)
 	if !ok {
 		return fallback
 	}
@@ -163,7 +163,7 @@ func resolveGatewayBinaryForVersionInfo() string {
 		}
 	}
 
-	return utils.FindPicoclawBinary()
+	return utils.FindRhizomeBinary()
 }
 
 func gatewayVersionState() (int, bool) {
@@ -256,9 +256,9 @@ func (c *systemVersionCache) resetForTest() {
 	}
 }
 
-// executePicoclawVersion runs the version subcommand against the
-// discovered picoclaw executable.
-func executePicoclawVersion(ctx context.Context, execPath string) (string, error) {
+// executeRhizomeVersion runs the version subcommand against the
+// discovered rhizome executable.
+func executeRhizomeVersion(ctx context.Context, execPath string) (string, error) {
 	cmd := exec.CommandContext(ctx, execPath, "version")
 	applyLauncherProcAttrs(cmd)
 	out, err := cmd.CombinedOutput()
@@ -269,9 +269,9 @@ func executePicoclawVersion(ctx context.Context, execPath string) (string, error
 	return string(out), fmt.Errorf("failed to execute version command: %w", err)
 }
 
-// parsePicoclawVersionOutput extracts version/build/go fields from CLI output.
+// parseRhizomeVersionOutput extracts version/build/go fields from CLI output.
 // It accepts banner/ANSI-decorated output and only requires the version line.
-func parsePicoclawVersionOutput(raw string) (systemVersionResponse, bool) {
+func parseRhizomeVersionOutput(raw string) (systemVersionResponse, bool) {
 	var result systemVersionResponse
 
 	scanner := bufio.NewScanner(strings.NewReader(raw))

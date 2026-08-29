@@ -10,8 +10,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
-	"github.com/sipeed/picoclaw/pkg/providers/common"
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/stpinkie/rhizome/pkg/providers/common"
+	"github.com/stpinkie/rhizome/pkg/providers/protocoltypes"
 )
 
 type (

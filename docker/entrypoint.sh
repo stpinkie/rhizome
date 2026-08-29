@@ -4,11 +4,11 @@ set -e
 # First-run: neither config nor workspace exists.
 # If config.json is already mounted but workspace is missing we skip onboard to
 # avoid the interactive "Overwrite? (y/n)" prompt hanging in a non-TTY container.
-if [ ! -d "${HOME}/.picoclaw/workspace" ] && [ ! -f "${HOME}/.picoclaw/config.json" ]; then
-    picoclaw onboard
+if [ ! -d "${HOME}/.rhizome/workspace" ] && [ ! -f "${HOME}/.rhizome/config.json" ]; then
+    rhizome onboard
     echo ""
     echo "First-run setup complete."
-    echo "Edit ${HOME}/.picoclaw/config.json (add your API key, etc.) then restart the container."
+    echo "Edit ${HOME}/.rhizome/config.json (add your API key, etc.) then restart the container."
     exit 0
 fi
 
@@ -16,6 +16,6 @@ fi
 # After docker kill / OOM / crash the PID file may linger on the bind-mounted
 # volume and block the next gateway start (the recorded PID could collide with
 # an unrelated process inside the new container).
-rm -f "${HOME}/.picoclaw/.picoclaw.pid"
+rm -f "${HOME}/.rhizome/.rhizome.pid"
 
-exec picoclaw gateway "$@"
+exec rhizome gateway "$@"

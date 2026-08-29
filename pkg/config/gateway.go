@@ -5,17 +5,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/netbind"
+	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/netbind"
 )
 
 const DefaultGatewayLogLevel = "warn"
 
 type GatewayConfig struct {
-	Host      string `json:"host"                env:"PICOCLAW_GATEWAY_HOST"`
-	Port      int    `json:"port"                env:"PICOCLAW_GATEWAY_PORT"`
-	HotReload bool   `json:"hot_reload"          env:"PICOCLAW_GATEWAY_HOT_RELOAD"`
-	LogLevel  string `json:"log_level,omitempty" env:"PICOCLAW_LOG_LEVEL"`
+	Host      string `json:"host"                env:"RHIZOME_GATEWAY_HOST"`
+	Port      int    `json:"port"                env:"RHIZOME_GATEWAY_PORT"`
+	HotReload bool   `json:"hot_reload"          env:"RHIZOME_GATEWAY_HOT_RELOAD"`
+	LogLevel  string `json:"log_level,omitempty" env:"RHIZOME_LOG_LEVEL"`
 }
 
 func canonicalGatewayLogLevel(level logger.LogLevel) string {
@@ -78,7 +78,7 @@ func normalizeGatewayHostInput(host string) (string, error) {
 
 // ResolveGatewayLogLevel reads the configured gateway log level without triggering
 // the full config loader, so startup code can apply logging before config load logs run.
-// The PICOCLAW_LOG_LEVEL environment variable overrides the file value.
+// The RHIZOME_LOG_LEVEL environment variable overrides the file value.
 func ResolveGatewayLogLevel(path string) string {
 	cfg := struct {
 		Gateway GatewayConfig `json:"gateway"`
@@ -96,7 +96,7 @@ func ResolveGatewayLogLevel(path string) string {
 		}
 	}
 
-	if envLevel := os.Getenv("PICOCLAW_LOG_LEVEL"); envLevel != "" {
+	if envLevel := os.Getenv("RHIZOME_LOG_LEVEL"); envLevel != "" {
 		cfg.Gateway.LogLevel = envLevel
 	}
 

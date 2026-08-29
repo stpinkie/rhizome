@@ -1,6 +1,6 @@
 package tools
 
-import hardwaretools "github.com/sipeed/picoclaw/pkg/tools/hardware"
+import hardwaretools "github.com/stpinkie/rhizome/pkg/tools/hardware"
 
 type (
 	I2CTool    = hardwaretools.I2CTool

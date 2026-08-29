@@ -1,16 +1,16 @@
-# PicoClaw Web
+# Rhizome Web
 
-`web/` contains the standalone WebUI launcher for PicoClaw.
-It is not just a frontend: it is a small launcher service that bundles a React dashboard, exposes a backend API, manages launcher authentication, and starts or attaches to the `picoclaw gateway` process.
+`web/` contains the standalone WebUI launcher for Rhizome.
+It is not just a frontend: it is a small launcher service that bundles a React dashboard, exposes a backend API, manages launcher authentication, and starts or attaches to the `rhizome gateway` process.
 
-![PicoClaw Launcher](./picoclaw-launcher.png)
+![Rhizome Launcher](./rhizome-launcher.png)
 
 ## What This Directory Provides
 
 - A browser-based chat UI backed by the Pico channel WebSocket proxy.
 - A dashboard for models, credentials, channels, agent tools, skills, logs, and runtime settings.
 - A launcher process that can auto-open the browser, show a system tray menu, and persist launcher-specific settings.
-- A controlled way to start, stop, restart, and inspect the `picoclaw gateway` subprocess.
+- A controlled way to start, stop, restart, and inspect the `rhizome gateway` subprocess.
 - A single-binary deployment target where the frontend is embedded into the Go backend.
 
 ## Architecture
@@ -25,11 +25,11 @@ This directory is a small monorepo:
   - Vite + React 19 + TanStack Router SPA.
   - Provides the launcher dashboard and chat UI.
 
-At runtime the launcher and the main PicoClaw engine are separate processes:
+At runtime the launcher and the main Rhizome engine are separate processes:
 
 1. The launcher starts the web backend on port `18800` by default.
 2. The launcher serves the dashboard and handles dashboard authentication.
-3. When allowed, it starts or attaches to `picoclaw gateway -E`.
+3. When allowed, it starts or attaches to `rhizome gateway -E`.
 4. The frontend talks only to the launcher backend.
 5. The launcher proxies chat traffic to the gateway through `/pico/ws`.
 
@@ -65,16 +65,16 @@ The UI currently supports English and Simplified Chinese, plus light and dark th
 
 ### Config Resolution
 
-The launcher uses the same PicoClaw config file as the main binary.
+The launcher uses the same Rhizome config file as the main binary.
 
-- Default app config path: `~/.picoclaw/config.json`
-- Override with environment variable: `PICOCLAW_CONFIG`
-- Override with a positional CLI argument: `picoclaw-launcher /path/to/config.json`
+- Default app config path: `~/.rhizome/config.json`
+- Override with environment variable: `RHIZOME_CONFIG`
+- Override with a positional CLI argument: `rhizome-launcher /path/to/config.json`
 
 Launcher-only settings are stored beside that app config:
 
 - File name: `launcher-config.json`
-- Default location: `~/.picoclaw/launcher-config.json`
+- Default location: `~/.rhizome/launcher-config.json`
 
 That file currently stores:
 
@@ -92,20 +92,20 @@ If they are omitted, stored launcher settings are used.
 If the target config file does not exist, the launcher tries to bootstrap it automatically by running:
 
 ```bash
-picoclaw onboard
+rhizome onboard
 ```
 
-The launcher looks for the main PicoClaw binary in this order:
+The launcher looks for the main Rhizome binary in this order:
 
-1. `PICOCLAW_BINARY`
-2. A `picoclaw` binary in the same directory as the launcher
-3. `picoclaw` from `PATH`
+1. `RHIZOME_BINARY`
+2. A `rhizome` binary in the same directory as the launcher
+3. `rhizome` from `PATH`
 
-If onboarding or gateway startup cannot find the main binary, set `PICOCLAW_BINARY` explicitly.
+If onboarding or gateway startup cannot find the main binary, set `RHIZOME_BINARY` explicitly.
 
 ### Gateway Management
 
-The launcher manages `picoclaw gateway -E`.
+The launcher manages `rhizome gateway -E`.
 
 On startup it tries to auto-start or attach to the gateway, but only when startup preconditions pass. In the current code, the main checks are:
 
@@ -133,7 +133,7 @@ The dashboard is protected by password login.
 - On supported platforms, the password is stored as a bcrypt hash in `launcher-auth.db`.
 - On platforms where the SQLite password store is unavailable, the launcher stores the bcrypt hash in `launcher-config.json`.
 - Legacy `launcher_token` values are migrated once into password login and are removed from saved launcher config.
-- `PICOCLAW_LAUNCHER_TOKEN` is deprecated and ignored; after upgrading from env-token auth, open `/launcher-setup` to create a password.
+- `RHIZOME_LAUNCHER_TOKEN` is deprecated and ignored; after upgrading from env-token auth, open `/launcher-setup` to create a password.
 - URL token login and `Authorization: Bearer` dashboard auth are not supported.
 
 ### Network Exposure
@@ -187,8 +187,8 @@ make dev
 
 This does three things:
 
-1. Builds `../build/picoclaw` for launcher development.
-2. Starts the Go backend with `PICOCLAW_BINARY` pointing at that binary.
+1. Builds `../build/rhizome` for launcher development.
+2. Starts the Go backend with `RHIZOME_BINARY` pointing at that binary.
 3. Starts the Vite frontend dev server.
 
 Use this when you want the full launcher flow during development.
@@ -221,12 +221,12 @@ This:
 1. Installs frontend dependencies when needed.
 2. Builds the frontend into `backend/dist`.
 3. Embeds those assets into the Go backend.
-4. Produces `build/picoclaw-launcher`.
+4. Produces `build/rhizome-launcher`.
 
 Override the output path if needed:
 
 ```bash
-make build OUTPUT=/tmp/picoclaw-launcher
+make build OUTPUT=/tmp/rhizome-launcher
 ```
 
 From the repository root you can also use:
@@ -238,10 +238,10 @@ make build-launcher
 That writes the platform-specific launcher to:
 
 ```text
-build/picoclaw-launcher-<platform>-<arch>
+build/rhizome-launcher-<platform>-<arch>
 ```
 
-and refreshes the `build/picoclaw-launcher` symlink.
+and refreshes the `build/rhizome-launcher` symlink.
 
 ### Frontend-Only Builds
 
@@ -261,10 +261,10 @@ pnpm build:backend
 Examples:
 
 ```bash
-./build/picoclaw-launcher
-./build/picoclaw-launcher -console
-./build/picoclaw-launcher -public
-./build/picoclaw-launcher -port 19999 /path/to/config.json
+./build/rhizome-launcher
+./build/rhizome-launcher -console
+./build/rhizome-launcher -public
+./build/rhizome-launcher -port 19999 /path/to/config.json
 ```
 
 Current launcher flags:
@@ -348,12 +348,12 @@ Check these in the dashboard:
 - the model has credentials or OAuth state
 - local models such as Ollama or vLLM are reachable
 
-### The launcher cannot find `picoclaw`
+### The launcher cannot find `rhizome`
 
 Set the main binary explicitly:
 
 ```bash
-export PICOCLAW_BINARY=/absolute/path/to/picoclaw
+export RHIZOME_BINARY=/absolute/path/to/rhizome
 ```
 
 This affects onboarding and gateway subprocess startup.

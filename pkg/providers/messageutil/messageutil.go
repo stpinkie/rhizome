@@ -3,7 +3,7 @@ package messageutil
 import (
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/stpinkie/rhizome/pkg/providers/protocoltypes"
 )
 
 // IsTransientAssistantThoughtMessage reports whether msg is an invalid

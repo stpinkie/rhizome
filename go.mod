@@ -1,4 +1,4 @@
-module github.com/sipeed/picoclaw
+module github.com/stpinkie/rhizome
 
 go 1.25.13
 
