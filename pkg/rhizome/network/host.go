@@ -51,6 +51,12 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		return nil, fmt.Errorf("create libp2p host: %w", err)
 	}
 
+	// Wait briefly for at least one listener to be ready.
+	ready := time.Now()
+	for time.Since(ready) < 2*time.Second && len(h.Addrs()) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	n := &Node{
 		host:  h,
 		ping:  ping.NewPingService(h),
@@ -64,14 +70,34 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		return nil, fmt.Errorf("start mdns: %w", err)
 	}
 
-	// Connect to bootstrap peers.
+	// Connect to bootstrap peers with a small amount of retry/backoff.
+	// A bootstrap peer may still be starting when we dial it.
 	for _, a := range cfg.BootstrapPeers {
-		if err := n.connectAddr(ctx, a); err != nil {
+		if err := n.connectAddrWithRetry(ctx, a, 3, 250*time.Millisecond); err != nil {
 			// Log but do not fail startup because a bootstrap may be offline.
 		}
 	}
 
 	return n, nil
+}
+
+func (n *Node) connectAddrWithRetry(ctx context.Context, addr string, maxAttempts int, backoff time.Duration) error {
+	var lastErr error
+	for i := 0; i < maxAttempts; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+		if err := n.connectAddr(ctx, addr); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("bootstrap %s after %d attempts: %w", addr, maxAttempts, lastErr)
 }
 
 // connectAddr parses and dials a multiaddr that may include a /p2p/ peer id.
@@ -111,6 +137,21 @@ func (n *Node) addPeer(pi peer.AddrInfo) {
 // PeerID returns this node's libp2p peer id.
 func (n *Node) PeerID() string {
 	return n.host.ID().String()
+}
+
+// ID returns this node's libp2p peer id as a peer.ID.
+func (n *Node) ID() peer.ID {
+	return n.host.ID()
+}
+
+// Host returns the underlying libp2p host.
+func (n *Node) Host() host.Host {
+	return n.host
+}
+
+// ConnectedPeers returns the peer IDs of currently connected peers.
+func (n *Node) ConnectedPeers() []peer.ID {
+	return n.host.Network().Peers()
 }
 
 // Addrs returns the listen addresses of this node as strings.
@@ -169,6 +210,11 @@ func (n *Node) Ping(ctx context.Context, peerID string, timeout time.Duration) (
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
+}
+
+// Connect dials a peer by its multiaddr (with /p2p/<peer-id> suffix).
+func (n *Node) Connect(ctx context.Context, addr string) error {
+	return n.connectAddr(ctx, addr)
 }
 
 // Close shuts down the libp2p host.

@@ -14,6 +14,9 @@ import (
 
 func TestGetConfigPath(t *testing.T) {
 	t.Setenv("HOME", "/tmp/home")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", "/tmp/home")
+	}
 
 	got := GetConfigPath()
 	want := filepath.Join("/tmp/home", ".rhizome", "config.json")
@@ -24,6 +27,9 @@ func TestGetConfigPath(t *testing.T) {
 func TestGetConfigPath_WithRHIZOME_HOME(t *testing.T) {
 	t.Setenv(config.EnvHome, "/custom/rhizome")
 	t.Setenv("HOME", "/tmp/home")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", "/tmp/home")
+	}
 
 	got := GetConfigPath()
 	want := filepath.Join("/custom/rhizome", "config.json")
@@ -35,6 +41,9 @@ func TestGetConfigPath_WithRHIZOME_CONFIG(t *testing.T) {
 	t.Setenv("RHIZOME_CONFIG", "/custom/config.json")
 	t.Setenv(config.EnvHome, "/custom/rhizome")
 	t.Setenv("HOME", "/tmp/home")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", "/tmp/home")
+	}
 
 	got := GetConfigPath()
 	want := "/custom/config.json"

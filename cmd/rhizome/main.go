@@ -30,6 +30,7 @@ import (
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/onboard"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/skills"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/status"
+	synccmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/sync"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/version"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/updater"
@@ -137,6 +138,7 @@ rhizome --no-color status`,
 		daemon.NewDaemonCommand(),
 		gateway.NewGatewayCommand(),
 		status.NewStatusCommand(),
+		synccmd.NewSyncCommand(),
 		cron.NewCronCommand(),
 		mcp.NewMCPCommand(),
 		migrate.NewMigrateCommand(),

@@ -4,33 +4,37 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 
 	"github.com/spf13/cobra"
 
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
+	"github.com/stpinkie/rhizome/pkg"
 	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/gateway"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/sync"
 )
 
 func NewDaemonCommand() *cobra.Command {
 	var listenAddrs []string
 	var bootstrapPeers []string
+	var debug bool
+	var allowEmpty bool
 
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Run a long-running Rhizome P2P node",
-		Run: func(cmd *cobra.Command, args []string) {
-			home := config.GetHome()
+		Short: "Run a long-running Rhizome P2P node and gateway",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home := internal.GetRhizomeHome()
 			identityDir := filepath.Join(home, "identity")
 
 			derived, name, err := identity.Load(identityDir)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "No node identity found at %s\n", identityDir)
 				fmt.Fprintf(os.Stderr, "Run: rhizome network onboard\n")
-				os.Exit(1)
+				return err
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -41,27 +45,42 @@ func NewDaemonCommand() *cobra.Command {
 				BootstrapPeers: bootstrapPeers,
 			})
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to start Rhizome node: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("failed to start Rhizome node: %w", err)
 			}
 			defer node.Close()
 
-			fmt.Printf("Rhizome node online\n")
+			workspace := filepath.Join(home, pkg.WorkspaceName)
+			syncer, err := sync.NewSyncer(ctx, sync.Config{
+				Workspace:        workspace,
+				NodeName:         name,
+				Node:             node,
+				AutoSync:         true,
+				CommitInterval:   config.DefaultSyncCommitInterval,
+				AnnounceInterval: config.DefaultSyncAnnounceInterval,
+				Exclude:          config.DefaultSyncExclude,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to open workspace sync: %w", err)
+			}
+			if err := syncer.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start syncer: %w", err)
+			}
+			defer syncer.Stop()
+
+			fmt.Printf("%s Rhizome daemon online\n", internal.Logo)
 			fmt.Printf("  Name:    %s\n", name)
 			fmt.Printf("  Peer ID: %s\n", node.PeerID())
+			fmt.Printf("  Workspace: %s\n", workspace)
 			fmt.Printf("  Addrs:   %v\n", node.BootstrapAddrs())
-			fmt.Println("Press Ctrl+C to stop.")
 
-			sig := make(chan os.Signal, 1)
-			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-			<-sig
-
-			fmt.Println("Shutting down...")
+			return gateway.Run(debug, home, internal.GetConfigPath(), allowEmpty)
 		},
 	}
 
 	cmd.Flags().StringArrayVar(&listenAddrs, "listen", []string{"/ip4/0.0.0.0/tcp/0"}, "Multiaddrs to listen on")
 	cmd.Flags().StringArrayVar(&bootstrapPeers, "bootstrap", nil, "Bootstrap peer multiaddrs")
+	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
+	cmd.Flags().BoolVarP(&allowEmpty, "allow-empty", "E", false, "Start gateway in limited mode without a default model")
 
 	return cmd
 }

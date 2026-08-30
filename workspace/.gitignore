@@ -1,0 +1,18 @@
+# Rhizome runtime / local-only files. These are not shared across the mesh.
+
+.git/
+state/
+state.json
+sessions/
+cron/
+media/
+logs/
+.artifacts/
+whatsapp/
+matrix/
+HEARTBEAT.md
+heartbeat.log
+*.sqlite
+*.db
+tmp/
+*.tmp

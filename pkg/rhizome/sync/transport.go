@@ -1,0 +1,200 @@
+package sync
+
+import (
+	"bufio"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
+)
+
+// ProtocolID is the libp2p protocol used for git packfile sync.
+const ProtocolID = protocol.ID("/rhizome/git-sync/1.0.0")
+
+// Handler is the callback interface for incoming sync requests.
+type Handler interface {
+	// ProvidePackfile is invoked when a peer asks for objects.
+	ProvidePackfile(from peer.ID, haves, wants []plumbing.Hash) (pack []byte, head plumbing.Hash, err error)
+	// HandleAnnounce is invoked when a peer announces a new head.
+	HandleAnnounce(from peer.ID, head plumbing.Hash)
+}
+
+// Transport wraps libp2p stream handling for git sync frames.
+type Transport struct {
+	host host.Host
+	h    Handler
+}
+
+// NewTransport creates a sync transport that calls h for incoming requests.
+func NewTransport(h host.Host, handler Handler) *Transport {
+	return &Transport{host: h, h: handler}
+}
+
+// Start registers the sync protocol handlers.
+func (t *Transport) Start(ctx context.Context) error {
+	t.host.SetStreamHandler(ProtocolID, t.handleStream)
+	<-ctx.Done()
+	t.host.RemoveStreamHandler(ProtocolID)
+	return ctx.Err()
+}
+
+func (t *Transport) handleStream(s network.Stream) {
+	defer s.Close()
+
+	r := bufio.NewReader(s)
+	w := bufio.NewWriter(s)
+
+	for {
+		_ = s.SetReadDeadline(time.Now().Add(30 * time.Second))
+		typ, payload, err := readFrame(r)
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
+			return
+		}
+
+		switch typ {
+		case frameRequest:
+			req, err := parseRequest(payload)
+			if err != nil {
+				return
+			}
+			pack, head, err := t.h.ProvidePackfile(s.Conn().RemotePeer(), req.Haves, req.Wants)
+			if err != nil {
+				return
+			}
+			resp := append(head[:], pack...)
+			if err := writeFrame(w, framePackfile, resp); err != nil {
+				return
+			}
+			_ = w.Flush()
+
+		case frameAnnounce:
+			if len(payload) != len(plumbing.ZeroHash) {
+				return
+			}
+			var head plumbing.Hash
+			copy(head[:], payload)
+			t.h.HandleAnnounce(s.Conn().RemotePeer(), head)
+
+		default:
+			return
+		}
+	}
+}
+
+// Fetch requests a packfile from a peer.
+func (t *Transport) Fetch(ctx context.Context, pid peer.ID, haves, wants []plumbing.Hash) ([]byte, plumbing.Hash, error) {
+	s, err := t.host.NewStream(ctx, pid, ProtocolID)
+	if err != nil {
+		return nil, plumbing.ZeroHash, fmt.Errorf("open stream: %w", err)
+	}
+	defer s.Close()
+
+	w := bufio.NewWriter(s)
+	r := bufio.NewReader(s)
+
+	req, err := encodeRequest(&requestFrame{Haves: haves, Wants: wants})
+	if err != nil {
+		return nil, plumbing.ZeroHash, fmt.Errorf("encode request: %w", err)
+	}
+	if err := writeFrame(w, frameRequest, req); err != nil {
+		return nil, plumbing.ZeroHash, fmt.Errorf("write request: %w", err)
+	}
+	if err := w.Flush(); err != nil {
+		return nil, plumbing.ZeroHash, fmt.Errorf("flush request: %w", err)
+	}
+
+	_ = s.SetReadDeadline(time.Now().Add(60 * time.Second))
+	typ, payload, err := readFrame(r)
+	if err != nil {
+		return nil, plumbing.ZeroHash, fmt.Errorf("read response: %w", err)
+	}
+	if typ != framePackfile {
+		return nil, plumbing.ZeroHash, fmt.Errorf("unexpected frame type: %d", typ)
+	}
+	if len(payload) < len(plumbing.ZeroHash) {
+		return nil, plumbing.ZeroHash, fmt.Errorf("short packfile response")
+	}
+
+	var head plumbing.Hash
+	copy(head[:], payload)
+	pack := payload[len(plumbing.ZeroHash):]
+	return pack, head, nil
+}
+
+// AnnounceHead sends a head announcement to a peer.
+func (t *Transport) AnnounceHead(ctx context.Context, pid peer.ID, head plumbing.Hash) error {
+	s, err := t.host.NewStream(ctx, pid, ProtocolID)
+	if err != nil {
+		return fmt.Errorf("open stream: %w", err)
+	}
+	defer s.Close()
+
+	w := bufio.NewWriter(s)
+	if err := writeFrame(w, frameAnnounce, head[:]); err != nil {
+		return fmt.Errorf("write announce: %w", err)
+	}
+	return w.Flush()
+}
+
+const (
+	frameRequest   = byte(1)
+	framePackfile  = byte(2)
+	frameAnnounce  = byte(3)
+	frameHeaderLen = 5
+)
+
+type requestFrame struct {
+	Haves []plumbing.Hash `json:"haves"`
+	Wants []plumbing.Hash `json:"wants"`
+}
+
+func encodeRequest(req *requestFrame) ([]byte, error) {
+	return json.Marshal(req)
+}
+
+func parseRequest(data []byte) (*requestFrame, error) {
+	var req requestFrame
+	if err := json.Unmarshal(data, &req); err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func writeFrame(w io.Writer, typ byte, payload []byte) error {
+	header := make([]byte, frameHeaderLen)
+	header[0] = typ
+	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
+	if _, err := w.Write(header); err != nil {
+		return err
+	}
+	_, err := w.Write(payload)
+	return err
+}
+
+func readFrame(r io.Reader) (byte, []byte, error) {
+	header := make([]byte, frameHeaderLen)
+	if _, err := io.ReadFull(r, header); err != nil {
+		return 0, nil, err
+	}
+	typ := header[0]
+	length := binary.BigEndian.Uint32(header[1:])
+	if length > 128<<20 { // 128 MB sanity limit
+		return 0, nil, fmt.Errorf("frame too large: %d", length)
+	}
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return 0, nil, err
+	}
+	return typ, payload, nil
+}

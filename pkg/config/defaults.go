@@ -8,6 +8,7 @@ package config
 import (
 	"encoding/json"
 	"path/filepath"
+	"time"
 
 	"github.com/stpinkie/rhizome/pkg"
 )
@@ -618,4 +619,28 @@ func defaultChannels() ChannelsConfig {
 		channels[name] = bc
 	}
 	return channels
+}
+
+// Default sync timing and exclusion values used when no config is provided.
+const (
+	DefaultSyncCommitInterval   = 2 * time.Second
+	DefaultSyncAnnounceInterval = 30 * time.Second
+)
+
+// DefaultSyncExclude lists workspace paths that should not be tracked by git.
+var DefaultSyncExclude = []string{
+	"logs/",
+	"sessions/",
+	"state/",
+	"cron/",
+	"media/",
+	".artifacts/",
+	"whatsapp/",
+	"matrix/",
+	"HEARTBEAT.md",
+	"heartbeat.log",
+	"*.sqlite",
+	"*.db",
+	"tmp/",
+	"*.tmp",
 }
