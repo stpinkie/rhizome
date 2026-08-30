@@ -13,6 +13,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/gateway"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
+	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/sync"
 )
@@ -67,13 +68,27 @@ func NewDaemonCommand() *cobra.Command {
 			}
 			defer syncer.Stop()
 
+			cfg, err := config.LoadConfig(internal.GetConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			var rhizomeMesh *mesh.Mesh
+			if cfg.Mesh.Enabled {
+				rhizomeMesh = mesh.NewMesh(node, syncer, derived, cfg.Mesh, nil)
+				if err := rhizomeMesh.Start(ctx); err != nil {
+					return fmt.Errorf("failed to start mesh: %w", err)
+				}
+				defer rhizomeMesh.Stop()
+			}
+
 			fmt.Printf("%s Rhizome daemon online\n", internal.Logo)
 			fmt.Printf("  Name:    %s\n", name)
 			fmt.Printf("  Peer ID: %s\n", node.PeerID())
 			fmt.Printf("  Workspace: %s\n", workspace)
 			fmt.Printf("  Addrs:   %v\n", node.BootstrapAddrs())
 
-			return gateway.Run(debug, home, internal.GetConfigPath(), allowEmpty)
+			return gateway.RunWithMesh(debug, home, internal.GetConfigPath(), allowEmpty, rhizomeMesh)
 		},
 	}
 

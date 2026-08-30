@@ -3,7 +3,6 @@ package sync
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 )
 
 // ProtocolID is the libp2p protocol used for git packfile sync.
@@ -54,7 +54,7 @@ func (t *Transport) handleStream(s network.Stream) {
 
 	for {
 		_ = s.SetReadDeadline(time.Now().Add(30 * time.Second))
-		typ, payload, err := readFrame(r)
+		typ, payload, err := stream.ReadFrame(r)
 		if err != nil {
 			if err == io.EOF {
 				return
@@ -73,7 +73,7 @@ func (t *Transport) handleStream(s network.Stream) {
 				return
 			}
 			resp := append(head[:], pack...)
-			if err := writeFrame(w, framePackfile, resp); err != nil {
+			if err := stream.WriteFrame(w, framePackfile, resp); err != nil {
 				return
 			}
 			_ = w.Flush()
@@ -107,7 +107,7 @@ func (t *Transport) Fetch(ctx context.Context, pid peer.ID, haves, wants []plumb
 	if err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("encode request: %w", err)
 	}
-	if err := writeFrame(w, frameRequest, req); err != nil {
+	if err := stream.WriteFrame(w, frameRequest, req); err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("write request: %w", err)
 	}
 	if err := w.Flush(); err != nil {
@@ -115,7 +115,7 @@ func (t *Transport) Fetch(ctx context.Context, pid peer.ID, haves, wants []plumb
 	}
 
 	_ = s.SetReadDeadline(time.Now().Add(60 * time.Second))
-	typ, payload, err := readFrame(r)
+	typ, payload, err := stream.ReadFrame(r)
 	if err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("read response: %w", err)
 	}
@@ -141,17 +141,16 @@ func (t *Transport) AnnounceHead(ctx context.Context, pid peer.ID, head plumbing
 	defer s.Close()
 
 	w := bufio.NewWriter(s)
-	if err := writeFrame(w, frameAnnounce, head[:]); err != nil {
+	if err := stream.WriteFrame(w, frameAnnounce, head[:]); err != nil {
 		return fmt.Errorf("write announce: %w", err)
 	}
 	return w.Flush()
 }
 
 const (
-	frameRequest   = byte(1)
-	framePackfile  = byte(2)
-	frameAnnounce  = byte(3)
-	frameHeaderLen = 5
+	frameRequest  = byte(1)
+	framePackfile = byte(2)
+	frameAnnounce = byte(3)
 )
 
 type requestFrame struct {
@@ -169,32 +168,4 @@ func parseRequest(data []byte) (*requestFrame, error) {
 		return nil, err
 	}
 	return &req, nil
-}
-
-func writeFrame(w io.Writer, typ byte, payload []byte) error {
-	header := make([]byte, frameHeaderLen)
-	header[0] = typ
-	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
-	if _, err := w.Write(header); err != nil {
-		return err
-	}
-	_, err := w.Write(payload)
-	return err
-}
-
-func readFrame(r io.Reader) (byte, []byte, error) {
-	header := make([]byte, frameHeaderLen)
-	if _, err := io.ReadFull(r, header); err != nil {
-		return 0, nil, err
-	}
-	typ := header[0]
-	length := binary.BigEndian.Uint32(header[1:])
-	if length > 128<<20 { // 128 MB sanity limit
-		return 0, nil, fmt.Errorf("frame too large: %d", length)
-	}
-	payload := make([]byte, length)
-	if _, err := io.ReadFull(r, payload); err != nil {
-		return 0, nil, err
-	}
-	return typ, payload, nil
 }

@@ -50,8 +50,11 @@ import (
 	"github.com/stpinkie/rhizome/pkg/netbind"
 	"github.com/stpinkie/rhizome/pkg/pid"
 	"github.com/stpinkie/rhizome/pkg/providers"
+	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
+	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/state"
 	"github.com/stpinkie/rhizome/pkg/tools"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 const (
@@ -118,6 +121,12 @@ func (p *startupBlockedProvider) GetDefaultModel() string {
 
 // Run starts the gateway runtime using the configuration loaded from configPath.
 func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runErr error) {
+	return RunWithMesh(debug, homePath, configPath, allowEmptyStartup, nil)
+}
+
+// RunWithMesh starts the gateway with an optional mesh layer for remote
+// sub-turn routing and capability exchange.
+func RunWithMesh(debug bool, homePath, configPath string, allowEmptyStartup bool, rhizomeMesh *mesh.Mesh) (runErr error) {
 	startedAt := time.Now()
 	panicPath := filepath.Join(homePath, logPath, panicFile)
 	panicFunc, err := logger.InitPanic(panicPath)
@@ -203,6 +212,19 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
+
+	if rhizomeMesh != nil {
+		local := agent.NewSubTurnSpawner(agentLoop)
+		rhizomeMesh.SetRunFunc(func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
+			resp, err := agentLoop.ProcessDirect(ctx, req.SystemPrompt, "mesh-"+req.CorrelationID)
+			if err != nil {
+				return nil, err
+			}
+			return toolshared.NewToolResult(resp), nil
+		})
+		remoteSpawner := mesh.NewRemoteSpawner(rhizomeMesh, local)
+		agentLoop.SetSubTurnSpawner(remoteSpawner)
+	}
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayStart, startedAt, nil)
 
 	fmt.Println("\n📦 Agent Status:")

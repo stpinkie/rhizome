@@ -494,6 +494,7 @@ func DefaultConfig() *Config {
 				Enabled: true,
 			},
 		},
+		Mesh: DefaultMeshConfig(),
 		Heartbeat: HeartbeatConfig{
 			Enabled:  true,
 			Interval: 30,
@@ -619,6 +620,21 @@ func defaultChannels() ChannelsConfig {
 		channels[name] = bc
 	}
 	return channels
+}
+
+// DefaultMeshConfig returns a disabled-by-default mesh configuration.
+func DefaultMeshConfig() MeshConfig {
+	return MeshConfig{
+		Enabled:             false,
+		TrustedPeers:        []string{},
+		AdvertiseModels:     false,
+		AdvertiseSkills:     false,
+		DHTEnabled:          false,
+		DHTBootstrap:        []string{},
+		AllowRemoteSpawn:    false,
+		AllowRemoteDelegate: false,
+		RemoteTimeout:       5 * time.Minute,
+	}
 }
 
 // Default sync timing and exclusion values used when no config is provided.

@@ -42,6 +42,7 @@ type Config struct {
 	Channels  ChannelsConfig  `json:"channel_list"        yaml:"channel_list"`
 	ModelList SecureModelList `json:"model_list"          yaml:"model_list"` // New model-centric provider configuration
 	Gateway   GatewayConfig   `json:"gateway"             yaml:"-"`
+	Mesh      MeshConfig      `json:"mesh,omitempty"      yaml:"-"`
 	Events    EventsConfig    `json:"events,omitempty"    yaml:"-"`
 	Hooks     HooksConfig     `json:"hooks,omitempty"     yaml:"-"`
 	Tools     ToolsConfig     `json:"tools"               yaml:",inline"`
@@ -53,6 +54,60 @@ type Config struct {
 
 	// cache for sensitive values and compiled regex (computed once)
 	sensitiveCache *SensitiveDataCache
+}
+
+// MeshConfig controls the decentralised Rhizome agent mesh.
+type MeshConfig struct {
+	Enabled             bool          `json:"enabled,omitempty"`
+	TrustedPeers        []string      `json:"trusted_peers,omitempty"`
+	AdvertiseModels     bool          `json:"advertise_models,omitempty"`
+	AdvertiseSkills     bool          `json:"advertise_skills,omitempty"`
+	DHTEnabled          bool          `json:"dht_enabled,omitempty"`
+	DHTBootstrap        []string      `json:"dht_bootstrap,omitempty"`
+	AllowRemoteSpawn    bool          `json:"allow_remote_spawn,omitempty"`
+	AllowRemoteDelegate bool          `json:"allow_remote_delegate,omitempty"`
+	RemoteTimeout       time.Duration `json:"remote_timeout,omitempty"`
+}
+
+func (m MeshConfig) MarshalJSON() ([]byte, error) {
+	type Alias MeshConfig
+	return json.Marshal(&struct {
+		*Alias
+		RemoteTimeout string `json:"remote_timeout,omitempty"`
+	}{
+		Alias:         (*Alias)(&m),
+		RemoteTimeout: m.RemoteTimeout.String(),
+	})
+}
+
+func (m *MeshConfig) UnmarshalJSON(data []byte) error {
+	type Alias MeshConfig
+	aux := &struct {
+		*Alias
+		RemoteTimeout string `json:"remote_timeout,omitempty"`
+	}{
+		Alias: (*Alias)(m),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.RemoteTimeout != "" {
+		d, err := time.ParseDuration(aux.RemoteTimeout)
+		if err != nil {
+			return err
+		}
+		m.RemoteTimeout = d
+	}
+	return nil
+}
+
+func (m MeshConfig) IsPeerTrusted(pid string) bool {
+	for _, p := range m.TrustedPeers {
+		if p == pid {
+			return true
+		}
+	}
+	return false
 }
 
 type EvolutionConfig struct {

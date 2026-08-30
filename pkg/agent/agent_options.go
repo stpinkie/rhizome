@@ -1,6 +1,9 @@
 package agent
 
-import runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+import (
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/tools"
+)
 
 // AgentLoopOption configures an AgentLoop at construction time.
 type AgentLoopOption func(*AgentLoop)
@@ -16,5 +19,13 @@ func WithRuntimeEvents(bus runtimeevents.Bus) AgentLoopOption {
 		}
 		al.runtimeEvents = bus
 		al.ownsRuntimeEvents = false
+	}
+}
+
+// WithSubTurnSpawner injects a custom SubTurnSpawner for spawn/delegate/subagent
+// tools. This is used by the daemon to route sub-turns to remote Rhizome peers.
+func WithSubTurnSpawner(spawner tools.SubTurnSpawner) AgentLoopOption {
+	return func(al *AgentLoop) {
+		al.spawner = spawner
 	}
 }

@@ -90,6 +90,17 @@ func FromMnemonic(mnemonic string, nodeIndex uint32) (*Derived, []byte, error) {
 	}, networkKey, nil
 }
 
+// Sign returns an Ed25519 signature for the given message using the node's
+// raw private key.
+func Sign(priv ed25519.PrivateKey, msg []byte) []byte {
+	return ed25519.Sign(priv, msg)
+}
+
+// Verify checks an Ed25519 signature against the node's raw public key.
+func Verify(pub ed25519.PublicKey, msg, sig []byte) bool {
+	return ed25519.Verify(pub, msg, sig)
+}
+
 // deriveNetworkKey derives a 32-byte symmetric key from the BIP39 seed.
 func deriveNetworkKey(seed []byte) ([]byte, error) {
 	r := hkdf.New(sha512.New, seed, nil, []byte(NetworkKeyInfo))

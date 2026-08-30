@@ -28,6 +28,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/routing"
 	"github.com/stpinkie/rhizome/pkg/session"
 	"github.com/stpinkie/rhizome/pkg/state"
+	"github.com/stpinkie/rhizome/pkg/tools"
 	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
@@ -81,6 +82,26 @@ type AgentLoop struct {
 	reloadFunc func() error
 
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
+
+	// Optional SubTurnSpawner injected at construction. If nil, the default
+	// AgentLoopSpawner is used.
+	spawner tools.SubTurnSpawner
+}
+
+// subTurnSpawner returns the injected spawner or the default local spawner.
+func (al *AgentLoop) subTurnSpawner() tools.SubTurnSpawner {
+	if al.spawner != nil {
+		return al.spawner
+	}
+	return NewSubTurnSpawner(al)
+}
+
+// SetSubTurnSpawner replaces the SubTurnSpawner used by this AgentLoop.
+// It is used by the gateway after construction to inject a mesh-aware spawner.
+func (al *AgentLoop) SetSubTurnSpawner(spawner tools.SubTurnSpawner) {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	al.spawner = spawner
 }
 
 // processOptions configures how a message is processed
