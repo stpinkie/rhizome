@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -12,7 +14,6 @@ import (
 	"github.com/stpinkie/rhizome/pkg"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/gateway"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/sync"
@@ -23,6 +24,10 @@ func NewDaemonCommand() *cobra.Command {
 	var bootstrapPeers []string
 	var debug bool
 	var allowEmpty bool
+	var noDHT bool
+	var noGateway bool
+	var syncCommitInterval time.Duration
+	var syncAnnounceInterval time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "daemon",
@@ -31,19 +36,32 @@ func NewDaemonCommand() *cobra.Command {
 			home := internal.GetRhizomeHome()
 			identityDir := filepath.Join(home, "identity")
 
-			derived, name, err := identity.Load(identityDir)
+			derived, name, err := internal.LoadIdentity(identityDir)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "No node identity found at %s\n", identityDir)
 				fmt.Fprintf(os.Stderr, "Run: rhizome network onboard\n")
 				return err
 			}
 
+			cfg, err := config.LoadConfig(internal.GetConfigPath())
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
+			dhtEnabled := cfg.Mesh.DHTEnabled && !noDHT
 			node, err := network.NewNode(ctx, derived.Libp2pPrivKey, network.Config{
 				ListenAddrs:    listenAddrs,
 				BootstrapPeers: bootstrapPeers,
+				DHT: network.DHTConfig{
+					Enabled:           dhtEnabled,
+					Server:            cfg.Mesh.DHTServer,
+					Rendezvous:        cfg.Mesh.DHTRendezvous,
+					BootstrapPeers:    cfg.Mesh.DHTBootstrap,
+					ReprovideInterval: cfg.Mesh.DHTReprovideInterval,
+				},
 			})
 			if err != nil {
 				return fmt.Errorf("failed to start Rhizome node: %w", err)
@@ -51,13 +69,22 @@ func NewDaemonCommand() *cobra.Command {
 			defer node.Close()
 
 			workspace := filepath.Join(home, pkg.WorkspaceName)
+			commitInterval := syncCommitInterval
+			if commitInterval == 0 {
+				commitInterval = config.DefaultSyncCommitInterval
+			}
+			announceInterval := syncAnnounceInterval
+			if announceInterval == 0 {
+				announceInterval = config.DefaultSyncAnnounceInterval
+			}
+
 			syncer, err := sync.NewSyncer(ctx, sync.Config{
 				Workspace:        workspace,
 				NodeName:         name,
 				Node:             node,
 				AutoSync:         true,
-				CommitInterval:   config.DefaultSyncCommitInterval,
-				AnnounceInterval: config.DefaultSyncAnnounceInterval,
+				CommitInterval:   commitInterval,
+				AnnounceInterval: announceInterval,
 				Exclude:          config.DefaultSyncExclude,
 			})
 			if err != nil {
@@ -67,11 +94,6 @@ func NewDaemonCommand() *cobra.Command {
 				return fmt.Errorf("failed to start syncer: %w", err)
 			}
 			defer syncer.Stop()
-
-			cfg, err := config.LoadConfig(internal.GetConfigPath())
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
 
 			var rhizomeMesh *mesh.Mesh
 			if cfg.Mesh.Enabled {
@@ -86,8 +108,12 @@ func NewDaemonCommand() *cobra.Command {
 			fmt.Printf("  Name:    %s\n", name)
 			fmt.Printf("  Peer ID: %s\n", node.PeerID())
 			fmt.Printf("  Workspace: %s\n", workspace)
-			fmt.Printf("  Addrs:   %v\n", node.BootstrapAddrs())
+			fmt.Printf("  Addrs:   %s\n", strings.Join(node.BootstrapAddrs(), ", "))
 
+			if noGateway {
+				<-ctx.Done()
+				return nil
+			}
 			return gateway.RunWithMesh(debug, home, internal.GetConfigPath(), allowEmpty, rhizomeMesh)
 		},
 	}
@@ -96,6 +122,10 @@ func NewDaemonCommand() *cobra.Command {
 	cmd.Flags().StringArrayVar(&bootstrapPeers, "bootstrap", nil, "Bootstrap peer multiaddrs")
 	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
 	cmd.Flags().BoolVarP(&allowEmpty, "allow-empty", "E", false, "Start gateway in limited mode without a default model")
+	cmd.Flags().BoolVar(&noDHT, "no-dht", false, "Disable public DHT discovery")
+	cmd.Flags().BoolVar(&noGateway, "no-gateway", false, "Do not start the HTTP gateway (useful for testing)")
+	cmd.Flags().DurationVar(&syncCommitInterval, "sync-commit-interval", 0, "Interval between auto-sync commits (default 1m)")
+	cmd.Flags().DurationVar(&syncAnnounceInterval, "sync-announce-interval", 0, "Interval between sync announcements (default 1m)")
 
 	return cmd
 }

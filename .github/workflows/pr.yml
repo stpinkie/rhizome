@@ -63,7 +63,31 @@ jobs:
         run: go generate ./...
 
       - name: Run go test
+        run: CGO_ENABLED=0 go test -tags goolm,stdjson ./...
+
+  test-windows:
+    name: Tests (Windows)
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run go build
+        run: go build -tags goolm,stdjson ./...
+        env:
+          CGO_ENABLED: '0'
+
+      - name: Run go test
         run: go test -tags goolm,stdjson ./...
+        env:
+          CGO_ENABLED: '0'
 
   integration:
     name: Integration Tests
@@ -74,3 +98,20 @@ jobs:
 
       - name: Run Docker-backed integration suites
         run: bash ./scripts/run-integration-tests.sh
+
+  mesh-integration:
+    name: Mesh Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build and run mesh integration script
+        run: bash ./scripts/integration-mesh.sh
+        env:
+          CGO_ENABLED: '0'

@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 	"github.com/stpinkie/rhizome/pkg/config"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
 
@@ -23,7 +23,7 @@ func newPingCommand() *cobra.Command {
 			home := config.GetHome()
 			identityDir := filepath.Join(home, "identity")
 
-			derived, _, err := identity.Load(identityDir)
+			derived, _, err := internal.LoadIdentity(identityDir)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "No node identity found at %s\n", identityDir)
 				fmt.Fprintf(os.Stderr, "Run: rhizome network onboard\n")
@@ -43,15 +43,13 @@ func newPingCommand() *cobra.Command {
 			}
 			defer node.Close()
 
-			// Give discovery a brief moment.
-			time.Sleep(300 * time.Millisecond)
-
-			peers := node.Peers()
-			if len(peers) == 0 {
+			// Wait for the bootstrap to connect.
+			if !waitForAnyPeer(ctx, node, args[0], 5*time.Second) {
 				fmt.Fprintln(os.Stderr, "No peer found. Check the multiaddr.")
 				os.Exit(1)
 			}
 
+			peers := node.Peers()
 			peerID := peers[0].ID.String()
 			rtt, err := node.Ping(ctx, peerID, 5*time.Second)
 			if err != nil {
@@ -62,4 +60,20 @@ func newPingCommand() *cobra.Command {
 			fmt.Printf("Ping %s: %v\n", peerID, rtt)
 		},
 	}
+}
+
+func waitForAnyPeer(ctx context.Context, node *rnet.Node, addr string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(node.Peers()) > 0 {
+			return true
+		}
+		_ = node.Connect(ctx, addr)
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	return false
 }

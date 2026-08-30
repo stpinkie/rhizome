@@ -29,21 +29,34 @@ type Handler interface {
 
 // Transport wraps libp2p stream handling for git sync frames.
 type Transport struct {
-	host host.Host
-	h    Handler
+	host  host.Host
+	h     Handler
+	ready chan struct{}
 }
 
 // NewTransport creates a sync transport that calls h for incoming requests.
 func NewTransport(h host.Host, handler Handler) *Transport {
-	return &Transport{host: h, h: handler}
+	return &Transport{
+		host:  h,
+		h:     handler,
+		ready: make(chan struct{}),
+	}
 }
 
-// Start registers the sync protocol handlers.
+// Start registers the sync protocol handler and blocks until the context is
+// cancelled. The returned channel is closed once the stream handler is active.
 func (t *Transport) Start(ctx context.Context) error {
 	t.host.SetStreamHandler(ProtocolID, t.handleStream)
+	close(t.ready)
+
 	<-ctx.Done()
 	t.host.RemoveStreamHandler(ProtocolID)
 	return ctx.Err()
+}
+
+// Ready returns a channel that is closed once the sync handler is registered.
+func (t *Transport) Ready() <-chan struct{} {
+	return t.ready
 }
 
 func (t *Transport) handleStream(s network.Stream) {
@@ -66,10 +79,12 @@ func (t *Transport) handleStream(s network.Stream) {
 		case frameRequest:
 			req, err := parseRequest(payload)
 			if err != nil {
+				_ = t.writeError(w, "invalid request")
 				return
 			}
 			pack, head, err := t.h.ProvidePackfile(s.Conn().RemotePeer(), req.Haves, req.Wants)
 			if err != nil {
+				_ = t.writeError(w, err.Error())
 				return
 			}
 			resp := append(head[:], pack...)
@@ -80,6 +95,7 @@ func (t *Transport) handleStream(s network.Stream) {
 
 		case frameAnnounce:
 			if len(payload) != len(plumbing.ZeroHash) {
+				_ = t.writeError(w, "invalid announce")
 				return
 			}
 			var head plumbing.Hash
@@ -87,9 +103,17 @@ func (t *Transport) handleStream(s network.Stream) {
 			t.h.HandleAnnounce(s.Conn().RemotePeer(), head)
 
 		default:
+			_ = t.writeError(w, fmt.Sprintf("unknown frame type: %d", typ))
 			return
 		}
 	}
+}
+
+func (t *Transport) writeError(w *bufio.Writer, msg string) error {
+	if err := stream.WriteFrame(w, frameError, []byte(msg)); err != nil {
+		return err
+	}
+	return w.Flush()
 }
 
 // Fetch requests a packfile from a peer.
@@ -118,6 +142,9 @@ func (t *Transport) Fetch(ctx context.Context, pid peer.ID, haves, wants []plumb
 	typ, payload, err := stream.ReadFrame(r)
 	if err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("read response: %w", err)
+	}
+	if typ == frameError {
+		return nil, plumbing.ZeroHash, fmt.Errorf("remote error: %s", string(payload))
 	}
 	if typ != framePackfile {
 		return nil, plumbing.ZeroHash, fmt.Errorf("unexpected frame type: %d", typ)
@@ -151,6 +178,7 @@ const (
 	frameRequest  = byte(1)
 	framePackfile = byte(2)
 	frameAnnounce = byte(3)
+	frameError    = byte(4)
 )
 
 type requestFrame struct {

@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/cobra"
 
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 	"github.com/stpinkie/rhizome/pkg"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
@@ -238,7 +239,7 @@ func withTemporaryNode(fn func(context.Context, *network.Node, *rsync.Syncer) er
 func loadIdentity() (*identity.Derived, string, error) {
 	home := config.GetHome()
 	identityDir := filepath.Join(home, "identity")
-	derived, name, err := identity.Load(identityDir)
+	derived, name, err := internal.LoadIdentity(identityDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "No node identity found at %s\n", identityDir)
 		fmt.Fprintf(os.Stderr, "Run: rhizome network onboard\n")

@@ -58,25 +58,30 @@ type Config struct {
 
 // MeshConfig controls the decentralised Rhizome agent mesh.
 type MeshConfig struct {
-	Enabled             bool          `json:"enabled,omitempty"`
-	TrustedPeers        []string      `json:"trusted_peers,omitempty"`
-	AdvertiseModels     bool          `json:"advertise_models,omitempty"`
-	AdvertiseSkills     bool          `json:"advertise_skills,omitempty"`
-	DHTEnabled          bool          `json:"dht_enabled,omitempty"`
-	DHTBootstrap        []string      `json:"dht_bootstrap,omitempty"`
-	AllowRemoteSpawn    bool          `json:"allow_remote_spawn,omitempty"`
-	AllowRemoteDelegate bool          `json:"allow_remote_delegate,omitempty"`
-	RemoteTimeout       time.Duration `json:"remote_timeout,omitempty"`
+	Enabled              bool          `json:"enabled,omitempty"`
+	TrustedPeers         []string      `json:"trusted_peers,omitempty"`
+	AdvertiseModels      bool          `json:"advertise_models,omitempty"`
+	AdvertiseSkills      bool          `json:"advertise_skills,omitempty"`
+	DHTEnabled           bool          `json:"dht_enabled,omitempty"`
+	DHTServer            bool          `json:"dht_server,omitempty"`
+	DHTRendezvous        string        `json:"dht_rendezvous,omitempty"`
+	DHTBootstrap         []string      `json:"dht_bootstrap,omitempty"`
+	DHTReprovideInterval time.Duration `json:"dht_reprovide_interval,omitempty"`
+	AllowRemoteSpawn     bool          `json:"allow_remote_spawn,omitempty"`
+	AllowRemoteDelegate  bool          `json:"allow_remote_delegate,omitempty"`
+	RemoteTimeout        time.Duration `json:"remote_timeout,omitempty"`
 }
 
 func (m MeshConfig) MarshalJSON() ([]byte, error) {
 	type Alias MeshConfig
 	return json.Marshal(&struct {
 		*Alias
-		RemoteTimeout string `json:"remote_timeout,omitempty"`
+		RemoteTimeout        string `json:"remote_timeout,omitempty"`
+		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
 	}{
-		Alias:         (*Alias)(&m),
-		RemoteTimeout: m.RemoteTimeout.String(),
+		Alias:                (*Alias)(&m),
+		RemoteTimeout:        m.RemoteTimeout.String(),
+		DHTReprovideInterval: m.DHTReprovideInterval.String(),
 	})
 }
 
@@ -84,7 +89,8 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 	type Alias MeshConfig
 	aux := &struct {
 		*Alias
-		RemoteTimeout string `json:"remote_timeout,omitempty"`
+		RemoteTimeout        string `json:"remote_timeout,omitempty"`
+		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
 	}{
 		Alias: (*Alias)(m),
 	}
@@ -97,6 +103,13 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		m.RemoteTimeout = d
+	}
+	if aux.DHTReprovideInterval != "" {
+		d, err := time.ParseDuration(aux.DHTReprovideInterval)
+		if err != nil {
+			return err
+		}
+		m.DHTReprovideInterval = d
 	}
 	return nil
 }

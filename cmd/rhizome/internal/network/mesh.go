@@ -14,7 +14,6 @@ import (
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 	"github.com/stpinkie/rhizome/pkg/config"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
@@ -157,7 +156,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 
 	home := config.GetHome()
 	identityDir := filepath.Join(home, "identity")
-	derived, _, err := identity.Load(identityDir)
+	derived, _, err := internal.LoadIdentity(identityDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "No node identity found. Run: rhizome network onboard\n")
 		os.Exit(1)

@@ -92,6 +92,16 @@ func (s *Syncer) Start(ctx context.Context) error {
 		_ = s.transport.Start(s.ctx)
 	}()
 
+	// Wait until the stream handler is registered before returning.
+	select {
+	case <-s.transport.Ready():
+	case <-time.After(5 * time.Second):
+		if s.cancel != nil {
+			s.cancel()
+		}
+		return fmt.Errorf("sync transport did not become ready")
+	}
+
 	if s.autoSync {
 		var err error
 		s.watcher, err = NewWatcher(s.ctx, s.worktree.Filesystem.Root(), s.exclude, func(paths []string) {
@@ -150,10 +160,32 @@ func (s *Syncer) PullFrom(ctx context.Context, pid peer.ID) error {
 		s.pullingMu.Unlock()
 	}()
 
+	// Ensure the peer is actually connected before opening a sync stream.
+	if !s.waitForPeerConnection(ctx, pid, 5*time.Second) {
+		return fmt.Errorf("peer %s is not connected", pid)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.pullFromLocked(ctx, pid)
+}
+
+func (s *Syncer) waitForPeerConnection(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, p := range s.node.ConnectedPeers() {
+			if p == pid {
+				return true
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return false
 }
 
 func (s *Syncer) pullFromLocked(ctx context.Context, pid peer.ID) error {
@@ -163,9 +195,22 @@ func (s *Syncer) pullFromLocked(ctx context.Context, pid peer.ID) error {
 	}
 
 	haves := []plumbing.Hash{head}
-	pack, remoteHead, err := s.transport.Fetch(ctx, pid, haves, nil)
-	if err != nil {
-		return fmt.Errorf("fetch from %s: %w", pid, err)
+	var pack []byte
+	var remoteHead plumbing.Hash
+	const retries = 5
+	for i := 0; i < retries; i++ {
+		pack, remoteHead, err = s.transport.Fetch(ctx, pid, haves, nil)
+		if err == nil {
+			break
+		}
+		if i == retries-1 {
+			return fmt.Errorf("fetch from %s: %w", pid, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
 	}
 
 	s.peerHeadsMu.Lock()

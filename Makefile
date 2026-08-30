@@ -383,6 +383,14 @@ test: generate
 integration-test:
 	@bash ./scripts/run-integration-tests.sh
 
+## integration-mesh: Run P2P mesh integration tests with real daemons
+integration-mesh:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -File ./scripts/integration-mesh.ps1
+else
+	@bash ./scripts/integration-mesh.sh
+endif
+
 ## fmt: Format Go code
 fmt:
 	@$(GOLANGCI_LINT) fmt

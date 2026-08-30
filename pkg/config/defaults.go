@@ -625,15 +625,18 @@ func defaultChannels() ChannelsConfig {
 // DefaultMeshConfig returns a disabled-by-default mesh configuration.
 func DefaultMeshConfig() MeshConfig {
 	return MeshConfig{
-		Enabled:             false,
-		TrustedPeers:        []string{},
-		AdvertiseModels:     false,
-		AdvertiseSkills:     false,
-		DHTEnabled:          false,
-		DHTBootstrap:        []string{},
-		AllowRemoteSpawn:    false,
-		AllowRemoteDelegate: false,
-		RemoteTimeout:       5 * time.Minute,
+		Enabled:              false,
+		TrustedPeers:         []string{},
+		AdvertiseModels:      false,
+		AdvertiseSkills:      false,
+		DHTEnabled:           true,
+		DHTServer:            false,
+		DHTRendezvous:        "/rhizome/network/1.0.0",
+		DHTBootstrap:         []string{},
+		DHTReprovideInterval: 10 * time.Minute,
+		AllowRemoteSpawn:     false,
+		AllowRemoteDelegate:  false,
+		RemoteTimeout:        5 * time.Minute,
 	}
 }
 

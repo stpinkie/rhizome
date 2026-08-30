@@ -1,12 +1,16 @@
 package internal
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/stpinkie/rhizome/pkg"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 )
 
 const Logo = pkg.Logo
@@ -49,4 +53,39 @@ func FormatBuildInfo() (string, string) {
 // Deprecated: Use pkg/config.GetVersion instead
 func GetVersion() string {
 	return config.GetVersion()
+}
+
+// LoadIdentity loads the node identity from identityDir. If the identity is
+// encrypted, it first tries the OS keyring, then $RHIZOME_IDENTITY_PASSPHRASE,
+// and finally prompts for a passphrase on a TTY.
+func LoadIdentity(identityDir string) (*identity.Derived, string, error) {
+	d, name, err := identity.Load(identityDir)
+	if err == nil {
+		return d, name, nil
+	}
+	if !errors.Is(err, identity.ErrIdentityEncrypted) {
+		return nil, "", err
+	}
+
+	provider := identity.KeyringProvider{}
+	d, name, err = identity.LoadWithProvider(identityDir, &provider)
+	if err == nil {
+		return d, name, nil
+	}
+
+	passphrase := os.Getenv("RHIZOME_IDENTITY_PASSPHRASE")
+	if passphrase == "" && term.IsTerminal(os.Stdin.Fd()) {
+		fmt.Print("Identity passphrase: ")
+		b, err := term.ReadPassword(os.Stdin.Fd())
+		fmt.Println()
+		if err != nil {
+			return nil, "", fmt.Errorf("read passphrase: %w", err)
+		}
+		passphrase = string(b)
+	}
+	if passphrase == "" {
+		return nil, "", fmt.Errorf("encrypted identity: set RHIZOME_IDENTITY_PASSPHRASE or provide a passphrase")
+	}
+
+	return identity.LoadWithProvider(identityDir, &identity.ScryptProvider{Passphrase: passphrase})
 }

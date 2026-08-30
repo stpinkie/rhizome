@@ -16,6 +16,7 @@ jobs:
         run: bash ./scripts/run-integration-tests.sh
 
   build:
+    name: Build (Linux)
     needs: integration
     runs-on: ubuntu-latest
     steps:
@@ -29,3 +30,44 @@ jobs:
 
       - name: Build core binaries
         run: make build-all
+
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build Windows binary
+        run: go build -tags goolm,stdjson -o rhizome-windows-amd64.exe ./cmd/rhizome
+        env:
+          CGO_ENABLED: '0'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhizome-windows-amd64
+          path: rhizome-windows-amd64.exe
+
+  mesh-integration:
+    name: Mesh Integration
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build and run mesh integration script
+        run: bash ./scripts/integration-mesh.sh
+        env:
+          CGO_ENABLED: '0'

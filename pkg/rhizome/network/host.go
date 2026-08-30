@@ -21,6 +21,7 @@ type Node struct {
 	host  host.Host
 	ping  *ping.PingService
 	mdns  mdns.Service
+	dht   *Discovery
 	peers map[peer.ID]peer.AddrInfo
 	mu    sync.RWMutex
 }
@@ -32,6 +33,9 @@ type Config struct {
 
 	// BootstrapPeers are multiaddrs (with /p2p/<peer-id>) of known peers.
 	BootstrapPeers []string
+
+	// DHT controls public DHT discovery.
+	DHT DHTConfig
 }
 
 // NewNode creates a libp2p host and starts mDNS discovery.
@@ -75,6 +79,21 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	for _, a := range cfg.BootstrapPeers {
 		if err := n.connectAddrWithRetry(ctx, a, 3, 250*time.Millisecond); err != nil {
 			// Log but do not fail startup because a bootstrap may be offline.
+		}
+	}
+
+	// Public DHT discovery.
+	if cfg.DHT.Enabled {
+		d, err := NewDiscovery(h, cfg.DHT)
+		if err != nil {
+			_ = h.Close()
+			return nil, fmt.Errorf("create dht discovery: %w", err)
+		}
+		d.OnFound = n.addPeer
+		n.dht = d
+		if err := d.Start(ctx); err != nil {
+			_ = h.Close()
+			return nil, fmt.Errorf("start dht: %w", err)
 		}
 	}
 
@@ -219,6 +238,9 @@ func (n *Node) Connect(ctx context.Context, addr string) error {
 
 // Close shuts down the libp2p host.
 func (n *Node) Close() error {
+	if n.dht != nil {
+		_ = n.dht.Stop()
+	}
 	if n.mdns != nil {
 		_ = n.mdns.Close()
 	}
