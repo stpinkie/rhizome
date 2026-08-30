@@ -15,6 +15,11 @@ func NewNetworkCommand() *cobra.Command {
 		newOnboardCommand(),
 		newStatusCommand(),
 		newPingCommand(),
+		newPeersCommand(),
+		newTrustCommand(),
+		newUntrustCommand(),
+		newDelegateCommand(),
+		newSpawnCommand(),
 	)
 
 	return cmd
