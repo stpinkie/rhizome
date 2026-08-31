@@ -73,8 +73,37 @@ func (t *Transport) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// waitForPeerProtocol polls until the given peer advertises support for the
+// agent RPC protocol. It returns false if the context is cancelled or the
+// timeout expires.
+func (t *Transport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, p := range t.host.Network().Peers() {
+			if p == pid {
+				protos, err := t.host.Peerstore().SupportsProtocols(pid, ProtocolID)
+				if err == nil && len(protos) > 0 {
+					return true
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return false
+}
+
 // Call opens a stream to a peer, sends a request, and returns the response.
 func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Response, error) {
+	// Wait until the peer has identified and advertised support for the agent
+	// protocol before opening a stream. This avoids races during mesh startup.
+	if !t.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+		return Response{}, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
+	}
+
 	s, err := t.host.NewStream(ctx, pid, ProtocolID)
 	if err != nil {
 		return Response{}, fmt.Errorf("open agent stream: %w", err)
@@ -88,10 +117,10 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Respons
 	if err != nil {
 		return Response{}, fmt.Errorf("encode request: %w", err)
 	}
-	if err := stream.WriteFrame(w, frameRequest, payload); err != nil {
+	if err = stream.WriteFrame(w, frameRequest, payload); err != nil {
 		return Response{}, fmt.Errorf("write request: %w", err)
 	}
-	if err := w.Flush(); err != nil {
+	if err = w.Flush(); err != nil {
 		return Response{}, fmt.Errorf("flush request: %w", err)
 	}
 
@@ -111,7 +140,7 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Respons
 	}
 
 	var resp Response
-	if err := json.Unmarshal(payload, &resp); err != nil {
+	if err = json.Unmarshal(payload, &resp); err != nil {
 		return Response{}, fmt.Errorf("decode response: %w", err)
 	}
 	return resp, nil
@@ -133,7 +162,7 @@ func (t *Transport) handleStream(s network.Stream) {
 	}
 
 	var req Request
-	if err := json.Unmarshal(payload, &req); err != nil {
+	if err = json.Unmarshal(payload, &req); err != nil {
 		return
 	}
 

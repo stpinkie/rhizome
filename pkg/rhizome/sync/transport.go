@@ -136,10 +136,10 @@ func (t *Transport) Fetch(
 	if err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("encode request: %w", err)
 	}
-	if err := stream.WriteFrame(w, frameRequest, req); err != nil {
+	if err = stream.WriteFrame(w, frameRequest, req); err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("write request: %w", err)
 	}
-	if err := w.Flush(); err != nil {
+	if err = w.Flush(); err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("flush request: %w", err)
 	}
 

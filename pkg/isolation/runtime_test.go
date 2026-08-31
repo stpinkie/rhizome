@@ -81,7 +81,7 @@ func TestIsSupportedOn(t *testing.T) {
 func TestValidateExposePaths(t *testing.T) {
 	src, dst, other := "/src", "/dst", "/other"
 	if runtime.GOOS == "windows" {
-		src, dst, other = `C:\src`, `C:\dst`, `C:\othere`
+		src, dst, other = `C:\src`, `C:\dst`, `C:\other`
 	}
 
 	err := ValidateExposePaths([]config.ExposePath{{Source: src, Target: dst, Mode: "ro"}})

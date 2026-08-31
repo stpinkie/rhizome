@@ -164,7 +164,7 @@ Sebagai alternatif, muat turun binari untuk platform anda daripada laman [GitHub
 
 Keperluan:
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ dan pnpm 10.33.0+ untuk binaan Web UI / launcher
 
 ```bash

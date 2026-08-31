@@ -164,7 +164,7 @@ Rhizome는 다양한 Linux 및 임베디드 기기에 배포할 수 있습니다
 
 필수 조건:
 
-- Go 1.25+
+- Go 1.26+
 - Web UI / launcher 빌드를 위한 Node.js 22+ 및 pnpm 10.33.0+
 
 ```bash

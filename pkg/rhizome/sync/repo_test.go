@@ -58,7 +58,7 @@ func TestCommit(t *testing.T) {
 	}
 
 	// Edit a file after the initial commit.
-	if err := fileutil.WriteFileAtomic(filepath.Join(dir, "AGENT.md"), []byte("updated\n"), 0o644); err != nil {
+	if err = fileutil.WriteFileAtomic(filepath.Join(dir, "AGENT.md"), []byte("updated\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

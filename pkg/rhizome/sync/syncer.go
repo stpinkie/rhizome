@@ -161,7 +161,9 @@ func (s *Syncer) PullFrom(ctx context.Context, pid peer.ID) error {
 	}()
 
 	// Ensure the peer is actually connected before opening a sync stream.
-	if !s.waitForPeerConnection(ctx, pid, 5*time.Second) {
+	// CI runs can be heavily loaded, so allow more time for identify/protocol
+	// negotiation before failing the pull.
+	if !s.waitForPeerConnection(ctx, pid, 10*time.Second) {
 		return fmt.Errorf("peer %s is not connected", pid)
 	}
 

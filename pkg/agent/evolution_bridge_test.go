@@ -254,6 +254,7 @@ func TestEvolutionBridge_DirectDeliveryFailureFallsBackToCurrentRuntimeBridge(t 
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
+	defer newBridge.Close()
 	newBridge.setCurrentCheck(al.isCurrentEvolutionBridge)
 	if err := newBridge.subscribeRuntimeEvents(al.RuntimeEventBus().Channel()); err != nil {
 		t.Fatalf("subscribeRuntimeEvents: %v", err)
@@ -821,6 +822,7 @@ func TestEvolutionBridge_TurnEndUsesPayloadWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
+	defer bridge.Close()
 
 	err = bridge.OnEvent(context.Background(), Event{
 		Kind: EventKindTurnEnd,
@@ -859,6 +861,7 @@ func TestEvolutionBridge_TurnEndUsesExplicitAttemptTrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
+	defer bridge.Close()
 
 	err = bridge.OnEvent(context.Background(), Event{
 		Kind: EventKindTurnEnd,

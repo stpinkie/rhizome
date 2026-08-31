@@ -221,9 +221,9 @@ func RunWithMesh(
 	if rhizomeMesh != nil {
 		local := agent.NewSubTurnSpawner(agentLoop)
 		rhizomeMesh.SetRunFunc(func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
-			resp, err := agentLoop.ProcessDirect(ctx, req.SystemPrompt, "mesh-"+req.CorrelationID)
-			if err != nil {
-				return nil, err
+			resp, pErr := agentLoop.ProcessDirect(ctx, req.SystemPrompt, "mesh-"+req.CorrelationID)
+			if pErr != nil {
+				return nil, pErr
 			}
 			return toolshared.NewToolResult(resp), nil
 		})

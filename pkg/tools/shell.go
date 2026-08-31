@@ -122,6 +122,10 @@ var (
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
 	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\s\"']*|/[^\s\"']+`)
 
+	// fileSchemePattern strips the file:// (or File://, FILE://) scheme so the
+	// underlying filesystem path can be validated against the workspace boundary.
+	fileSchemePattern = regexp.MustCompile(`(?i)\bfile://`)
+
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data
 	// and cannot cause destructive writes.
@@ -1195,8 +1199,8 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		}
 
 		// file:// URIs are validated by their underlying path; remove the scheme
-		// so the regex can match the real filesystem target.
-		cmd = strings.ReplaceAll(cmd, "file://", "")
+		// (case-insensitively) so the regex can match the real filesystem target.
+		cmd = fileSchemePattern.ReplaceAllString(cmd, "")
 
 		matchIndices := absolutePathPattern.FindAllStringIndex(cmd, -1)
 
@@ -1209,7 +1213,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			// Use the exact match position (loc[0]) so that duplicate //path substrings
 			// in the same command are each evaluated at their own position.
 			if strings.HasPrefix(raw, "//") && loc[0] > 0 {
-				before := cmd[:loc[0]]
+				before := strings.ToLower(cmd[:loc[0]])
 				isWebURL := false
 
 				for _, scheme := range webSchemes {
@@ -1249,7 +1253,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 			// Safe paths (e.g. /dev/null) are allowed by their canonical name,
 			// even on Windows where they would otherwise resolve under the workspace.
-			if safePaths[pathText] {
+			if safePaths[strings.ToLower(pathText)] {
 				continue
 			}
 
@@ -1281,7 +1285,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 				p = resolved
 			}
 
-			if safePaths[p] {
+			if safePaths[strings.ToLower(p)] {
 				continue
 			}
 			if isAllowedPath(p, t.allowedPathPatterns) {

@@ -164,7 +164,7 @@ In alternativa, scarica il binario per la tua piattaforma dalla pagina [GitHub R
 
 Prerequisiti:
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ e pnpm 10.33.0+ per i build di Web UI / launcher
 
 ```bash

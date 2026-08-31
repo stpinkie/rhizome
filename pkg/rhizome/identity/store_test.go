@@ -15,7 +15,7 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := Save(dir, d, "test-node"); err != nil {
+	if err = Save(dir, d, "test-node"); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
 

@@ -164,7 +164,7 @@ Sebagai alternatif, unduh binary untuk platform Anda dari halaman [GitHub Releas
 
 Prasyarat:
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ dan pnpm 10.33.0+ untuk build Web UI / launcher
 
 ```bash

@@ -164,7 +164,7 @@ Rhizome は幅広い Linux および組み込みデバイスにデプロイで�
 
 前提条件:
 
-- Go 1.25+
+- Go 1.26+
 - Web UI / launcher ビルド用の Node.js 22+ および pnpm 10.33.0+
 
 ```bash

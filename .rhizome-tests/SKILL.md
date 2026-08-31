@@ -20,7 +20,7 @@ Use `.rhizome-tests/TEMPLATE.md` as the Markdown structure and `.rhizome-tests/r
 
 ## Prerequisites
 
-- Go 1.25.13 (check with `go version`)
+- Go 1.26 (check with `go version`)
 - pnpm 10.33.0 and Node 22 (only for web tests)
 - Docker (only on Linux/macOS for integration and mesh tests)
 - bash (Linux/macOS) or PowerShell (Windows)
@@ -38,7 +38,7 @@ export CGO_ENABLED=0
 
 ### Linux (recommended for full coverage)
 
-1. `go version` — must be 1.25.13+.
+1. `go version` — must be 1.26+.
 2. `make build-launcher-frontend` — build the frontend into `web/backend/dist`.
 3. `make test` — run core Go tests and web frontend/backend tests.
 4. `make build` — build the current-platform `rhizome` binary.
@@ -50,7 +50,7 @@ export CGO_ENABLED=0
 ### Windows
 
 1. Run in PowerShell.
-2. `go version` — must be 1.25.13+.
+2. `go version` — must be 1.26+.
 3. Disable Windows Firewall for the test run:
    ```powershell
    netsh advfirewall set allprofiles state off
@@ -74,7 +74,7 @@ export CGO_ENABLED=0
 
 ### macOS
 
-1. `go version` — must be 1.25.13+.
+1. `go version` — must be 1.26+.
 2. `make build-launcher-frontend` — build the frontend.
 3. `make test` — core and web tests.
 4. `make build` — build the current-platform binary.

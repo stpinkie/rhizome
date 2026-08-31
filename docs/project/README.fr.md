@@ -164,7 +164,7 @@ Sinon, téléchargez le binaire pour votre plateforme depuis la page [GitHub Rel
 
 Prérequis :
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ et pnpm 10.33.0+ pour les builds Web UI / launcher
 
 ```bash

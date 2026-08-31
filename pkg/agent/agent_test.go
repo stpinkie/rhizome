@@ -7506,6 +7506,12 @@ func TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently(t *tes
 	var wg sync.WaitGroup
 	wg.Add(3) // Wait for 3 turns to complete
 
+	// Use a start gate so all three turns must enter the provider before any
+	// of them completes. This makes the concurrency assertion deterministic
+	// rather than timing-dependent under heavy CI load.
+	var startGate sync.WaitGroup
+	startGate.Add(3)
+
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
@@ -7527,6 +7533,9 @@ func TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently(t *tes
 	// Create a slow mock provider that tracks concurrency
 	provider := &concurrentMockProvider{
 		responseFunc: func(callID int) string {
+			startGate.Done()
+			startGate.Wait()
+
 			mu.Lock()
 			turnCounter++
 			turnID := fmt.Sprintf("turn-%d", turnCounter)

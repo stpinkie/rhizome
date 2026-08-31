@@ -103,7 +103,8 @@ func runOnboard(cfg runOnboardConfig) {
 			os.Exit(1)
 		}
 
-		choice, err := promptChoice("Create identity from [g]enerated mnemonic or [e]xisting? ", []string{"g", "e"})
+		var choice string
+		choice, err = promptChoice("Create identity from [g]enerated mnemonic or [e]xisting? ", []string{"g", "e"})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading choice: %v\n", err)
 			os.Exit(1)
@@ -112,7 +113,8 @@ func runOnboard(cfg runOnboardConfig) {
 	}
 
 	if cfg.generate {
-		entropy, err := bip39.NewEntropy(256)
+		var entropy []byte
+		entropy, err = bip39.NewEntropy(256)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error generating entropy: %v\n", err)
 			os.Exit(1)
@@ -144,7 +146,6 @@ func runOnboard(cfg runOnboardConfig) {
 			fmt.Fprintln(os.Stderr, "Mnemonic is required.")
 			os.Exit(1)
 		}
-		var err error
 		mnemonic, err = promptHidden("Enter BIP39 mnemonic: ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading mnemonic: %v\n", err)
@@ -162,7 +163,6 @@ func runOnboard(cfg runOnboardConfig) {
 		if cfg.nonInteractive {
 			name = "rhizome"
 		} else {
-			var err error
 			name, err = promptText("Node name (default rhizome): ")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading node name: %v\n", err)
@@ -176,13 +176,15 @@ func runOnboard(cfg runOnboardConfig) {
 
 	nodeIndex := cfg.nodeIndex
 	if !cfg.nonInteractive && cfg.nodeIndex == 0 && !cfg.overwrite {
-		indexStr, err := promptText("Node index (0-based, default 0): ")
+		var indexStr string
+		indexStr, err = promptText("Node index (0-based, default 0): ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading node index: %v\n", err)
 			os.Exit(1)
 		}
 		if indexStr != "" {
-			i, err := strconv.ParseUint(indexStr, 10, 32)
+			var i uint64
+			i, err = strconv.ParseUint(indexStr, 10, 32)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Invalid node index: %v\n", err)
 				os.Exit(1)

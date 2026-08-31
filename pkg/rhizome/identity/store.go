@@ -147,7 +147,7 @@ func LoadWithProvider(identityDir string, provider KeyProvider) (*Derived, strin
 	}
 
 	var ni NodeIdentity
-	if err := json.Unmarshal(data, &ni); err != nil {
+	if err = json.Unmarshal(data, &ni); err != nil {
 		return nil, "", fmt.Errorf("unmarshal node identity: %w", err)
 	}
 
@@ -156,11 +156,13 @@ func LoadWithProvider(identityDir string, provider KeyProvider) (*Derived, strin
 		if provider == nil {
 			return nil, "", ErrIdentityEncrypted
 		}
-		key, err := provider.Key(&ni)
+		var key []byte
+		key, err = provider.Key(&ni)
 		if err != nil {
 			return nil, "", fmt.Errorf("obtain decryption key: %w", err)
 		}
-		cipherBytes, err := base64.StdEncoding.DecodeString(ni.Ciphertext)
+		var cipherBytes []byte
+		cipherBytes, err = base64.StdEncoding.DecodeString(ni.Ciphertext)
 		if err != nil {
 			return nil, "", fmt.Errorf("decode ciphertext: %w", err)
 		}

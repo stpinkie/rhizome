@@ -203,7 +203,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 	defer node.Close()
 
 	m := mesh.NewMesh(node, nil, derived, cfg.Mesh, nil)
-	if err := m.Start(ctx); err != nil {
+	if err = m.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting mesh: %v\n", err)
 		os.Exit(1)
 	}
@@ -212,7 +212,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 	// Wait briefly for mDNS and bootstrap connections.
 	time.Sleep(500 * time.Millisecond)
 
-	if err := node.Connect(ctx, maddrStr); err != nil {
+	if err = node.Connect(ctx, maddrStr); err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to peer %s: %v\n", maddrStr, err)
 		os.Exit(1)
 	}

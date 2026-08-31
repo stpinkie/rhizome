@@ -164,7 +164,7 @@ Ngoài ra, tải binary cho nền tảng của bạn từ trang [GitHub Releases
 
 Yêu cầu:
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ và pnpm 10.33.0+ cho các bản build Web UI / launcher
 
 ```bash

@@ -164,7 +164,7 @@ Rhizome 可以部署在广泛的 Linux 和嵌入式设备上！
 
 前置要求：
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ 和 pnpm 10.33.0+（用于 Web UI / launcher 构建）
 
 ```bash

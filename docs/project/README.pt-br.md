@@ -164,7 +164,7 @@ Alternativamente, baixe o binário para sua plataforma na página de [GitHub Rel
 
 Pré-requisitos:
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ e pnpm 10.33.0+ para builds do Web UI / launcher
 
 ```bash

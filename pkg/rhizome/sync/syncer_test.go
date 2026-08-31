@@ -9,6 +9,7 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSyncerTwoNodesShareEdits(t *testing.T) {
@@ -50,13 +51,6 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 	}
 	defer nodeB.Close()
 
-	// Wait for connection.
-	time.Sleep(500 * time.Millisecond)
-
-	if len(nodeA.ConnectedPeers()) == 0 && len(nodeB.ConnectedPeers()) == 0 {
-		t.Fatal("nodes did not connect")
-	}
-
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 
@@ -71,7 +65,7 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new syncer A: %v", err)
 	}
-	if err := syncerA.Start(ctx); err != nil {
+	if err = syncerA.Start(ctx); err != nil {
 		t.Fatalf("start syncer A: %v", err)
 	}
 	defer syncerA.Stop()
@@ -87,24 +81,32 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new syncer B: %v", err)
 	}
-	if err := syncerB.Start(ctx); err != nil {
+	if err = syncerB.Start(ctx); err != nil {
 		t.Fatalf("start syncer B: %v", err)
 	}
 	defer syncerB.Stop()
 
-	// Both initial commits are empty. Give time for transports to start.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the two libp2p nodes to connect and exchange protocols.
+	require.Eventually(t, func() bool {
+		for _, p := range nodeB.ConnectedPeers() {
+			if p == nodeA.ID() {
+				protos, err := nodeB.Host().Peerstore().SupportsProtocols(p, ProtocolID)
+				return err == nil && len(protos) > 0
+			}
+		}
+		return false
+	}, 10*time.Second, 50*time.Millisecond, "node B did not see sync protocol on node A")
 
 	// Edit on A.
-	if err := os.WriteFile(filepath.Join(dirA, "AGENT.md"), []byte("hello from A\n"), 0o644); err != nil {
+	if err = os.WriteFile(filepath.Join(dirA, "AGENT.md"), []byte("hello from A\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := Commit(syncerA.worktree, "node-a", "test edit"); err != nil {
+	if _, err = Commit(syncerA.worktree, "node-a", "test edit"); err != nil {
 		t.Fatalf("commit A: %v", err)
 	}
 
-	if err := syncerB.PullFrom(ctx, nodeA.ID()); err != nil {
+	if err = syncerB.PullFrom(ctx, nodeA.ID()); err != nil {
 		t.Fatalf("pull from A: %v", err)
 	}
 

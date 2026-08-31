@@ -67,7 +67,7 @@ func OpenOrInit(workspace string) (*git.Repository, *git.Worktree, error) {
 		return nil, nil, fmt.Errorf("worktree: %w", err)
 	}
 
-	if err := writeGitExclude(gitDir); err != nil {
+	if err = writeGitExclude(gitDir); err != nil {
 		return nil, nil, fmt.Errorf("write git exclude: %w", err)
 	}
 
@@ -76,10 +76,10 @@ func OpenOrInit(workspace string) (*git.Repository, *git.Worktree, error) {
 		return nil, nil, fmt.Errorf("check head: %w", err)
 	}
 	if !hasCommit {
-		if _, err := w.Add("."); err != nil {
+		if _, err = w.Add("."); err != nil {
 			return nil, nil, fmt.Errorf("stage initial files: %w", err)
 		}
-		if _, err := w.Commit(InitialCommitMessage, &git.CommitOptions{
+		if _, err = w.Commit(InitialCommitMessage, &git.CommitOptions{
 			Author:            defaultSignature(),
 			Committer:         defaultSignature(),
 			AllowEmptyCommits: true,

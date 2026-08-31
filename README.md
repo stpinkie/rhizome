@@ -164,7 +164,7 @@ Alternatively, download the binary for your platform from the [GitHub Releases](
 
 Prerequisites:
 
-- Go 1.25+
+- Go 1.26+
 - Node.js 22+ and pnpm 10.33.0+ for Web UI / launcher builds
 
 ```bash
