@@ -9,7 +9,10 @@ import (
 )
 
 func TestSaveAndLoadEncryptedWithPassphrase(t *testing.T) {
-	d, _, err := FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	d, _, err := FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -25,7 +28,10 @@ func TestSaveAndLoadEncryptedWithPassphrase(t *testing.T) {
 }
 
 func TestLoadUnencryptedStillWorks(t *testing.T) {
-	d, _, err := FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	d, _, err := FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -38,7 +44,10 @@ func TestLoadUnencryptedStillWorks(t *testing.T) {
 }
 
 func TestLoadEncryptedWithoutProviderFails(t *testing.T) {
-	d, _, err := FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	d, _, err := FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -50,7 +59,10 @@ func TestLoadEncryptedWithoutProviderFails(t *testing.T) {
 }
 
 func TestEncryptedFileStoredInNodeJson(t *testing.T) {
-	d, _, err := FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	d, _, err := FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	require.NoError(t, err)
 
 	dir := t.TempDir()

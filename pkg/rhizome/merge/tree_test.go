@@ -1,9 +1,9 @@
 package merge
 
 import (
-	"bytes"
 	"io"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,7 +44,13 @@ func writeFile(t *testing.T, w *git.Worktree, path, content string) {
 	}
 }
 
-func commitFiles(t *testing.T, w *git.Worktree, repo *git.Repository, files map[string]string, msg string) plumbing.Hash {
+func commitFiles(
+	t *testing.T,
+	w *git.Worktree,
+	repo *git.Repository,
+	files map[string]string,
+	msg string,
+) plumbing.Hash {
 	t.Helper()
 	for path, content := range files {
 		writeFile(t, w, path, content)
@@ -64,7 +70,13 @@ func commitFiles(t *testing.T, w *git.Worktree, repo *git.Repository, files map[
 	return hash
 }
 
-func storeCommit(t *testing.T, repo *git.Repository, tree plumbing.Hash, parents []plumbing.Hash, msg string) plumbing.Hash {
+func storeCommit(
+	t *testing.T,
+	repo *git.Repository,
+	tree plumbing.Hash,
+	parents []plumbing.Hash,
+	msg string,
+) plumbing.Hash {
 	t.Helper()
 	c := &object.Commit{
 		TreeHash:     tree,
@@ -207,7 +219,7 @@ func TestMergeTreesConflict(t *testing.T) {
 	mergedCommit := storeCommit(t, repo, mergedTree, []plumbing.Hash{o, th}, "merge")
 
 	content := string(fileContent(t, repo, mergedCommit, "AGENT.md"))
-	if !bytes.Contains([]byte(content), []byte("<<<<<<<")) {
+	if !strings.Contains(content, "<<<<<<<") {
 		t.Fatalf("expected conflict markers, got:\n%s", content)
 	}
 }
@@ -286,7 +298,7 @@ func TestMergeTreesBothAddDifferent(t *testing.T) {
 
 	mergedCommit := storeCommit(t, repo, mergedTree, []plumbing.Hash{o, th}, "merge")
 	content := string(fileContent(t, repo, mergedCommit, "AGENT.md"))
-	if !bytes.Contains([]byte(content), []byte("<<<<<<<")) {
+	if !strings.Contains(content, "<<<<<<<") {
 		t.Fatalf("expected conflict markers, got:\n%s", content)
 	}
 }

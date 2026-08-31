@@ -46,8 +46,8 @@ var (
 	// staying independent from cross-file init ordering.
 	versionCmdTimeout           = 15 * time.Second
 	maxVersionResolveAttempts   = 3
-	findRhizomeBinaryForInfo   = resolveGatewayBinaryForVersionInfo
-	runRhizomeVersionOutput    = executeRhizomeVersion
+	findRhizomeBinaryForInfo    = resolveGatewayBinaryForVersionInfo
+	runRhizomeVersionOutput     = executeRhizomeVersion
 	currentGatewayVersionState  = gatewayVersionState
 	launcherBuildInfoForVersion = fallbackSystemVersionInfoFromConfig
 	versionInfoCache            = newSystemVersionCache()

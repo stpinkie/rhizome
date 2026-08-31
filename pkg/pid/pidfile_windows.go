@@ -61,7 +61,7 @@ func isRhizomeProcess(pid int) bool {
 	var buf [260]uint16
 	var size uint32 = 260
 	ret, _, _ := procQueryFullProcessImageNameW.Call(
-		uintptr(handle),
+		handle,
 		0, // WIN32_NAME_FORMAT
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(unsafe.Pointer(&size)),

@@ -54,7 +54,8 @@ func newOnboardCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&encryption, "encrypt", "e", "", "Encryption: keyring, passphrase, none (default prompt)")
 	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Passphrase for encrypted identity (skips prompt)")
 	cmd.Flags().BoolVarP(&overwrite, "yes", "y", false, "Overwrite an existing node identity")
-	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail if any required value is missing instead of prompting")
+	cmd.Flags().
+		BoolVar(&nonInteractive, "non-interactive", false, "Fail if any required value is missing instead of prompting")
 
 	return cmd
 }
@@ -203,7 +204,10 @@ func runOnboard(cfg runOnboardConfig) {
 
 	encryption := cfg.encryption
 	if encryption == "" && !cfg.nonInteractive {
-		choice, err := promptChoice("Encrypt identity with [k]eyring, [p]assphrase, or [n]one? ", []string{"k", "p", "n"})
+		choice, err := promptChoice(
+			"Encrypt identity with [k]eyring, [p]assphrase, or [n]one? ",
+			[]string{"k", "p", "n"},
+		)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading encryption choice: %v\n", err)
 			os.Exit(1)

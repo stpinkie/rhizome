@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 )
 
@@ -44,7 +45,7 @@ func NewTransport(h host.Host, handler Handler) *Transport {
 }
 
 // Start registers the sync protocol handler and blocks until the context is
-// cancelled. The returned channel is closed once the stream handler is active.
+// canceled. The returned channel is closed once the stream handler is active.
 func (t *Transport) Start(ctx context.Context) error {
 	t.host.SetStreamHandler(ProtocolID, t.handleStream)
 	close(t.ready)
@@ -117,7 +118,11 @@ func (t *Transport) writeError(w *bufio.Writer, msg string) error {
 }
 
 // Fetch requests a packfile from a peer.
-func (t *Transport) Fetch(ctx context.Context, pid peer.ID, haves, wants []plumbing.Hash) ([]byte, plumbing.Hash, error) {
+func (t *Transport) Fetch(
+	ctx context.Context,
+	pid peer.ID,
+	haves, wants []plumbing.Hash,
+) ([]byte, plumbing.Hash, error) {
 	s, err := t.host.NewStream(ctx, pid, ProtocolID)
 	if err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("open stream: %w", err)

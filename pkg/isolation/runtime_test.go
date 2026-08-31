@@ -12,13 +12,14 @@ import (
 )
 
 func TestResolveInstanceRoot_UsesRhizomeHome(t *testing.T) {
-	t.Setenv(config.EnvHome, "/custom/rhizome/home")
+	t.Setenv(config.EnvHome, filepath.FromSlash("/custom/rhizome/home"))
 	root, err := ResolveInstanceRoot()
 	if err != nil {
 		t.Fatalf("ResolveInstanceRoot() error = %v", err)
 	}
-	if root != "/custom/rhizome/home" {
-		t.Fatalf("ResolveInstanceRoot() = %q, want %q", root, "/custom/rhizome/home")
+	want := filepath.FromSlash("/custom/rhizome/home")
+	if root != want {
+		t.Fatalf("ResolveInstanceRoot() = %q, want %q", root, want)
 	}
 }
 
@@ -78,20 +79,25 @@ func TestIsSupportedOn(t *testing.T) {
 }
 
 func TestValidateExposePaths(t *testing.T) {
-	err := ValidateExposePaths([]config.ExposePath{{Source: "/src", Target: "/dst", Mode: "ro"}})
+	src, dst, other := "/src", "/dst", "/other"
+	if runtime.GOOS == "windows" {
+		src, dst, other = `C:\src`, `C:\dst`, `C:\othere`
+	}
+
+	err := ValidateExposePaths([]config.ExposePath{{Source: src, Target: dst, Mode: "ro"}})
 	if err != nil {
 		t.Fatalf("ValidateExposePaths() error = %v", err)
 	}
 
-	err = ValidateExposePaths([]config.ExposePath{{Source: "/src", Target: "/dst", Mode: "bad"}})
+	err = ValidateExposePaths([]config.ExposePath{{Source: src, Target: dst, Mode: "bad"}})
 	if err == nil {
 		t.Fatal("ValidateExposePaths() expected invalid mode error")
 	}
 
 	err = ValidateExposePaths(
 		[]config.ExposePath{
-			{Source: "/src", Target: "/dst", Mode: "ro"},
-			{Source: "/other", Target: "/dst", Mode: "rw"},
+			{Source: src, Target: dst, Mode: "ro"},
+			{Source: other, Target: dst, Mode: "rw"},
 		},
 	)
 	if err == nil {
@@ -100,15 +106,19 @@ func TestValidateExposePaths(t *testing.T) {
 }
 
 func TestMergeExposePaths_OverrideByTarget(t *testing.T) {
+	srcA, srcB, dst := "/src-a", "/src-b", "/dst"
+	if runtime.GOOS == "windows" {
+		srcA, srcB, dst = `C:\src-a`, `C:\src-b`, `C:\dst`
+	}
 	merged := MergeExposePaths(
-		[]config.ExposePath{{Source: "/src-a", Target: "/dst", Mode: "ro"}},
-		[]config.ExposePath{{Source: "/src-b", Target: "/dst", Mode: "rw"}},
+		[]config.ExposePath{{Source: srcA, Target: dst, Mode: "ro"}},
+		[]config.ExposePath{{Source: srcB, Target: dst, Mode: "rw"}},
 	)
 	if len(merged) != 1 {
 		t.Fatalf("MergeExposePaths len = %d, want 1", len(merged))
 	}
-	if got := merged[0]; got.Source != "/src-b" || got.Target != "/dst" || got.Mode != "rw" {
-		t.Fatalf("merged[0] = %+v, want source=/src-b target=/dst mode=rw", got)
+	if got := merged[0]; got.Source != srcB || got.Target != dst || got.Mode != "rw" {
+		t.Fatalf("merged[0] = %+v, want source=%s target=%s mode=rw", got, srcB, dst)
 	}
 }
 

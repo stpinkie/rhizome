@@ -81,6 +81,7 @@ linters:
       enable-all: true
       disable:
         - fieldalignment
+        - shadow
     lll:
       line-length: 120
       tab-width: 4

@@ -449,12 +449,13 @@ Updated content.`
 // (~/.rhizome/skills) invalidates the cached system prompt.
 func TestGlobalSkillFileContentChange(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	globalConfigDir := filepath.Join(tmpHome, ".rhizome")
+	t.Setenv("RHIZOME_HOME", globalConfigDir)
 
 	tmpDir := setupWorkspace(t, nil)
 	defer os.RemoveAll(tmpDir)
 
-	globalSkillPath := filepath.Join(tmpHome, ".rhizome", "skills", "global-skill", "SKILL.md")
+	globalSkillPath := filepath.Join(globalConfigDir, "skills", "global-skill", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(globalSkillPath), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -175,7 +175,7 @@ func (n *Node) ConnectedPeers() []peer.ID {
 
 // Addrs returns the listen addresses of this node as strings.
 func (n *Node) Addrs() []string {
-	var out []string
+	out := make([]string, 0, len(n.host.Addrs()))
 	for _, a := range n.host.Addrs() {
 		out = append(out, a.String())
 	}
@@ -185,7 +185,7 @@ func (n *Node) Addrs() []string {
 // BootstrapAddrs returns multiaddrs that include the /p2p/<peer-id> suffix
 // and can be used by another node to bootstrap to this one.
 func (n *Node) BootstrapAddrs() []string {
-	var out []string
+	out := make([]string, 0, len(n.host.Addrs()))
 	for _, a := range n.host.Addrs() {
 		out = append(out, fmt.Sprintf("%s/p2p/%s", a.String(), n.host.ID().String()))
 	}
@@ -197,7 +197,7 @@ func (n *Node) Peers() []peer.AddrInfo {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
-	var out []peer.AddrInfo
+	out := make([]peer.AddrInfo, 0, len(n.peers))
 	for _, pi := range n.peers {
 		out = append(out, pi)
 	}

@@ -42,7 +42,11 @@ func getTree(s storer.EncodedObjectStorer, h plumbing.Hash) (*object.Tree, error
 	return object.GetTree(s, h)
 }
 
-func mergeTree(s storer.EncodedObjectStorer, base, ours, theirs *object.Tree, prefix string) (plumbing.Hash, []string, error) {
+func mergeTree(
+	s storer.EncodedObjectStorer,
+	base, ours, theirs *object.Tree,
+	prefix string,
+) (plumbing.Hash, []string, error) {
 	entries := make(map[string]*resolvedEntry)
 	names := make(map[string]struct{})
 
@@ -104,7 +108,11 @@ type resolvedEntry struct {
 	Hash plumbing.Hash
 }
 
-func resolveEntry(s storer.EncodedObjectStorer, base, ours, theirs *object.TreeEntry, path string) (*resolvedEntry, bool, error) {
+func resolveEntry(
+	s storer.EncodedObjectStorer,
+	base, ours, theirs *object.TreeEntry,
+	path string,
+) (*resolvedEntry, bool, error) {
 	// All sides agree.
 	if hashesEqual(base, ours) && hashesEqual(base, theirs) {
 		return fromEntry(ours), false, nil
@@ -267,8 +275,12 @@ func storeBlob(s storer.EncodedObjectStorer, content []byte) (plumbing.Hash, err
 	return s.SetEncodedObject(obj)
 }
 
-func buildTree(s storer.EncodedObjectStorer, entries map[string]*resolvedEntry, conflicts []string) (plumbing.Hash, []string, error) {
-	var treeEntries []object.TreeEntry
+func buildTree(
+	s storer.EncodedObjectStorer,
+	entries map[string]*resolvedEntry,
+	conflicts []string,
+) (plumbing.Hash, []string, error) {
+	treeEntries := make([]object.TreeEntry, 0, len(entries))
 	for _, e := range entries {
 		treeEntries = append(treeEntries, object.TreeEntry{
 			Name: e.Name,

@@ -296,6 +296,13 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 	return messages
 }
 
+func (cm *seahorseContextManager) Close() error {
+	if cm.engine != nil {
+		return cm.engine.Close()
+	}
+	return nil
+}
+
 func init() {
 	if err := RegisterContextManager("seahorse", newSeahorseContextManager); err != nil {
 		panic(fmt.Sprintf("register seahorse context manager: %v", err))

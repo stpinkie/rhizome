@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -196,8 +197,9 @@ func TestAudioModelTranscriberTranscribe(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for unsupported audio format, got nil")
 		}
-		if got := err.Error(); got != `unsupported audio format for "`+badPath+`"` {
-			t.Fatalf("error = %q, want unsupported format error", got)
+		want := fmt.Sprintf("unsupported audio format for %q", badPath)
+		if got := err.Error(); got != want {
+			t.Fatalf("error = %q, want %q", got, want)
 		}
 	})
 }

@@ -390,3 +390,5 @@ func (m *legacyContextManager) estimateTokens(messages []providers.Message) int 
 	}
 	return total
 }
+
+func (m *legacyContextManager) Close() error { return nil }

@@ -8,5 +8,5 @@ const (
 	AppName = "Rhizome"
 
 	DefaultRhizomeHome = ".rhizome"
-	WorkspaceName       = "workspace"
+	WorkspaceName      = "workspace"
 )

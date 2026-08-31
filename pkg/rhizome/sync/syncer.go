@@ -45,7 +45,7 @@ type Syncer struct {
 	wg      sync.WaitGroup
 }
 
-// Config controls syncer behaviour.
+// Config controls syncer behavior.
 type Config struct {
 	Workspace        string
 	NodeName         string
@@ -176,7 +176,12 @@ func (s *Syncer) waitForPeerConnection(ctx context.Context, pid peer.ID, timeout
 	for time.Now().Before(deadline) {
 		for _, p := range s.node.ConnectedPeers() {
 			if p == pid {
-				return true
+				// Connection may be established before identify has advertised
+				// the sync protocol, so wait until the peer supports it.
+				protos, err := s.node.Host().Peerstore().SupportsProtocols(pid, ProtocolID)
+				if err == nil && len(protos) > 0 {
+					return true
+				}
 			}
 		}
 		select {
@@ -402,7 +407,12 @@ func (s *Syncer) applyPackfileAndMergeLocked(ctx context.Context, pack []byte, r
 	}
 	baseCommit := bases[0]
 
-	mergedTree, conflicts, err := merge.MergeTrees(s.repo.Storer, baseCommit.TreeHash, oCommit.TreeHash, tCommit.TreeHash)
+	mergedTree, conflicts, err := merge.MergeTrees(
+		s.repo.Storer,
+		baseCommit.TreeHash,
+		oCommit.TreeHash,
+		tCommit.TreeHash,
+	)
 	if err != nil {
 		return fmt.Errorf("merge trees: %w", err)
 	}
@@ -437,7 +447,11 @@ func (s *Syncer) fastForwardToLocked(target plumbing.Hash) error {
 	return nil
 }
 
-func (s *Syncer) createMergeCommitLocked(ours, theirs plumbing.Hash, tree plumbing.Hash, conflicts []string) (plumbing.Hash, error) {
+func (s *Syncer) createMergeCommitLocked(
+	ours, theirs plumbing.Hash,
+	tree plumbing.Hash,
+	conflicts []string,
+) (plumbing.Hash, error) {
 	msg := fmt.Sprintf("%s: merge from %s", s.nodeName, theirs.String()[:8])
 	if len(conflicts) > 0 {
 		msg += fmt.Sprintf("\n\nConflicts:\n")

@@ -3,6 +3,7 @@ package fileutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -33,6 +34,11 @@ func TestWriteFileAtomic_Permissions(t *testing.T) {
 	err := WriteFileAtomic(path, []byte("secret"), 0o600)
 	if err != nil {
 		t.Fatalf("WriteFileAtomic failed: %v", err)
+	}
+
+	// Windows does not support Unix-style permission bits.
+	if runtime.GOOS == "windows" {
+		return
 	}
 
 	info, err := os.Stat(path)
@@ -133,6 +139,11 @@ func TestWriteFileAtomic_LargeFile(t *testing.T) {
 }
 
 func TestWriteFileAtomic_Concurrent(t *testing.T) {
+	// Windows does not support POSIX-style atomic replace under high
+	// concurrent contention, so this stress test is Unix-only.
+	if runtime.GOOS == "windows" {
+		t.Skip("concurrent atomic replace test not applicable on Windows")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "concurrent.txt")
 
@@ -168,6 +179,9 @@ func TestWriteFileAtomic_Concurrent(t *testing.T) {
 }
 
 func TestWriteFileAtomic_InvalidPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix device path invalidity test does not apply on Windows")
+	}
 	// /dev/null/impossible is not a valid path on any OS
 	err := WriteFileAtomic("/dev/null/impossible/file.txt", []byte("data"), 0o644)
 	if err == nil {

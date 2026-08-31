@@ -56,7 +56,7 @@ type Config struct {
 	sensitiveCache *SensitiveDataCache
 }
 
-// MeshConfig controls the decentralised Rhizome agent mesh.
+// MeshConfig controls the decentralized Rhizome agent mesh.
 type MeshConfig struct {
 	Enabled              bool          `json:"enabled,omitempty"`
 	TrustedPeers         []string      `json:"trusted_peers,omitempty"`
@@ -72,14 +72,14 @@ type MeshConfig struct {
 	RemoteTimeout        time.Duration `json:"remote_timeout,omitempty"`
 }
 
-func (m MeshConfig) MarshalJSON() ([]byte, error) {
+func (m *MeshConfig) MarshalJSON() ([]byte, error) {
 	type Alias MeshConfig
 	return json.Marshal(&struct {
 		*Alias
 		RemoteTimeout        string `json:"remote_timeout,omitempty"`
 		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
 	}{
-		Alias:                (*Alias)(&m),
+		Alias:                (*Alias)(m),
 		RemoteTimeout:        m.RemoteTimeout.String(),
 		DHTReprovideInterval: m.DHTReprovideInterval.String(),
 	})
@@ -114,7 +114,7 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (m MeshConfig) IsPeerTrusted(pid string) bool {
+func (m *MeshConfig) IsPeerTrusted(pid string) bool {
 	for _, p := range m.TrustedPeers {
 		if p == pid {
 			return true
@@ -507,7 +507,7 @@ type AgentDefaults struct {
 	Routing                   *RoutingConfig     `json:"routing,omitempty"`
 	SteeringMode              string             `json:"steering_mode,omitempty"          env:"RHIZOME_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
 	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"RHIZOME_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"RHIZOME_AGENTS_DEFAULTS_SUBTURN_"`
+	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                     envPrefix:"RHIZOME_AGENTS_DEFAULTS_SUBTURN_"`
 	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`
 	SplitOnMarker             bool               `json:"split_on_marker"                  env:"RHIZOME_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
 	ContextManager            string             `json:"context_manager,omitempty"        env:"RHIZOME_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
@@ -1095,17 +1095,17 @@ type BaiduSearchConfig struct {
 
 type WebToolsConfig struct {
 	ToolConfig  `                   yaml:"-"                      envPrefix:"RHIZOME_TOOLS_WEB_"`
-	Brave       BraveConfig        `yaml:"brave,omitempty"                                        json:"brave"`
-	Tavily      TavilyConfig       `yaml:"tavily,omitempty"                                       json:"tavily"`
-	Kagi        KagiConfig         `yaml:"kagi,omitempty"                                         json:"kagi"`
-	Sogou       SogouConfig        `yaml:"-"                                                      json:"sogou"`
-	DuckDuckGo  DuckDuckGoConfig   `yaml:"-"                                                      json:"duckduckgo"`
-	Gemini      GeminiSearchConfig `yaml:"gemini,omitempty"                                       json:"gemini"`
-	Perplexity  PerplexityConfig   `yaml:"perplexity,omitempty"                                   json:"perplexity"`
-	SearXNG     SearXNGConfig      `yaml:"-"                                                      json:"searxng"`
-	GLMSearch   GLMSearchConfig    `yaml:"glm_search,omitempty"                                   json:"glm_search"`
-	BaiduSearch BaiduSearchConfig  `yaml:"baidu_search,omitempty"                                 json:"baidu_search"`
-	Provider    string             `yaml:"-"                                                      json:"provider,omitempty" env:"RHIZOME_TOOLS_WEB_PROVIDER"`
+	Brave       BraveConfig        `yaml:"brave,omitempty"                                       json:"brave"`
+	Tavily      TavilyConfig       `yaml:"tavily,omitempty"                                      json:"tavily"`
+	Kagi        KagiConfig         `yaml:"kagi,omitempty"                                        json:"kagi"`
+	Sogou       SogouConfig        `yaml:"-"                                                     json:"sogou"`
+	DuckDuckGo  DuckDuckGoConfig   `yaml:"-"                                                     json:"duckduckgo"`
+	Gemini      GeminiSearchConfig `yaml:"gemini,omitempty"                                      json:"gemini"`
+	Perplexity  PerplexityConfig   `yaml:"perplexity,omitempty"                                  json:"perplexity"`
+	SearXNG     SearXNGConfig      `yaml:"-"                                                     json:"searxng"`
+	GLMSearch   GLMSearchConfig    `yaml:"glm_search,omitempty"                                  json:"glm_search"`
+	BaiduSearch BaiduSearchConfig  `yaml:"baidu_search,omitempty"                                json:"baidu_search"`
+	Provider    string             `yaml:"-"                                                     json:"provider,omitempty" env:"RHIZOME_TOOLS_WEB_PROVIDER"`
 	// PreferNative controls whether to use provider-native web search when
 	// the active LLM supports it (e.g. OpenAI web_search_preview). When true,
 	// the client-side web_search tool is hidden to avoid duplicate search surfaces,
@@ -1130,16 +1130,16 @@ type CronToolsConfig struct {
 
 type ExecConfig struct {
 	ToolConfig          `         envPrefix:"RHIZOME_TOOLS_EXEC_"`
-	EnableDenyPatterns  bool     `                                 json:"enable_deny_patterns"  env:"RHIZOME_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
-	AllowRemote         bool     `                                 json:"allow_remote"          env:"RHIZOME_TOOLS_EXEC_ALLOW_REMOTE"`
-	CustomDenyPatterns  []string `                                 json:"custom_deny_patterns"  env:"RHIZOME_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
-	CustomAllowPatterns []string `                                 json:"custom_allow_patterns" env:"RHIZOME_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
-	TimeoutSeconds      int      `                                 json:"timeout_seconds"       env:"RHIZOME_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
+	EnableDenyPatterns  bool     `                                json:"enable_deny_patterns"  env:"RHIZOME_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
+	AllowRemote         bool     `                                json:"allow_remote"          env:"RHIZOME_TOOLS_EXEC_ALLOW_REMOTE"`
+	CustomDenyPatterns  []string `                                json:"custom_deny_patterns"  env:"RHIZOME_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
+	CustomAllowPatterns []string `                                json:"custom_allow_patterns" env:"RHIZOME_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
+	TimeoutSeconds      int      `                                json:"timeout_seconds"       env:"RHIZOME_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
 }
 
 type SkillsToolsConfig struct {
 	ToolConfig `                       yaml:"-"                    envPrefix:"RHIZOME_TOOLS_SKILLS_"`
-	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                    json:"registries"`
+	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                   json:"registries"`
 	// Deprecated: use registries.github instead.
 	Github                SkillsGithubConfig `yaml:"github,omitempty" json:"github"`
 	MaxConcurrentSearches int                `yaml:"-"                json:"max_concurrent_searches" env:"RHIZOME_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES"`
@@ -1148,8 +1148,8 @@ type SkillsToolsConfig struct {
 
 type MediaCleanupConfig struct {
 	ToolConfig `    envPrefix:"RHIZOME_MEDIA_CLEANUP_"`
-	MaxAge     int `                                    json:"max_age_minutes"  env:"RHIZOME_MEDIA_CLEANUP_MAX_AGE"`
-	Interval   int `                                    json:"interval_minutes" env:"RHIZOME_MEDIA_CLEANUP_INTERVAL"`
+	MaxAge     int `                                   json:"max_age_minutes"  env:"RHIZOME_MEDIA_CLEANUP_MAX_AGE"`
+	Interval   int `                                   json:"interval_minutes" env:"RHIZOME_MEDIA_CLEANUP_INTERVAL"`
 }
 
 type ReadFileToolConfig struct {
@@ -1191,24 +1191,24 @@ type ToolsConfig struct {
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
 	MCP             MCPConfig          `json:"mcp"               yaml:"-"`
-	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_APPEND_FILE_"`
-	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_EDIT_FILE_"`
-	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_FIND_SKILLS_"`
-	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_I2C_"`
-	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_INSTALL_SKILL_"`
-	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LIST_DIR_"`
-	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LOAD_IMAGE_"`
+	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_APPEND_FILE_"`
+	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_EDIT_FILE_"`
+	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_FIND_SKILLS_"`
+	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_I2C_"`
+	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_INSTALL_SKILL_"`
+	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_LIST_DIR_"`
+	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_LOAD_IMAGE_"`
 	Message         MessageToolsConfig `json:"message"           yaml:"-"`
-	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_READ_FILE_"`
-	Serial          ToolConfig         `json:"serial"            yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SERIAL_"`
-	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SEND_FILE_"`
-	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SEND_TTS_"`
-	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPAWN_"`
-	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPAWN_STATUS_"`
-	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPI_"`
-	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SUBAGENT_"`
-	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WEB_FETCH_"`
-	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WRITE_FILE_"`
+	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_READ_FILE_"`
+	Serial          ToolConfig         `json:"serial"            yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SERIAL_"`
+	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SEND_FILE_"`
+	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SEND_TTS_"`
+	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SPAWN_"`
+	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SPAWN_STATUS_"`
+	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SPI_"`
+	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SUBAGENT_"`
+	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_WEB_FETCH_"`
+	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_WRITE_FILE_"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -1342,7 +1342,7 @@ type MCPServerConfig struct {
 // MCPConfig defines configuration for all MCP servers
 type MCPConfig struct {
 	ToolConfig `                    envPrefix:"RHIZOME_TOOLS_MCP_"`
-	Discovery  ToolDiscoveryConfig `                                json:"discovery"`
+	Discovery  ToolDiscoveryConfig `                               json:"discovery"`
 	// MaxInlineTextChars controls how much MCP text stays inline before it is saved as an artifact.
 	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"RHIZOME_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
 	// Servers is a map of server name to server configuration

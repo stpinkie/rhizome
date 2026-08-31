@@ -209,7 +209,11 @@ func withTemporaryNode(fn func(context.Context, *network.Node, *rsync.Syncer) er
 		return err
 	}
 
-	node, err := network.NewNode(ctx, derived.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	node, err := network.NewNode(
+		ctx,
+		derived.Libp2pPrivKey,
+		network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}},
+	)
 	if err != nil {
 		return err
 	}

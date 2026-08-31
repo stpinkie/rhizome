@@ -19,9 +19,15 @@ func TestMeshRemoteCall(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	idA, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 1)
+	idB, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		1,
+	)
 	require.NoError(t, err)
 
 	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
@@ -72,9 +78,15 @@ func TestMeshCapabilityExchange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	idA, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 1)
+	idB, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		1,
+	)
 	require.NoError(t, err)
 
 	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
@@ -103,8 +115,8 @@ func TestMeshCapabilityExchange(t *testing.T) {
 	defer meshB.Stop()
 
 	// Send B's capability to A.
-	cap := Capability{PeerID: nodeB.PeerID(), Agents: []string{"main"}}
-	err = meshB.cap.Send(ctx, nodeA.ID(), cap)
+	capability := Capability{PeerID: nodeB.PeerID(), Agents: []string{"main"}}
+	err = meshB.cap.Send(ctx, nodeA.ID(), capability)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {

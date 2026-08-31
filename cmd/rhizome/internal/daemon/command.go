@@ -121,11 +121,14 @@ func NewDaemonCommand() *cobra.Command {
 	cmd.Flags().StringArrayVar(&listenAddrs, "listen", []string{"/ip4/0.0.0.0/tcp/0"}, "Multiaddrs to listen on")
 	cmd.Flags().StringArrayVar(&bootstrapPeers, "bootstrap", nil, "Bootstrap peer multiaddrs")
 	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
-	cmd.Flags().BoolVarP(&allowEmpty, "allow-empty", "E", false, "Start gateway in limited mode without a default model")
+	cmd.Flags().
+		BoolVarP(&allowEmpty, "allow-empty", "E", false, "Start gateway in limited mode without a default model")
 	cmd.Flags().BoolVar(&noDHT, "no-dht", false, "Disable public DHT discovery")
 	cmd.Flags().BoolVar(&noGateway, "no-gateway", false, "Do not start the HTTP gateway (useful for testing)")
-	cmd.Flags().DurationVar(&syncCommitInterval, "sync-commit-interval", 0, "Interval between auto-sync commits (default 1m)")
-	cmd.Flags().DurationVar(&syncAnnounceInterval, "sync-announce-interval", 0, "Interval between sync announcements (default 1m)")
+	cmd.Flags().
+		DurationVar(&syncCommitInterval, "sync-commit-interval", 0, "Interval between auto-sync commits (default 1m)")
+	cmd.Flags().
+		DurationVar(&syncAnnounceInterval, "sync-announce-interval", 0, "Interval between sync announcements (default 1m)")
 
 	return cmd
 }

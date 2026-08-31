@@ -1,6 +1,6 @@
 module github.com/stpinkie/rhizome
 
-go 1.25.13
+go 1.26
 
 require (
 	fyne.io/systray v1.12.2

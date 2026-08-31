@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/charmbracelet/x/term"
+
 	"github.com/stpinkie/rhizome/pkg"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -87,13 +88,16 @@ func TestWritePidFile(t *testing.T) {
 	}
 
 	// Verify file permissions (owner-only read/write).
-	info, err := os.Stat(filepath.Join(dir, pidFileName))
-	if err != nil {
-		t.Fatalf("failed to stat pid file: %v", err)
-	}
-	perm := info.Mode().Perm()
-	if perm != 0o600 {
-		t.Errorf("file permission = %o, want 0600", perm)
+	// Windows does not support Unix-style permission bits, so skip the check there.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(dir, pidFileName))
+		if err != nil {
+			t.Fatalf("failed to stat pid file: %v", err)
+		}
+		perm := info.Mode().Perm()
+		if perm != 0o600 {
+			t.Errorf("file permission = %o, want 0600", perm)
+		}
 	}
 }
 

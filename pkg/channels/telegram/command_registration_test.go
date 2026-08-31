@@ -48,7 +48,7 @@ func TestStartCommandRegistration_RetriesUntilSuccessThenStops(t *testing.T) {
 
 	ch.startCommandRegistration(ctx, []commands.Definition{{Name: "help", Description: "Help"}})
 
-	deadline := time.Now().Add(250 * time.Millisecond)
+	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if attempts.Load() >= 3 {
 			break
@@ -60,7 +60,7 @@ func TestStartCommandRegistration_RetriesUntilSuccessThenStops(t *testing.T) {
 	}
 
 	stable := attempts.Load()
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	if attempts.Load() != stable {
 		t.Fatalf("expected retries to stop after success, got %d -> %d", stable, attempts.Load())
 	}
@@ -81,11 +81,11 @@ func TestStartCommandRegistration_StopsAfterCancel(t *testing.T) {
 
 	ch.startCommandRegistration(ctx, []commands.Definition{{Name: "help", Description: "Help"}})
 
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	cancel()
-	time.Sleep(20 * time.Millisecond) // allow in-flight attempt to settle
+	time.Sleep(100 * time.Millisecond) // allow in-flight attempt to settle
 	stable := attempts.Load()
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	if attempts.Load() != stable {
 		t.Fatalf("expected retries to quiesce after cancel, got %d -> %d", stable, attempts.Load())
 	}

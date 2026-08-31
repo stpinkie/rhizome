@@ -345,6 +345,15 @@ func (al *AgentLoop) Stop() {
 
 // Close releases resources held by agent session stores. Call after Stop.
 func (al *AgentLoop) Close() {
+	if al.contextManager != nil {
+		if err := al.contextManager.Close(); err != nil {
+			logger.ErrorCF("agent", "Failed to close context manager",
+				map[string]any{
+					"error": err.Error(),
+				})
+		}
+	}
+
 	mcpManager := al.mcp.takeManager()
 
 	if mcpManager != nil {

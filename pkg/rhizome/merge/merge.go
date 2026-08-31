@@ -1,8 +1,8 @@
 package merge
 
 import (
-	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/CivNode/diff3-go"
 )
@@ -36,11 +36,11 @@ func ThreeWayFile(base, ours, theirs []byte, oursLabel, theirsLabel string) ([]b
 // normalizeLineEndings converts CRLF to LF and returns the dominant line ending
 // so it can be restored later.
 func normalizeLineEndings(s string) (string, string) {
-	crlfCount := bytes.Count([]byte(s), []byte("\r\n"))
-	lfCount := bytes.Count([]byte(s), []byte("\n")) - crlfCount
+	crlfCount := strings.Count(s, "\r\n")
+	lfCount := strings.Count(s, "\n") - crlfCount
 
 	if crlfCount > 0 && crlfCount >= lfCount {
-		return string(bytes.ReplaceAll([]byte(s), []byte("\r\n"), []byte("\n"))), "\r\n"
+		return strings.ReplaceAll(s, "\r\n", "\n"), "\r\n"
 	}
 	return s, "\n"
 }
@@ -51,5 +51,5 @@ func restoreLineEndings(s, ending string) string {
 	if ending == "\n" {
 		return s
 	}
-	return string(bytes.ReplaceAll([]byte(s), []byte("\n"), []byte(ending)))
+	return strings.ReplaceAll(s, "\n", ending)
 }

@@ -39,7 +39,7 @@ type Capability struct {
 	Allows    map[string]bool `json:"allows,omitempty"`
 }
 
-// Mesh is the decentralised agent runtime layer over a Rhizome node.
+// Mesh is the decentralized agent runtime layer over a Rhizome node.
 type Mesh struct {
 	node   *rnet.Node
 	syncer *rsync.Syncer
@@ -63,7 +63,13 @@ type Mesh struct {
 }
 
 // NewMesh creates a mesh layer over an existing node and syncer.
-func NewMesh(node *rnet.Node, syncer *rsync.Syncer, id *identity.Derived, cfg config.MeshConfig, runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)) *Mesh {
+func NewMesh(
+	node *rnet.Node,
+	syncer *rsync.Syncer,
+	id *identity.Derived,
+	cfg config.MeshConfig,
+	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error),
+) *Mesh {
 	m := &Mesh{
 		node:    node,
 		syncer:  syncer,
@@ -159,7 +165,11 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 }
 
 // CallRemote sends an agent task to a trusted peer and waits for the result.
-func (m *Mesh) CallRemote(ctx context.Context, pid peer.ID, targetAgentID, prompt string) (*toolshared.ToolResult, error) {
+func (m *Mesh) CallRemote(
+	ctx context.Context,
+	pid peer.ID,
+	targetAgentID, prompt string,
+) (*toolshared.ToolResult, error) {
 	if !m.isTrusted(pid) {
 		return nil, fmt.Errorf("peer %s is not trusted", pid)
 	}
@@ -190,13 +200,13 @@ func (m *Mesh) CallRemote(ctx context.Context, pid peer.ID, targetAgentID, promp
 
 // Advertise sends the local capability manifest to all connected peers.
 func (m *Mesh) Advertise(ctx context.Context) {
-	cap := m.localCapability()
+	capability := m.localCapability()
 	for _, pid := range m.node.ConnectedPeers() {
 		if pid == m.node.ID() {
 			continue
 		}
 		go func(p peer.ID) {
-			_ = m.cap.Send(ctx, p, cap)
+			_ = m.cap.Send(ctx, p, capability)
 		}(pid)
 	}
 }
@@ -264,7 +274,7 @@ func (m *Mesh) isTrusted(pid peer.ID) bool {
 func (m *Mesh) TrustedPeers() []peer.ID {
 	m.trustMu.RLock()
 	defer m.trustMu.RUnlock()
-	var out []peer.ID
+	out := make([]peer.ID, 0, len(m.trust))
 	for pid := range m.trust {
 		out = append(out, pid)
 	}
@@ -277,7 +287,7 @@ func (m *Mesh) ConnectedTrustedPeers() []peer.ID {
 	for _, pid := range m.TrustedPeers() {
 		trusted[pid] = true
 	}
-	var out []peer.ID
+	out := make([]peer.ID, 0, len(m.node.ConnectedPeers()))
 	for _, pid := range m.node.ConnectedPeers() {
 		if trusted[pid] {
 			out = append(out, pid)
@@ -328,7 +338,7 @@ func (c *CapsTransport) Start(ctx context.Context) error {
 }
 
 // Send pushes a capability manifest to a peer.
-func (c *CapsTransport) Send(ctx context.Context, pid peer.ID, cap Capability) error {
+func (c *CapsTransport) Send(ctx context.Context, pid peer.ID, capability Capability) error {
 	s, err := c.host.NewStream(ctx, pid, CapsProtocolID)
 	if err != nil {
 		return fmt.Errorf("open caps stream: %w", err)
@@ -336,12 +346,12 @@ func (c *CapsTransport) Send(ctx context.Context, pid peer.ID, cap Capability) e
 	defer s.Close()
 
 	w := bufio.NewWriter(s)
-	data, err := json.Marshal(cap)
+	data, err := json.Marshal(capability)
 	if err != nil {
-		return fmt.Errorf("encode cap: %w", err)
+		return fmt.Errorf("encode capability: %w", err)
 	}
 	if err := stream.WriteFrame(w, capFrameAnnounce, data); err != nil {
-		return fmt.Errorf("write cap: %w", err)
+		return fmt.Errorf("write capability: %w", err)
 	}
 	return w.Flush()
 }
@@ -358,9 +368,9 @@ func (c *CapsTransport) handleStream(s libnet.Stream) {
 		return
 	}
 
-	var cap Capability
-	if err := json.Unmarshal(payload, &cap); err != nil {
+	var capability Capability
+	if err := json.Unmarshal(payload, &capability); err != nil {
 		return
 	}
-	c.handler(s.Conn().RemotePeer(), cap)
+	c.handler(s.Conn().RemotePeer(), capability)
 }

@@ -39,11 +39,11 @@ func (s *RemoteSpawner) SpawnSubTurn(ctx context.Context, cfg tools.SubTurnConfi
 	// Find a trusted peer that advertises the target agent.
 	var remotePID peer.ID
 	for _, pid := range s.mesh.ConnectedTrustedPeers() {
-		cap, ok := s.mesh.PeerCapabilities(pid)
+		capability, ok := s.mesh.PeerCapabilities(pid)
 		if !ok {
 			continue
 		}
-		for _, a := range cap.Agents {
+		for _, a := range capability.Agents {
 			if a == cfg.TargetAgentID {
 				remotePID = pid
 				break

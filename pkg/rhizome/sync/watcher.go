@@ -33,7 +33,12 @@ type Watcher struct {
 // patterns for files and directories that should be ignored (e.g. "logs/",
 // "*.sqlite"). onChange is called with a sorted list of changed paths
 // (workspace-relative) after the debounce window.
-func NewWatcher(ctx context.Context, workspace string, exclude []string, onChange func(paths []string)) (*Watcher, error) {
+func NewWatcher(
+	ctx context.Context,
+	workspace string,
+	exclude []string,
+	onChange func(paths []string),
+) (*Watcher, error) {
 	fsWatcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("create fsnotify watcher: %w", err)
@@ -135,14 +140,14 @@ func (w *Watcher) flush() {
 func (w *Watcher) addRecursive(root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // continue walking
 		}
 		if !d.IsDir() {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // continue walking
 		}
 		if w.isExcluded(rel) || strings.HasPrefix(rel, ".git") {
 			return filepath.SkipDir
@@ -154,14 +159,14 @@ func (w *Watcher) addRecursive(root string) error {
 func (w *Watcher) addDir(path string) error {
 	return filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // continue walking
 		}
 		if !d.IsDir() {
 			return nil
 		}
 		rel, err := filepath.Rel(w.workspace, p)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // continue walking
 		}
 		if w.isExcluded(rel) || strings.HasPrefix(rel, ".git") {
 			return filepath.SkipDir

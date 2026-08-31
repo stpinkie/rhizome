@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +93,9 @@ func TestNewDeltaChatChannel(t *testing.T) {
 func TestResolveServerPathUsesPATH(t *testing.T) {
 	dir := t.TempDir()
 	fakeServer := filepath.Join(dir, "deltachat-rpc-server")
+	if runtime.GOOS == "windows" {
+		fakeServer += ".exe"
+	}
 	if err := os.WriteFile(fakeServer, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

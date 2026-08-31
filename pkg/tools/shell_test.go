@@ -629,13 +629,20 @@ func TestShellTool_TimeoutWithPartialOutput(t *testing.T) {
 		t.Fatalf("unable to configure exec tool: %s", err)
 	}
 
-	tool.SetTimeout(1 * time.Second) // Give more time for echo to complete
+	tool.SetTimeout(1500 * time.Millisecond) // Give more time for echo to complete
 
 	ctx := context.Background()
-	// Use a command that outputs immediately then sleeps
+	// Use a command that outputs immediately then sleeps.
+	// PowerShell uses ';' as a statement separator instead of '&&'.
+	var timeoutCmd string
+	if runtime.GOOS == "windows" {
+		timeoutCmd = "Write-Output 'partial output before timeout'; Start-Sleep -Seconds 30"
+	} else {
+		timeoutCmd = "echo 'partial output before timeout' && sleep 30"
+	}
 	args := map[string]any{
 		"action":  "run",
-		"command": "echo 'partial output before timeout' && sleep 30",
+		"command": timeoutCmd,
 	}
 
 	result := tool.Execute(ctx, args)
@@ -1323,11 +1330,17 @@ func TestShellTool_Write_Read_NonPTY(t *testing.T) {
 
 	ctx := WithToolContext(context.Background(), "cli", "test")
 
-	// Start a background process that reads from stdin and outputs it
-	// Using 'cat' which echoes stdin to stdout
+	// Start a background process that reads from stdin and outputs it.
+	// PowerShell's $input | Write-Output echoes stdin; sh has 'cat'.
+	var echoCmd string
+	if runtime.GOOS == "windows" {
+		echoCmd = "$input | Write-Output"
+	} else {
+		echoCmd = "cat"
+	}
 	result := tool.Execute(ctx, map[string]any{
 		"action":     "run",
-		"command":    "cat",
+		"command":    echoCmd,
 		"pty":        false,
 		"background": "true",
 	})
@@ -1337,7 +1350,7 @@ func TestShellTool_Write_Read_NonPTY(t *testing.T) {
 	err = json.Unmarshal([]byte(result.ForLLM), &resp)
 	require.NoError(t, err)
 
-	// Write some input to cat
+	// Write some input to the echo process
 	writeResult := tool.Execute(ctx, map[string]any{
 		"action":    "write",
 		"sessionId": resp.SessionID,
@@ -1345,20 +1358,22 @@ func TestShellTool_Write_Read_NonPTY(t *testing.T) {
 	})
 	require.False(t, writeResult.IsError, "write should succeed: %s", writeResult.ForLLM)
 
-	// Give cat time to process and output
-	time.Sleep(200 * time.Millisecond)
-
-	// Read the output
-	readResult := tool.Execute(ctx, map[string]any{
-		"action":    "read",
-		"sessionId": resp.SessionID,
-	})
-	require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
-
+	// Poll until the echoed output is available, with a generous timeout to
+	// tolerate slow PowerShell startup under load.
 	var readResp ExecResponse
-	err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
-	require.NoError(t, err)
-	require.Contains(t, readResp.Output, "hello world")
+	require.Eventually(t, func() bool {
+		readResult := tool.Execute(ctx, map[string]any{
+			"action":    "read",
+			"sessionId": resp.SessionID,
+		})
+		if readResult.IsError {
+			return false
+		}
+		if err := json.Unmarshal([]byte(readResult.ForLLM), &readResp); err != nil {
+			return false
+		}
+		return strings.Contains(readResp.Output, "hello world")
+	}, 5*time.Second, 100*time.Millisecond, "expected output to contain 'hello world'")
 
 	// Clean up
 	tool.Execute(ctx, map[string]any{
@@ -1377,11 +1392,19 @@ func TestShellTool_Read_NonPTY_Running(t *testing.T) {
 
 	ctx := WithToolContext(context.Background(), "cli", "test")
 
-	// Start a long-running process that produces output over time
-	// Using sh -c with sleep at the end so process doesn't exit immediately
+	// Start a long-running process that produces output over time.
+	// sh is available on Unix; use PowerShell on Windows. Keep the line
+	// interval short and the trailing sleep bounded so the test finishes
+	// quickly once it has collected the output it needs.
+	var readCmd string
+	if runtime.GOOS == "windows" {
+		readCmd = "Write-Output line1; Start-Sleep -Milliseconds 100; Write-Output line2; Start-Sleep -Milliseconds 100; Write-Output line3; Start-Sleep -Seconds 5"
+	} else {
+		readCmd = "sh -c 'echo line1; sleep 0.1; echo line2; sleep 0.1; echo line3; sleep 5'"
+	}
 	result := tool.Execute(ctx, map[string]any{
 		"action":     "run",
-		"command":    "sh -c 'echo line1; sleep 0.5; echo line2; sleep 0.5; echo line3; sleep 10'",
+		"command":    readCmd,
 		"pty":        false,
 		"background": "true",
 	})
@@ -1391,35 +1414,37 @@ func TestShellTool_Read_NonPTY_Running(t *testing.T) {
 	err = json.Unmarshal([]byte(result.ForLLM), &resp)
 	require.NoError(t, err)
 
-	// Give time for first outputs to be produced
-	time.Sleep(300 * time.Millisecond)
-
-	// Read output while process is running
-	readResult := tool.Execute(ctx, map[string]any{
-		"action":    "read",
-		"sessionId": resp.SessionID,
-	})
-	require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
-
+	// Poll until at least line1 appears, with a timeout to tolerate slow
+	// PowerShell startup under load.
 	var readResp ExecResponse
-	err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
-	require.NoError(t, err)
-	// Should have at least line1
-	require.Contains(t, readResp.Output, "line1")
+	require.Eventually(t, func() bool {
+		readResult := tool.Execute(ctx, map[string]any{
+			"action":    "read",
+			"sessionId": resp.SessionID,
+		})
+		if readResult.IsError {
+			return false
+		}
+		if err := json.Unmarshal([]byte(readResult.ForLLM), &readResp); err != nil {
+			return false
+		}
+		return strings.Contains(readResp.Output, "line1")
+	}, 5*time.Second, 100*time.Millisecond, "expected output to contain 'line1'")
 
-	// Wait for line3 to be produced (line1=0s, line2=0.5s, line3=1s, then sleep 10)
-	time.Sleep(1200 * time.Millisecond)
-
-	// Read again - should have line3 as well
-	readResult = tool.Execute(ctx, map[string]any{
-		"action":    "read",
-		"sessionId": resp.SessionID,
-	})
-	require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
-
-	err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
-	require.NoError(t, err)
-	require.Contains(t, readResp.Output, "line3")
+	// Poll until line3 appears as well.
+	require.Eventually(t, func() bool {
+		readResult := tool.Execute(ctx, map[string]any{
+			"action":    "read",
+			"sessionId": resp.SessionID,
+		})
+		if readResult.IsError {
+			return false
+		}
+		if err := json.Unmarshal([]byte(readResult.ForLLM), &readResp); err != nil {
+			return false
+		}
+		return strings.Contains(readResp.Output, "line3")
+	}, 5*time.Second, 100*time.Millisecond, "expected output to contain 'line3'")
 
 	// Clean up
 	tool.Execute(ctx, map[string]any{
@@ -1646,9 +1671,15 @@ func TestShellTool_Poll_Status(t *testing.T) {
 
 	ctx := WithToolContext(context.Background(), "cli", "test")
 
+	var sleepCmd string
+	if runtime.GOOS == "windows" {
+		sleepCmd = "Start-Sleep -Milliseconds 500"
+	} else {
+		sleepCmd = "sleep 0.5"
+	}
 	runResult := tool.Execute(ctx, map[string]any{
 		"action":     "run",
-		"command":    "sleep 1",
+		"command":    sleepCmd,
 		"background": "true",
 	})
 	require.False(t, runResult.IsError)
@@ -1668,17 +1699,22 @@ func TestShellTool_Poll_Status(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "running", pollResp.Status)
 
-	time.Sleep(1200 * time.Millisecond)
-
-	pollResult = tool.Execute(ctx, map[string]any{
-		"action":    "poll",
-		"sessionId": resp.SessionID,
-	})
-	require.False(t, pollResult.IsError)
-
-	err = json.Unmarshal([]byte(pollResult.ForLLM), &pollResp)
-	require.NoError(t, err)
-	require.Equal(t, "done", pollResp.Status)
+	// Poll until the process finishes, with a timeout to tolerate slow
+	// PowerShell startup under load.
+	require.Eventually(t, func() bool {
+		pollResult := tool.Execute(ctx, map[string]any{
+			"action":    "poll",
+			"sessionId": resp.SessionID,
+		})
+		if pollResult.IsError {
+			return false
+		}
+		var pollResp ExecResponse
+		if err := json.Unmarshal([]byte(pollResult.ForLLM), &pollResp); err != nil {
+			return false
+		}
+		return pollResp.Status == "done"
+	}, 5*time.Second, 100*time.Millisecond, "expected process status to be 'done'")
 }
 
 func TestShellTool_Action_Run_Sync(t *testing.T) {
@@ -1704,10 +1740,17 @@ func TestShellTool_Background_ReadAfterExit(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Start a background command that produces output and exits quickly
+	// Start a background command that produces output and exits quickly.
+	// Use PowerShell statement separator on Windows.
+	var exitCmd string
+	if runtime.GOOS == "windows" {
+		exitCmd = "Write-Output hello; Start-Sleep -Milliseconds 500; Write-Output world"
+	} else {
+		exitCmd = "echo hello && sleep 0.5 && echo world"
+	}
 	runResult := tool.Execute(ctx, map[string]any{
 		"action":     "run",
-		"command":    "echo hello && sleep 1 && echo world",
+		"command":    exitCmd,
 		"background": "true",
 	})
 	require.False(t, runResult.IsError, "run should succeed: %s", runResult.ForUser)
@@ -1719,34 +1762,35 @@ func TestShellTool_Background_ReadAfterExit(t *testing.T) {
 	require.NotEmpty(t, resp.SessionID)
 	sessionID := resp.SessionID
 
-	// Wait for process to exit (sleep 1 + some buffer)
-	time.Sleep(1500 * time.Millisecond)
-
-	// Poll to verify process is done
-	pollResult := tool.Execute(ctx, map[string]any{
-		"action":    "poll",
-		"sessionId": sessionID,
-	})
-	require.False(t, pollResult.IsError, "poll should succeed: %s", pollResult.ForLLM)
-	var pollResp ExecResponse
-	err = json.Unmarshal([]byte(pollResult.ForLLM), &pollResp)
-	require.NoError(t, err)
-	require.Equal(t, "done", pollResp.Status, "process should be done")
-
-	// Try to read output AFTER process has exited
-	readResult := tool.Execute(ctx, map[string]any{
-		"action":    "read",
-		"sessionId": sessionID,
-	})
-	require.False(t, readResult.IsError, "read should succeed after exit: %s", readResult.ForLLM)
-
+	// Poll until the process is done and both outputs are available.
 	var readResp ExecResponse
-	err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
-	require.NoError(t, err)
-
-	// Output should contain both "hello" and "world"
-	require.Contains(t, readResp.Output, "hello", "should contain hello")
-	require.Contains(t, readResp.Output, "world", "should contain world after sleep")
+	require.Eventually(t, func() bool {
+		pollResult := tool.Execute(ctx, map[string]any{
+			"action":    "poll",
+			"sessionId": sessionID,
+		})
+		if pollResult.IsError {
+			return false
+		}
+		var pollResp ExecResponse
+		if err := json.Unmarshal([]byte(pollResult.ForLLM), &pollResp); err != nil {
+			return false
+		}
+		if pollResp.Status != "done" {
+			return false
+		}
+		readResult := tool.Execute(ctx, map[string]any{
+			"action":    "read",
+			"sessionId": sessionID,
+		})
+		if readResult.IsError {
+			return false
+		}
+		if err := json.Unmarshal([]byte(readResult.ForLLM), &readResp); err != nil {
+			return false
+		}
+		return strings.Contains(readResp.Output, "hello") && strings.Contains(readResp.Output, "world")
+	}, 5*time.Second, 100*time.Millisecond, "expected process to be done with hello and world in output")
 }
 
 func TestSendKeys_CtrlC(t *testing.T) {

@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
+
+var writeFileAtomicCounter uint64
 
 // WriteFileAtomic atomically writes data to a file using a temp file + rename pattern.
 //
@@ -56,9 +59,12 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 
 	// Create temp file in the same directory (ensures atomic rename works)
-	// Using a hidden prefix (.tmp-) to avoid issues with some tools
+	// Using a hidden prefix (.tmp-) to avoid issues with some tools.
+	// A per-process counter is appended to avoid collisions when multiple
+	// goroutines call WriteFileAtomic in the same clock tick.
+	tmpCounter := atomic.AddUint64(&writeFileAtomicCounter, 1)
 	tmpFile, err := os.OpenFile(
-		filepath.Join(dir, fmt.Sprintf(".tmp-%d-%d", os.Getpid(), time.Now().UnixNano())),
+		filepath.Join(dir, fmt.Sprintf(".tmp-%d-%d-%d", os.Getpid(), time.Now().UnixNano(), tmpCounter)),
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
 		perm,
 	)
@@ -99,10 +105,8 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	// Atomic rename: temp file becomes the target
-	// On POSIX: rename() is atomic
-	// On Windows: Rename() is atomic for files
-	if err := os.Rename(tmpPath, path); err != nil {
+	// Atomic rename: temp file becomes the target.
+	if err := replaceFile(tmpPath, path); err != nil {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 

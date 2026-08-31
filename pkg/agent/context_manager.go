@@ -28,6 +28,9 @@ type ContextManager interface {
 	// Clear removes all stored context for a session (messages, summaries, etc.).
 	// Called when the user issues /clear or /reset.
 	Clear(ctx context.Context, sessionKey string) error
+
+	// Close releases any resources held by the context manager.
+	Close() error
 }
 
 // AssembleRequest is the input to Assemble.

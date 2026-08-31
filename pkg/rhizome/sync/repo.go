@@ -146,7 +146,7 @@ func ConflictPaths(w *git.Worktree) ([]string, error) {
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil // ignore transient files
+			return nil //nolint:nilerr // ignore transient files
 		}
 		if containsConflictMarkers(data) {
 			rel, _ := filepath.Rel(w.Filesystem.Root(), path)

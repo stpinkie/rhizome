@@ -13,12 +13,18 @@ func TestTwoNodesPing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	idA, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	if err != nil {
 		t.Fatalf("identity A: %v", err)
 	}
 
-	idB, _, err := identity.FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 1)
+	idB, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		1,
+	)
 	if err != nil {
 		t.Fatalf("identity B: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/caarlos0/env/v11"
@@ -51,7 +52,7 @@ func TestSecurityPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := securityPath(tt.configDir)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, filepath.FromSlash(tt.want), got)
 		})
 	}
 }
@@ -163,10 +164,12 @@ func TestSaveAndLoadSecurityConfig(t *testing.T) {
 		err := saveSecurityConfig(secPath, original)
 		require.NoError(t, err)
 
-		// Verify file was created with correct permissions
+		// Verify file was created with correct permissions (Unix only).
 		info, err := os.Stat(secPath)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o600), info.Mode())
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0o600), info.Mode())
+		}
 
 		file, err := os.ReadFile(secPath)
 		assert.NoError(t, err)

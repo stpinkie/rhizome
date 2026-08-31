@@ -6,7 +6,10 @@ import (
 )
 
 func TestSaveAndLoad(t *testing.T) {
-	d, _, err := FromMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 0)
+	d, _, err := FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
 	if err != nil {
 		t.Fatalf("FromMnemonic failed: %v", err)
 	}

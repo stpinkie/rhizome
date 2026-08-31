@@ -120,7 +120,7 @@ var (
 	}
 
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
-	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
+	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\s\"']*|/[^\s\"']+`)
 
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data
@@ -1194,6 +1194,10 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			}
 		}
 
+		// file:// URIs are validated by their underlying path; remove the scheme
+		// so the regex can match the real filesystem target.
+		cmd = strings.ReplaceAll(cmd, "file://", "")
+
 		matchIndices := absolutePathPattern.FindAllStringIndex(cmd, -1)
 
 		for _, loc := range matchIndices {
@@ -1241,7 +1245,22 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 				}
 			}
 
-			p, err := commandPathAbs(commandPathTextFromMatch(cmd, loc[0], loc[1]), cwdPath)
+			pathText := commandPathTextFromMatch(cmd, loc[0], loc[1])
+
+			// Safe paths (e.g. /dev/null) are allowed by their canonical name,
+			// even on Windows where they would otherwise resolve under the workspace.
+			if safePaths[pathText] {
+				continue
+			}
+
+			// On Windows, a /-prefixed path token is not a native absolute path,
+			// but it represents an absolute Unix path that cannot be inside the
+			// workspace. Only known safe paths are allowed.
+			if runtime.GOOS == "windows" && strings.HasPrefix(pathText, "/") {
+				return "Command blocked by safety guard (path outside working dir)"
+			}
+
+			p, err := commandPathAbs(pathText, cwdPath)
 			if err != nil {
 				continue
 			}
@@ -1270,11 +1289,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			}
 
 			rel, err := filepath.Rel(cwdPath, p)
-			if err != nil {
-				continue
-			}
-
-			if strings.HasPrefix(rel, "..") {
+			if err != nil || strings.HasPrefix(rel, "..") {
 				return "Command blocked by safety guard (path outside working dir)"
 			}
 		}

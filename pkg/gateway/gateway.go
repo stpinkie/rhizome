@@ -126,7 +126,12 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 // RunWithMesh starts the gateway with an optional mesh layer for remote
 // sub-turn routing and capability exchange.
-func RunWithMesh(debug bool, homePath, configPath string, allowEmptyStartup bool, rhizomeMesh *mesh.Mesh) (runErr error) {
+func RunWithMesh(
+	debug bool,
+	homePath, configPath string,
+	allowEmptyStartup bool,
+	rhizomeMesh *mesh.Mesh,
+) (runErr error) {
 	startedAt := time.Now()
 	panicPath := filepath.Join(homePath, logPath, panicFile)
 	panicFunc, err := logger.InitPanic(panicPath)

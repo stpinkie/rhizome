@@ -17,7 +17,9 @@ import (
 
 // ErrIdentityEncrypted is returned by Load when node.json is encrypted and no
 // KeyProvider was supplied.
-var ErrIdentityEncrypted = errors.New("node identity is encrypted; provide a key provider or set RHIZOME_IDENTITY_PASSPHRASE")
+var ErrIdentityEncrypted = errors.New(
+	"node identity is encrypted; provide a key provider or set RHIZOME_IDENTITY_PASSPHRASE",
+)
 
 // NodeIdentity is the on-disk representation of a node identity.
 // It intentionally does not store the BIP39 mnemonic or root seed.
@@ -39,10 +41,10 @@ type NodeIdentity struct {
 }
 
 // Save writes the derived identity to identityDir as node.json without
-// encryption. This preserves the legacy behaviour for callers that do not need
+// encryption. This preserves the legacy behavior for callers that do not need
 // encryption.
 func Save(identityDir string, d *Derived, name string) error {
-	if err := os.MkdirAll(identityDir, 0700); err != nil {
+	if err := os.MkdirAll(identityDir, 0o700); err != nil {
 		return fmt.Errorf("create identity directory: %w", err)
 	}
 
@@ -61,7 +63,7 @@ func Save(identityDir string, d *Derived, name string) error {
 // node.json. The key is obtained from the KeyProvider and, depending on
 // keySource, may be persisted to the OS keyring or derived from a passphrase.
 func SaveEncrypted(identityDir string, d *Derived, name string, provider KeyProvider, keySource string) error {
-	if err := os.MkdirAll(identityDir, 0700); err != nil {
+	if err := os.MkdirAll(identityDir, 0o700); err != nil {
 		return fmt.Errorf("create identity directory: %w", err)
 	}
 
@@ -212,7 +214,7 @@ func writeNodeIdentity(identityDir string, ni NodeIdentity) error {
 	}
 
 	path := filepath.Join(identityDir, "node.json")
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write node identity: %w", err)
 	}
 	return nil

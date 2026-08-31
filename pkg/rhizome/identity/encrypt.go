@@ -15,12 +15,12 @@ import (
 // Default keyring identifiers. These are combined into a single target name
 // on Windows, so they must remain stable.
 const (
-	keyringService  = "github.com/stpinkie/rhizome"
-	keyringAccount  = "node-identity"
-	scryptN         = 32768
-	scryptR         = 8
-	scryptP         = 1
-	keyLen          = 32
+	keyringService = "github.com/stpinkie/rhizome"
+	keyringAccount = "node-identity"
+	scryptN        = 32768
+	scryptR        = 8
+	scryptP        = 1
+	keyLen         = 32
 )
 
 // KeyProvider supplies the 32-byte symmetric key needed to decrypt an

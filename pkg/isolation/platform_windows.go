@@ -158,10 +158,10 @@ func createRestrictedPrimaryToken() (windows.Token, error) {
 	defer current.Close()
 
 	var restricted windows.Token
+	// CreateRestrictedToken takes 9 arguments; the output handle is the last.
 	r1, _, e1 := procCreateRestrictedToken.Call(
 		uintptr(current),
 		uintptr(disableMaxPrivilege),
-		0,
 		0,
 		0,
 		0,
