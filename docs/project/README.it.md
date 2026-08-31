@@ -1,21 +1,19 @@
 <div align="center">
 <img src="../../assets/logo.webp" alt="Rhizome" width="512">
 
-<h1>Rhizome: Assistente IA Ultra-Efficiente in Go</h1>
+<h1>Rhizome: Assistente AI Ultra-Efficiente in Go</h1>
 
-<h3>Hardware da $10 · 10MB di RAM · Avvio in ms · Let's Go, Rhizome!</h3>
+<h3>Hardware $10 · 10MB RAM · Boot in ms · Let's Go, Rhizome!</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/rhizome"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
+    <a href="https://github.com/stpinkie/rhizome"><img src="https://img.shields.io/badge/GitHub-stpinkie/rhizome-181717?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
+    <a href="https://github.com/stpinkie/rhizome/tree/main/docs"><img src="https://img.shields.io/badge/Docs-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
     <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <br>
+    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
   </p>
 
 [中文](README.zh.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | **Italiano** | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
@@ -24,103 +22,92 @@
 
 ---
 
-> **Rhizome** è un progetto open-source indipendente avviato da [Sipeed](https://sipeed.com), scritto interamente in **Go** da zero — non è un fork di OpenClaw, NanoBot o di qualsiasi altro progetto.
+> **Rhizome** è un hard fork mantenuto dalla comunità di [PicoClaw](https://github.com/sipeed/picoclaw). È scritto interamente in **Go** e prosegue l'obiettivo di essere un assistente AI personale ultra-leggero.
 
-**Rhizome** è un assistente IA personale ultra-leggero ispirato a [NanoBot](https://github.com/HKUDS/nanobot). È stato riscritto da zero in **Go** attraverso un processo di "auto-bootstrapping" — l'Agent IA stesso ha guidato la migrazione architetturale e l'ottimizzazione del codice.
+**Rhizome** è un assistente AI personale ispirato a [NanoBot](https://github.com/HKUDS/nanobot). Aggiunge una mesh P2P nativa Go, la sincronizzazione del workspace e un gateway agent sopra l'idea originale di PicoClaw.
 
-**Funziona su hardware da $10 con <10MB di RAM** — il 99% di memoria in meno rispetto a OpenClaw e il 98% più economico di un Mac mini!
+**Un unico binario Go, senza dipendenze runtime** — gira nativamente su Linux, Windows, macOS, FreeBSD/NetBSD e Android. Vedi la [Lista di Compatibilità Hardware](../guides/hardware-compatibility.md) per le schede verificate e i requisiti attuali a due livelli.
 
-<table align="center">
-<tr align="center">
-<td align="center" valign="top">
 <p align="center">
 <img src="../../assets/rhizome_mem.gif" width="360" height="240">
 </p>
-</td>
-<td align="center" valign="top">
-<p align="center">
-<img src="../../assets/licheervnano.png" width="400" height="240">
-</p>
-</td>
-</tr>
-</table>
 
 > [!CAUTION]
 > **Avviso di Sicurezza**
 >
-> * **NESSUNA CRYPTO:** Rhizome **non** ha emesso token o criptovalute ufficiali. Qualsiasi annuncio su `pump.fun` o altre piattaforme di trading è una **truffa**.
-> * **DOMINIO UFFICIALE:** L'**UNICO** sito ufficiale è **[picoclaw.io](https://picoclaw.io)**, e il sito aziendale è **[sipeed.com](https://sipeed.com)**
-> * **ATTENZIONE:** Molti domini `.ai/.org/.com/.net/...` sono stati registrati da terze parti. Non fidarti di essi.
-> * **NOTA:** Rhizome è in fase di sviluppo iniziale rapido. Potrebbero esserci problemi di sicurezza non risolti. Non distribuire in produzione prima della v1.0.
-> * **NOTA:** Rhizome ha recentemente unito molte PR. Le build recenti potrebbero usare 10-20MB di RAM. L'ottimizzazione delle risorse è pianificata dopo la stabilizzazione delle funzionalità.
+> * **NO CRYPTO:** Rhizome **non** ha emesso alcun token ufficiale o criptovaluta. Qualsiasi affermazione su `pump.fun` o altre piattaforme di trading è una **truffa**.
+> * **CANONICAL SOURCE:** La fonte canonica e la sede di rilascio sono **<https://github.com/stpinkie/rhizome>**; i rilasci sono pubblicati su GitHub Releases. Attenzione ai domini di terze parti che affermano di essere ufficiali.
+> * **Attenzione:** Molti domini `.ai/.org/.com/.net/...` sono stati registrati da terze parti. Non fidatevi.
+> * **Nota:** Rhizome è in una fase iniziale di sviluppo rapido. Potrebbero esserci problemi di sicurezza non risolti. Non distribuire in produzione prima della v1.0.
+> * **Nota:** Il binario `rhizome` completo è di circa 98 MB e il daemon usa circa 60 MB di memoria privata. Abbiamo in programma una build `nonetwork` per ridurre ulteriormente l'impronta su schede ultra-piccole. L'ottimizzazione delle risorse è pianificata dopo la stabilizzazione delle funzionalità.
 
 ## 📢 Novità
 
-2026-05-11 🛒 **LicheeRV-Claw disponibile su AliExpress!** Ora puoi acquistare LicheeRV-Claw su [AliExpress](https://www.aliexpress.com/item/1005006519668532.html), rendendo più semplice provare Rhizome su hardware RISC-V compatto.
+2026-05-28 🚀 **Rilasciata v0.2.9!** Gestione dei server MCP nella Web UI, ricerca web Sogou configurabile, animazione di feedback degli strumenti del canale, valori predefiniti `pretty_print` e `disable_escape_html`, e varie correzioni di bug per provider e canali.
 
-<p align="center">
-  <a href="https://www.aliexpress.com/item/1005006519668532.html">
-    <img src="../../assets/licheerv-claw.jpg" alt="LicheeRV-Claw on AliExpress" width="520">
-  </a>
-</p>
+2026-05-14 🚀 **Rilasciata v0.2.8!** Comandi MCP CLI (`show`, `add`, `list`, `remove`, `test`, `edit`), oggetto vuoto invece di null per i parametri degli strumenti MCP, e correzioni di build.
 
-2026-03-31 📱 **Supporto Android!** Rhizome ora funziona su Android! Scarica l'APK su [picoclaw.io](https://picoclaw.io/download)
+2026-05-07 🚀 **Rilasciata v0.2.7!** Ricerca web Sogou configurabile, animazione di feedback degli strumenti del canale, correzioni del linter.
 
-2026-03-25 🚀 **v0.2.4 rilasciata!** Revisione dell'architettura Agent (SubTurn, Hooks, Steering, EventBus), integrazione WeChat/WeCom, rafforzamento della sicurezza (.security.yml, filtraggio dati sensibili), nuovi provider (AWS Bedrock, Azure, Xiaomi MiMo) e 35 correzioni di bug. Rhizome raggiunge **26K Stars**!
+2026-04-23 🚀 **Rilasciata v0.2.6!** Hook con azione di risposta e documentazione completa, supporto all'isolamento, correzione del banner di aiuto.
 
-2026-03-17 🚀 **v0.2.3 rilasciata!** Interfaccia system tray (Windows & Linux), query sullo stato dei sub-agent (`spawn_status`), hot-reload sperimentale del Gateway, gate di sicurezza per Cron e 2 correzioni di sicurezza. Rhizome raggiunge **25K Stars**!
+2026-04-11 🚀 **Rilasciata v0.2.5!** Zoneinfo dalle variabili d'ambiente TZ/ZONEINFO, allineamento del rendering Matrix CommonMark, `read_file` per righe.
 
-2026-03-09 🎉 **v0.2.1 — Il più grande aggiornamento di sempre!** Supporto al protocollo MCP, 4 nuovi canali (Matrix/IRC/WeCom/Discord Proxy), 3 nuovi provider (Kimi/Minimax/Avian), pipeline visiva, archivio memoria JSONL, routing dei modelli.
+2026-03-31 📱 **Supporto Android!** Rhizome ora gira su Android! L'APK Android non è distribuito da questo fork; compilare dai sorgenti o controllare i [GitHub Releases](https://github.com/stpinkie/rhizome/releases) per un APK futuro.
 
-2026-02-28 📦 **v0.2.0** rilasciata con supporto Docker Compose e Web UI Launcher.
+2026-03-25 🚀 **Rilasciata v0.2.4!** Ristrutturazione completa dell'architettura Agent (SubTurn, Hook, Steering, EventBus), integrazione profonda WeChat/WeCom, potenziamento della sicurezza (.security.yml, filtraggio dati sensibili), nuovi provider (AWS Bedrock, Azure, Xiaomi MiMo) e 35 correzioni di bug. Rhizome ha raggiunto **26K Stars**!
+
+2026-03-17 🚀 **Rilasciata v0.2.3!** UI nel vassoio di sistema (Windows & Linux), query di stato del sub-agent (`spawn_status`), hot-reload sperimentale del Gateway, gate di sicurezza Cron, e 2 correzioni di sicurezza. Rhizome ha raggiunto **25K Stars**!
+
+2026-03-09 🎉 **v0.2.1 — L'aggiornamento più grande finora!** Supporto al protocollo MCP, 4 nuovi channel (Matrix/IRC/WeCom/Discord Proxy), 3 nuovi provider (Kimi/Minimax/Avian), pipeline visiva, memoria JSONL, routing dei modelli.
+
+2026-02-28 📦 **v0.2.0** rilasciata con supporto a Docker Compose e Web UI Launcher.
 
 <details>
-<summary>Notizie precedenti...</summary>
+<summary>Novità precedenti...</summary>
 
-2026-02-26 🎉 Rhizome raggiunge **20K stelle** in soli 17 giorni! Orchestrazione automatica dei canali e interfacce di capacità sono attive.
+2026-02-26 🎉 Rhizome raggiunge **20K Stars** in soli 17 giorni! Orchestrazione automatica dei channel e interfaccia delle capacità disponibili.
 
-2026-02-16 🎉 Rhizome supera 12K stelle in una settimana! Ruoli di maintainer della community e [Roadmap](../../ROADMAP.md) pubblicati ufficialmente.
+2026-02-16 🎉 Rhizome supera 12K Stars in una settimana! Ruolo di maintainer della comunità e [Roadmap](../../ROADMAP.md) rilasciati ufficialmente.
 
-2026-02-13 🎉 Rhizome supera 5000 stelle in 4 giorni! Roadmap del progetto e gruppi sviluppatori in fase di avvio.
+2026-02-13 🎉 Rhizome supera 5000 Stars in 4 giorni! Roadmap del progetto e gruppo sviluppatori in costruzione.
 
-2026-02-09 🎉 **Rhizome lanciato!** Costruito in 1 giorno per portare gli AI Agent su hardware da $10 con <10MB di RAM. Let's Go, Rhizome!
+2026-02-09 🎉 **Rhizome rilasciato!** Costruito in 1 giorno per esplorare Agent AI ultra-leggeri. Let's Go, Rhizome!
 
 </details>
 
 ## ✨ Caratteristiche
 
-🪶 **Ultra-Leggero**: Impronta di memoria <10MB — il 99% più piccolo rispetto a OpenClaw.*
+🪶 **Binario unico, senza dipendenze runtime**: Un eseguibile Go collegato staticamente che gira su Linux, Windows, macOS, FreeBSD/NetBSD e Android.*
 
-💰 **Costo Minimo**: Abbastanza efficiente da girare su hardware da $10 — il 98% più economico di un Mac mini.
+💰 **Costo minimo**: Abbastanza efficiente da girare su una vasta gamma di schede ARM e RISC-V a basso costo; vedi la [Lista di Compatibilità Hardware](../guides/hardware-compatibility.md).
 
-⚡️ **Avvio Fulmineo**: Avvio 400 volte più veloce. Boot in meno di 1 secondo anche su un singolo core a 0,6 GHz.
+⚡️ **Boot fulmineo**: Si avvia in meno di un secondo sulle schede a basso costo verificate.
 
-🌍 **Vera Portabilità**: Singolo binario per RISC-V, ARM, MIPS e x86. Un binario, funziona ovunque!
+🌍 **Veramente portatile**: Un unico binario tra le architetture RISC-V, ARM, MIPS e x86. Un binario, gira ovunque!
 
-🤖 **Auto-Costruito dall'IA**: Implementazione nativa in Go — il 95% del codice core è stato generato da un Agent e perfezionato tramite revisione umana nel ciclo.
+🤖 **AI-bootstrapped**: Implementazione pura nativa Go — il 95% del codice core è stato generato da un Agent e affinato attraverso revisione umana.
 
-🔌 **Supporto MCP**: Integrazione nativa del [Model Context Protocol](https://modelcontextprotocol.io/) — connetti qualsiasi server MCP per estendere le capacità dell'Agent.
+🔌 **Supporto MCP**: Integrazione nativa con il [Model Context Protocol](https://modelcontextprotocol.io/) — connetti qualsiasi server MCP per estendere le capacità dell'Agent.
 
-👁️ **Pipeline di Visione**: Invia immagini e file direttamente all'Agent — codifica base64 automatica per LLM multimodali.
+👁️ **Pipeline visiva**: Invia immagini e file direttamente all'Agent — codifica base64 automatica per LLM multimodali.
 
-🧠 **Routing Intelligente**: Routing dei modelli basato su regole — le query semplici vanno verso modelli leggeri, risparmiando sui costi API.
+🧠 **Routing intelligente**: Routing dei modelli basato su regole — le query semplici vanno a modelli leggeri, risparmiando costi API.
 
-_*Le build recenti potrebbero usare 10-20MB a causa delle fusioni rapide di PR. L'ottimizzazione delle risorse è pianificata. Il confronto dell'avvio è basato su benchmark con singolo core a 0,8 GHz (vedi tabella sotto)._
+_*La misurazione dell'impronta è stata effettuata su Windows con `CGO_ENABLED=0`, tag `goolm,stdjson` e `-ldflags "-s -w"`; il binario strip è di circa 98 MB. Una build `nonetwork` è pianificata per ridurre ulteriormente su schede ultra-piccole._
 
 <div align="center">
 
-|                                | OpenClaw      | NanoBot                  | **Rhizome**                           |
-| ------------------------------ | ------------- | ------------------------ | -------------------------------------- |
-| **Linguaggio**                 | TypeScript    | Python                   | **Go**                                 |
-| **RAM**                        | >1GB          | >100MB                   | **< 10MB***                            |
-| **Avvio**</br>(core 0,8 GHz)  | >500s         | >30s                     | **<1s**                                |
-| **Costo**                      | Mac Mini $599 | La maggior parte degli SBC Linux ~$50 | **Qualsiasi scheda Linux**</br>**a partire da $10** |
+### Impronta Attuale della Build
 
-<img src="../../assets/compare.jpg" alt="Rhizome" width="512">
+| Modo | Caso d'uso | RAM Totale | RAM Libera | Archiviazione |
+|------|------------|------------|------------|---------------|
+| **Base** | `rhizome agent`, `rhizome onboard` one-shot | 256 MB | 128 MB | 128 MB |
+| **Completo** | `rhizome daemon` con P2P, syncer e gateway | 512 MB | 256 MB | 128 MB |
 
 </div>
 
-> **[Lista di Compatibilità Hardware](../guides/hardware-compatibility.md)** — Vedi tutte le schede testate, dai $5 RISC-V al Raspberry Pi ai telefoni Android. La tua scheda non è elencata? Invia una PR!
+> **[Lista di Compatibilità Hardware](../guides/hardware-compatibility.md)** — Vedi tutte le schede testate, dal Raspberry Pi ai telefoni Android. La tua scheda non è in lista? Invia una PR!
 
 <p align="center">
 <img src="../../assets/hardware-banner.jpg" alt="Rhizome Hardware Compatibility" width="100%">
@@ -133,8 +120,8 @@ _*Le build recenti potrebbero usare 10-20MB a causa delle fusioni rapide di PR. 
 <table align="center">
 <tr align="center">
 <th><p align="center">Modalità Ingegnere Full-Stack</p></th>
-<th><p align="center">Log & Pianificazione</p></th>
-<th><p align="center">Ricerca Web & Apprendimento</p></th>
+<th><p align="center">Logging e Pianificazione</p></th>
+<th><p align="center">Ricerca Web e Apprendimento</p></th>
 </tr>
 <tr>
 <td align="center"><p align="center"><img src="../../assets/rhizome_code.gif" width="240" height="180"></p></td>
@@ -142,40 +129,43 @@ _*Le build recenti potrebbero usare 10-20MB a causa delle fusioni rapide di PR. 
 <td align="center"><p align="center"><img src="../../assets/rhizome_search.gif" width="240" height="180"></p></td>
 </tr>
 <tr>
-<td align="center">Sviluppa · Distribuisci · Scala</td>
-<td align="center">Pianifica · Automatizza · Memorizza</td>
-<td align="center">Scopri · Analizza · Tendenze</td>
+<td align="center">Sviluppare · Deployare · Scalar</td>
+<td align="center">Schedulare · Automatizzare · Ricordare</td>
+<td align="center">Scoprire · Insight · Trend</td>
 </tr>
 </table>
 
 ### 🐜 Deploy Innovativo a Bassa Impronta
 
-Rhizome può essere distribuito su quasi qualsiasi dispositivo Linux!
+Rhizome può essere distribuito su un'ampia gamma di dispositivi Linux ed embedded!
 
-- $9,9 [LicheeRV-Nano](https://www.aliexpress.com/item/1005006519668532.html) versione E (Ethernet) o W (WiFi6), per un assistente domotico minimale
-- $30~50 [NanoKVM](https://www.aliexpress.com/item/1005007369816019.html), o $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html), per la manutenzione automatizzata dei server
-- $50 [MaixCAM](https://www.aliexpress.com/item/1005008053333693.html) o $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera), per la sorveglianza intelligente
+- $15 [Raspberry Pi Zero](https://www.raspberrypi.com/products/raspberry-pi-zero/) (o [Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)), per un assistente domestico minimale
+- $50~70 [CanMV-K230](https://developer.canaan-creative.com/k230_canmv/en/main/), per uso embedded basato su RISC-V
+- $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html), per operazioni server automatizzate
+- $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera), per sorveglianza intelligente
+
+> Vedi la [Lista di Compatibilità Hardware](../guides/hardware-compatibility.md) per l'elenco completo delle schede verificate e i requisiti attuali a due livelli.
 
 <https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
 
-🌟 Molti altri scenari di deploy ti aspettano!
+🌟 Ulteriori Casi di Deploy in Arrivo!
 
 ## 📦 Installazione
 
-### Scarica da picoclaw.io (Consigliato)
+### Scarica da GitHub Releases (Consigliato)
 
-Visita **[picoclaw.io](https://picoclaw.io)** — il sito ufficiale rileva automaticamente la tua piattaforma e fornisce il download con un clic. Non è necessario scegliere manualmente l'architettura.
+Visita la pagina [GitHub Releases](https://github.com/stpinkie/rhizome/releases) e scarica il binario per la tua piattaforma.
 
 ### Scarica il binario precompilato
 
-In alternativa, scarica il binario per la tua piattaforma dalla pagina delle [GitHub Releases](https://github.com/stpinkie/rhizome/releases).
+In alternativa, scarica il binario per la tua piattaforma dalla pagina [GitHub Releases](https://github.com/stpinkie/rhizome/releases).
 
 ### Compila dai sorgenti (per lo sviluppo)
 
 Prerequisiti:
 
 - Go 1.25+
-- Node.js 22+ e pnpm 10.33.0+ per le build Web UI / launcher
+- Node.js 22+ e pnpm 10.33.0+ per i build di Web UI / launcher
 
 ```bash
 git clone https://github.com/stpinkie/rhizome.git
@@ -186,33 +176,35 @@ make deps
 # Installa le dipendenze frontend
 (cd web/frontend && pnpm install --frozen-lockfile)
 
-# Compila il binario core
+# Build del binario core per la piattaforma corrente
 make build
 
-# Compila il Web UI Launcher (necessario per la modalità WebUI)
+# Build del Web UI Launcher (necessario per la modalità WebUI)
 make build-launcher
 
-# Compila i binari core per tutte le piattaforme gestite dal Makefile
+# Build dei binari core per tutte le piattaforme gestite dal Makefile
 make build-all
 
-# Compila per Raspberry Pi Zero 2 W (32-bit: make build-linux-arm; 64-bit: make build-linux-arm64)
+# Build per Raspberry Pi Zero 2 W
+# 32-bit: make build-linux-arm
+# 64-bit: make build-linux-arm64
 make build-pi-zero
 
-# Compila e installa
+# Build e installazione
 make install
 ```
 
-**Raspberry Pi Zero 2 W:** Usa il binario che corrisponde al tuo OS: Raspberry Pi OS 32-bit -> `make build-linux-arm`; 64-bit -> `make build-linux-arm64`. Oppure esegui `make build-pi-zero` per compilare entrambi.
+**Raspberry Pi Zero 2 W:** Usa il binario corrispondente al tuo SO: Raspberry Pi OS 32-bit -> `make build-linux-arm`; 64-bit -> `make build-linux-arm64`. Oppure esegui `make build-pi-zero` per buildare entrambi.
 
 ## 🚀 Guida Rapida
 
 ### 🌐 WebUI Launcher (Consigliato per Desktop)
 
-Il WebUI Launcher fornisce un'interfaccia basata su browser per la configurazione e la chat. È il modo più semplice per iniziare — non è richiesta alcuna conoscenza della riga di comando.
+WebUI Launcher fornisce un'interfaccia basata su browser per configurazione e chat. È il modo più semplice per iniziare — nessuna conoscenza della riga di comando richiesta.
 
 **Opzione 1: Doppio clic (Desktop)**
 
-Dopo aver scaricato da [picoclaw.io](https://picoclaw.io), fai doppio clic su `rhizome-launcher` (o `rhizome-launcher.exe` su Windows). Il browser si aprirà automaticamente su `http://localhost:18800`.
+Dopo aver scaricato da [GitHub Releases](https://github.com/stpinkie/rhizome/releases), fai doppio clic su `rhizome-launcher` (o `rhizome-launcher.exe` su Windows). Il browser si aprirà automaticamente su `http://localhost:18800`.
 
 **Opzione 2: Riga di comando**
 
@@ -233,9 +225,9 @@ rhizome-launcher
 
 **Per iniziare:**
 
-Apri il WebUI, poi: **1)** Configura un Provider (aggiungi la tua API key LLM) -> **2)** Configura un Channel (es. Telegram) -> **3)** Avvia il Gateway -> **4)** Chatta!
+Apri il WebUI, poi: **1)** Configura un Provider (aggiungi la tua API key LLM) → **2)** Configura un Channel (es. Telegram) → **3)** Avvia il Gateway → **4)** Chatta!
 
-Per la documentazione dettagliata del WebUI, vedi [docs.picoclaw.io](https://docs.picoclaw.io).
+Per la documentazione dettagliata, vedi la [cartella docs/](https://github.com/stpinkie/rhizome/tree/main/docs) in questo repo.
 
 <details>
 <summary><b>Docker (alternativa)</b></summary>
@@ -245,7 +237,7 @@ Per la documentazione dettagliata del WebUI, vedi [docs.picoclaw.io](https://doc
 git clone https://github.com/stpinkie/rhizome.git
 cd rhizome
 
-# 2. Prima esecuzione — genera automaticamente docker/data/config.json poi si ferma
+# 2. Prima esecuzione — genera automaticamente docker/data/config.json poi esce
 #    (si attiva solo quando sia config.json che workspace/ sono assenti)
 docker compose -f docker/docker-compose.yml --profile launcher up
 # Il container stampa "First-run setup complete." e si ferma.
@@ -258,7 +250,7 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 # Apri http://localhost:18800
 ```
 
-> **Utenti Docker / VM:** Il Gateway ascolta su `127.0.0.1` per impostazione predefinita. Imposta `RHIZOME_GATEWAY_HOST=0.0.0.0` o usa il flag `-public` per renderlo accessibile dall'host.
+> **Utenti Docker / VM:** Il Gateway ascolta su `127.0.0.1` di default. Imposta `RHIZOME_GATEWAY_HOST=0.0.0.0` o usa il flag `-public` per renderlo accessibile dall'host.
 
 ```bash
 # Controlla i log
@@ -279,27 +271,28 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 
 macOS potrebbe bloccare `rhizome-launcher` al primo avvio perché è stato scaricato da internet e non è notarizzato tramite il Mac App Store.
 
-**Passo 1:** Fai doppio clic su `rhizome-launcher`. Verrà visualizzato un avviso di sicurezza:
+**Passo 1:** Fai doppio clic su `rhizome-launcher`. Vedrai un avviso di sicurezza:
 
 <p align="center">
 <img src="../../assets/macos-gatekeeper-warning.jpg" alt="Avviso macOS Gatekeeper" width="400">
 </p>
 
-> *"rhizome-launcher" Non Aperto — Apple non è riuscita a verificare che "rhizome-launcher" sia privo di malware che potrebbe danneggiare il Mac o compromettere la privacy.*
+> *"rhizome-launcher" non aperto — Apple non ha potuto verificare che "rhizome-launcher" sia libero da malware che potrebbe danneggiare il tuo Mac o compromettere la tua privacy.*
 
-**Passo 2:** Apri **Impostazioni di Sistema** → **Privacy e sicurezza** → scorri fino alla sezione **Sicurezza** → clicca su **Apri comunque** → conferma cliccando su **Apri comunque** nella finestra di dialogo.
+**Passo 2:** Apri **Impostazioni di Sistema** → **Privacy e Sicurezza** → scorri fino alla sezione **Sicurezza** → clicca **Apri comunque** → conferma cliccando **Apri comunque** nel dialogo.
 
 <p align="center">
-<img src="../../assets/macos-gatekeeper-allow.jpg" alt="macOS Privacy e sicurezza — Apri comunque" width="600">
+<img src="../../assets/macos-gatekeeper-allow.jpg" alt="macOS Privacy & Sicurezza — Apri comunque" width="600">
 </p>
 
-Dopo questo passaggio una tantum, `rhizome-launcher` si aprirà normalmente ai lanci successivi.
+Dopo questo passo una tantum, `rhizome-launcher` si aprirà normalmente nei lanci successivi.
 
 </details>
 
+<a id="-run-on-old-android-phones"></a>
 ### 📱 Android
 
-Dai una seconda vita al tuo telefono di dieci anni fa! Trasformalo in un assistente IA intelligente con Rhizome.
+Dai una seconda vita al tuo vecchio telefono! Trasformalo in un Assistente AI Intelligente con Rhizome.
 
 **Opzione 1: Installazione APK**
 
@@ -314,18 +307,20 @@ Anteprima:
   </tr>
 </table>
 
-Scarica l'APK da [picoclaw.io](https://picoclaw.io/download/) e installa direttamente. Senza Termux!
+L'APK Android non è attualmente pubblicato da questo fork; compila dai sorgenti o controlla i [GitHub Releases](https://github.com/stpinkie/rhizome/releases) per un APK futuro.
 
 **Opzione 2: Termux**
+
+Per una lista di controllo completa dell'installazione da riga di comando, vedi la [Guida Android Termux](../guides/android-termux.md).
 
 <details>
 <summary><b>Terminal Launcher (per ambienti con risorse limitate)</b></summary>
 
-1. Installa [Termux](https://github.com/termux/termux-app) (scarica da [GitHub Releases](https://github.com/termux/termux-app/releases), o cerca su F-Droid / Google Play)
+1. Installa [Termux](https://github.com/termux/termux-app) (scarica dai [GitHub Releases](https://github.com/termux/termux-app/releases), o cerca in F-Droid / Google Play)
 2. Esegui i seguenti comandi:
 
 ```bash
-# Scarica l'ultima release
+# Scarica l'ultimo release
 wget https://github.com/stpinkie/rhizome/releases/latest/download/rhizome_Linux_arm64.tar.gz
 tar xzf rhizome_Linux_arm64.tar.gz
 pkg install proot
@@ -336,7 +331,7 @@ Poi segui la sezione Terminal Launcher qui sotto per completare la configurazion
 
 <img src="../../assets/termux.jpg" alt="Rhizome on Termux" width="512">
 
-Per ambienti minimali dove è disponibile solo il binario core `rhizome` (senza Launcher UI), puoi configurare tutto tramite riga di comando e un file di configurazione JSON.
+Per ambienti minimi in cui è disponibile solo il binario core `rhizome` (senza Launcher UI), puoi configurare tutto tramite riga di comando e un file di configurazione JSON.
 
 **1. Inizializza**
 
@@ -350,7 +345,6 @@ Questo crea `~/.rhizome/config.json` e la directory workspace.
 
 ```json
 {
-  "version": 3,
   "agents": {
     "defaults": {
       "model_name": "gpt-5.4"
@@ -359,25 +353,27 @@ Questo crea `~/.rhizome/config.json` e la directory workspace.
   "model_list": [
     {
       "model_name": "gpt-5.4",
-      "model": "openai/gpt-5.4",
-      "api_keys": ["sk-your-api-key"]
+      "model": "openai/gpt-5.4"
+      // api_key è ora caricata da .security.yml
     }
   ]
 }
 ```
 
-> Vedi `config/config.example.json` nel repo per un template di configurazione completo con tutte le opzioni disponibili.
+> Per un modello di configurazione completo con tutte le opzioni disponibili, vedi `config/config.example.json` nel repo.
+>
+> Nota: config.example.json è nel formato version 0, con codici sensibili, e verrà migrato automaticamente alla versione 1+; poi config.json conterrà solo dati non sensibili, mentre i codici sensibili saranno in .security.yml. Se devi modificare manualmente i codici, vedi `docs/security/security_configuration.md`.
 
-**3. Chatta**
+**3. Chat**
 
 ```bash
-# Domanda singola
-rhizome agent -m "Quanto fa 2+2?"
+# Una domanda una tantum
+rhizome agent -m "What is 2+2?"
 
 # Modalità interattiva
 rhizome agent
 
-# Avvia il gateway per l'integrazione con app di chat
+# Avvia il gateway per l'integrazione con l'app di chat
 rhizome gateway
 ```
 

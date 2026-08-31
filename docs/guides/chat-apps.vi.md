@@ -224,7 +224,7 @@ rhizome gateway
 
 **Thiết lập nhanh (khuyến nghị)**
 
-QQ Open Platform cung cấp trang thiết lập một chạm cho bot tương thích OpenClaw:
+QQ Open Platform cung cấp trang thiết lập một chạm cho bot tương thích PicoClaw:
 
 1. Mở [QQ Bot Quick Start](https://q.qq.com/qqbot/openclaw/index.html) và quét mã QR để đăng nhập
 2. Bot được tạo tự động — sao chép **App ID** và **App Secret**

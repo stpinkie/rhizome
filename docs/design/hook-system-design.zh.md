@@ -15,9 +15,9 @@
 
 ## 外部项目对比
 
-### OpenClaw
+### PicoClaw
 
-OpenClaw 的扩展能力分成三层：
+PicoClaw 的扩展能力分成三层：
 
 - Internal hooks：目录发现，运行在 Gateway 进程内
 - Plugin hooks：插件在运行时注册 hook，也在进程内
@@ -31,7 +31,7 @@ OpenClaw 的扩展能力分成三层：
 
 不建议直接照搬的点：
 
-- OpenClaw 的 hooks / plugin hooks / webhooks 是三套路由，Rhizome 当前体量下会偏重
+- PicoClaw 的 hooks / plugin hooks / webhooks 是三套路由，Rhizome 当前体量下会偏重
 - HTTP webhook 更适合“事件进入系统”，不适合作为“可同步拦截 agent loop”的基础机制
 
 ### pi-mono
@@ -226,7 +226,7 @@ func init() {
 }
 ```
 
-这比 OpenClaw 的目录扫描更轻，也更贴合 Go 项目。
+这比 PicoClaw 的目录扫描更轻，也更贴合 Go 项目。
 
 ## 项目外挂载
 
@@ -293,7 +293,7 @@ Rhizome 启动外部进程，并在其 stdin/stdout 上跑协议。
 - HTTP webhook 更适合“外部系统向 Rhizome 投递事件”
 - stdio/RPC 更适合“Rhizome 在 turn 内同步询问外部 hook 是否改写 / 放行 / 拒绝”
 
-如果未来需要 OpenClaw 式 webhook，可以作为独立入口层，再把外部事件转成 inbound message 或 steering，而不是直接替代 hook IPC。
+如果未来需要 PicoClaw 式 webhook，可以作为独立入口层，再把外部事件转成 inbound message 或 steering，而不是直接替代 hook IPC。
 
 ## Hook 执行顺序
 
@@ -464,7 +464,7 @@ V1 不做复杂自动发现。
 
 ## 最终结论
 
-最适合 Rhizome 当前分支的方案，不是直接复制 OpenClaw 的 hooks，也不是完整照搬 pi-mono 的 extension system，而是：
+最适合 Rhizome 当前分支的方案，不是直接复制 PicoClaw 的 hooks，也不是完整照搬 pi-mono 的 extension system，而是：
 
 - 以 `pkg/events` runtime event bus 为只读观察面
 - 以新增 `HookManager` 为同步拦截面

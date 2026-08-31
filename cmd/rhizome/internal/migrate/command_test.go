@@ -13,7 +13,7 @@ func TestNewMigrateCommand(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	assert.Equal(t, "migrate", cmd.Use)
-	assert.Equal(t, "Migrate from xxxclaw(openclaw, etc.) to rhizome", cmd.Short)
+	assert.Equal(t, "Migrate from PicoClaw (formerly OpenClaw) to Rhizome", cmd.Short)
 
 	assert.Len(t, cmd.Aliases, 0)
 

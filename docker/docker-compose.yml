@@ -7,7 +7,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/rhizome:latest
+    image: docker.io/stpinkie/rhizome:latest
     container_name: rhizome-agent
     profiles:
       - agent
@@ -28,7 +28,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/rhizome:latest
+    image: docker.io/stpinkie/rhizome:latest
     container_name: rhizome-gateway
     restart: unless-stopped
     profiles:
@@ -47,7 +47,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.launcher
-    image: docker.io/sipeed/rhizome:launcher
+    image: docker.io/stpinkie/rhizome:launcher
     container_name: rhizome-launcher
     restart: unless-stopped
     profiles:

@@ -257,7 +257,7 @@ rhizome gateway
 
 **クイックセットアップ（推奨）**
 
-QQ 開放プラットフォームでは、OpenClaw 互換ボットのワンクリックセットアップページが提供されています：
+QQ 開放プラットフォームでは、PicoClaw 互換ボットのワンクリックセットアップページが提供されています：
 
 1. [QQ Bot クイックスタート](https://q.qq.com/qqbot/openclaw/index.html) を開き、QR コードをスキャンしてログイン
 2. ボットが自動的に作成されます — **App ID** と **App Secret** をコピー

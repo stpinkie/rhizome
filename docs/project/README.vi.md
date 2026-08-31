@@ -9,13 +9,11 @@
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/rhizome"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
+    <a href="https://github.com/stpinkie/rhizome"><img src="https://img.shields.io/badge/GitHub-stpinkie/rhizome-181717?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
+    <a href="https://github.com/stpinkie/rhizome/tree/main/docs"><img src="https://img.shields.io/badge/Docs-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
     <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <br>
+    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
   </p>
 
 [中文](README.zh.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | **Tiếng Việt** | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
@@ -24,47 +22,38 @@
 
 ---
 
-> **Rhizome** là một dự án mã nguồn mở độc lập do [Sipeed](https://sipeed.com) khởi xướng, được viết hoàn toàn bằng **Go** từ đầu — không phải fork của OpenClaw, NanoBot hay bất kỳ dự án nào khác.
+> **Rhizome** là một hard fork được cộng đồng duy trì từ [PicoClaw](https://github.com/sipeed/picoclaw). Nó được viết hoàn toàn bằng **Go** và tiếp tục mục tiêu trở thành trợ lý AI cá nhân siêu nhẹ.
 
-**Rhizome** là trợ lý AI cá nhân siêu nhẹ lấy cảm hứng từ [NanoBot](https://github.com/HKUDS/nanobot). Nó được xây dựng lại từ đầu bằng **Go** thông qua quá trình "tự khởi động" — chính AI Agent đã dẫn dắt quá trình di chuyển kiến trúc và tối ưu hóa mã nguồn.
+**Rhizome** là trợ lý AI cá nhân lấy cảm hứng từ [NanoBot](https://github.com/HKUDS/nanobot). Nó thêm mesh P2P Go, đồng bộ workspace và gateway agent lên ý tưởng PicoClaw gốc.
 
-**Chạy trên phần cứng $10 với <10MB RAM** — ít hơn 99% bộ nhớ so với OpenClaw và rẻ hơn 98% so với Mac mini!
+**Một binary Go duy nhất, không có runtime dependency** — chạy trực tiếp trên Linux, Windows, macOS, FreeBSD/NetBSD và Android. Xem [Danh sách Tương thích Phần cứng](../guides/hardware-compatibility.vi.md) để biết các board đã kiểm tra và yêu cầu tài nguyên hai cấp hiện tại.
 
-<table align="center">
-<tr align="center">
-<td align="center" valign="top">
 <p align="center">
 <img src="../../assets/rhizome_mem.gif" width="360" height="240">
 </p>
-</td>
-<td align="center" valign="top">
-<p align="center">
-<img src="../../assets/licheervnano.png" width="400" height="240">
-</p>
-</td>
-</tr>
-</table>
 
 > [!CAUTION]
-> **Thông báo Bảo mật**
+> **THÔNG BÁO BẢO MẬT**
 >
 > * **KHÔNG CÓ CRYPTO:** Rhizome **chưa** phát hành bất kỳ token hay tiền điện tử chính thức nào. Mọi thông tin trên `pump.fun` hoặc các nền tảng giao dịch khác đều là **lừa đảo**.
-> * **DOMAIN CHÍNH THỨC:** Website chính thức **DUY NHẤT** là **[picoclaw.io](https://picoclaw.io)**, và website công ty là **[sipeed.com](https://sipeed.com)**
+> * **NGUỒN CHÍNH THỨC (CANONICAL SOURCE):** Nguồn và địa điểm phát hành chính thức là **<https://github.com/stpinkie/rhizome>**; các bản phát hành đăng tải trên GitHub Releases. Hãy cẩn thận với các domain bên thứ ba tự nhận là chính thức.
 > * **CẢNH BÁO:** Nhiều domain `.ai/.org/.com/.net/...` đã bị bên thứ ba đăng ký. Đừng tin tưởng chúng.
 > * **LƯU Ý:** Rhizome đang trong giai đoạn phát triển nhanh. Có thể còn các vấn đề bảo mật chưa được giải quyết. Không triển khai lên môi trường production trước v1.0.
-> * **LƯU Ý:** Rhizome gần đây đã merge nhiều PR. Các bản build gần đây có thể dùng 10-20MB RAM. Tối ưu hóa tài nguyên được lên kế hoạch sau khi tính năng ổn định.
+> * **LƯU Ý:** Binary `rhizome` đầy đủ khoảng 98 MB và daemon sử dụng khoảng 60 MB bộ nhớ riêng. Chúng tôi dự định xây dựng phiên bản `nonetwork` để giảm hơn nữa cho các board cực nhỏ. Tối ưu hóa tài nguyên được lên kế hoạch sau khi tính năng ổn định.
 
 ## 📢 Tin tức
 
-2026-05-11 🛒 **LicheeRV-Claw đã có trên AliExpress!** Bạn hiện có thể mua LicheeRV-Claw trên [AliExpress](https://www.aliexpress.com/item/1005006519668532.html), giúp việc thử Rhizome trên phần cứng RISC-V nhỏ gọn dễ dàng hơn.
+2026-05-28 🚀 **v0.2.9 đã phát hành!** Quản lý MCP server trong Web UI, tìm kiếm web dựa trên Sogou có thể cấu hình, hiệu ứng phản hồi công cụ trong channel, giá trị mặc định `pretty_print` và `disable_escape_html`, và nhiều bản sửa lỗi trên provider và channel.
 
-<p align="center">
-  <a href="https://www.aliexpress.com/item/1005006519668532.html">
-    <img src="../../assets/licheerv-claw.jpg" alt="LicheeRV-Claw on AliExpress" width="520">
-  </a>
-</p>
+2026-05-14 🚀 **v0.2.8 đã phát hành!** Lệnh MCP CLI (`show`, `add`, `list`, `remove`, `test`, `edit`), đối tượng rỗng thay vì null cho tham số công cụ MCP, và các bản sửa build.
 
-2026-03-31 📱 **Hỗ trợ Android!** Rhizome giờ chạy trên Android! Tải APK tại [picoclaw.io](https://picoclaw.io/download)
+2026-05-07 🚀 **v0.2.7 đã phát hành!** Tìm kiếm web dựa trên Sogou có thể cấu hình, hiệu ứng phản hồi công cụ trong channel, sửa linter.
+
+2026-04-23 🚀 **v0.2.6 đã phát hành!** Hook với hành động respond và tài liệu toàn diện, hỗ trợ cô lập, sửa banner trợ giúp.
+
+2026-04-11 🚀 **v0.2.5 đã phát hành!** Zoneinfo từ biến môi trường TZ/ZONEINFO, căn chỉnh rendering Matrix CommonMark, `read_file` theo dòng.
+
+2026-03-31 📱 **Hỗ trợ Android!** Rhizome giờ chạy trên Android! APK Android hiện chưa được phân phối từ fork này; hãy xây dựng từ mã nguồn hoặc kiểm tra [GitHub Releases](https://github.com/stpinkie/rhizome/releases) để có phiên bản APK trong tương lai.
 
 2026-03-25 🚀 **v0.2.4 đã phát hành!** Tái cấu trúc kiến trúc Agent (SubTurn, Hooks, Steering, EventBus), tích hợp WeChat/WeCom, tăng cường bảo mật (.security.yml, lọc dữ liệu nhạy cảm), provider mới (AWS Bedrock, Azure, Xiaomi MiMo) và 35 bản vá lỗi. Rhizome đã đạt **26K Stars**!
 
@@ -83,17 +72,17 @@
 
 2026-02-13 🎉 Rhizome vượt 5000 Stars trong 4 ngày! Lộ trình dự án và nhóm nhà phát triển đang được xây dựng.
 
-2026-02-09 🎉 **Rhizome ra mắt!** Được xây dựng trong 1 ngày để đưa AI Agent lên phần cứng $10 với <10MB RAM. Let's Go, Rhizome!
+2026-02-09 🎉 **Rhizome ra mắt!** Được xây dựng trong 1 ngày để khám phá AI Agent siêu nhẹ. Let's Go, Rhizome!
 
 </details>
 
 ## ✨ Tính năng
 
-🪶 **Siêu nhẹ**: Bộ nhớ lõi <10MB — nhỏ hơn 99% so với OpenClaw.*
+🪶 **Binary duy nhất, không có runtime dependency**: Một executable Go liên kết tĩnh chạy trên Linux, Windows, macOS, FreeBSD/NetBSD và Android.*
 
-💰 **Chi phí tối thiểu**: Đủ hiệu quả để chạy trên phần cứng $10 — rẻ hơn 98% so với Mac mini.
+💰 **Chi phí tối thiểu**: Đủ hiệu quả để chạy trên nhiều board ARM và RISC-V giá rẻ; xem [Danh sách Tương thích Phần cứng](../guides/hardware-compatibility.vi.md).
 
-⚡️ **Khởi động cực nhanh**: Khởi động nhanh hơn 400 lần. Khởi động trong <1 giây ngay cả trên bộ xử lý đơn nhân 0.6GHz.
+⚡️ **Khởi động cực nhanh**: Khởi động trong dưới 1 giây trên các board giá rẻ đã được kiểm chứng.
 
 🌍 **Thực sự di động**: Một binary duy nhất cho các kiến trúc RISC-V, ARM, MIPS và x86. Một binary, chạy mọi nơi!
 
@@ -105,22 +94,20 @@
 
 🧠 **Định tuyến thông minh**: Định tuyến mô hình dựa trên quy tắc — các truy vấn đơn giản đến mô hình nhẹ, tiết kiệm chi phí API.
 
-_*Các bản build gần đây có thể dùng 10-20MB do merge PR nhanh. Tối ưu hóa tài nguyên đang được lên kế hoạch. So sánh tốc độ khởi động dựa trên benchmark lõi đơn 0.8GHz (xem bảng bên dưới)._
+_*Số đo dấu chân được thực hiện trên Windows với `CGO_ENABLED=0`, tags `goolm,stdjson` và `-ldflags "-s -w"`; binary đã strip khoảng 98 MB. Chúng tôi dự định xây dựng phiên bản `nonetwork` để giảm hơn nữa cho các board cực nhỏ._
 
 <div align="center">
 
-|                                | OpenClaw      | NanoBot                  | **Rhizome**                           |
-| ------------------------------ | ------------- | ------------------------ | -------------------------------------- |
-| **Ngôn ngữ**                   | TypeScript    | Python                   | **Go**                                 |
-| **RAM**                        | >1GB          | >100MB                   | **< 10MB***                            |
-| **Thời gian khởi động**</br>(lõi 0.8GHz) | >500s         | >30s                     | **<1s**                                |
-| **Chi phí**                    | Mac Mini $599 | Hầu hết board Linux ~$50 | **Bất kỳ board Linux**</br>**từ $10**  |
+### Dấu chân bản dựng hiện tại
 
-<img src="../../assets/compare.jpg" alt="Rhizome" width="512">
+| Chế độ | Trường hợp sử dụng | Tổng RAM | RAM trống | Lưu trữ |
+|--------|--------------------|----------|-----------|---------|
+| **Cơ bản** | Một lần `rhizome agent`, `rhizome onboard` | 256 MB | 128 MB | 128 MB |
+| **Đầy đủ** | `rhizome daemon` với P2P, syncer và gateway | 512 MB | 256 MB | 128 MB |
 
 </div>
 
-> **[Danh sách Tương thích Phần cứng](../guides/hardware-compatibility.vi.md)** — Xem tất cả các board đã được kiểm tra, từ RISC-V $5 đến Raspberry Pi đến điện thoại Android. Board của bạn chưa có trong danh sách? Gửi PR!
+> **[Danh sách Tương thích Phần cứng](../guides/hardware-compatibility.vi.md)** — Xem tất cả các board đã được kiểm tra, từ Raspberry Pi đến điện thoại Android. Board của bạn chưa có trong danh sách? Gửi PR!
 
 <p align="center">
 <img src="../../assets/hardware-banner.jpg" alt="Rhizome Hardware Compatibility" width="100%">
@@ -150,11 +137,14 @@ _*Các bản build gần đây có thể dùng 10-20MB do merge PR nhanh. Tối 
 
 ### 🐜 Triển khai Sáng tạo với Dấu chân Nhỏ
 
-Rhizome có thể được triển khai trên hầu hết mọi thiết bị Linux!
+Rhizome có thể được triển khai trên nhiều thiết bị Linux và nhúng!
 
-- $9.9 [LicheeRV-Nano](https://www.aliexpress.com/item/1005006519668532.html) phiên bản E(Ethernet) hoặc W(WiFi6), cho trợ lý gia đình tối giản
-- $30~50 [NanoKVM](https://www.aliexpress.com/item/1005007369816019.html), hoặc $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html), cho vận hành máy chủ tự động
-- $50 [MaixCAM](https://www.aliexpress.com/item/1005008053333693.html) hoặc $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera), cho giám sát thông minh
+- $15 [Raspberry Pi Zero](https://www.raspberrypi.com/products/raspberry-pi-zero/) (hoặc [Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)), cho trợ lý gia đình tối giản
+- $50~70 [CanMV-K230](https://developer.canaan-creative.com/k230_canmv/en/main/), cho ứng dụng nhúng dựa trên RISC-V
+- $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html), cho vận hành máy chủ tự động
+- $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera), cho giám sát thông minh
+
+> Xem [Danh sách Tương thích Phần cứng](../guides/hardware-compatibility.vi.md) để biết danh sách đầy đủ các board đã được xác minh và hai cấp yêu cầu hiện tại.
 
 <https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
 
@@ -162,9 +152,9 @@ Rhizome có thể được triển khai trên hầu hết mọi thiết bị Lin
 
 ## 📦 Cài đặt
 
-### Tải xuống từ picoclaw.io (Khuyến nghị)
+### Tải xuống từ GitHub Releases (Khuyến nghị)
 
-Truy cập **[picoclaw.io](https://picoclaw.io)** — website chính thức tự động phát hiện nền tảng của bạn và cung cấp tải xuống một cú nhấp. Không cần chọn kiến trúc thủ công.
+Truy cập trang [GitHub Releases](https://github.com/stpinkie/rhizome/releases) và tải xuống binary cho nền tảng của bạn.
 
 ### Tải xuống binary đã biên dịch sẵn
 
@@ -212,7 +202,7 @@ WebUI Launcher cung cấp giao diện dựa trên trình duyệt để cấu hì
 
 **Tùy chọn 1: Nhấp đúp (Desktop)**
 
-Sau khi tải xuống từ [picoclaw.io](https://picoclaw.io), nhấp đúp vào `rhizome-launcher` (hoặc `rhizome-launcher.exe` trên Windows). Trình duyệt của bạn sẽ tự động mở tại `http://localhost:18800`.
+Sau khi tải xuống từ [GitHub Releases](https://github.com/stpinkie/rhizome/releases), nhấp đúp vào `rhizome-launcher` (hoặc `rhizome-launcher.exe` trên Windows). Trình duyệt của bạn sẽ tự động mở tại `http://localhost:18800`.
 
 **Tùy chọn 2: Dòng lệnh**
 
@@ -222,7 +212,7 @@ rhizome-launcher
 ```
 
 > [!TIP]
-> **Truy cập từ xa / Docker / VM:** Thêm cờ `-public` để lắng nghe trên tất cả giao diện:
+> **Truy cập từ xa / Docker / VM:** Thêm cờ `-public` để lắng nghe trên tất cả các giao diện:
 > ```bash
 > rhizome-launcher -public
 > ```
@@ -233,9 +223,9 @@ rhizome-launcher
 
 **Bắt đầu:**
 
-Mở WebUI, sau đó: **1)** Cấu hình Provider (thêm API key LLM của bạn) -> **2)** Cấu hình Channel (ví dụ: Telegram) -> **3)** Khởi động Gateway -> **4)** Trò chuyện!
+Mở WebUI, sau đó: **1)** Cấu hình Provider (thêm API key LLM của bạn) → **2)** Cấu hình Channel (ví dụ: Telegram) → **3)** Khởi động Gateway → **4)** Trò chuyện!
 
-Để biết tài liệu WebUI chi tiết, xem [docs.picoclaw.io](https://docs.picoclaw.io).
+Tài liệu chi tiết xem [thư mục docs/](https://github.com/stpinkie/rhizome/tree/main/docs) trong repo này.
 
 <details>
 <summary><b>Docker (thay thế)</b></summary>
@@ -315,9 +305,11 @@ Xem trước:
   </tr>
 </table>
 
-Tải APK từ [picoclaw.io](https://picoclaw.io/download/) và cài đặt trực tiếp. Không cần Termux!
+Android APK hiện chưa được phát hành từ fork này; hãy xây dựng từ mã nguồn hoặc kiểm tra [GitHub Releases](https://github.com/stpinkie/rhizome/releases) để có phiên bản APK trong tương lai.
 
 **Tùy chọn 2: Termux**
+
+Để có danh sách kiểm tra đầy đủ khi thiết lập dòng lệnh, xem [Hướng dẫn Android Termux](../guides/android-termux.md).
 
 <details>
 <summary><b>Terminal Launcher (cho môi trường hạn chế tài nguyên)</b></summary>
@@ -326,11 +318,11 @@ Tải APK từ [picoclaw.io](https://picoclaw.io/download/) và cài đặt tr�
 2. Chạy các lệnh sau:
 
 ```bash
-# Download the latest release
+# Tải bản Release mới nhất
 wget https://github.com/stpinkie/rhizome/releases/latest/download/rhizome_Linux_arm64.tar.gz
 tar xzf rhizome_Linux_arm64.tar.gz
 pkg install proot
-termux-chroot ./rhizome onboard   # chroot provides a standard Linux filesystem layout
+termux-chroot ./rhizome onboard   # chroot cung cấp layout hệ thống tệp Linux chuẩn
 ```
 
 Sau đó làm theo phần Terminal Launcher bên dưới để hoàn tất cấu hình.
@@ -351,7 +343,6 @@ Lệnh này tạo `~/.rhizome/config.json` và thư mục workspace.
 
 ```json
 {
-  "version": 3,
   "agents": {
     "defaults": {
       "model_name": "gpt-5.4"
@@ -360,25 +351,27 @@ Lệnh này tạo `~/.rhizome/config.json` và thư mục workspace.
   "model_list": [
     {
       "model_name": "gpt-5.4",
-      "model": "openai/gpt-5.4",
-      "api_keys": ["sk-your-api-key"]
+      "model": "openai/gpt-5.4"
+      // api_key hiện được tải từ .security.yml
     }
   ]
 }
 ```
 
 > Xem `config/config.example.json` trong repo để có mẫu cấu hình đầy đủ với tất cả các tùy chọn có sẵn.
+>
+> Lưu ý: config.example.json có định dạng version 0, chứa mã nhạy cảm và sẽ tự động migrate lên version 1+; sau đó config.json chỉ lưu dữ liệu không nhạy cảm, còn mã nhạy cảm sẽ lưu trong .security.yml. Nếu cần chỉnh sửa mã thủ công, xem `docs/security/security_configuration.md`.
 
 **3. Trò chuyện**
 
 ```bash
-# One-shot question
+# Một câu hỏi duy nhất
 rhizome agent -m "What is 2+2?"
 
-# Interactive mode
+# Chế độ tương tác
 rhizome agent
 
-# Start gateway for chat app integration
+# Khởi động gateway để tích hợp ứng dụng chat
 rhizome gateway
 ```
 

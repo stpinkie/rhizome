@@ -11,7 +11,7 @@ func NewMigrateCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Migrate from xxxclaw(openclaw, etc.) to rhizome",
+		Short: "Migrate from PicoClaw (formerly OpenClaw) to Rhizome",
 		Args:  cobra.NoArgs,
 		Example: `  rhizome migrate
   rhizome migrate --from openclaw
@@ -36,7 +36,7 @@ func NewMigrateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.Source, "from", "openclaw",
 		"Source to migrate from (e.g., openclaw)")
 	cmd.Flags().BoolVar(&opts.Refresh, "refresh", false,
-		"Re-sync workspace files from OpenClaw (repeatable)")
+		"Re-sync workspace files from the source (OpenClaw/PicoClaw) (repeatable)")
 	cmd.Flags().BoolVar(&opts.ConfigOnly, "config-only", false,
 		"Only migrate config, skip workspace files")
 	cmd.Flags().BoolVar(&opts.WorkspaceOnly, "workspace-only", false,

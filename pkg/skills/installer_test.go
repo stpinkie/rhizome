@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,16 +26,16 @@ func TestParseGitHubRef(t *testing.T) {
 	}{
 		{
 			name:         "simple owner/repo",
-			repo:         "sipeed/rhizome",
-			wantOwner:    "sipeed",
+			repo:         "stpinkie/rhizome",
+			wantOwner:    "stpinkie",
 			wantRepoName: "rhizome",
 			wantRef:      "main",
 			wantSubPath:  "",
 		},
 		{
 			name:         "owner/repo with subpath",
-			repo:         "sipeed/rhizome/skills/test",
-			wantOwner:    "sipeed",
+			repo:         "stpinkie/rhizome/skills/test",
+			wantOwner:    "stpinkie",
 			wantRepoName: "rhizome",
 			wantRef:      "main",
 			wantSubPath:  "skills/test",
@@ -42,7 +43,7 @@ func TestParseGitHubRef(t *testing.T) {
 		{
 			name:         "full URL with tree",
 			repo:         "https://github.com/stpinkie/rhizome/tree/dev/skills/test",
-			wantOwner:    "sipeed",
+			wantOwner:    "stpinkie",
 			wantRepoName: "rhizome",
 			wantRef:      "dev",
 			wantSubPath:  "skills/test",
@@ -50,7 +51,7 @@ func TestParseGitHubRef(t *testing.T) {
 		{
 			name:         "full URL with blob",
 			repo:         "https://github.com/stpinkie/rhizome/blob/main/README.md",
-			wantOwner:    "sipeed",
+			wantOwner:    "stpinkie",
 			wantRepoName: "rhizome",
 			wantRef:      "main",
 			wantSubPath:  "README.md",
@@ -58,14 +59,14 @@ func TestParseGitHubRef(t *testing.T) {
 		{
 			name:         "full URL without ref",
 			repo:         "https://github.com/stpinkie/rhizome",
-			wantOwner:    "sipeed",
+			wantOwner:    "stpinkie",
 			wantRepoName: "rhizome",
 			wantRef:      "main",
 			wantSubPath:  "",
 		},
 		{
 			name:           "invalid format - single part",
-			repo:           "sipeed",
+			repo:           "stpinkie",
 			wantErr:        true,
 			wantErrContain: "expected 'owner/repo'",
 		},
@@ -77,21 +78,21 @@ func TestParseGitHubRef(t *testing.T) {
 		},
 		{
 			name:           "invalid GitHub URL - only one path part",
-			repo:           "https://github.com/sipeed",
+			repo:           "https://github.com/stpinkie",
 			wantErr:        true,
 			wantErrContain: "invalid GitHub URL",
 		},
 		{
 			name:         "with whitespace",
-			repo:         "  sipeed/rhizome  ",
-			wantOwner:    "sipeed",
+			repo:         "  stpinkie/rhizome  ",
+			wantOwner:    "stpinkie",
 			wantRepoName: "rhizome",
 			wantRef:      "main",
 			wantSubPath:  "",
 		},
 		{
 			name:           "invalid non github host",
-			repo:           "https://gitlab.com/sipeed/rhizome/-/tree/main/skills/test",
+			repo:           "https://gitlab.com/stpinkie/rhizome/-/tree/main/skills/test",
 			wantErr:        true,
 			wantErrContain: `invalid GitHub URL host "gitlab.com"`,
 		},
@@ -578,15 +579,17 @@ func TestSkillInstaller_DownloadFile(t *testing.T) {
 			t.Errorf("downloaded content = %q, want %q", string(data), content)
 		}
 
-		// Check file permissions
-		info, err := os.Stat(localPath)
-		if err != nil {
-			t.Errorf("failed to stat file: %v", err)
-			return
-		}
+		// Check file permissions (Unix only; Windows does not preserve mode bits)
+		if runtime.GOOS != "windows" {
+			info, err := os.Stat(localPath)
+			if err != nil {
+				t.Errorf("failed to stat file: %v", err)
+				return
+			}
 
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("file permissions = %o, want %o", info.Mode().Perm(), 0o600)
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("file permissions = %o, want %o", info.Mode().Perm(), 0o600)
+			}
 		}
 	})
 
@@ -732,7 +735,7 @@ func TestSkillInstaller_InstallFromGitHub_SkillAlreadyExists(t *testing.T) {
 	os.WriteFile(filepath.Join(existingSkill, "SKILL.md"), []byte("existing"), 0o644)
 
 	// Try to install the same skill - should fail
-	err = installer.InstallFromGitHub(context.Background(), "sipeed/rhizome")
+	err = installer.InstallFromGitHub(context.Background(), "stpinkie/rhizome")
 	if err == nil {
 		t.Error("InstallFromGitHub() expected error for existing skill, got nil")
 	}

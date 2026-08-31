@@ -4,11 +4,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestRunIntegrationTestsScriptExecutesSuiteCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("integration runner script is not supported on Windows")
+	}
+
 	bashPath, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash not available")
@@ -85,7 +90,7 @@ esac
 		t.Fatalf("WriteFile(docker stub) error = %v", err)
 	}
 
-	cmd := exec.Command(bashPath, filepath.Join(repoRoot, "scripts", "run-integration-tests.sh"), suiteName)
+	cmd := exec.Command(bashPath, "scripts/run-integration-tests.sh", suiteName)
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(),
 		"PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"),

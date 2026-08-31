@@ -265,7 +265,7 @@ rhizome gateway
 
 **快速设置（推荐）**
 
-QQ 开放平台提供了一键创建 OpenClaw 兼容机器人的页面：
+QQ 开放平台提供了一键创建 PicoClaw 兼容机器人的页面：
 
 1. 打开 [QQ 机器人快速创建](https://q.qq.com/qqbot/openclaw/index.html)，扫码登录
 2. 机器人自动创建 — 复制 **App ID** 和 **App Secret**

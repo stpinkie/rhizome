@@ -224,7 +224,7 @@ rhizome gateway
 
 **Configuration rapide (recommandée)**
 
-QQ Open Platform propose une page de configuration en un clic pour les bots compatibles OpenClaw :
+QQ Open Platform propose une page de configuration en un clic pour les bots compatibles avec PicoClaw :
 
 1. Ouvrez [QQ Bot Quick Start](https://q.qq.com/qqbot/openclaw/index.html) et scannez le QR code pour vous connecter
 2. Un bot est créé automatiquement — copiez l'**App ID** et l'**App Secret**

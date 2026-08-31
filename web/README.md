@@ -369,4 +369,4 @@ If you run only `make dev-backend`, either run `make dev-frontend` alongside it 
 - Configuration guide: [`../docs/guides/configuration.md`](../docs/guides/configuration.md)
 - Providers: [`../docs/guides/providers.md`](../docs/guides/providers.md)
 - Troubleshooting: [`../docs/operations/troubleshooting.md`](../docs/operations/troubleshooting.md)
-- Official docs site: [docs.picoclaw.io](https://docs.picoclaw.io)
+- Documentation: [docs/ folder](https://github.com/stpinkie/rhizome/tree/main/docs)

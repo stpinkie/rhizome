@@ -100,6 +100,8 @@ builds:
       - goos: netbsd
         goarch: arm
 
+# Docker images default to stpinkie/rhizome on Docker Hub.
+# Override DOCKERHUB_IMAGE_NAME to publish from a fork.
 dockers_v2:
   - id: rhizome
     dockerfile: docker/Dockerfile.goreleaser
@@ -109,7 +111,7 @@ dockers_v2:
       - rhizome
     images:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/rhizome"
-      - 'docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}'
+      - 'docker.io/{{ if isEnvSet "DOCKERHUB_IMAGE_NAME" }}{{ .Env.DOCKERHUB_IMAGE_NAME }}{{ else }}stpinkie/rhizome{{ end }}'
     tags:
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly{{ else }}{{ .Tag }}{{ end }}'
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly{{ else }}latest{{ end }}'
@@ -125,7 +127,7 @@ dockers_v2:
       - rhizome-launcher
     images:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/rhizome"
-      - 'docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}'
+      - 'docker.io/{{ if isEnvSet "DOCKERHUB_IMAGE_NAME" }}{{ .Env.DOCKERHUB_IMAGE_NAME }}{{ else }}stpinkie/rhizome{{ end }}'
     tags:
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly-launcher{{ else }}{{ .Tag }}-launcher{{ end }}'
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly-launcher{{ else }}launcher{{ end }}'

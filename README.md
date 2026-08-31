@@ -9,13 +9,11 @@
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/rhizome"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="./assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
+    <a href="https://github.com/stpinkie/rhizome"><img src="https://img.shields.io/badge/GitHub-stpinkie/rhizome-181717?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
+    <a href="https://github.com/stpinkie/rhizome/tree/main/docs"><img src="https://img.shields.io/badge/Docs-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
     <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <br>
+    <a href="./assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
   </p>
 
 [中文](docs/project/README.zh.md) | [日本語](docs/project/README.ja.md) | [한국어](docs/project/README.ko.md) | [Português](docs/project/README.pt-br.md) | [Tiếng Việt](docs/project/README.vi.md) | [Français](docs/project/README.fr.md) | [Italiano](docs/project/README.it.md) | [Bahasa Indonesia](docs/project/README.id.md) | [Malay](docs/project/README.ms.md) | **English**
@@ -24,45 +22,26 @@
 
 ---
 
-> **Rhizome** is an independent open-source project initiated by [Sipeed](https://sipeed.com), written entirely in **Go** from scratch — not a fork of OpenClaw, NanoBot, or any other project.
+> **Rhizome** is a community-maintained hard fork of [PicoClaw](https://github.com/sipeed/picoclaw). It is written entirely in **Go** and continues the goal of an ultra-lightweight personal AI assistant.
 
-**Rhizome** is an ultra-lightweight personal AI assistant inspired by [NanoBot](https://github.com/HKUDS/nanobot). It was rebuilt from the ground up in **Go** through a "self-bootstrapping" process — the AI Agent itself drove the architecture migration and code optimization.
+**Rhizome** is a personal AI assistant inspired by [NanoBot](https://github.com/HKUDS/nanobot). It adds a Go-native P2P mesh, workspace sync, and an agent gateway on top of the original PicoClaw idea.
 
-**Runs on $10 hardware with <10MB RAM** — that's 99% less memory than OpenClaw and 98% cheaper than a Mac mini!
+**Single Go binary, no runtime dependencies** — runs natively on Linux, Windows, macOS, FreeBSD/NetBSD, and Android. See the [Hardware Compatibility List](docs/guides/hardware-compatibility.md) for verified boards and the current two-tier resource requirements.
 
-<table align="center">
-<tr align="center">
-<td align="center" valign="top">
 <p align="center">
 <img src="assets/rhizome_mem.gif" width="360" height="240">
 </p>
-</td>
-<td align="center" valign="top">
-<p align="center">
-<img src="assets/licheervnano.png" width="400" height="240">
-</p>
-</td>
-</tr>
-</table>
 
 > [!CAUTION]
 > **Security Notice**
 >
 > * **NO CRYPTO:** Rhizome has **not** issued any official tokens or cryptocurrency. All claims on `pump.fun` or other trading platforms are **scams**.
-> * **OFFICIAL DOMAIN:** The **ONLY** official website is **[picoclaw.io](https://picoclaw.io)**, and company website is **[sipeed.com](https://sipeed.com)**
+> * **CANONICAL SOURCE:** The canonical source and release location is **<https://github.com/stpinkie/rhizome>**; releases are published under GitHub Releases. Beware of third-party domains claiming to be official.
 > * **BEWARE:** Many `.ai/.org/.com/.net/...` domains have been registered by third parties. Do not trust them.
 > * **NOTE:** Rhizome is in early rapid development. There may be unresolved security issues. Do not deploy to production before v1.0.
-> * **NOTE:** Rhizome has recently merged many PRs. Recent builds may use 10-20MB RAM. Resource optimization is planned after feature stabilization.
+> * **NOTE:** The full `rhizome` binary is ~98 MB and the daemon uses ~60 MB private memory. A `nonetwork` build is planned to reduce the footprint for very small boards. Resource optimization is planned after feature stabilization.
 
 ## 📢 News
-
-2026-05-11 🛒 **LicheeRV-Claw on AliExpress!** You can now purchase LicheeRV-Claw from [AliExpress](https://www.aliexpress.com/item/1005006519668532.html), making it easier to try Rhizome on compact RISC-V hardware.
-
-<p align="center">
-  <a href="https://www.aliexpress.com/item/1005006519668532.html">
-    <img src="assets/licheerv-claw.jpg" alt="LicheeRV-Claw on AliExpress" width="520">
-  </a>
-</p>
 
 2026-05-28 🚀 **v0.2.9 Released!** MCP server management in Web UI, configurable Sogou-backed web search, tool feedback animation in channels, `pretty_print` and `disable_escape_html` defaults, and numerous bug fixes across providers and channels.
 
@@ -74,7 +53,7 @@
 
 2026-04-11 🚀 **v0.2.5 Released!** Zoneinfo from TZ/ZONEINFO env, Matrix CommonMark rendering alignment, `read_file` by lines.
 
-2026-03-31 📱 **Android Support!** Rhizome now runs on Android! Download the APK at [picoclaw.io](https://picoclaw.io/download)
+2026-03-31 📱 **Android Support!** Rhizome now runs on Android! The Android APK is not currently distributed from this fork; build from source or check [GitHub Releases](https://github.com/stpinkie/rhizome/releases) for a future APK.
 
 2026-03-25 🚀 **v0.2.4 Released!** Agent architecture overhaul (SubTurn, Hooks, Steering, EventBus), WeChat/WeCom integration, security hardening (.security.yml, sensitive data filtering), new providers (AWS Bedrock, Azure, Xiaomi MiMo), and 35 bug fixes. Rhizome has reached **26K Stars**!
 
@@ -93,17 +72,17 @@
 
 2026-02-13 🎉 Rhizome breaks 5000 Stars in 4 days! Project roadmap and developer groups in progress.
 
-2026-02-09 🎉 **Rhizome Released!** Built in 1 day to bring AI Agents to $10 hardware with <10MB RAM. Let's Go, Rhizome!
+2026-02-09 🎉 **Rhizome Released!** Built in 1 day to explore ultra-lightweight AI Agents. Let's Go, Rhizome!
 
 </details>
 
 ## ✨ Features
 
-🪶 **Ultra-lightweight**: Core memory footprint <10MB — 99% smaller than OpenClaw.*
+🪶 **Single binary, no runtime dependencies**: One statically-linked Go executable that runs on Linux, Windows, macOS, FreeBSD/NetBSD, and Android.*
 
-💰 **Minimal cost**: Efficient enough to run on $10 hardware — 98% cheaper than a Mac mini.
+💰 **Minimal cost**: Efficient enough to run on a wide range of low-cost ARM and RISC-V boards; see the [Hardware Compatibility List](docs/guides/hardware-compatibility.md).
 
-⚡️ **Lightning-fast boot**: 400x faster startup. Boots in <1s even on a 0.6GHz single-core processor.
+⚡️ **Lightning-fast boot**: Starts in under a second on the verified low-cost boards.
 
 🌍 **Truly portable**: Single binary across RISC-V, ARM, MIPS, and x86 architectures. One binary, runs everywhere!
 
@@ -115,22 +94,20 @@
 
 🧠 **Smart routing**: Rule-based model routing — simple queries go to lightweight models, saving API costs.
 
-_*Recent builds may use 10-20MB due to rapid PR merges. Resource optimization is planned. Boot speed comparison based on 0.8GHz single-core benchmarks (see table below)._
+_*Measured on Windows with `CGO_ENABLED=0`, tags `goolm,stdjson`, and `-ldflags "-s -w"`; the stripped binary is ~98 MB. A `nonetwork` build is planned to reduce the footprint for very small boards._
 
 <div align="center">
 
-|                                | OpenClaw      | NanoBot                  | **Rhizome**                           |
-| ------------------------------ | ------------- | ------------------------ | -------------------------------------- |
-| **Language**                   | TypeScript    | Python                   | **Go**                                 |
-| **RAM**                        | >1GB          | >100MB                   | **< 10MB***                            |
-| **Boot time**</br>(0.8GHz core) | >500s         | >30s                     | **<1s**                                |
-| **Cost**                       | Mac Mini $599 | Most Linux boards ~$50   | **Any Linux board**</br>**from $10**   |
+### Current Build Footprint
 
-<img src="assets/compare.jpg" alt="Rhizome" width="512">
+| Mode | Use case | Total RAM | Free RAM | Storage |
+|------|------|-----------|----------|---------|
+| **Base** | One-shot `rhizome agent`, `rhizome onboard` | 256 MB | 128 MB | 128 MB |
+| **Full** | `rhizome daemon` with P2P, syncer, and gateway | 512 MB | 256 MB | 128 MB |
 
 </div>
 
-> **[Hardware Compatibility List](docs/guides/hardware-compatibility.md)** — See all tested boards, from $5 RISC-V to Raspberry Pi to Android phones. Your board not listed? Submit a PR!
+> **[Hardware Compatibility List](docs/guides/hardware-compatibility.md)** — See all verified boards, from Raspberry Pi to Android phones. Your board not listed? Submit a PR!
 
 <p align="center">
 <img src="assets/hardware-banner.jpg" alt="Rhizome Hardware Compatibility" width="100%">
@@ -160,11 +137,14 @@ _*Recent builds may use 10-20MB due to rapid PR merges. Resource optimization is
 
 ### 🐜 Innovative Low-Footprint Deployment
 
-Rhizome can be deployed on virtually any Linux device!
+Rhizome can be deployed on a wide range of Linux and embedded devices!
 
-- $9.9 [LicheeRV-Nano](https://www.aliexpress.com/item/1005006519668532.html) E(Ethernet) or W(WiFi6) edition, for a minimal home assistant
-- $30~50 [NanoKVM](https://www.aliexpress.com/item/1005007369816019.html), or $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html), for automated server operations
-- $50 [MaixCAM](https://www.aliexpress.com/item/1005008053333693.html) or $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera), for smart surveillance
+- $15 [Raspberry Pi Zero](https://www.raspberrypi.com/products/raspberry-pi-zero/) (or [Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)), for a minimal home assistant
+- $50~70 [CanMV-K230](https://developer.canaan-creative.com/k230_canmv/en/main/), for RISC-V-based embedded use
+- $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html), for automated server operations
+- $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera), for smart surveillance
+
+> See the [Hardware Compatibility List](docs/guides/hardware-compatibility.md) for the full list of verified boards and the current two-tier requirements.
 
 <https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
 
@@ -172,9 +152,9 @@ Rhizome can be deployed on virtually any Linux device!
 
 ## 📦 Install
 
-### Download from picoclaw.io (Recommended)
+### Download from GitHub Releases (Recommended)
 
-Visit **[picoclaw.io](https://picoclaw.io)** — the official website auto-detects your platform and provides one-click download. No need to manually pick an architecture.
+Visit the [GitHub Releases](https://github.com/stpinkie/rhizome/releases) page and download the binary for your platform.
 
 ### Download precompiled binary
 
@@ -224,7 +204,7 @@ The WebUI Launcher provides a browser-based interface for configuration and chat
 
 **Option 1: Double-click (Desktop)**
 
-After downloading from [picoclaw.io](https://picoclaw.io), double-click `rhizome-launcher` (or `rhizome-launcher.exe` on Windows). Your browser will open automatically at `http://localhost:18800`.
+After downloading from [GitHub Releases](https://github.com/stpinkie/rhizome/releases), double-click `rhizome-launcher` (or `rhizome-launcher.exe` on Windows). Your browser will open automatically at `http://localhost:18800`.
 
 **Option 2: Command line**
 
@@ -247,7 +227,7 @@ rhizome-launcher
 
 Open the WebUI, then: **1)** Configure a Provider (add your LLM API key) -> **2)** Configure a Channel (e.g., Telegram) -> **3)** Start the Gateway -> **4)** Chat!
 
-For detailed WebUI documentation, see [docs.picoclaw.io](https://docs.picoclaw.io).
+For detailed documentation, see the [docs/ folder](https://github.com/stpinkie/rhizome/tree/main/docs) in this repo.
 
 <details>
 <summary><b>Docker (alternative)</b></summary>
@@ -327,7 +307,7 @@ Preview:
   </tr>
 </table>
 
-Download the APK from [picoclaw.io](https://picoclaw.io/download/) and install directly. No Termux required!
+The Android APK is not currently published from this fork; build from source or check [GitHub Releases](https://github.com/stpinkie/rhizome/releases) for a future APK.
 
 **Option 2: Termux**
 

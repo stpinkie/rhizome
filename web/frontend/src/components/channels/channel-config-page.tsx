@@ -405,9 +405,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
       i18n.language ??
       ""
     ).toLowerCase()
-    const base = language.startsWith("zh")
-      ? "https://docs.picoclaw.io/zh-Hans/docs/channels"
-      : "https://docs.picoclaw.io/docs/channels"
+    const base = "https://github.com/stpinkie/rhizome/tree/main/docs/channels"
     return `${base}/${getChannelDocSlug(channel.name)}`
   }, [channel, i18n.language, i18n.resolvedLanguage])
 

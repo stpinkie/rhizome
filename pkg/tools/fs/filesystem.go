@@ -961,7 +961,8 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) *ToolR
 	overwrite, _ := args["overwrite"].(bool)
 
 	if !overwrite {
-		if _, err := t.fs.Open(path); err == nil {
+		if f, err := t.fs.Open(path); err == nil {
+			_ = f.Close()
 			if phrase := t.altToolsPhrase(); phrase != "" {
 				return ErrorResult(
 					fmt.Sprintf(

@@ -58,7 +58,7 @@ var translations = map[Language]map[TranslationKey]string{
 		MenuQuit:           "Quit",
 		MenuQuitTooltip:    "Exit Rhizome",
 		Exiting:            "Exiting Rhizome...",
-		DocUrl:             "https://docs.picoclaw.io/docs/",
+		DocUrl:             "https://github.com/stpinkie/rhizome/tree/main/docs",
 	},
 	LanguageChinese: {
 		AppTooltip:         "%s - Web Console",
@@ -75,7 +75,7 @@ var translations = map[Language]map[TranslationKey]string{
 		MenuQuit:           "退出",
 		MenuQuitTooltip:    "退出 Rhizome",
 		Exiting:            "正在退出 Rhizome...",
-		DocUrl:             "https://docs.picoclaw.io/zh-Hans/docs/",
+		DocUrl:             "https://github.com/stpinkie/rhizome/tree/main/docs",
 	},
 }
 

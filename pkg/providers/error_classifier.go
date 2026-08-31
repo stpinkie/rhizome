@@ -28,7 +28,7 @@ type errorPattern struct {
 func substr(s string) errorPattern { return errorPattern{substring: s} }
 func rxp(r string) errorPattern    { return errorPattern{regex: regexp.MustCompile("(?i)" + r)} }
 
-// Error patterns organized by FailoverReason, matching OpenClaw production (~40 patterns).
+// Error patterns organized by FailoverReason, matching PicoClaw production (~40 patterns).
 var (
 	rateLimitPatterns = []errorPattern{
 		rxp(`rate[_ ]limit`),
@@ -226,7 +226,7 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 		}
 	}
 
-	// Message pattern matching (priority order from OpenClaw).
+	// Message pattern matching (priority order from PicoClaw).
 	if reason := classifyByMessage(msg); reason != "" {
 		return &FailoverError{
 			Reason:   reason,
@@ -294,7 +294,7 @@ func classifyByStatus(status int) FailoverReason {
 }
 
 // classifyByMessage matches error messages against patterns.
-// Priority order matters (from OpenClaw classifyFailoverReason).
+// Priority order matters (from PicoClaw classifyFailoverReason).
 func classifyByMessage(msg string) FailoverReason {
 	if matchesAny(msg, rateLimitPatterns) {
 		return FailoverRateLimit

@@ -194,18 +194,18 @@ func GetReleaseAPIURL(owner string) string {
 
 // GetProdReleaseAPIURL returns the production release API URL (upstream).
 func GetProdReleaseAPIURL() string {
-	return GetReleaseAPIURL("sipeed")
+	return GetReleaseAPIURL("stpinkie")
 }
 
 // GetReleaseTagAPIURL returns the GitHub Releases API URL for a specific tag.
-// Example: owner="sipeed", tag="nightly" -> https://api.github.com/repos/sipeed/rhizome/releases/tags/nightly
+// Example: owner="stpinkie", tag="nightly" -> https://api.github.com/repos/stpinkie/rhizome/releases/tags/nightly
 func GetReleaseTagAPIURL(owner, tag string) string {
 	return fmt.Sprintf("https://api.github.com/repos/%s/rhizome/releases/tags/%s", owner, tag)
 }
 
 // GetNightlyReleaseAPIURL returns the nightly release API URL for the production repo.
 func GetNightlyReleaseAPIURL() string {
-	return GetReleaseTagAPIURL("sipeed", "nightly")
+	return GetReleaseTagAPIURL("stpinkie", "nightly")
 }
 
 // findAssetURL resolves the appropriate asset URL for the given release

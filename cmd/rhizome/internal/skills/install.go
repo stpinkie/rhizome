@@ -15,7 +15,7 @@ func newInstallCommand() *cobra.Command {
 		Use:   "install",
 		Short: "Install skill from GitHub or a registry",
 		Example: `
-rhizome skills install sipeed/rhizome-skills/weather
+rhizome skills install stpinkie/rhizome-skills/weather
 rhizome skills install --registry clawhub github
 `,
 		Args: func(cmd *cobra.Command, args []string) error {

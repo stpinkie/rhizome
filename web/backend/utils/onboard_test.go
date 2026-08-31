@@ -4,11 +4,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestEnsureOnboardedSkipsWhenConfigExists(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available on Windows")
+	}
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(configPath, []byte(`{}`), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -32,6 +36,9 @@ func TestEnsureOnboardedSkipsWhenConfigExists(t *testing.T) {
 }
 
 func TestEnsureOnboardedRunsOnboardWhenConfigMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available on Windows")
+	}
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("EXPECTED_CONFIG_PATH", configPath)
 
@@ -67,6 +74,9 @@ printf '{}' > "$RHIZOME_CONFIG"`,
 }
 
 func TestEnsureOnboardedFailsWhenOnboardDoesNotCreateConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available on Windows")
+	}
 	configPath := filepath.Join(t.TempDir(), "config.json")
 
 	origExecCommand := execCommand
@@ -82,6 +92,9 @@ func TestEnsureOnboardedFailsWhenOnboardDoesNotCreateConfig(t *testing.T) {
 }
 
 func TestEnsureOnboardedIncludesOnboardOutputOnFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available on Windows")
+	}
 	configPath := filepath.Join(t.TempDir(), "config.json")
 
 	origExecCommand := execCommand

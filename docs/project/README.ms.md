@@ -1,21 +1,19 @@
 <div align="center">
 <img src="../../assets/logo.webp" alt="Rhizome" width="512">
 
-<h1>Rhizome: Pembantu AI Ultra-Cekap dalam Go</h1>
+<h1>Rhizome: Pembantu AI Ultra-Efisien Berasaskan Go</h1>
 
-<h3>Perkakasan $10 · RAM 10MB · Boot ms · Jom, Rhizome!</h3>
+<h3>Perkakasan $10 · 10MB RAM · But ms · Let's Go, Rhizome!</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/rhizome"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
+    <a href="https://github.com/stpinkie/rhizome"><img src="https://img.shields.io/badge/GitHub-stpinkie/rhizome-181717?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
+    <a href="https://github.com/stpinkie/rhizome/tree/main/docs"><img src="https://img.shields.io/badge/Docs-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
     <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <br>
+    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
   </p>
 
 [中文](README.zh.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | **Malay** | [English](../../README.md)
@@ -24,106 +22,95 @@
 
 ---
 
-> **Rhizome** adalah projek sumber terbuka bebas yang dilancarkan oleh [Sipeed](https://sipeed.com), ditulis sepenuhnya dalam **Go** dari awal — bukan cabang OpenClaw, NanoBot, atau projek lain.
+> **Rhizome** adalah hard fork penyelenggaraan komuniti bagi [PicoClaw](https://github.com/sipeed/picoclaw). Ia ditulis sepenuhnya dalam **Go** dan meneruskan matlamat menjadi pembantu AI peribadi ultra-ringan.
 
-**Rhizome** adalah pembantu AI peribadi ultra-ringan yang terinspirasi oleh [NanoBot](https://github.com/HKUDS/nanobot). Ia dibina semula dari awal dalam **Go** melalui proses "self-bootstrapping" — AI Agent itu sendiri yang memacu migrasi seni bina dan pengoptimuman kod.
+**Rhizome** ialah pembantu AI peribadi yang diilhamkan oleh [NanoBot](https://github.com/HKUDS/nanobot). Ia menambah mesh P2P Go, penyegerakan ruang kerja dan gerbang ejen ke atas idea PicoClaw asal.
 
-**Berjalan pada perkakasan $10 dengan RAM <10MB** — 99% lebih sedikit memori daripada OpenClaw dan 98% lebih murah daripada Mac mini!
+**Satu binari Go tunggal, tanpa kebergantungan runtime** — berjalan asli di Linux, Windows, macOS, FreeBSD/NetBSD dan Android. Lihat [Senarai Keserasian Perkakasan](../guides/hardware-compatibility.ms.md) untuk papan yang disahkan dan keperluan sumber semasa dua peringkat.
 
-<table align="center">
-<tr align="center">
-<td align="center" valign="top">
 <p align="center">
 <img src="../../assets/rhizome_mem.gif" width="360" height="240">
 </p>
-</td>
-<td align="center" valign="top">
-<p align="center">
-<img src="../../assets/licheervnano.png" width="400" height="240">
-</p>
-</td>
-</tr>
-</table>
 
 > [!CAUTION]
 > **Notis Keselamatan**
 >
-> * **TIADA KRIPTO:** Rhizome **tidak** mengeluarkan sebarang token atau mata wang kripto rasmi. Semua tuntutan di `pump.fun` atau platform dagangan lain adalah **penipuan**.
-> * **DOMAIN RASMI:** Satu-satunya laman web rasmi ialah **[picoclaw.io](https://picoclaw.io)**, dan laman web syarikat ialah **[sipeed.com](https://sipeed.com)**
-> * **BERHATI-HATI:** Banyak domain `.ai/.org/.com/.net/...` telah didaftarkan oleh pihak ketiga. Jangan percayai mereka.
-> * **NOTA:** Rhizome dalam pembangunan pesat awal. Mungkin terdapat isu keselamatan yang belum diselesaikan. Jangan deploy ke pengeluaran sebelum v1.0.
-
+> * **TIADA KRIPTO:** Rhizome **tidak** mengeluarkan sebarang token rasmi atau mata wang kripto. Sebarang tuntutan di `pump.fun` atau platform dagangan lain adalah **penipuan**.
+> * **SUMBER KANONIKAL (CANONICAL SOURCE):** Sumber dan lokasi keluaran rasmi adalah **<https://github.com/stpinkie/rhizome>**; keluaran diterbitkan di GitHub Releases. Berhati-hati dengan domain pihak ketiga yang mendakwa rasmi.
+> * **AMARAN:** Banyak domain `.ai/.org/.com/.net/...` telah didaftarkan oleh pihak ketiga. Jangan percayai mereka.
+> * **NOTA:** Rhizome sedang dalam pembangunan awal yang pantas. Mungkin terdapat isu keselamatan yang belum diselesaikan. Jangan laksanakan dalam persekitaran pengeluaran sebelum v1.0.
+> * **NOTA:** Binari `rhizome` lengkap kira-kira 98 MB dan daemon menggunakan kira-kira 60 MB memori peribadi. Kami bercadang membina versi `nonetwork` untuk mengurangkan lagi jejak untuk papan ultra-kecil. Pengoptimuman sumber dirancang selepas fungsi menjadi stabil.
 
 ## 📢 Berita
 
-2026-05-11 🛒 **LicheeRV-Claw tersedia di AliExpress!** Anda kini boleh membeli LicheeRV-Claw di [AliExpress](https://www.aliexpress.com/item/1005006519668532.html), menjadikannya lebih mudah untuk mencuba Rhizome pada perkakasan RISC-V yang kompak.
+2026-05-28 🚀 **v0.2.9 dikeluarkan!** Pengurusan pelayan MCP dalam Web UI, carian web Sogou yang boleh konfigur, animasi maklum balas alat saluran, nilai lalai `pretty_print` dan `disable_escape_html`, dan pelbagai pembetulan pepijat untuk pembekal dan saluran.
 
-<p align="center">
-  <a href="https://www.aliexpress.com/item/1005006519668532.html">
-    <img src="../../assets/licheerv-claw.jpg" alt="LicheeRV-Claw on AliExpress" width="520">
-  </a>
-</p>
+2026-05-14 🚀 **v0.2.8 dikeluarkan!** Arahan MCP CLI (`show`, `add`, `list`, `remove`, `test`, `edit`), objek kosong menggantikan null untuk parameter alat MCP, dan pembetulan binaan.
 
-2026-03-31 📱 **Sokongan Android!** Rhizome sekarang berjalan di Android! Muat turun APK di [picoclaw.io](https://picoclaw.io/download)
+2026-05-07 🚀 **v0.2.7 dikeluarkan!** Carian web Sogou yang boleh konfigur, animasi maklum balas alat saluran, pembetulan linter.
 
-2026-03-25 🚀 **v0.2.4 Dikeluarkan!** Penstrukturan semula seni bina Agent (SubTurn, Hooks, Steering, EventBus), integrasi WeChat/WeCom, penguatan keselamatan (.security.yml, penapisan data sensitif), penyedia baharu (AWS Bedrock, Azure, Xiaomi MiMo), dan 35 pembetulan pepijat. Rhizome mencapai **26K Stars**!
+2026-04-23 🚀 **v0.2.6 dikeluarkan!** Hook dengan tindakan respons dan dokumentasi menyeluruh, sokongan pengasingan, pembetulan bendera bantuan.
 
-2026-03-17 🚀 **v0.2.3 Dikeluarkan!** UI dulang sistem (Windows & Linux), pertanyaan status sub-agent (`spawn_status`), muat semula panas Gateway eksperimental, kawalan keselamatan Cron, dan 2 pembetulan keselamatan. Rhizome mencapai **25K Stars**!
+2026-04-11 🚀 **v0.2.5 dikeluarkan!** Zoneinfo daripada pembolehubah persekitaran TZ/ZONEINFO, penyelarasan perenderan Matrix CommonMark, `read_file` mengikut baris.
 
-2026-03-09 🎉 **v0.2.1 — Kemas kini terbesar setakat ini!** Sokongan protokol MCP, 4 saluran baharu (Matrix/IRC/WeCom/Discord Proxy), 3 penyedia baharu (Kimi/Minimax/Avian), saluran paip visi, storan memori JSONL, penghalaan model.
+2026-03-31 📱 **Sokongan Android!** Rhizome kini berjalan di Android! APK Android tidak diedarkan daripada fork ini; bina daripada sumber atau semak [GitHub Releases](https://github.com/stpinkie/rhizome/releases) untuk APK pada masa hadapan.
 
-2026-02-28 📦 **v0.2.0** dikeluarkan dengan sokongan Docker Compose dan Pelancar Web UI.
+2026-03-25 🚀 **v0.2.4 dikeluarkan!** Penstrukturan semula seni bina Ejen (SubTurn, Hook, Steering, EventBus), integrasi WeChat/WeCom mendalam, peningkatan keselamatan (.security.yml, penapisan data sensitif), pembekal baharu (AWS Bedrock, Azure, Xiaomi MiMo) dan 35 pembetulan pepijat. Rhizome mencapai **26K Bintang**!
+
+2026-03-17 🚀 **v0.2.3 dikeluarkan!** UI dulang sistem (Windows & Linux), pertanyaan status sub-ejen (`spawn_status`), pemuatan semula panas Gateway eksperimen, kawal keselamatan Cron, dan 2 pembetulan keselamatan. Rhizome mencapai **25K Bintang**!
+
+2026-03-09 🎉 **v0.2.1 — Kemas kini terbesar setakat ini!** Sokongan protokol MCP, 4 saluran baharu (Matrix/IRC/WeCom/Discord Proxy), 3 pembekal baharu (Kimi/Minimax/Avian), saluran visual, storan memori JSONL, penghalaan model.
+
+2026-02-28 📦 **v0.2.0** dikeluarkan dengan sokongan Docker Compose dan Web UI Launcher.
 
 <details>
 <summary>Berita terdahulu...</summary>
 
-2026-02-26 🎉 Rhizome mencapai **20K Stars** hanya dalam 17 hari! Orkestrasi saluran automatik dan antara muka keupayaan kini aktif.
+2026-02-26 🎉 Rhizome mencapai **20K Bintang** dalam hanya 17 hari! Orkestrasi saluran automatik dan antara muka keupayaan kini tersedia.
 
-2026-02-16 🎉 Rhizome melepasi 12K Stars dalam seminggu! Peranan penyelenggara komuniti dan [Peta Jalan](../../ROADMAP.md) dilancarkan secara rasmi.
+2026-02-16 🎉 Rhizome melebihi 12K Bintang dalam seminggu! Peranan penyelenggara komuniti dan [Peta Jalan](../../ROADMAP.md) rasmi dilancarkan.
 
-2026-02-13 🎉 Rhizome melepasi 5000 Stars dalam 4 hari! Peta jalan projek dan kumpulan pembangun sedang dalam proses.
+2026-02-13 🎉 Rhizome melebihi 5000 Bintang dalam 4 hari! Peta jalan projek dan kumpulan pembangun sedang dibina.
 
-2026-02-09 🎉 **Rhizome Dikeluarkan!** Dibina dalam 1 hari untuk membawa AI Agent ke perkakasan $10 dengan RAM <10MB. Jom, Rhizome!
+2026-02-09 🎉 **Rhizome Dilancarkan!** Dibina dalam 1 hari untuk meneroka Ejen AI ultra-ringan. Let's Go, Rhizome!
 
 </details>
 
 ## ✨ Ciri-ciri
 
-🪶 **Ultra-ringan**: Jejak memori teras <10MB — 99% lebih kecil daripada OpenClaw.*
+🪶 **Satu binari, tanpa kebergantungan runtime**: Satu executable Go yang diikat secara statik, berjalan di Linux, Windows, macOS, FreeBSD/NetBSD dan Android.*
 
-💰 **Kos minimum**: Cukup cekap untuk berjalan pada perkakasan $10 — 98% lebih murah daripada Mac mini.
+💰 **Kos minimum**: Mencukupi untuk berjalan di pelbagai papan ARM dan RISC-V kos rendah; lihat [Senarai Keserasian Perkakasan](../guides/hardware-compatibility.ms.md).
 
-⚡️ **Boot kilat**: 400x lebih pantas. Boot dalam <1s walaupun pada pemproses teras tunggal 0.6GHz.
+⚡️ **But kilat**: Bermula dalam kurang dari 1 saat di papan kos rendah yang disahkan.
 
-🌍 **Benar-benar mudah alih**: Binari tunggal merentasi seni bina RISC-V, ARM, MIPS, dan x86.
+🌍 **Benar-benar mudah alih**: Satu binari merentasi seni bina RISC-V, ARM, MIPS dan x86. Satu binari, berjalan di mana-mana!
 
-🤖 **Dibantu AI**: Pelaksanaan Go tulen — 95% kod teras dijana oleh Agent dan diperhalusi melalui semakan manusia.
+🤖 **Dibootstrapped oleh AI**: Pelaksanaan Go tulen — 95% kod teras dijana oleh Ejen dan dihaluskan melalui semakan manusia.
 
-🔌 **Sokongan MCP**: Integrasi [Model Context Protocol](https://modelcontextprotocol.io/) natif.
+🔌 **Sokongan MCP**: Integrasi asal [Model Context Protocol](https://modelcontextprotocol.io/) — sambung mana-mana pelayan MCP untuk melanjutkan keupayaan Ejen.
 
-👁️ **Saluran paip visi**: Hantar imej dan fail terus ke Agent — pengekodan base64 automatik untuk LLM multimodal.
+👁️ **Saluran visual**: Hantar imej dan fail terus kepada Ejen — pengekodan base64 automatik untuk LLM multimodal.
 
 🧠 **Penghalaan pintar**: Penghalaan model berasaskan peraturan — pertanyaan mudah ke model ringan, menjimatkan kos API.
 
-_*Binaan terkini mungkin menggunakan 10-20MB disebabkan penggabungan PR yang pesat. Pengoptimuman sumber dirancang. Perbandingan kelajuan boot berdasarkan penanda aras teras tunggal 0.8GHz (lihat jadual di bawah)._
+_*Pengukuran jejak dibuat pada Windows dengan `CGO_ENABLED=0`, tag `goolm,stdjson` dan `-ldflags "-s -w"`; binari yang dijalankan kira-kira 98 MB. Kami bercadang membina versi `nonetwork` untuk mengurangkan lagi untuk papan ultra-kecil._
 
 <div align="center">
 
-|                                | OpenClaw      | NanoBot                  | **Rhizome**                           |
-| ------------------------------ | ------------- | ------------------------ | -------------------------------------- |
-| **Bahasa**                     | TypeScript    | Python                   | **Go**                                 |
-| **RAM**                        | >1GB          | >100MB                   | **< 10MB***                            |
-| **Masa Boot** (teras 0.8GHz)   | >500s         | >30s                     | **<1s**                                |
-| **Kos**                        | Mac Mini $599 | Kebanyakan papan Linux ~$50 | **Mana-mana papan Linux dari $10**  |
+### Jejak Binaan Semasa
 
-<img src="../../assets/compare.jpg" alt="Rhizome" width="512">
+| Mod | Kes Penggunaan | Jumlah RAM | RAM Kosong | Storan |
+|-----|----------------|------------|------------|--------|
+| **Asas** | `rhizome agent`, `rhizome onboard` sekali | 256 MB | 128 MB | 128 MB |
+| **Lengkap** | `rhizome daemon` dengan P2P, syncer dan gateway | 512 MB | 256 MB | 128 MB |
 
 </div>
 
-> **[Senarai Keserasian Perkakasan](../guides/hardware-compatibility.md)** — Lihat semua papan yang diuji, dari RISC-V $5 hingga Raspberry Pi hingga telefon Android.
+> **[Senarai Keserasian Perkakasan](../guides/hardware-compatibility.ms.md)** — Lihat semua papan yang diuji, dari Raspberry Pi ke telefon Android. Papan anda tidak tersenarai? Hantar PR!
 
 <p align="center">
-<img src="../../assets/hardware-banner.jpg" alt="Keserasian Perkakasan Rhizome" width="100%">
+<img src="../../assets/hardware-banner.jpg" alt="Rhizome Hardware Compatibility" width="100%">
 </p>
 
 ## 🦾 Demonstrasi
@@ -142,60 +129,65 @@ _*Binaan terkini mungkin menggunakan 10-20MB disebabkan penggabungan PR yang pes
 <td align="center"><p align="center"><img src="../../assets/rhizome_search.gif" width="240" height="180"></p></td>
 </tr>
 <tr>
-<td align="center">Bangun · Deploy · Skala</td>
-<td align="center">Jadual · Automatik · Ingat</td>
-<td align="center">Temui · Wawasan · Trend</td>
+<td align="center">Membangunkan · Melaksanakan · Menskala</td>
+<td align="center">Menjadual · Mengautomasi · Mengingat</td>
+<td align="center">Menemui · Pemahaman · Trend</td>
 </tr>
 </table>
 
 ### 🐜 Deployment Jejak Rendah yang Inovatif
 
-Rhizome boleh digunakan pada hampir mana-mana peranti Linux!
+Rhizome boleh dilaksanakan di pelbagai peranti Linux dan tertanam!
 
-- $9.9 [LicheeRV-Nano](https://www.aliexpress.com/item/1005006519668532.html) untuk pembantu rumah minimal
-- $30~50 [NanoKVM](https://www.aliexpress.com/item/1005007369816019.html) untuk operasi pelayan automatik
-- $50 [MaixCAM](https://www.aliexpress.com/item/1005008053333693.html) untuk pengawasan pintar
+- $15 [Raspberry Pi Zero](https://www.raspberrypi.com/products/raspberry-pi-zero/) (atau [Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)), untuk pembantu rumah yang minimum
+- $50~70 [CanMV-K230](https://developer.canaan-creative.com/k230_canmv/en/main/), untuk penggunaan tertanam berasaskan RISC-V
+- $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html), untuk operasi pelayan automatik
+- $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera), untuk pengawasan pintar
+
+> Lihat [Senarai Keserasian Perkakasan](../guides/hardware-compatibility.ms.md) untuk senarai lengkap papan yang disahkan dan keperluan dua peringkat semasa.
 
 <https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
 
 🌟 Lebih Banyak Kes Deployment Menanti!
 
-
 ## 📦 Pemasangan
 
-### Muat turun dari picoclaw.io (Disyorkan)
+### Muat turun dari GitHub Releases (Disyorkan)
 
-Lawati **[picoclaw.io](https://picoclaw.io)** — laman web rasmi mengesan platform anda secara automatik dan menyediakan muat turun satu klik.
+Lawati laman [GitHub Releases](https://github.com/stpinkie/rhizome/releases) dan muat turun binari untuk platform anda.
 
 ### Muat turun binari pra-kompil
 
-Muat turun binari untuk platform anda dari halaman [GitHub Releases](https://github.com/stpinkie/rhizome/releases).
+Sebagai alternatif, muat turun binari untuk platform anda daripada laman [GitHub Releases](https://github.com/stpinkie/rhizome/releases).
 
 ### Bina dari sumber (untuk pembangunan)
 
-Prasyarat:
+Keperluan:
 
 - Go 1.25+
 - Node.js 22+ dan pnpm 10.33.0+ untuk binaan Web UI / launcher
 
 ```bash
 git clone https://github.com/stpinkie/rhizome.git
+
 cd rhizome
 make deps
 
-# Pasang dependensi frontend
+# Pasang kebergantungan frontend
 (cd web/frontend && pnpm install --frozen-lockfile)
 
-# Bina binari teras
+# Bina binari teras untuk platform semasa
 make build
 
-# Bina Pelancar Web UI (diperlukan untuk mod WebUI)
+# Bina Web UI Launcher (diperlukan untuk mod WebUI)
 make build-launcher
 
-# Bina binari teras untuk semua platform yang diuruskan oleh Makefile
+# Bina binari teras untuk semua platform yang diuruskan Makefile
 make build-all
 
-# Bina untuk Raspberry Pi Zero 2 W (32-bit: make build-linux-arm; 64-bit: make build-linux-arm64)
+# Bina untuk Raspberry Pi Zero 2 W
+# 32-bit: make build-linux-arm
+# 64-bit: make build-linux-arm64
 make build-pi-zero
 
 # Bina dan pasang
@@ -208,21 +200,21 @@ make install
 
 ### 🌐 Pelancar WebUI (Disyorkan untuk Desktop)
 
-Pelancar WebUI menyediakan antara muka berasaskan pelayar untuk konfigurasi dan sembang. Ini adalah cara termudah untuk bermula — tiada pengetahuan baris arahan diperlukan.
+Pelancar WebUI menyediakan antara muka berasaskan pelayan web untuk konfigurasi dan sembang. Ini ialah cara termudah untuk bermula — tiada pengetahuan baris perintah diperlukan.
 
 **Pilihan 1: Klik dua kali (Desktop)**
 
-Selepas memuat turun dari [picoclaw.io](https://picoclaw.io), klik dua kali `rhizome-launcher` (atau `rhizome-launcher.exe` pada Windows). Pelayar anda akan dibuka secara automatik di `http://localhost:18800`.
+Selepas memuat turun daripada [GitHub Releases](https://github.com/stpinkie/rhizome/releases), klik dua kali `rhizome-launcher` (atau `rhizome-launcher.exe` di Windows). Pelayar web anda akan dibuka secara automatik di `http://localhost:18800`.
 
-**Pilihan 2: Baris arahan**
+**Pilihan 2: Baris perintah**
 
 ```bash
 rhizome-launcher
-# Buka http://localhost:18800 dalam pelayar anda
+# Buka http://localhost:18800 dalam pelayar web anda
 ```
 
 > [!TIP]
-> **Akses jauh / Docker / VM:** Tambah bendera `-public` untuk mendengar pada semua antara muka:
+> **Akses jauh / Docker / VM:** Tambah bendera `-public` untuk mendengar di semua antara muka:
 > ```bash
 > rhizome-launcher -public
 > ```
@@ -231,22 +223,26 @@ rhizome-launcher
 <img src="../../assets/launcher-webui.jpg" alt="Pelancar WebUI" width="600">
 </p>
 
-**Memulakan:** Buka WebUI, kemudian: **1)** Konfigurasikan Penyedia (tambah kunci API LLM) -> **2)** Konfigurasikan Saluran (cth. Telegram) -> **3)** Mulakan Gateway -> **4)** Sembang!
+**Mulakan:**
 
-Untuk dokumentasi WebUI terperinci, lihat [docs.picoclaw.io](https://docs.picoclaw.io).
+Buka WebUI, kemudian: **1)** Konfigurasi Pembekal (tambah API key LLM anda) → **2)** Konfigurasi Saluran (cth. Telegram) → **3)** Mulakan Gateway → **4)** Sembang!
+
+Untuk dokumentasi terperinci, lihat [folder docs/](https://github.com/stpinkie/rhizome/tree/main/docs) dalam repo ini.
 
 <details>
 <summary><b>Docker (alternatif)</b></summary>
 
 ```bash
-# 1. Klon repo ini
+# 1. Clone repo ini
 git clone https://github.com/stpinkie/rhizome.git
 cd rhizome
 
-# 2. Jalankan pertama kali — jana docker/data/config.json secara automatik kemudian keluar
+# 2. Larian pertama — menjana docker/data/config.json secara automatik kemudian keluar
+#    (hanya dicetuskan apabila kedua-dua config.json dan workspace/ tiada)
 docker compose -f docker/docker-compose.yml --profile launcher up
+# Bekas mencetak "First-run setup complete." dan berhenti.
 
-# 3. Tetapkan kunci API anda
+# 3. Tetapkan API key anda
 vim docker/data/config.json
 
 # 4. Mulakan
@@ -254,13 +250,13 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 # Buka http://localhost:18800
 ```
 
-> **Pengguna Docker / VM:** Gateway mendengar pada `127.0.0.1` secara lalai. Tetapkan `RHIZOME_GATEWAY_HOST=0.0.0.0` atau gunakan bendera `-public` untuk membolehkan akses dari hos.
+> **Pengguna Docker / VM:** Gateway mendengar di `127.0.0.1` secara lalai. Tetapkan `RHIZOME_GATEWAY_HOST=0.0.0.0` atau gunakan bendera `-public` untuk menjadikannya boleh diakses dari host.
 
 ```bash
 # Semak log
 docker compose -f docker/docker-compose.yml logs -f
 
-# Henti
+# Hentikan
 docker compose -f docker/docker-compose.yml --profile launcher down
 
 # Kemas kini
@@ -270,11 +266,10 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 
 </details>
 
-
 <details>
 <summary><b>macOS — Amaran Keselamatan Pelancaran Pertama</b></summary>
 
-macOS mungkin menyekat `rhizome-launcher` pada pelancaran pertama kerana ia dimuat turun dari internet dan tidak disahkan melalui Mac App Store.
+macOS mungkin menyekat `rhizome-launcher` pada pelancaran pertama kerana ia dimuat turun dari internet dan tidak disahkan oleh Mac App Store.
 
 **Langkah 1:** Klik dua kali `rhizome-launcher`. Anda akan melihat amaran keselamatan:
 
@@ -282,7 +277,7 @@ macOS mungkin menyekat `rhizome-launcher` pada pelancaran pertama kerana ia dimu
 <img src="../../assets/macos-gatekeeper-warning.jpg" alt="Amaran macOS Gatekeeper" width="400">
 </p>
 
-> *"rhizome-launcher" Tidak Dibuka — Apple tidak dapat mengesahkan "rhizome-launcher" bebas daripada perisian hasad yang mungkin membahayakan Mac anda atau menjejaskan privasi anda.*
+> *"rhizome-launcher" Tidak Dibuka — Apple tidak dapat mengesahkan "rhizome-launcher" bebas daripada perisian hasad yang mungkin menjejaskan Mac atau mengancam privasi anda.*
 
 **Langkah 2:** Buka **Tetapan Sistem** → **Privasi & Keselamatan** → tatal ke bawah ke bahagian **Keselamatan** → klik **Buka Juga** → sahkan dengan mengklik **Buka Juga** dalam dialog.
 
@@ -294,9 +289,10 @@ Selepas langkah sekali ini, `rhizome-launcher` akan dibuka secara normal pada pe
 
 </details>
 
+<a id="-run-on-old-android-phones"></a>
 ### 📱 Android
 
-Berikan telefon lama anda kehidupan baru! Jadikannya Pembantu AI pintar dengan Rhizome.
+Berikan telefon lama anda kehidupan kedua! Jadikannya Pembantu AI Pintar dengan Rhizome.
 
 **Pilihan 1: Pasang APK**
 
@@ -311,14 +307,16 @@ Pratonton:
   </tr>
 </table>
 
-Muat turun APK dari [picoclaw.io](https://picoclaw.io/download/) dan pasang secara langsung. Tiada Termux diperlukan!
+APK Android tidak diedarkan daripada fork ini pada masa ini; bina daripada sumber atau semak [GitHub Releases](https://github.com/stpinkie/rhizome/releases) untuk APK pada masa hadapan.
 
 **Pilihan 2: Termux**
+
+Untuk senarai semak lengkap persediaan baris perintah, lihat [Panduan Android Termux](../guides/android-termux.md).
 
 <details>
 <summary><b>Pelancar Terminal (untuk persekitaran terhad sumber)</b></summary>
 
-1. Pasang [Termux](https://github.com/termux/termux-app) (muat turun dari [GitHub Releases](https://github.com/termux/termux-app/releases), atau cari di F-Droid / Google Play)
+1. Pasang [Termux](https://github.com/termux/termux-app) (muat turun daripada [GitHub Releases](https://github.com/termux/termux-app/releases), atau cari dalam F-Droid / Google Play)
 2. Jalankan arahan berikut:
 
 ```bash
@@ -331,9 +329,9 @@ termux-chroot ./rhizome onboard   # chroot menyediakan susun atur sistem fail Li
 
 Kemudian ikuti bahagian Pelancar Terminal di bawah untuk melengkapkan konfigurasi.
 
-<img src="../../assets/termux.jpg" alt="Rhizome pada Termux" width="512">
+<img src="../../assets/termux.jpg" alt="Rhizome on Termux" width="512">
 
-Untuk persekitaran minimal di mana hanya binari teras `rhizome` tersedia (tiada UI Pelancar), anda boleh mengkonfigurasi semua melalui baris arahan dan fail konfigurasi JSON.
+Untuk persekitaran minimum yang hanya mempunyai binari teras `rhizome` (tiada UI Pelancar), anda boleh mengkonfigurasi semuanya melalui baris perintah dan fail konfigurasi JSON.
 
 **1. Mulakan**
 
@@ -341,9 +339,9 @@ Untuk persekitaran minimal di mana hanya binari teras `rhizome` tersedia (tiada 
 rhizome onboard
 ```
 
-Ini mencipta `~/.rhizome/config.json` dan direktori ruang kerja.
+Ini mencipta `~/.rhizome/config.json` dan direktori workspace.
 
-**2. Konfigurasikan** (`~/.rhizome/config.json`)
+**2. Konfigurasi** (`~/.rhizome/config.json`)
 
 ```json
 {
@@ -356,17 +354,21 @@ Ini mencipta `~/.rhizome/config.json` dan direktori ruang kerja.
     {
       "model_name": "gpt-5.4",
       "model": "openai/gpt-5.4"
+      // api_key kini dimuatkan daripada .security.yml
     }
   ]
 }
 ```
 
-> Lihat `config/config.example.json` dalam repo untuk templat konfigurasi lengkap. Nota: kunci API kini disimpan dalam `.security.yml`, bukan `config.json`.
+> Lihat `config/config.example.json` dalam repo untuk templat konfiguran lengkap dengan semua pilihan.
+>
+> Ambil perhatian: config.example.json adalah format version 0, mengandungi kod sensitif, dan akan automatik dimigrate ke version 1+; kemudian config.json hanya menyimpan data tidak sensitif, manakala kod sensitif disimpan dalam .security.yml. Jika perlu mengubah kod secara manual, lihat `docs/security/security_configuration.md`.
 
 **3. Sembang**
 
 ```bash
-rhizome agent -m "Apa itu 2+2?"
+# Satu soalan
+rhizome agent -m "What is 2+2?"
 
 # Mod interaktif
 rhizome agent
@@ -376,7 +378,6 @@ rhizome gateway
 ```
 
 </details>
-
 
 ## 🔌 Penyedia (LLM)
 
@@ -442,7 +443,6 @@ Rhizome menyokong 30+ penyedia LLM melalui konfigurasi `model_list`. Gunakan for
 Untuk butiran konfigurasi penyedia penuh, lihat [Penyedia & Model](../guides/providers.md).
 
 </details>
-
 
 ## 💬 Saluran (Aplikasi Sembang)
 

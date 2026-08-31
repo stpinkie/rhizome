@@ -1,21 +1,19 @@
 <div align="center">
-  <img src="../../assets/logo.webp" alt="Rhizome" width="512">
+<img src="../../assets/logo.webp" alt="Rhizome" width="512">
 
-  <h1>Rhizome: Go で書かれた超効率 AI アシスタント</h1>
+<h1>Rhizome: Go ベースの超効率的 AI アシスタント</h1>
 
-  <h3>$10 ハードウェア · 10MB RAM · ms 起動 · Let's Go, Rhizome!</h3>
+<h3>$10 ハードウェア · 10MB RAM · ms ブート · Let's Go, Rhizome!</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/rhizome"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
+    <a href="https://github.com/stpinkie/rhizome"><img src="https://img.shields.io/badge/GitHub-stpinkie/rhizome-181717?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
+    <a href="https://github.com/stpinkie/rhizome/tree/main/docs"><img src="https://img.shields.io/badge/Docs-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
     <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <br>
+    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
   </p>
 
 [中文](README.zh.md) | **日本語** | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
@@ -24,103 +22,92 @@
 
 ---
 
-> **Rhizome** は [Sipeed](https://sipeed.com) が立ち上げた独立したオープンソースプロジェクトです。完全に **Go 言語**で一から書かれており、OpenClaw、NanoBot、その他のプロジェクトのフォークではありません。
+> **Rhizome** は [PicoClaw](https://github.com/sipeed/picoclaw) のコミュニティ維持ハードフォークです。完全に **Go** で書かれ、超軽量な個人 AI アシスタントという目標を引き継いでいます。
 
-**Rhizome** は [NanoBot](https://github.com/HKUDS/nanobot) にインスパイアされた超軽量パーソナル AI アシスタントです。**Go** でゼロからリビルドされ、「セルフブートストラッピング」プロセスで構築されました — AI Agent 自身がアーキテクチャの移行とコード最適化を推進しました。
+**Rhizome** は [NanoBot](https://github.com/HKUDS/nanobot) に着想を得た個人 AI アシスタントです。オリジナルの PicoClaw のアイデアに、Go ネイティブの P2P メッシュ、ワークスペース同期、エージェントゲートウェイを追加しました。
 
-**$10 のハードウェアで 10MB 未満の RAM で動作** — OpenClaw より 99% 少ないメモリ、Mac mini より 98% 安い！
+**単一の Go バイナリ、実行時依存関係なし** — Linux、Windows、macOS、FreeBSD/NetBSD、Android でネイティブに実行されます。検証済みボードと現在の 2 段階リソース要件については [ハードウェア互換性リスト](../guides/hardware-compatibility.md)を参照してください。
 
-<table align="center">
-  <tr align="center">
-    <td align="center" valign="top">
-      <p align="center">
-        <img src="../../assets/rhizome_mem.gif" width="360" height="240">
-      </p>
-    </td>
-    <td align="center" valign="top">
-      <p align="center">
-        <img src="../../assets/licheervnano.png" width="400" height="240">
-      </p>
-    </td>
-  </tr>
-</table>
+<p align="center">
+<img src="../../assets/rhizome_mem.gif" width="360" height="240">
+</p>
 
 > [!CAUTION]
 > **セキュリティに関する注意**
 >
-> * **暗号通貨なし:** Rhizome には公式トークン/コインは**一切ありません**。`pump.fun` やその他の取引プラットフォームでの主張はすべて**詐欺**です。
-> * **公式ドメイン:** **唯一**の公式サイトは **[picoclaw.io](https://picoclaw.io)**、企業サイトは **[sipeed.com](https://sipeed.com)** です。
-> * **注意:** 多くの `.ai/.org/.com/.net/...` ドメインは第三者によって登録されています。信頼しないでください。
-> * **注記:** Rhizome は初期開発段階にあり、未解決のネットワークセキュリティ問題がある可能性があります。v1.0 リリース前に本番環境へのデプロイは避けてください。
-> * **注記:** Rhizome は最近多くの PR をマージしており、最新バージョンではメモリフットプリントが大きくなる場合があります（10〜20MB）。機能セットが安定次第、リソース最適化を優先する予定です。
+> * **NO CRYPTO:** Rhizome は公式トークンや暗号通貨を **発行していません**。`pump.fun` や他の取引プラットフォームでの関連する主張はすべて **詐欺**です。
+> * **CANONICAL SOURCE:** 公式のソースおよびリリース先は **<https://github.com/stpinkie/rhizome>** で、リリースは GitHub Releases に公開されています。公式を称するサードパーティドメインに注意してください。
+> * **警告:** `.ai/.org/.com/.net/...` などの多くのドメインがサードパーティに登録されています。信頼しないでください。
+> * **注意:** Rhizome は初期の高速機能開発段階にあります。未解決のセキュリティ問題が存在する可能性があります。v1.0 正式リリース前に本番環境にデプロイしないでください。
+> * **注意:** 完全な `rhizome` バイナリは約 98MB で、デーモンは約 60MB のプライベートメモリを使用します。超小型ボードのフットプリントをさらに削減するために `nonetwork` ビルドを計画しています。リソース最適化は機能が安定した後に行う予定です。
 
 ## 📢 ニュース
 
-2026-05-11 🛒 **LicheeRV-Claw が AliExpress で購入可能に！** [AliExpress](https://www.aliexpress.com/item/1005006519668532.html) から LicheeRV-Claw を購入できるようになり、コンパクトな RISC-V ハードウェアで Rhizome を試しやすくなりました。
+2026-05-28 🚀 **v0.2.9 リリース！** Web UI での MCP サーバー管理、設定可能な Sogou ウェブ検索、チャンネルツールフィードバックアニメーション、`pretty_print` および `disable_escape_html` のデフォルト値、プロバイダーとチャンネルのさまざまなバグ修正。
 
-<p align="center">
-  <a href="https://www.aliexpress.com/item/1005006519668532.html">
-    <img src="../../assets/licheerv-claw.jpg" alt="LicheeRV-Claw on AliExpress" width="520">
-  </a>
-</p>
+2026-05-14 🚀 **v0.2.8 リリース！** MCP CLI コマンド（`show`、`add`、`list`、`remove`、`test`、`edit`）、MCP ツールパラメーターの null の代わりの空オブジェクト、ビルド修正。
 
-2026-03-31 📱 **Android サポート！** RhizomeがAndroidで動作！APKは[picoclaw.io](https://picoclaw.io/download)からダウンロード
+2026-05-07 🚀 **v0.2.7 リリース！** 設定可能な Sogou ウェブ検索、チャンネルツールフィードバックアニメーション、リンター修正。
 
-2026-03-25 🚀 **v0.2.4 リリース！** Agent アーキテクチャ全面刷新（SubTurn、Hooks、Steering、EventBus）、WeChat/WeCom 統合、セキュリティ強化（.security.yml、機密データフィルタリング）、新プロバイダー（AWS Bedrock、Azure、Xiaomi MiMo）、35 件のバグ修正。Rhizome **26K ⭐** 達成！
+2026-04-23 🚀 **v0.2.6 リリース！** 応答アクションを伴う Hook と包括的なドキュメント、分離サポート、ヘルプバナー修正。
 
-2026-03-17 🚀 **v0.2.3 リリース！** システムトレイ UI（Windows & Linux）、サブエージェントステータス追跡（`spawn_status`）、実験的 Gateway ホットリロード、cron セキュリティゲート、セキュリティ修正 2 件。Rhizome **25K ⭐** 達成！
+2026-04-11 🚀 **v0.2.5 リリース！** TZ/ZONEINFO 環境変数からの Zoneinfo 取得、Matrix CommonMark レンダリングの調整、行単位 `read_file`。
 
-2026-03-09 🎉 **v0.2.1 — 最大のアップデート！** MCP プロトコルサポート、4 つの新チャンネル (Matrix/IRC/WeCom/Discord Proxy)、3 つの新プロバイダー (Kimi/Minimax/Avian)、ビジョンパイプライン、JSONL メモリストア、モデルルーティング。
+2026-03-31 📱 **Android サポート！** Rhizome が Android で実行されるようになりました！Android APK はこのフォークからは現在配布されていません。ソースからビルドするか、将来の APK は [GitHub Releases](https://github.com/stpinkie/rhizome/releases) を確認してください。
 
-2026-02-28 📦 **v0.2.0** リリース — Docker Compose と Web UI Launcher サポート。
+2026-03-25 🚀 **v0.2.4 リリース！** エージェントアーキテクチャの全面再設計（SubTurn、Hook、Steering、EventBus）、WeChat/WeCom 深層統合、セキュリティ体制の強化（.security.yml、機密データフィルタリング）、新規プロバイダー（AWS Bedrock、Azure、小米 MiMo）および 35 のバグ修正。Rhizome は **26K Stars** を達成！
+
+2026-03-17 🚀 **v0.2.3 リリース！** システムトレイ UI（Windows & Linux）、サブエージェント状態照会（`spawn_status`）、実験的 Gateway ホットリロード、Cron セーフティゲート、2 件のセキュリティ修正。Rhizome は **25K Stars** を達成！
+
+2026-03-09 🎉 **v0.2.1 — これまでで最大の更新！** MCP プロトコルサポート、4 つの新チャンネル（Matrix/IRC/WeCom/Discord Proxy）、3 つの新プロバイダー（Kimi/Minimax/Avian）、ビジョンパイプライン、JSONL メモリストレージ、モデルルーティング。
+
+2026-02-28 📦 **v0.2.0** が Docker Compose および Web UI Launcher サポートと共にリリースされました。
 
 <details>
-<summary>過去のニュース...</summary>
+<summary>それ以前のニュース...</summary>
 
-2026-02-26 🎉 Rhizome がわずか 17 日で **20K スター** 達成！Channel 自動オーケストレーションとケイパビリティインターフェースが実装されました。
+2026-02-26 🎉 Rhizome はわずか 17 日間で **20K Stars** を達成！チャンネル自動オーケストレーションと能力インターフェースが利用可能に。
 
-2026-02-16 🎉 Rhizome が 1 週間で 12K スター達成！コミュニティメンテナーの役割と[ロードマップ](../../ROADMAP.md)が正式に公開されました。
+2026-02-16 🎉 Rhizome は 1 週間で 12K Stars を突破！コミュニティメンテナー役割と [ロードマップ](../../ROADMAP.md) が正式発表。
 
-2026-02-13 🎉 Rhizome が 4 日間で 5000 スター達成！プロジェクトロードマップと開発者グループの準備が進行中。
+2026-02-13 🎉 Rhizome は 4 日間で 5000 Stars を突破！プロジェクトロードマップと開発者グループ構築中。
 
-2026-02-09 🎉 **Rhizome リリース！** $10 ハードウェアで 10MB 未満の RAM で動く AI Agent を 1 日で構築。Let's Go, Rhizome!
+2026-02-09 🎉 **Rhizome 公式リリース！** 超軽量 AI エージェントを 1 日で構築。Let's Go, Rhizome!
 
 </details>
 
 ## ✨ 特徴
 
-🪶 **超軽量**: コアメモリフットプリント 10MB 未満 — OpenClaw より 99% 小さい。*
+🪶 **単一バイナリ、実行時依存関係なし**: Linux、Windows、macOS、FreeBSD/NetBSD、Android で実行される、静的にリンクされた Go 実行ファイルです。*
 
-💰 **最小コスト**: $10 ハードウェアで動作 — Mac mini より 98% 安い。
+💰 **最小コスト**: 幅広い低コスト ARM および RISC-V ボードで実行できるほど効率的です。[ハードウェア互換性リスト](../guides/hardware-compatibility.md)を参照してください。
 
-⚡️ **超高速起動**: 起動時間 400 倍高速。0.6GHz シングルコアでも 1 秒未満で起動。
+⚡️ **高速ブート**: 検証済みの低コストボードで 1 秒未満で起動します。
 
-🌍 **真のポータビリティ**: RISC-V、ARM、MIPS、x86 対応の単一バイナリ。どこでも動く！
+🌍 **真の移植性**: RISC-V、ARM、MIPS、x86 アーキテクチャ間で単一バイナリ。1 つのバイナリでどこでも実行！
 
-🤖 **AI ブートストラップ**: 純粋な Go ネイティブ実装 — コアコードの 95% が Agent によって生成され、人間によるレビューで調整。
+🤖 **AI ブートストラップ**: 純粋な Go ネイティブ実装 — コアコードの 95% がエージェントによって生成され、人間によるレビューを通じて微調整されています。
 
-🔌 **MCP 対応**: ネイティブ [Model Context Protocol](https://modelcontextprotocol.io/) 統合 — 任意の MCP サーバーに接続して Agent 機能を拡張。
+🔌 **MCP サポート**: ネイティブな [Model Context Protocol](https://modelcontextprotocol.io/) 統合 — 任意の MCP サーバーに接続してエージェント機能を拡張します。
 
-👁️ **ビジョンパイプライン**: 画像やファイルを Agent に直接送信 — マルチモーダル LLM 向けの自動 base64 エンコーディング。
+👁️ **ビジョンパイプライン**: エージェントに直接画像とファイルを送信 — マルチモーダル LLM 用に自動で base64 エンコードされます。
 
-🧠 **スマートルーティング**: ルールベースのモデルルーティング — 簡単なクエリは軽量モデルへ、API コストを節約。
+🧠 **スマートルーティング**: ルールベースのモデルルーティング — 単純なクエリを軽量モデルにルーティングし、API コストを削減します。
 
-_*最近のバージョンでは急速な PR マージにより 10〜20MB になる場合があります。リソース最適化は計画中です。起動時間の比較は 0.8GHz シングルコアベンチマークに基づいています（下表参照）。_
+_*フットプリントの測定は Windows で `CGO_ENABLED=0`、タグ `goolm,stdjson`、`-ldflags "-s -w"` を使用して行われました；strip 後のバイナリは約 98MB です。超小型ボードのフットプリントをさらに削減するために `nonetwork` ビルドを計画しています。_
 
 <div align="center">
 
-|                                | OpenClaw      | NanoBot                  | **Rhizome**                           |
-| ------------------------------ | ------------- | ------------------------ | -------------------------------------- |
-| **言語**                       | TypeScript    | Python                   | **Go**                                 |
-| **RAM**                        | >1GB          | >100MB                   | **< 10MB***                            |
-| **起動時間**</br>(0.8GHz コア) | >500秒        | >30秒                    | **<1秒**                               |
-| **コスト**                     | Mac Mini $599 | 大半の Linux ボード ~$50 | **あらゆる Linux ボード**</br>**最安 $10** |
+### 現在のビルドフットプリント
 
-<img src="../../assets/compare.jpg" alt="Rhizome" width="512">
+| モード | ユースケース | 合計 RAM | 空き RAM | ストレージ |
+|--------|-------------|----------|----------|------------|
+| **基本** | ワンショット `rhizome agent`、`rhizome onboard` | 256 MB | 128 MB | 128 MB |
+| **完全** | P2P、同期、ゲートウェイを備えた `rhizome daemon` | 512 MB | 256 MB | 128 MB |
 
 </div>
 
-> **[ハードウェア互換性リスト](../guides/hardware-compatibility.ja.md)** — テスト済みの全ボード一覧（$5 RISC-V から Raspberry Pi、Android スマートフォンまで）。お使いのボードが未掲載？PR を送ってください！
+> **[ハードウェア互換性リスト](../guides/hardware-compatibility.md)** — Raspberry Pi から Android 携帯まで、検証済みのすべてのボードを参照してください。ボードがリストにない場合は PR を送信してください！
 
 <p align="center">
 <img src="../../assets/hardware-banner.jpg" alt="Rhizome Hardware Compatibility" width="100%">
@@ -133,8 +120,8 @@ _*最近のバージョンでは急速な PR マージにより 10〜20MB にな
 <table align="center">
 <tr align="center">
 <th><p align="center">フルスタックエンジニアモード</p></th>
-<th><p align="center">ログ＆計画管理</p></th>
-<th><p align="center">Web 検索＆学習</p></th>
+<th><p align="center">ログと計画</p></th>
+<th><p align="center">ウェブ検索と学習</p></th>
 </tr>
 <tr>
 <td align="center"><p align="center"><img src="../../assets/rhizome_code.gif" width="240" height="180"></p></td>
@@ -143,39 +130,42 @@ _*最近のバージョンでは急速な PR マージにより 10〜20MB にな
 </tr>
 <tr>
 <td align="center">開発 · デプロイ · スケール</td>
-<td align="center">スケジュール · 自動化 · メモリ</td>
-<td align="center">発見 · インサイト · トレンド</td>
+<td align="center">スケジュール · 自動化 · 記憶</td>
+<td align="center">発見 · 洞察 · トレンド</td>
 </tr>
 </table>
 
 ### 🐜 革新的な省フットプリントデプロイ
 
-Rhizome はほぼすべての Linux デバイスにデプロイできます！
+Rhizome は幅広い Linux および組み込みデバイスにデプロイできます！
 
-- $9.9 [LicheeRV-Nano](https://www.aliexpress.com/item/1005006519668532.html) E(Ethernet) または W(WiFi6) バージョン、最小ホームアシスタントに
-- $30~50 [NanoKVM](https://www.aliexpress.com/item/1005007369816019.html) または $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html) サーバー自動メンテナンスに
-- $50 [MaixCAM](https://www.aliexpress.com/item/1005008053333693.html) または $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera) スマート監視に
+- $15 [Raspberry Pi Zero](https://www.raspberrypi.com/products/raspberry-pi-zero/)（または [Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)）、最小限のホームアシスタント用
+- $50~70 [CanMV-K230](https://developer.canaan-creative.com/k230_canmv/en/main/)、RISC-V ベースの組み込み用途向け
+- $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html)、自動化されたサーバー運用向け
+- $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera)、スマート監視向け
+
+> 検証済みボードの完全なリストと現在の 2 段階要件については [ハードウェア互換性リスト](../guides/hardware-compatibility.md)を参照してください。
 
 <https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
 
-🌟 もっと多くのデプロイ事例が待っています！
+🌟 さらなるデプロイ事例をお楽しみに！
 
 ## 📦 インストール
 
-### picoclaw.io からダウンロード（推奨）
+### GitHub Releases からダウンロード（推奨）
 
-**[picoclaw.io](https://picoclaw.io)** にアクセス — 公式サイトがプラットフォームを自動検出し、ワンクリックでダウンロードできます。アーキテクチャを手動で選ぶ必要はありません。
+[GitHub Releases](https://github.com/stpinkie/rhizome/releases) ページにアクセスし、自分のプラットフォーム用のバイナリをダウンロードしてください。
 
 ### プリコンパイル済みバイナリをダウンロード
 
-または、[GitHub Releases](https://github.com/stpinkie/rhizome/releases) ページからプラットフォームに合ったバイナリをダウンロードしてください。
+または、[GitHub Releases](https://github.com/stpinkie/rhizome/releases) ページから対応プラットフォームのバイナリを手動でダウンロードできます。
 
 ### ソースからビルド（開発用）
 
 前提条件:
 
 - Go 1.25+
-- Web UI / launcher のビルドには Node.js 22+ と pnpm 10.33.0+ が必要
+- Web UI / launcher ビルド用の Node.js 22+ および pnpm 10.33.0+
 
 ```bash
 git clone https://github.com/stpinkie/rhizome.git
@@ -183,36 +173,38 @@ git clone https://github.com/stpinkie/rhizome.git
 cd rhizome
 make deps
 
-# フロントエンド依存関係をインストール
+# フロントエンドの依存関係をインストール
 (cd web/frontend && pnpm install --frozen-lockfile)
 
-# コアバイナリをビルド
+# 現在のプラットフォーム用のコアバイナリをビルド
 make build
 
 # Web UI Launcher をビルド（WebUI モードに必要）
 make build-launcher
 
-# Makefile が管理するすべてのプラットフォーム向けにコアバイナリをビルド
+# Makefile で管理されるすべてのプラットフォーム用のコアバイナリをビルド
 make build-all
 
-# Raspberry Pi Zero 2 W 向けビルド（32-bit: make build-linux-arm; 64-bit: make build-linux-arm64）
+# Raspberry Pi Zero 2 W 用にビルド
+# 32 ビット: make build-linux-arm
+# 64 ビット: make build-linux-arm64
 make build-pi-zero
 
-# ビルドとインストール
+# ビルドしてインストール
 make install
 ```
 
-**Raspberry Pi Zero 2 W:** OS に合ったバイナリを使用してください：32-bit Raspberry Pi OS → `make build-linux-arm`、64-bit → `make build-linux-arm64`。または `make build-pi-zero` で両方をビルド。
+**Raspberry Pi Zero 2 W:** OS に一致するバイナリを使用してください。32 ビット Raspberry Pi OS → `make build-linux-arm`；64 ビット → `make build-linux-arm64`。または `make build-pi-zero` を実行して両方をビルドします。
 
 ## 🚀 クイックスタートガイド
 
 ### 🌐 WebUI Launcher（デスクトップ向け推奨）
 
-WebUI Launcher はブラウザベースの設定・チャットインターフェースを提供します。コマンドラインの知識不要で、最も簡単に始められる方法です。
+WebUI Launcher は、ブラウザベースの設定・チャットインターフェースを提供します。コマンドラインの知識がなくても最も簡単に始められます。
 
 **オプション 1: ダブルクリック（デスクトップ）**
 
-[picoclaw.io](https://picoclaw.io) からダウンロード後、`rhizome-launcher`（Windows では `rhizome-launcher.exe`）をダブルクリックしてください。ブラウザが自動的に `http://localhost:18800` を開きます。
+[GitHub Releases](https://github.com/stpinkie/rhizome/releases) からダウンロード後、`rhizome-launcher`（Windows では `rhizome-launcher.exe`）をダブルクリックします。ブラウザが自動的に `http://localhost:18800` を開きます。
 
 **オプション 2: コマンドライン**
 
@@ -222,7 +214,7 @@ rhizome-launcher
 ```
 
 > [!TIP]
-> **リモートアクセス / Docker / VM:** すべてのインターフェースでリッスンするには `-public` フラグを追加してください：
+> **リモートアクセス / Docker / VM:** すべてのインターフェースでリッスンするには `-public` フラグを追加します:
 > ```bash
 > rhizome-launcher -public
 > ```
@@ -231,14 +223,14 @@ rhizome-launcher
 <img src="../../assets/launcher-webui.jpg" alt="WebUI Launcher" width="600">
 </p>
 
-**始め方:**
+**はじめに:**
 
-WebUI を開いたら：**1)** Provider を設定（LLM API キーを追加）→ **2)** Channel を設定（例：Telegram）→ **3)** Gateway を起動 → **4)** チャット！
+WebUI を開いてから: **1)** プロバイダーを設定（LLM API キーを追加） → **2)** チャンネルを設定（例: Telegram） → **3)** ゲートウェイを起動 → **4)** チャット！
 
-WebUI の詳細なドキュメントは [docs.picoclaw.io](https://docs.picoclaw.io) を参照してください。
+詳細なドキュメントについては、このリポジトリの [docs/ フォルダ](https://github.com/stpinkie/rhizome/tree/main/docs)を参照してください。
 
 <details>
-<summary><b>Docker（代替手段）</b></summary>
+<summary><b>Docker（代替）</b></summary>
 
 ```bash
 # 1. このリポジトリをクローン
@@ -246,9 +238,9 @@ git clone https://github.com/stpinkie/rhizome.git
 cd rhizome
 
 # 2. 初回実行 — docker/data/config.json を自動生成して終了
-#    （config.json と workspace/ の両方が存在しない場合のみ実行）
+#    （config.json と workspace/ の両方が存在しない場合にのみトリガー）
 docker compose -f docker/docker-compose.yml --profile launcher up
-# コンテナが "First-run setup complete." を出力して停止します。
+# コンテナが "First-run setup complete." と出力して停止します。
 
 # 3. API キーを設定
 vim docker/data/config.json
@@ -258,7 +250,7 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 # http://localhost:18800 を開く
 ```
 
-> **Docker / VM ユーザー:** Gateway はデフォルトで `127.0.0.1` でリッスンします。ホストからアクセスできるようにするには `RHIZOME_GATEWAY_HOST=0.0.0.0` を設定するか、`-public` フラグを使用してください。
+> **Docker / VM ユーザー:** ゲートウェイはデフォルトで `127.0.0.1` をリッスンします。ホストからアクセス可能にするには、`RHIZOME_GATEWAY_HOST=0.0.0.0` を設定するか `-public` フラグを使用してください。
 
 ```bash
 # ログを確認
@@ -277,34 +269,34 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 <details>
 <summary><b>macOS — 初回起動時のセキュリティ警告</b></summary>
 
-`rhizome-launcher` はインターネットからダウンロードされ、Mac App Store を通じて公証されていないため、macOS が初回起動時にブロックする場合があります。
+macOS は、インターネットからダウンロードされ Mac App Store を通じて公証されていないため、初回起動時に `rhizome-launcher` をブロックする場合があります。
 
-**ステップ 1：** `rhizome-launcher` をダブルクリックすると、セキュリティ警告が表示されます：
+**ステップ 1:** `rhizome-launcher` をダブルクリックします。セキュリティ警告が表示されます:
 
 <p align="center">
 <img src="../../assets/macos-gatekeeper-warning.jpg" alt="macOS Gatekeeper 警告" width="400">
 </p>
 
-> *"rhizome-launcher" は開けません — "rhizome-launcher" がMacに害を与えたりプライバシーを侵害するマルウェアを含まないことをAppleは確認できません。*
+> *「rhizome-launcher」を開けません — Apple は「rhizome-launcher」が Mac を損傷させたりプライバシーを侵害する可能性のあるマルウェアを含んでいないことを確認できません。*
 
-**ステップ 2：** **システム設定** → **プライバシーとセキュリティ** を開き、**セキュリティ** セクションまでスクロールして **このまま開く** をクリック → ダイアログで再度 **開く** をクリックします。
+**ステップ 2:** **システム設定** → **プライバシーとセキュリティ** → **セキュリティ** セクションまでスクロール → **それでも開く** をクリック → ダイアログで **それでも開く** をクリックして確定します。
 
 <p align="center">
-<img src="../../assets/macos-gatekeeper-allow.jpg" alt="macOS プライバシーとセキュリティ — このまま開く" width="600">
+<img src="../../assets/macos-gatekeeper-allow.jpg" alt="macOS プライバシーとセキュリティ — それでも開く" width="600">
 </p>
 
-この操作を一度行うと、以降の起動では警告が表示されなくなります。
+この 1 回限りの操作後、以降の起動では `rhizome-launcher` が正常に開きます。
 
 </details>
 
 <a id="-run-on-old-android-phones"></a>
 ### 📱 Android
 
-10 年前のスマホに第二の人生を！Rhizome でスマート AI アシスタントに変身させましょう。
+10年前の古い携帯に第二の人生を！Rhizome でスマート AI アシスタントに変身させましょう。
 
 **オプション 1: APK インストール**
 
-プレビュー：
+プレビュー:
 
 <table>
   <tr>
@@ -315,29 +307,31 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
   </tr>
 </table>
 
-[picoclaw.io](https://picoclaw.io/download/) から APK をダウンロードして直接インストール。Termux 不要！
+Android APK はこのフォークから現在公開されていません。ソースからビルドするか、将来の APK は [GitHub Releases](https://github.com/stpinkie/rhizome/releases) を確認してください。
 
 **オプション 2: Termux**
 
-<details>
-<summary><b>Terminal Launcher（リソース制約環境向け）</b></summary>
+完全なコマンドライン設定チェックリストについては [Android Termux ガイド](../guides/android-termux.md)を参照してください。
 
-1. [Termux](https://github.com/termux/termux-app) をインストール（[GitHub Releases](https://github.com/termux/termux-app/releases) からダウンロード、または F-Droid / Google Play で検索）
-2. 以下のコマンドを実行：
+<details>
+<summary><b>ターミナル Launcher（リソース制約環境向け）</b></summary>
+
+1. [Termux](https://github.com/termux/termux-app) をインストール（[GitHub Releases](https://github.com/termux/termux-app/releases) からダウンロードするか、F-Droid / Google Play で検索）
+2. 次のコマンドを実行:
 
 ```bash
 # 最新リリースをダウンロード
 wget https://github.com/stpinkie/rhizome/releases/latest/download/rhizome_Linux_arm64.tar.gz
 tar xzf rhizome_Linux_arm64.tar.gz
 pkg install proot
-termux-chroot ./rhizome onboard   # chroot で標準的な Linux ファイルシステムレイアウトを提供
+termux-chroot ./rhizome onboard   # chroot は標準の Linux ファイルシステムレイアウトを提供
 ```
 
-その後、下記の Terminal Launcher セクションの手順に従って設定を完了してください。
+次に、以下のターミナル Launcher セクションに従って設定を完了します。
 
 <img src="../../assets/termux.jpg" alt="Rhizome on Termux" width="512">
 
-`rhizome` コアバイナリのみが利用可能な最小環境（Launcher UI なし）では、コマンドラインと JSON 設定ファイルですべてを設定できます。
+`rhizome` コアバイナリのみが利用可能な最小限の環境（Launcher UI なし）では、コマンドラインと JSON 設定ファイルを介してすべてを設定できます。
 
 **1. 初期化**
 
@@ -345,13 +339,12 @@ termux-chroot ./rhizome onboard   # chroot で標準的な Linux ファイルシ
 rhizome onboard
 ```
 
-`~/.rhizome/config.json` とワークスペースディレクトリが作成されます。
+これにより `~/.rhizome/config.json` とワークスペースディレクトリが作成されます。
 
-**2. 設定** (`~/.rhizome/config.json`)
+**2. 設定**（`~/.rhizome/config.json`）
 
 ```json
 {
-  "version": 3,
   "agents": {
     "defaults": {
       "model_name": "gpt-5.4"
@@ -360,25 +353,27 @@ rhizome onboard
   "model_list": [
     {
       "model_name": "gpt-5.4",
-      "model": "openai/gpt-5.4",
-      "api_keys": ["sk-your-api-key"]
+      "model": "openai/gpt-5.4"
+      // api_key は現在 .security.yml から読み込まれます
     }
   ]
 }
 ```
 
 > 利用可能なすべてのオプションを含む完全な設定テンプレートは、リポジトリの `config/config.example.json` を参照してください。
+>
+> 注意: config.example.json は version 0 形式で機密コードを含み、version 1+ に自動マイグレーションされます。その後、config.json は非機密データのみを保存し、機密コードは .security.yml に保存されます。コードを手動で変更する必要がある場合は `docs/security/security_configuration.md` を参照してください。
 
 **3. チャット**
 
 ```bash
-# ワンショット質問
+# 1 回限りの質問
 rhizome agent -m "What is 2+2?"
 
-# インタラクティブモード
+# 対話モード
 rhizome agent
 
-# チャットアプリ統合用 Gateway を起動
+# チャットアプリ統合のためのゲートウェイを起動
 rhizome gateway
 ```
 
@@ -407,7 +402,7 @@ Rhizome は `model_list` 設定を通じて 30 以上の LLM Provider をサポ�
 | [Novita AI](https://novita.ai/) | `novita/` | 必須 | 各種オープンモデル |
 | [Xiaomi MiMo](https://platform.xiaomimimo.com/) | `mimo/` | 必須 | MiMo モデル |
 | [Ollama](https://ollama.com/) | `ollama/` | 不要 | ローカルモデル、セルフホスト |
-| [vLLM](https://docs.vllm.ai/) | `vllm/` | 不要 | ローカルデプロイ、OpenAI 互換 |
+| [vLLM](https://docs.vllm.ai/) | `vLLM/` | 不要 | ローカルデプロイ、OpenAI 互換 |
 | [LiteLLM](https://docs.litellm.ai/) | `litellm/` | 場合による | 100 以上の Provider のプロキシ |
 | [Azure OpenAI](https://portal.azure.com/) | `azure/` | 必須 | エンタープライズ Azure デプロイ |
 | [GitHub Copilot](https://github.com/features/copilot) | `github-copilot/` | OAuth | デバイスコードログイン |

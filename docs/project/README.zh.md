@@ -3,19 +3,17 @@
 
 <h1>Rhizome: 基于Go语言的超高效 AI 助手</h1>
 
-<h3>$10 硬件 · 10MB 内存 · 毫秒启动 · 皮皮虾，我们走！</h3>
+<h3>$10 硬件 · 10MB 内存 · 毫秒启动 · Let's Go, Rhizome!</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/rhizome"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
+    <a href="https://github.com/stpinkie/rhizome"><img src="https://img.shields.io/badge/GitHub-stpinkie/rhizome-181717?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
+    <a href="https://github.com/stpinkie/rhizome/tree/main/docs"><img src="https://img.shields.io/badge/Docs-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
     <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <br>
+    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
   </p>
 
 **中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
@@ -24,47 +22,38 @@
 
 ---
 
-> **Rhizome** 是由 [矽速科技 (Sipeed)](https://sipeed.com) 发起的独立开源项目，完全使用 **Go 语言**从零编写——不是 OpenClaw、NanoBot 或其他项目的分支。
+> **Rhizome** 是 [PicoClaw](https://github.com/sipeed/picoclaw) 的社区维护硬分叉。它完全使用 **Go 语言** 编写，并继续致力于实现超轻量级个人 AI 助手的目标。
 
-🦐 **Rhizome** 是一个受 [NanoBot](https://github.com/HKUDS/nanobot) 启发的超轻量级个人 AI 助手。它采用 **Go 语言** 从零重构，经历了一个"自举"过程——即由 AI Agent 自身驱动了整个架构迁移和代码优化。
+**Rhizome** 是一款受 [NanoBot](https://github.com/HKUDS/nanobot) 启发的个人 AI 助手。它在原始 PicoClaw 理念之上增加了原生 Go P2P 网格、工作区同步和 Agent 网关。
 
-⚡️ **极致轻量**：可在 **10 美元** 的硬件上运行，内存占用 **<10MB**。这意味着比 OpenClaw 节省 99% 的内存，比 Mac mini 便宜 98%！
+**单一 Go 二进制文件，无运行时依赖** — 原生运行于 Linux、Windows、macOS、FreeBSD/NetBSD 和 Android。请参阅[硬件兼容列表](../guides/hardware-compatibility.zh.md)了解已验证板卡及当前两级资源要求。
 
-<table align="center">
-<tr align="center">
-<td align="center" valign="top">
 <p align="center">
 <img src="../../assets/rhizome_mem.gif" width="360" height="240">
 </p>
-</td>
-<td align="center" valign="top">
-<p align="center">
-<img src="../../assets/licheervnano.png" width="400" height="240">
-</p>
-</td>
-</tr>
-</table>
 
 > [!CAUTION]
 > **🚨 安全声明**
 >
 > - **无加密货币 (NO CRYPTO):** Rhizome **没有** 发行任何官方代币、Token 或虚拟货币。所有在 `pump.fun` 或其他交易平台上的相关声称均为 **诈骗**。
-> - **官方域名:** 唯一的官方网站是 **[picoclaw.io](https://picoclaw.io)**，公司官网是 **[sipeed.com](https://sipeed.com)**。
+> - **官方来源 (CANONICAL SOURCE):** 权威源码和发布地址是 **<https://github.com/stpinkie/rhizome>**；版本发布在 GitHub Releases。请警惕声称是官方的第三方域名。
 > - **警惕:** 许多 `.ai/.org/.com/.net/...` 后缀的域名被第三方抢注，请勿轻信。
 > - **注意:** Rhizome 正在初期的快速功能开发阶段，可能有尚未修复的网络安全问题，在 1.0 正式版发布前，请不要将其部署到生产环境中。
-> - **注意:** Rhizome 最近合并了大量 PR，近期版本可能内存占用较大 (10~20MB)，我们将在功能较为收敛后进行资源占用优化。
+> - **注意:** 完整的 `rhizome` 二进制文件约 98 MB，守护进程使用约 60 MB 私有内存。我们计划构建 `nonetwork` 版本以进一步降低超小板的占用。资源优化将在功能稳定后进行。
 
 ## 📢 新闻
 
-2026-05-11 🛒 **LicheeRV-Claw 已上架淘宝！** 现在可以在 [淘宝](https://item.taobao.com/item.htm?abbucket=20&id=764939520376) 购买 LicheeRV-Claw，更方便地在小型 RISC-V 硬件上体验 Rhizome。
+2026-05-28 🚀 **v0.2.9 发布！** Web UI 中的 MCP 服务器管理、可配置的搜狗联网搜索、Channel 工具反馈动画、`pretty_print` 和 `disable_escape_html` 默认值，以及 Provider 和 Channel 的多项 Bug 修复。
 
-<p align="center">
-  <a href="https://item.taobao.com/item.htm?abbucket=20&id=764939520376">
-    <img src="../../assets/licheerv-claw.jpg" alt="LicheeRV-Claw on Taobao" width="520">
-  </a>
-</p>
+2026-05-14 🚀 **v0.2.8 发布！** MCP CLI 命令（`show`、`add`、`list`、`remove`、`test`、`edit`）、MCP 工具参数空对象替代 null，以及构建修复。
 
-2026-03-31 📱 **Android 支持！** Rhizome 现可在 Android 上运行！APK 下载地址：[picoclaw.io](https://picoclaw.io/download)
+2026-05-07 🚀 **v0.2.7 发布！** 可配置的搜狗联网搜索、Channel 工具反馈动画、Linter 修复。
+
+2026-04-23 🚀 **v0.2.6 发布！** 带响应动作的 Hook 与完整文档、隔离支持、帮助横幅修复。
+
+2026-04-11 🚀 **v0.2.5 发布！** 从 TZ/ZONEINFO 环境变量获取 Zoneinfo、Matrix CommonMark 渲染对齐、按行 `read_file`。
+
+2026-03-31 📱 **Android 支持！** Rhizome 现可在 Android 上运行！本 fork 目前不分发 Android APK，请从源码构建或留意 [GitHub Releases](https://github.com/stpinkie/rhizome/releases) 获取未来的 APK。
 
 2026-03-25 🚀 **v0.2.4 发布！** Agent 架构全面重构（SubTurn、Hook、Steering、EventBus）、微信/企业微信深度集成、安全体系升级（.security.yml、敏感数据过滤）、新增 Provider（AWS Bedrock、Azure、小米 MiMo），以及 35 项 Bug 修复。Rhizome 已达 **26K ⭐**！
 
@@ -83,44 +72,42 @@
 
 2026-02-13 🎉 Rhizome 4 天内突破 5000 Stars！项目路线图和开发者群组筹建中。
 
-2026-02-09 🎉 **Rhizome 正式发布！** 仅用 1 天构建，将 AI Agent 带入 $10 硬件与 <10MB 内存的世界。🦐 皮皮虾，我们走！
+2026-02-09 🎉 **Rhizome 正式发布！** 仅用 1 天构建，探索超轻量级 AI Agent。Let's Go, Rhizome!
 
 </details>
 
 ## ✨ 特性
 
-🪶 **超轻量级**: 核心功能内存占用 <10MB — 比 OpenClaw 小 99%。*
+🪶 **单一二进制，无运行时依赖**：一个静态链接的 Go 可执行文件，可在 Linux、Windows、macOS、FreeBSD/NetBSD 和 Android 上运行。*
 
-💰 **极低成本**: 高效到足以在 $10 的硬件上运行 — 比 Mac mini 便宜 98%。
+💰 **成本极低**：足够高效，可运行在多种低成本 ARM 和 RISC-V 开发板上；请参阅[硬件兼容列表](../guides/hardware-compatibility.zh.md)。
 
-⚡️ **闪电启动**: 启动速度快 400 倍，即使在 0.6GHz 单核处理器上也能在 1 秒内启动。
+⚡️ **闪电启动**：在经过验证的低成本开发板上不到 1 秒即可启动。
 
-🌍 **真正可移植**: 跨 RISC-V、ARM、MIPS 和 x86 架构的单二进制文件，一键运行！
+🌍 **真正可移植**：RISC-V、ARM、MIPS 和 x86 架构共享同一个二进制文件。一份二进制，随处运行！
 
-🤖 **AI 自举**: 纯 Go 语言原生实现 — 95% 的核心代码由 Agent 生成，并经由"人机回环"微调。
+🤖 **AI 自举**：纯 Go 原生实现 — 95% 的核心代码由 Agent 生成，并通过人机回环审查进行微调。
 
-🔌 **MCP 支持**: 原生 [Model Context Protocol](https://modelcontextprotocol.io/) 集成 — 连接任意 MCP 服务器扩展 Agent 能力。
+🔌 **MCP 支持**：原生 [Model Context Protocol](https://modelcontextprotocol.io/) 集成 — 连接任意 MCP 服务器以扩展 Agent 能力。
 
-👁️ **视觉管线**: 直接向 Agent 发送图片和文件 — 自动 base64 编码对接多模态 LLM。
+👁️ **视觉管线**：直接向 Agent 发送图片和文件 — 多模态 LLM 自动进行 base64 编码。
 
-🧠 **智能路由**: 基于规则的模型路由 — 简单查询走轻量模型，节省 API 成本。
+🧠 **智能路由**：基于规则的模型路由 — 简单查询路由到轻量模型，节省 API 成本。
 
-_*近期版本因快速合并 PR 可能占用 10–20MB，资源优化已列入计划。启动速度对比基于 0.8GHz 单核实测（见下方对比表）。_
+_*在 Windows 上使用 `CGO_ENABLED=0`、tags `goolm,stdjson` 和 `-ldflags "-s -w"` 测量；剥离后二进制文件约 98 MB。我们计划构建 `nonetwork` 版本以进一步降低超小板的占用。_
 
 <div align="center">
 
-|                                | OpenClaw      | NanoBot                  | **Rhizome**                           |
-| ------------------------------ | ------------- | ------------------------ | -------------------------------------- |
-| **语言**                       | TypeScript    | Python                   | **Go**                                 |
-| **RAM**                        | >1GB          | >100MB                   | **< 10MB***                            |
-| **启动时间**</br>(0.8GHz core) | >500s         | >30s                     | **<1s**                                |
-| **成本**                       | Mac Mini $599 | 大多数 Linux 开发板 ~$50 | **任意 Linux 开发板**</br>**低至 $10** |
+### 当前构建占用
 
-<img src="../../assets/compare.jpg" alt="Rhizome" width="512">
+| 模式 | 用途 | 总内存 | 空闲内存 | 存储 |
+|------|------|--------|----------|------|
+| **基础** | 一次性 `rhizome agent`、`rhizome onboard` | 256 MB | 128 MB | 128 MB |
+| **完整** | 带 P2P、同步器和网关的 `rhizome daemon` | 512 MB | 256 MB | 128 MB |
 
 </div>
 
-> 📋 **[硬件兼容列表](../guides/hardware-compatibility.zh.md)** — 查看所有已测试的板卡，从 $5 RISC-V 到树莓派到安卓手机。你的板卡没在列表中？欢迎提交 PR！
+> 📋 **[硬件兼容列表](../guides/hardware-compatibility.zh.md)** — 查看所有已测试的板卡，从树莓派到安卓手机。你的板卡没在列表中？欢迎提交 PR！
 
 <p align="center">
 <img src="../../assets/hardware-banner.jpg" alt="Rhizome Hardware Compatibility" width="100%">
@@ -142,19 +129,22 @@ _*近期版本因快速合并 PR 可能占用 10–20MB，资源优化已列入�
 <td align="center"><p align="center"><img src="../../assets/rhizome_search.gif" width="240" height="180"></p></td>
 </tr>
 <tr>
-<td align="center">开发 • 部署 • 扩展</td>
-<td align="center">日程 • 自动化 • 记忆</td>
-<td align="center">发现 • 洞察 • 趋势</td>
+<td align="center">开发 · 部署 · 扩展</td>
+<td align="center">日程 · 自动化 · 记忆</td>
+<td align="center">发现 · 洞察 · 趋势</td>
 </tr>
 </table>
 
 ### 🐜 创新的低占用部署
 
-Rhizome 几乎可以部署在任何 Linux 设备上！
+Rhizome 可以部署在广泛的 Linux 和嵌入式设备上！
 
-- $9.9 [LicheeRV-Nano](https://item.taobao.com/item.htm?id=764939520376) E(网口) 或 W(WiFi6) 版本，用于极简家庭助手
-- $30~50 [NanoKVM](https://item.taobao.com/item.htm?id=811206560480)，或 $100 [NanoKVM-Pro](https://item.taobao.com/item.htm?id=994419942411)，用于自动化服务器运维
-- $50 [MaixCAM](https://item.taobao.com/item.htm?id=784724795837) 或 $100 [MaixCAM2](https://item.taobao.com/item.htm?id=1050380368975)，用于智能监控
+- $15 [Raspberry Pi Zero](https://www.raspberrypi.com/products/raspberry-pi-zero/)（或 [Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)），用于极简家庭助手
+- $50~70 [CanMV-K230](https://developer.canaan-creative.com/k230_canmv/en/main/)，用于基于 RISC-V 的嵌入式场景
+- $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html)，用于自动化服务器运维
+- $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera)，用于智能监控
+
+> 如需查看完整的已验证板卡列表及当前两级要求，请参阅[硬件兼容列表](../guides/hardware-compatibility.zh.md)。
 
 <https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
 
@@ -162,9 +152,9 @@ Rhizome 几乎可以部署在任何 Linux 设备上！
 
 ## 📦 安装
 
-### 从 picoclaw.io 下载（推荐）
+### 从 GitHub Releases 下载（推荐）
 
-访问 **[picoclaw.io](https://picoclaw.io)** — 官网自动检测你的平台，提供一键下载，无需手动选择架构。
+访问 [GitHub Releases](https://github.com/stpinkie/rhizome/releases) 页面，下载适合你平台的二进制文件。
 
 ### 下载预编译二进制文件
 
@@ -212,7 +202,7 @@ WebUI Launcher 提供基于浏览器的配置与聊天界面，是最简单的�
 
 **方式一：双击启动（桌面）**
 
-从 [picoclaw.io](https://picoclaw.io) 下载后，双击 `rhizome-launcher`（Windows 上为 `rhizome-launcher.exe`），浏览器将自动打开 `http://localhost:18800`。
+从 [GitHub Releases](https://github.com/stpinkie/rhizome/releases) 下载后，双击 `rhizome-launcher`（Windows 上为 `rhizome-launcher.exe`），浏览器将自动打开 `http://localhost:18800`。
 
 **方式二：命令行**
 
@@ -233,9 +223,9 @@ rhizome-launcher
 
 **开始使用：**
 
-打开 WebUI，然后：**1)** 配置 Provider（填入 LLM API Key）-> **2)** 配置 Channel（如 Telegram）-> **3)** 启动 Gateway -> **4)** 开始聊天！
+打开 WebUI，然后：**1)** 配置 Provider（填入 LLM API Key）→ **2)** 配置 Channel（如 Telegram）→ **3)** 启动 Gateway → **4)** 开始聊天！
 
-详细 WebUI 文档请参阅 [docs.picoclaw.io](https://docs.picoclaw.io)。
+详细文档请参阅本仓库中的 [docs/ 目录](https://github.com/stpinkie/rhizome/tree/main/docs)。
 
 <details>
 <summary><b>Docker（备选方案）</b></summary>
@@ -300,7 +290,7 @@ macOS 可能会在首次启动时拦截 `rhizome-launcher`，因为它从互联�
 <a id="-run-on-old-android-phones"></a>
 ### 📱 Android
 
-让你十年前的旧手机焕发新生！将它变成你的 AI 助手。
+让你十年前的旧手机焕发新生！将它变成你的智能 AI 助手。
 
 **方式一：APK 安装**
 
@@ -315,9 +305,11 @@ macOS 可能会在首次启动时拦截 `rhizome-launcher`，因为它从互联�
   </tr>
 </table>
 
-从 [picoclaw.io](https://picoclaw.io/download/) 下载 APK 并直接安装，无需 Termux！
+此 fork 目前未发布 Android APK；请从源码构建或查看 [GitHub Releases](https://github.com/stpinkie/rhizome/releases) 获取未来版本。
 
 **方式二：Termux**
+
+完整的命令行设置清单请参阅 [Android Termux 指南](../guides/android-termux.md)。
 
 <details>
 <summary><b>Terminal Launcher（适用于资源受限环境）</b></summary>
@@ -326,7 +318,7 @@ macOS 可能会在首次启动时拦截 `rhizome-launcher`，因为它从互联�
 2. 执行以下命令：
 
 ```bash
-# 从 Release 页面下载最新版本
+# 下载最新 Release
 wget https://github.com/stpinkie/rhizome/releases/latest/download/rhizome_Linux_arm64.tar.gz
 tar xzf rhizome_Linux_arm64.tar.gz
 pkg install proot
@@ -351,7 +343,6 @@ rhizome onboard
 
 ```json
 {
-  "version": 3,
   "agents": {
     "defaults": {
       "model_name": "gpt-5.4"
@@ -360,14 +351,16 @@ rhizome onboard
   "model_list": [
     {
       "model_name": "gpt-5.4",
-      "model": "openai/gpt-5.4",
-      "api_keys": ["sk-your-api-key"]
+      "model": "openai/gpt-5.4"
+      // api_key 现在从 .security.yml 加载
     }
   ]
 }
 ```
 
 > 完整配置模板请参阅仓库中的 `config/config.example.json`。
+>
+> 请注意：config.example.json 格式为 version 0，其中包含敏感代码，迁移到 version 1+ 后，config.json 将只存储非敏感数据，敏感代码存储在 .security.yml 中。如需手动修改代码，请参阅 `docs/security/security_configuration.md`。
 
 **3. 开始聊天**
 
@@ -588,7 +581,7 @@ Rhizome 原生支持 [MCP](https://modelcontextprotocol.io/) — 连接任意 MC
 Rhizome 通过 `cron` 工具支持定时提醒和重复任务：
 
 * **一次性提醒**: "10分钟后提醒我" → 10分钟后触发一次
-* **重复任务**: "每2小时提醒我" → 每2小时触发
+* **重复任务**: "每2小时提醒我" → 每2小时触发一次
 * **Cron 表达式**: "每天上午9点提醒我" → 使用 cron 表达式
 
 ## 📚 文档
