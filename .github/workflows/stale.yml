@@ -1,9 +1,10 @@
 name: Close stale issues and PRs
 
 on:
-  schedule:
-    # Run daily at 03:00 JST (18:00 UTC)
-    - cron: "0 18 * * *"
+  # Scheduled runs are disabled so the stale bot does not immediately start closing issues and PRs.
+  # To re-enable it, add:
+  #   schedule:
+  #     - cron: "0 18 * * *"
   workflow_dispatch:
 
 permissions:

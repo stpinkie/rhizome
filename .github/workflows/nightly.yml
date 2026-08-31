@@ -1,8 +1,10 @@
 name: Nightly Build
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
+  # Scheduled runs are disabled until release secrets (Docker Hub, GHCR, Volcengine TOS, macOS notary) are configured.
+  # To re-enable the nightly build, add:
+  #   schedule:
+  #     - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:
