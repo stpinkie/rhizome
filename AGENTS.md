@@ -129,3 +129,10 @@ This script is also run in CI on `ubuntu-latest` as the `mesh-integration` job.
 ## Upstream
 
 - `sipeed/picoclaw` is the upstream remote for cherry-picking future fixes.
+
+## Cross-Agent Testing
+
+- The `.rhizome-tests/` dot-folder contains a testing skill and report templates for cloud agents.
+- Point agents at `.rhizome-tests/SKILL.md`.
+- After running the suite, agents write a Markdown and JSON report to `.rhizome-tests/reports/`.
+- The GitHub Actions matrix in `.github/workflows/pr.yml` runs the same core checks on Linux, Windows, and web.

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Rhizome Test Report",
+  "type": "object",
+  "required": ["agent", "os", "arch", "go_version", "date", "duration_seconds", "commands", "summary"],
+  "properties": {
+    "agent": { "type": "string" },
+    "os": { "type": "string" },
+    "arch": { "type": "string" },
+    "go_version": { "type": "string" },
+    "node_version": { "type": "string" },
+    "pnpm_version": { "type": "string" },
+    "date": { "type": "string", "format": "date-time" },
+    "commit": { "type": "string" },
+    "duration_seconds": { "type": "number" },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command", "exit_code"],
+        "properties": {
+          "name": { "type": "string" },
+          "command": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "duration_seconds": { "type": "number" },
+          "output_excerpt": { "type": "string" },
+          "log_file": { "type": "string" }
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "properties": {
+        "passed_packages": { "type": "array", "items": { "type": "string" } },
+        "failed_packages": { "type": "array", "items": { "type": "string" } },
+        "skipped_packages": { "type": "array", "items": { "type": "string" } },
+        "known_failures": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "summary": { "type": "string" },
+    "notes": { "type": "string" }
+  }
+}

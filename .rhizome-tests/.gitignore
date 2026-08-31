@@ -1,0 +1,5 @@
+# Temporary artifacts produced during an agent run.
+/tmp/
+/bin/
+*.log
+*.tmp

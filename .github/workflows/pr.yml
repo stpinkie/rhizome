@@ -47,8 +47,8 @@ jobs:
       - name: Run Govulncheck
         run: govulncheck -C . -format text ./...
 
-  test:
-    name: Tests
+  test-linux:
+    name: Tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -79,6 +79,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Disable Windows Firewall for tests
+        shell: powershell
+        run: |
+          # GitHub-hosted runners are ephemeral; disable the firewall so go test
+          # binaries are not silently blocked when libp2p/mDNS bind to ports.
+          netsh advfirewall set allprofiles state off
+
       - name: Run go build
         run: go build -tags goolm,stdjson ./...
         env:
@@ -88,6 +95,39 @@ jobs:
         run: go test -tags goolm,stdjson ./...
         env:
           CGO_ENABLED: '0'
+
+  test-web:
+    name: Web Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/frontend/pnpm-lock.yaml
+
+      - name: Build frontend for web backend
+        run: make -C web build-frontend
+
+      - name: Run web tests
+        run: make -C web test
+
+      - name: Check frontend formatting
+        run: cd web/frontend && pnpm format
 
   integration:
     name: Integration Tests
@@ -115,3 +155,19 @@ jobs:
         run: bash ./scripts/integration-mesh.sh
         env:
           CGO_ENABLED: '0'
+
+  build-all:
+    name: Build all platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Cross-compile all platforms
+        run: CGO_ENABLED=0 make build-all

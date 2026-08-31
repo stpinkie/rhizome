@@ -190,8 +190,8 @@ endif
 
 # Run all tests
 test:
-	cd $(BACKEND_DIR) && ${WEB_GO} test ./...
-	cd $(FRONTEND_DIR) && pnpm lint
+	cd $(BACKEND_DIR) && ${WEB_GO} test $(GOFLAGS) ./...
+	cd $(FRONTEND_DIR) && pnpm lint && pnpm format
 
 # Lint and format
 lint:
