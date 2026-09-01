@@ -77,7 +77,7 @@ func (d *Discovery) Start(ctx context.Context) error {
 		cancel()
 	}
 
-	kad, err := dht.New(ctx, d.host, opts...)
+	kad, err := dht.New(d.host, opts...)
 	if err != nil {
 		return fmt.Errorf("create dht: %w", err)
 	}

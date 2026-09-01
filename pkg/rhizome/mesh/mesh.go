@@ -58,6 +58,7 @@ type Mesh struct {
 	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)
 
 	stop   chan struct{}
+	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -88,18 +89,18 @@ func NewMesh(
 
 // Start registers the agent and capability protocol handlers.
 func (m *Mesh) Start(ctx context.Context) error {
-	ctx, m.cancel = context.WithCancel(ctx)
+	m.ctx, m.cancel = context.WithCancel(ctx)
 
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		_ = m.rpc.Start(ctx)
+		_ = m.rpc.Start(m.ctx)
 	}()
 
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		_ = m.cap.Start(ctx)
+		_ = m.cap.Start(m.ctx)
 	}()
 
 	for _, p := range m.cfg.TrustedPeers {
@@ -111,7 +112,7 @@ func (m *Mesh) Start(ctx context.Context) error {
 	}
 
 	// Seed initial seed trust by resolving config.
-	go m.Advertise(ctx)
+	go m.Advertise(m.ctx)
 	return nil
 }
 
@@ -131,35 +132,62 @@ func (m *Mesh) Stop() error {
 	return nil
 }
 
+func (m *Mesh) makeErrorResponse(correlationID, message string) (agentrpc.Response, error) {
+	resp := agentrpc.Response{
+		CorrelationID: correlationID,
+		Status:        "error",
+		Error:         message,
+	}
+	if err := m.signResponse(&resp); err != nil {
+		return agentrpc.Response{}, fmt.Errorf("sign response: %w", err)
+	}
+	return resp, nil
+}
+
 // HandleRequest implements agentrpc.Handler for incoming remote agent tasks.
 func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Response, error) {
 	if !m.isTrusted(from) {
-		return agentrpc.Response{}, fmt.Errorf("peer %s is not trusted", from)
+		return m.makeErrorResponse(req.CorrelationID, fmt.Sprintf("peer %s is not trusted", from))
 	}
-	if err := m.verifyRequest(req); err != nil {
-		return agentrpc.Response{}, fmt.Errorf("verify request: %w", err)
+	if err := m.verifyRequest(from, req); err != nil {
+		return m.makeErrorResponse(req.CorrelationID, fmt.Sprintf("verify request: %v", err))
 	}
 
 	if !m.cfg.AllowRemoteDelegate && !m.cfg.AllowRemoteSpawn {
-		return agentrpc.Response{}, fmt.Errorf("remote agent execution is disabled")
+		return m.makeErrorResponse(req.CorrelationID, "remote agent execution is disabled")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.RemoteTimeout)
+	parent := m.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = m.cfg.RemoteTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	result, err := m.runFunc(ctx, req)
 	if err != nil {
-		return agentrpc.Response{
+		resp := agentrpc.Response{
 			CorrelationID: req.CorrelationID,
 			Status:        "error",
 			Error:         err.Error(),
-		}, nil
+		}
+		if signErr := m.signResponse(&resp); signErr != nil {
+			return agentrpc.Response{}, fmt.Errorf("sign response: %w", signErr)
+		}
+		return resp, nil
 	}
 
 	resp := agentrpc.Response{
 		CorrelationID: req.CorrelationID,
 		Status:        "ok",
 		Result:        result,
+	}
+	if err := m.signResponse(&resp); err != nil {
+		return agentrpc.Response{}, fmt.Errorf("sign response: %w", err)
 	}
 	return resp, nil
 }
@@ -191,6 +219,9 @@ func (m *Mesh) CallRemote(
 	resp, err := m.rpc.Call(ctx, pid, req)
 	if err != nil {
 		return nil, fmt.Errorf("call remote: %w", err)
+	}
+	if err := m.verifyResponse(pid, &resp); err != nil {
+		return nil, fmt.Errorf("verify response: %w", err)
 	}
 	if resp.Status != "ok" {
 		return nil, fmt.Errorf("remote agent failed: %s", resp.Error)
@@ -296,7 +327,7 @@ func (m *Mesh) ConnectedTrustedPeers() []peer.ID {
 	return out
 }
 
-func (m *Mesh) verifyRequest(req agentrpc.Request) error {
+func (m *Mesh) verifyRequest(from peer.ID, req agentrpc.Request) error {
 	if len(req.Signature) == 0 {
 		return fmt.Errorf("missing signature")
 	}
@@ -306,16 +337,65 @@ func (m *Mesh) verifyRequest(req agentrpc.Request) error {
 
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode request: %w", err)
 	}
-	// TODO: look up peer public key from libp2p peerstore and verify.
-	_ = sig
-	_ = payload
+
+	pub := m.host.Peerstore().PubKey(from)
+	if pub == nil {
+		return fmt.Errorf("no public key for peer %s", from)
+	}
+	ok, err := pub.Verify(payload, sig)
+	if err != nil {
+		return fmt.Errorf("verify request signature: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("invalid request signature from peer %s", from)
+	}
 	return nil
 }
 
 func newCorrelationID() string {
 	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Nanosecond())
+}
+
+// signResponse signs the response payload with the local node key.
+func (m *Mesh) signResponse(resp *agentrpc.Response) error {
+	// Zero out any existing signature so it is not part of the payload.
+	resp.Signature = nil
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("encode response: %w", err)
+	}
+	resp.Signature = identity.Sign(m.id.PrivateKey, payload)
+	return nil
+}
+
+// verifyResponse verifies the response signature with the peer's public key.
+func (m *Mesh) verifyResponse(pid peer.ID, resp *agentrpc.Response) error {
+	if len(resp.Signature) == 0 {
+		return fmt.Errorf("missing response signature")
+	}
+	sig := resp.Signature
+	resp.Signature = nil
+	defer func() { resp.Signature = sig }()
+
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("encode response: %w", err)
+	}
+
+	pub := m.host.Peerstore().PubKey(pid)
+	if pub == nil {
+		return fmt.Errorf("no public key for peer %s", pid)
+	}
+	ok, err := pub.Verify(payload, sig)
+	if err != nil {
+		return fmt.Errorf("verify response signature: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("invalid response signature from peer %s", pid)
+	}
+	return nil
 }
 
 // CapsTransport handles the capability exchange protocol.

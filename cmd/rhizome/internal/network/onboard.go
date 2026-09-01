@@ -25,7 +25,6 @@ func newOnboardCommand() *cobra.Command {
 		name           string
 		nodeIndex      uint32
 		encryption     string
-		passphrase     string
 		overwrite      bool
 		nonInteractive bool
 	)
@@ -40,7 +39,6 @@ func newOnboardCommand() *cobra.Command {
 				name:           name,
 				nodeIndex:      nodeIndex,
 				encryption:     encryption,
-				passphrase:     passphrase,
 				overwrite:      overwrite,
 				nonInteractive: nonInteractive,
 			})
@@ -52,7 +50,6 @@ func newOnboardCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&name, "name", "n", "", "Node name (default rhizome)")
 	cmd.Flags().Uint32VarP(&nodeIndex, "node-index", "i", 0, "SLIP-0010 node index")
 	cmd.Flags().StringVarP(&encryption, "encrypt", "e", "", "Encryption: keyring, passphrase, none (default prompt)")
-	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Passphrase for encrypted identity (skips prompt)")
 	cmd.Flags().BoolVarP(&overwrite, "yes", "y", false, "Overwrite an existing node identity")
 	cmd.Flags().
 		BoolVar(&nonInteractive, "non-interactive", false, "Fail if any required value is missing instead of prompting")
@@ -60,13 +57,14 @@ func newOnboardCommand() *cobra.Command {
 	return cmd
 }
 
+const identityPassphraseEnv = "RHIZOME_IDENTITY_PASSPHRASE"
+
 type runOnboardConfig struct {
 	mnemonic       string
 	generate       bool
 	name           string
 	nodeIndex      uint32
 	encryption     string
-	passphrase     string
 	overwrite      bool
 	nonInteractive bool
 }
@@ -229,7 +227,7 @@ func runOnboard(cfg runOnboardConfig) {
 
 	var passphrase string
 	if encryption == "passphrase" {
-		passphrase = cfg.passphrase
+		passphrase = os.Getenv(identityPassphraseEnv)
 		if passphrase == "" && !cfg.nonInteractive {
 			var err error
 			passphrase, err = promptHidden("Set identity passphrase: ")
@@ -239,7 +237,11 @@ func runOnboard(cfg runOnboardConfig) {
 			}
 		}
 		if passphrase == "" {
-			fmt.Fprintln(os.Stderr, "Passphrase is required for --encrypt passphrase.")
+			fmt.Fprintf(
+				os.Stderr,
+				"Passphrase is required for --encrypt passphrase. Set %s or run interactively.\n",
+				identityPassphraseEnv,
+			)
 			os.Exit(1)
 		}
 	}

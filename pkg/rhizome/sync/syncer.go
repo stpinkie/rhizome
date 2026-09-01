@@ -318,7 +318,11 @@ func (s *Syncer) HandleAnnounce(from peer.ID, head plumbing.Hash) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		parent := s.ctx
+		if parent == nil {
+			parent = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 		defer cancel()
 		_ = s.PullFrom(ctx, from)
 	}()

@@ -1,6 +1,6 @@
 module github.com/stpinkie/rhizome
 
-go 1.26
+go 1.26.6
 
 require (
 	fyne.io/systray v1.12.2
@@ -35,7 +35,7 @@ require (
 	github.com/kagisearch/kagi-openapi-golang v0.0.0-20260526215348-96575e864d62
 	github.com/larksuite/oapi-sdk-go/v3 v3.9.4
 	github.com/libp2p/go-libp2p v0.49.0
-	github.com/libp2p/go-libp2p-kad-dht v0.41.0
+	github.com/libp2p/go-libp2p-kad-dht v0.42.2
 	github.com/line/line-bot-sdk-go/v8 v8.20.1
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/minio/selfupdate v0.6.0

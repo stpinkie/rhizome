@@ -74,6 +74,115 @@ func TestMeshRemoteCall(t *testing.T) {
 	assert.Equal(t, "hello from remote", result.ForLLM)
 }
 
+func TestMeshUntrustedPeer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	idA, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
+	require.NoError(t, err)
+	idB, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		1,
+	)
+	require.NoError(t, err)
+
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	require.NoError(t, err)
+	defer nodeA.Close()
+
+	addrsA := nodeA.BootstrapAddrs()
+	require.NotEmpty(t, addrsA)
+
+	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
+		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers: []string{addrsA[0]},
+	})
+	require.NoError(t, err)
+	defer nodeB.Close()
+
+	time.Sleep(500 * time.Millisecond)
+
+	cfg := config.MeshConfig{Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second}
+	meshA := NewMesh(nodeA, nil, idA, cfg, nil)
+	require.NoError(t, meshA.Start(ctx))
+	defer meshA.Stop()
+
+	meshB := NewMesh(nodeB, nil, idB, cfg, func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
+		return toolshared.NewToolResult("hello from remote"), nil
+	})
+	require.NoError(t, meshB.Start(ctx))
+	defer meshB.Stop()
+
+	// A does not trust B and B does not trust A.
+	_, err = meshA.CallRemote(ctx, nodeB.ID(), "main", "say hello")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not trusted")
+}
+
+func TestMeshInvalidRequestSignature(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	idA, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
+	require.NoError(t, err)
+	idB, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		1,
+	)
+	require.NoError(t, err)
+
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	require.NoError(t, err)
+	defer nodeA.Close()
+
+	addrsA := nodeA.BootstrapAddrs()
+	require.NotEmpty(t, addrsA)
+
+	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
+		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers: []string{addrsA[0]},
+	})
+	require.NoError(t, err)
+	defer nodeB.Close()
+
+	time.Sleep(500 * time.Millisecond)
+
+	cfg := config.MeshConfig{Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second}
+	meshA := NewMesh(nodeA, nil, idA, cfg, nil)
+	require.NoError(t, meshA.Start(ctx))
+	defer meshA.Stop()
+
+	meshB := NewMesh(nodeB, nil, idB, cfg, func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
+		return toolshared.NewToolResult("hello from remote"), nil
+	})
+	require.NoError(t, meshB.Start(ctx))
+	defer meshB.Stop()
+
+	meshA.TrustPeer(nodeB.ID())
+	meshB.TrustPeer(nodeA.ID())
+
+	// Send a request with a bogus signature directly through the agentrpc transport.
+	req := agentrpc.Request{
+		CorrelationID: newCorrelationID(),
+		TargetAgentID: "main",
+		SystemPrompt:  "say hello",
+		Timeout:       cfg.RemoteTimeout,
+		Signature:     []byte("not-a-valid-signature"),
+	}
+
+	resp, err := meshA.rpc.Call(ctx, nodeB.ID(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "error", resp.Status)
+	assert.Contains(t, resp.Error, "verify request")
+	require.NotEmpty(t, resp.Signature, "error response should still be signed")
+}
+
 func TestMeshCapabilityExchange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
