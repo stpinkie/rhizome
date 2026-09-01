@@ -440,7 +440,7 @@ type ProviderAuthResult = {
 
 ### 1. Environnement/dépendances requis
 
-- Go ≥ 1.25
+- Go ≥ 1.26
 - Base de code Rhizome (`pkg/providers/` et `pkg/auth/`)
 - Packages de la bibliothèque standard `crypto` et `net/http`
 

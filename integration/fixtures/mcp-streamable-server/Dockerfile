@@ -1,4 +1,6 @@
-FROM golang:1.25-bookworm AS build
+FROM golang:1.26.6-bookworm AS build
+
+ENV GOTOOLCHAIN=auto
 
 WORKDIR /src
 

@@ -65,8 +65,8 @@ printf '{}' > "$RHIZOME_CONFIG"`,
 	if gotName == "" {
 		t.Fatal("expected onboard command to run")
 	}
-	if len(gotArgs) != 1 || gotArgs[0] != "onboard" {
-		t.Fatalf("command args = %#v, want []string{\"onboard\"}", gotArgs)
+	if len(gotArgs) != 2 || gotArgs[0] != "onboard" || gotArgs[1] != "--non-interactive" {
+		t.Fatalf("command args = %#v, want []string{\"onboard\", \"--non-interactive\"}", gotArgs)
 	}
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("expected config to be created: %v", err)

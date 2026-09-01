@@ -1,7 +1,9 @@
 # ============================================================
 # Stage 1: Build the rhizome binary
 # ============================================================
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
+
+ENV GOTOOLCHAIN=auto
 
 RUN apk add --no-cache git make
 

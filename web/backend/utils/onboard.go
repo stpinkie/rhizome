@@ -19,9 +19,8 @@ func EnsureOnboarded(configPath string) error {
 		return fmt.Errorf("stat config: %w", err)
 	}
 
-	cmd := execCommand(FindRhizomeBinary(), "onboard")
+	cmd := execCommand(FindRhizomeBinary(), "onboard", "--non-interactive")
 	cmd.Env = append(os.Environ(), config.EnvConfig+"="+configPath)
-	cmd.Stdin = strings.NewReader("n\n")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
