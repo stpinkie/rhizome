@@ -155,8 +155,8 @@ jobs:
         env:
           CGO_ENABLED: '0'
 
-  build-all:
-    name: Build all platforms
+  cross-compile:
+    name: Cross-compile core targets
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -168,5 +168,47 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Cross-compile all platforms
+      - name: Cross-compile all Makefile-managed platforms
         run: CGO_ENABLED=0 make build-all
+
+  cross-compile-android:
+    name: Cross-compile Android bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/frontend/pnpm-lock.yaml
+
+      - name: Install zip
+        run: sudo apt-get install -y zip
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26c
+          local-cache: true
+
+      - name: Build universal Android bundle
+        run: make build-android-bundle
+        env:
+          CGO_ENABLED: '0'
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.android-ndk-path }}
+          ANDROID_NDK_HOST: linux-x86_64

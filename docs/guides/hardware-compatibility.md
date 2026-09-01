@@ -12,13 +12,14 @@ Rhizome runs on a wide range of Linux devices. This page tracks verified chips, 
 
 | Vendor | Chip | Notes |
 |--------|------|-------|
-| Intel | Any x86 CPU (i386+) | All desktop/server/laptop processors |
-| AMD | Any x86 CPU | All desktop/server/laptop processors |
+| Intel | Any x86 CPU (i386+) | i386 and x86_64 builds available; 32-bit requires 256 MB total RAM minimum |
+| AMD | Any x86 CPU | i386 and x86_64 builds available; 32-bit requires 256 MB total RAM minimum |
 
 ### ARM
 
 | Sub-arch | Typical Chips | Notes |
 |----------|--------------|-------|
+| ARMv7 | [BCM2836](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2836) (Raspberry Pi 2) / [BCM2837](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2837) 32-bit mode | `linux/arm` build (GOARM=7); 256 MB+ RAM for the full daemon. Also works on Android 4.4+ armv7a with `android/arm` cgo build. |
 | ARMv6 | [BCM2835](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2835) (Raspberry Pi 1/Zero) | Single-core ARM1176JZF-S; needs 512 MB+ board for the full daemon |
 | ARM64 | [Allwinner H618](https://linux-sunxi.org/H618) | Quad-core Cortex-A53, used in Orange Pi Zero 3 |
 | ARM64 | [BCM2711](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2711) (Raspberry Pi 4) | Quad-core Cortex-A72 |
@@ -82,7 +83,9 @@ Consumer products, routers, and industrial devices that have been tested with Rh
 
 ### Android Phones (via Termux)
 
-Any ARM64 Android phone (2015+) with 1GB+ RAM. Install [Termux](https://github.com/termux/termux-app), use `proot` to run Rhizome.
+Any ARM64 Android phone (2015+) with 1GB+ RAM. Install [Termux](https://github.com/termux/termux-app), use `proot` to run the `linux/arm` or `linux/arm64` binary.
+
+Native Android 4.4+ (API 19) PIE binaries (`armeabi-v7a`, `x86`, `x86_64`, `arm64-v8a`) are also available in `rhizome-android-universal.zip` from GitHub Releases.
 
 > See the [Android Termux Guide](android-termux.md) for setup instructions.
 
@@ -111,8 +114,10 @@ Current release builds are larger than the original PicoClaw target because they
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
 | CPU | Any (single core 0.6GHz+) | Quad-core 1 GHz+ |
-| OS | Linux (kernel 3.x+) | Linux 5.x+ |
+| OS | Linux (kernel 3.4+) | Linux 5.x+ |
 | Network | Required (for LLM API calls) | Ethernet or WiFi |
+
+For Android 4.4 (API 19) the native PIE binary uses TCP and best-effort mDNS/QUIC fallback. On old or restricted sandboxes `rhizome daemon --no-dht` is recommended.
 
 ---
 
@@ -130,7 +135,26 @@ tar xzf rhizome_Linux_arm64.tar.gz
 ./rhizome agent -m "Hello, what board am I running on?"
 ```
 
-Available builds: `linux-amd64`, `linux-arm64`, `linux-arm`, `linux-riscv64`, `linux-loong64`, `linux-mipsle`
+Available core builds: `linux-amd64`, `linux-386`, `linux-arm64`, `linux-arm`, `linux-riscv64`, `linux-loong64`, `linux-mipsle`, `windows-amd64`, `windows-386`, `android-arm64`
+
+A universal Android zip with `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64` native PIE binaries is available on GitHub Releases as `rhizome-android-universal.zip`.
+
+#### Native Android
+
+For Android 4.4+ devices, use the `rhizome-android-universal.zip` from releases or build with the Android NDK:
+
+```bash
+export ANDROID_NDK=/path/to/android-ndk
+make build-android-bundle
+```
+
+The universal zip contains `librhizome.so` for each ABI. Rename/copy it to your app's `lib/<abi>/` directory or run it as a PIE binary from `adb shell`.
+
+#### 32-bit x86 / i386
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -tags goolm,stdjson -o rhizome-linux-386 ./cmd/rhizome
+```
 
 ### Add Your Hardware
 

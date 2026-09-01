@@ -20,6 +20,9 @@ jobs:
     name: Build (Linux)
     needs: integration
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -32,9 +35,17 @@ jobs:
       - name: Build core binaries
         run: make build-all
 
+      - name: Upload core artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: rhizome-core-all
+          path: build/rhizome-*
+
   build-windows:
     name: Build (Windows)
     runs-on: windows-latest
+    env:
+      CGO_ENABLED: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -44,16 +55,71 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build Windows binary
+      - name: Build Windows amd64 binary
         run: go build -tags goolm,stdjson -o rhizome-windows-amd64.exe ./cmd/rhizome
-        env:
-          CGO_ENABLED: '0'
 
-      - name: Upload artifact
+      - name: Build Windows i386 binary
+        run: go build -tags goolm,stdjson -o rhizome-windows-386.exe ./cmd/rhizome
+        env:
+          GOARCH: '386'
+
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: rhizome-windows-amd64
-          path: rhizome-windows-amd64.exe
+          name: rhizome-windows
+          path: |
+            rhizome-windows-amd64.exe
+            rhizome-windows-386.exe
+
+  build-android-bundle:
+    name: Build Android universal bundle
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/frontend/pnpm-lock.yaml
+
+      - name: Install zip
+        run: sudo apt-get install -y zip
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26c
+          local-cache: true
+
+      - name: Build universal Android bundle
+        run: make build-android-bundle
+        env:
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.android-ndk-path }}
+          ANDROID_NDK_HOST: linux-x86_64
+
+      - name: Upload Android bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: rhizome-android-universal
+          path: build/rhizome-android-universal.zip
 
   mesh-integration:
     name: Mesh Integration

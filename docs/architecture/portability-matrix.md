@@ -41,7 +41,7 @@ All Android builds produce PIE executables. Go 1.23+ requires `-checklinkname=0`
 | android/386    | N/A   | N/A    | N/A | Bundle  | Requires `CGO_ENABLED=1` and `ANDROID_NDK`. Built by `make build-android-bundle` when `ANDROID_NDK` is set. |
 | android/amd64  | N/A   | N/A    | N/A | Bundle  | Requires `CGO_ENABLED=1` and `ANDROID_NDK`. Built by `make build-android-bundle` when `ANDROID_NDK` is set. |
 
-`android/arm64` does not require cgo, but the 32-bit/x86 Android targets need the NDK because Go's linker does not support internal PIE for those ABIs. If you want to produce the universal `rhizome-android-universal.zip` with all ABIs, set `ANDROID_NDK` and run `make build-android-bundle`.
+`android/arm64` does not require cgo, but the 32-bit/x86 Android targets need the NDK because Go's linker does not support internal PIE for those ABIs. The universal zip is produced by `make build-android-bundle` and is now built in GitHub Actions for `build.yml`, `release.yml`, and `nightly.yml` (via `nttld/setup-ndk`).
 
 ## Build commands
 

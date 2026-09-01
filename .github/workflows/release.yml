@@ -83,6 +83,13 @@ jobs:
       - name: Install zip
         run: sudo apt-get install -y zip
 
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26c
+          local-cache: true
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -95,6 +102,8 @@ jobs:
           DOCKERHUB_IMAGE_NAME: ${{ vars.DOCKERHUB_REPOSITORY }}
           GOVERSION: ${{ steps.setup-go.outputs.go-version }}
           INCLUDE_ANDROID_BUNDLE: "true"
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.android-ndk-path }}
+          ANDROID_NDK_HOST: linux-x86_64
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
           MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}

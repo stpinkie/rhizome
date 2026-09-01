@@ -85,6 +85,16 @@ jobs:
       - name: Install zip
         run: sudo apt-get install -y zip
 
+      # The NDK is required so the GoReleaser before hook can build the cgo
+      # Android targets (arm, 386, amd64). Scheduled nightly runs remain
+      # disabled until Docker Hub / macOS notary secrets are configured.
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26c
+          local-cache: true
+
       - name: Create local tag for GoReleaser
         run: git tag "${{ steps.version.outputs.version }}"
 
@@ -102,6 +112,8 @@ jobs:
           GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
           INCLUDE_ANDROID_BUNDLE: "true"
           NIGHTLY_BUILD: "true"
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.android-ndk-path }}
+          ANDROID_NDK_HOST: linux-x86_64
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
           MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
