@@ -258,11 +258,72 @@ func TestCreateProviderReturnsClaudeProviderForAnthropicOAuth(t *testing.T) {
 	if _, ok := provider.(*ClaudeProvider); !ok {
 		t.Fatalf("provider type = %T, want *ClaudeProvider", provider)
 	}
-	// TODO: Test custom APIBase when createClaudeAuthProvider supports it
+}
+
+func TestCreateProviderReturnsClaudeProviderForAnthropicOAuthWithCustomBase(t *testing.T) {
+	originalGetCredential := getCredential
+	t.Cleanup(func() { getCredential = originalGetCredential })
+
+	getCredential = func(provider string) (*auth.AuthCredential, error) {
+		if provider != "anthropic" {
+			t.Fatalf("provider = %q, want anthropic", provider)
+		}
+		return &auth.AuthCredential{
+			AccessToken: "anthropic-token",
+		}, nil
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.ModelName = "test-claude-oauth-base"
+	cfg.ModelList = []*config.ModelConfig{
+		{
+			ModelName:  "test-claude-oauth-base",
+			Model:      "anthropic/claude-sonnet-4.6",
+			AuthMethod: "oauth",
+			APIBase:    "https://anthropic.example.com/v1",
+		},
+	}
+
+	provider, _, err := CreateProvider(cfg)
+	if err != nil {
+		t.Fatalf("CreateProvider() error = %v", err)
+	}
+
+	if _, ok := provider.(*ClaudeProvider); !ok {
+		t.Fatalf("provider type = %T, want *ClaudeProvider", provider)
+	}
 }
 
 func TestCreateProviderReturnsCodexProviderForOpenAIOAuth(t *testing.T) {
-	// TODO: This test requires openai protocol to support auth_method: "oauth"
-	// which is not yet implemented in the new factory_provider.go
-	t.Skip("OpenAI OAuth via model_list not yet implemented")
+	originalGetCredential := getCredential
+	t.Cleanup(func() { getCredential = originalGetCredential })
+
+	getCredential = func(provider string) (*auth.AuthCredential, error) {
+		if provider != "openai" {
+			t.Fatalf("provider = %q, want openai", provider)
+		}
+		return &auth.AuthCredential{
+			AccessToken: "openai-token",
+			AccountID:   "acc-123",
+		}, nil
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.ModelName = "test-openai-oauth"
+	cfg.ModelList = []*config.ModelConfig{
+		{
+			ModelName:  "test-openai-oauth",
+			Model:      "openai/gpt-5",
+			AuthMethod: "oauth",
+		},
+	}
+
+	provider, _, err := CreateProvider(cfg)
+	if err != nil {
+		t.Fatalf("CreateProvider() error = %v", err)
+	}
+
+	if _, ok := provider.(*CodexProvider); !ok {
+		t.Fatalf("provider type = %T, want *CodexProvider", provider)
+	}
 }
