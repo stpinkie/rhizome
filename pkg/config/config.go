@@ -247,6 +247,7 @@ func (c EvolutionConfig) AutoAppliesDrafts() bool {
 // It is applied by the isolation package rather than by sandboxing the main process.
 type IsolationConfig struct {
 	Enabled     bool         `json:"enabled,omitempty"`
+	Backend     string       `json:"backend,omitempty"` // sandbox backend: auto, sandbox-exec, none
 	ExposePaths []ExposePath `json:"expose_paths,omitempty"`
 }
 

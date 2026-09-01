@@ -30,13 +30,17 @@ type AccessRule struct {
 // UserEnv contains the redirected per-instance user directories injected into
 // isolated child processes.
 type UserEnv struct {
-	Home         string
-	Tmp          string
-	Config       string
-	Cache        string
-	State        string
-	AppData      string
-	LocalAppData string
+	Home                      string
+	Tmp                       string
+	Config                    string
+	Cache                     string
+	State                     string
+	AppData                   string
+	LocalAppData              string
+	Library                   string
+	LibraryApplicationSupport string
+	LibraryCaches             string
+	LibraryLogs               string
 }
 
 var (
@@ -107,6 +111,14 @@ func InstanceDirs(root string) []string {
 			filepath.Join(root, "runtime-user-env", "AppData", "Local"),
 		)
 	}
+	if runtime.GOOS == "darwin" {
+		dirs = append(dirs,
+			filepath.Join(root, "runtime-user-env", "home", "Library"),
+			filepath.Join(root, "runtime-user-env", "home", "Library", "Application Support"),
+			filepath.Join(root, "runtime-user-env", "home", "Library", "Caches"),
+			filepath.Join(root, "runtime-user-env", "home", "Library", "Logs"),
+		)
+	}
 	return dirs
 }
 
@@ -114,14 +126,20 @@ func InstanceDirs(root string) []string {
 // instance runtime area.
 func ResolveUserEnv(root string) UserEnv {
 	base := filepath.Join(root, "runtime-user-env")
+	home := filepath.Join(base, "home")
+	library := filepath.Join(home, "Library")
 	return UserEnv{
-		Home:         filepath.Join(base, "home"),
-		Tmp:          filepath.Join(base, "tmp"),
-		Config:       filepath.Join(base, "config"),
-		Cache:        filepath.Join(base, "cache"),
-		State:        filepath.Join(base, "state"),
-		AppData:      filepath.Join(base, "AppData", "Roaming"),
-		LocalAppData: filepath.Join(base, "AppData", "Local"),
+		Home:                      home,
+		Tmp:                       filepath.Join(base, "tmp"),
+		Config:                    filepath.Join(base, "config"),
+		Cache:                     filepath.Join(base, "cache"),
+		State:                     filepath.Join(base, "state"),
+		AppData:                   filepath.Join(base, "AppData", "Roaming"),
+		LocalAppData:              filepath.Join(base, "AppData", "Local"),
+		Library:                   library,
+		LibraryApplicationSupport: filepath.Join(library, "Application Support"),
+		LibraryCaches:             filepath.Join(library, "Caches"),
+		LibraryLogs:               filepath.Join(library, "Logs"),
 	}
 }
 
@@ -214,6 +232,9 @@ func DefaultExposePaths(root string) []config.ExposePath {
 	if runtime.GOOS == "linux" {
 		items = append(items, defaultLinuxSystemExposePaths()...)
 	}
+	if runtime.GOOS == "darwin" {
+		items = append(items, defaultDarwinSystemExposePaths()...)
+	}
 	return items
 }
 
@@ -241,6 +262,37 @@ func defaultLinuxSystemExposePaths() []config.ExposePath {
 
 // existingExposePaths keeps only the builtin host paths that exist on the
 // current machine so Linux isolation does not fail on distro-specific paths.
+func defaultDarwinSystemExposePaths() []config.ExposePath {
+	return existingExposePaths([]config.ExposePath{
+		{Source: "/usr", Target: "/usr", Mode: "ro"},
+		{Source: "/bin", Target: "/bin", Mode: "ro"},
+		{Source: "/sbin", Target: "/sbin", Mode: "ro"},
+		{Source: "/System", Target: "/System", Mode: "ro"},
+		{Source: "/Library", Target: "/Library", Mode: "ro"},
+		{Source: "/private/etc", Target: "/private/etc", Mode: "ro"},
+		{Source: "/private/var", Target: "/private/var", Mode: "ro"},
+		{Source: "/private/tmp", Target: "/private/tmp", Mode: "ro"},
+		{Source: "/tmp", Target: "/tmp", Mode: "ro"},
+		{Source: "/var", Target: "/var", Mode: "ro"},
+		{Source: "/etc", Target: "/etc", Mode: "ro"},
+		{Source: "/dev", Target: "/dev", Mode: "ro"},
+		{Source: "/opt", Target: "/opt", Mode: "ro"},
+	})
+}
+
+// BuildDarwinAccessRules converts the merged expose-path configuration into
+// source-side access rules consumed by the macOS sandbox-exec backend.
+// sandbox-exec does not support source-to-target remapping, so the returned
+// rules only represent the real host paths that are allowed.
+func BuildDarwinAccessRules(root string, overrides []config.ExposePath) []AccessRule {
+	merged := MergeExposePaths(DefaultExposePaths(root), overrides)
+	rules := make([]AccessRule, 0, len(merged))
+	for _, item := range merged {
+		rules = append(rules, AccessRule{Path: item.Source, Mode: item.Mode})
+	}
+	return rules
+}
+
 func existingExposePaths(items []config.ExposePath) []config.ExposePath {
 	filtered := make([]config.ExposePath, 0, len(items))
 	for _, item := range items {
@@ -304,6 +356,22 @@ func validateWindowsExposePaths(items []config.ExposePath) error {
 	return fmt.Errorf("windows isolation does not yet support expose_paths filesystem rules")
 }
 
+func validateDarwinExposePaths(items []config.ExposePath) error {
+	isolation := CurrentConfig()
+	switch isolation.Backend {
+	case "", "auto", "sandbox-exec", "none":
+		// ok
+	default:
+		return fmt.Errorf("invalid isolation backend %q for darwin; must be one of auto, sandbox-exec, none", isolation.Backend)
+	}
+	if _, err := os.Stat("/usr/bin/sandbox-exec"); isolation.Backend != "none" && err != nil {
+		if _, err := exec.LookPath("sandbox-exec"); err != nil {
+			return fmt.Errorf("macOS isolation requires sandbox-exec: %w", err)
+		}
+	}
+	return nil
+}
+
 // IsSupported reports whether the current platform has an implemented isolation
 // backend.
 func IsSupported() bool {
@@ -312,7 +380,7 @@ func IsSupported() bool {
 
 func isSupportedOn(goos string) bool {
 	switch goos {
-	case "linux", "windows":
+	case "linux", "windows", "darwin":
 		return true
 	default:
 		return false
@@ -353,6 +421,16 @@ func Preflight() error {
 		for _, rule := range BuildWindowsAccessRules(root, isolation.ExposePaths) {
 			if rule.Path == "" {
 				return fmt.Errorf("invalid windows access rule")
+			}
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if err := validateDarwinExposePaths(isolation.ExposePaths); err != nil {
+			return err
+		}
+		for _, rule := range BuildDarwinAccessRules(root, isolation.ExposePaths) {
+			if rule.Path == "" {
+				return fmt.Errorf("invalid darwin access rule")
 			}
 		}
 	}
