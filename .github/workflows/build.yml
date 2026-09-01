@@ -76,8 +76,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      CGO_ENABLED: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
