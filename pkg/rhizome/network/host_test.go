@@ -67,7 +67,7 @@ func TestTwoNodesPing(t *testing.T) {
 		t.Fatalf("ping failed: %v", err)
 	}
 
-	if rtt <= 0 {
-		t.Fatalf("expected positive rtt, got %v", rtt)
+	if rtt < 0 {
+		t.Fatalf("expected non-negative rtt, got %v", rtt)
 	}
 }

@@ -1,4 +1,4 @@
-//go:build !mipsle && !netbsd && !(freebsd && arm) && !android
+//go:build !mipsle && !netbsd && !(freebsd && arm)
 
 package gateway
 

@@ -302,7 +302,7 @@ build-android-arm: generate
 	@echo "Building for android/arm..."
 	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/armv7a-linux-androideabi$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm ./$(CMD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/armv7a-linux-androideabi$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-arm"
 
 ## build-android-386: Build core for Android x86 (requires Android NDK with cgo)
@@ -310,7 +310,7 @@ build-android-386: generate
 	@echo "Building for android/386..."
 	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 GOOS=android GOARCH=386 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/i686-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-386 ./$(CMD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=386 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/i686-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-386 ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-386"
 
 ## build-android-amd64: Build core for Android x86_64 (requires Android NDK with cgo)
@@ -318,7 +318,7 @@ build-android-amd64: generate
 	@echo "Building for android/amd64..."
 	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 GOOS=android GOARCH=amd64 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/x86_64-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-amd64 ./$(CMD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=amd64 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/x86_64-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-amd64 ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-amd64"
 
 ## build-android-arm64: Build core for Android ARM64 (no cgo, needs -checklinkname=0)
