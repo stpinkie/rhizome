@@ -5,16 +5,88 @@ package logger
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
-// botTokenRe matches the bot ID prefix and the secret part of a Telegram bot token.
-// Groups: 1 = "bot<id>:", 2 = first 4 chars of secret, 3 = middle, 4 = last 4 chars.
-var botTokenRe = regexp.MustCompile(`(bot\d+:)([A-Za-z0-9_-]{4})[A-Za-z0-9_-]{12,}([A-Za-z0-9_-]{4})`)
+var (
+	// botTokenRe matches the bot ID prefix and the secret part of a Telegram bot token.
+	// Groups: 1 = "bot<id>:", 2 = first 4 chars of secret, 3 = last 4 chars.
+	botTokenRe = regexp.MustCompile(`(bot\d+:)([A-Za-z0-9_-]{4})[A-Za-z0-9_-]{12,}([A-Za-z0-9_-]{4})`)
 
-// maskSecrets replaces any embedded bot tokens in s with a redacted placeholder
-// that keeps the first and last 4 characters of the secret for identification.
+	// bearerTokenRe matches a "Bearer <token>" style credential, either as a header
+	// value or a bare token.
+	bearerTokenRe = regexp.MustCompile(`(?i)(\bbearer\s+|Authorization:\s*Bearer\s+)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+
+	// apiKeyRe matches key=value or key: value style API keys.
+	apiKeyRe = regexp.MustCompile(`(?i)(\bapi[_-]?key\s*[:=]\s*)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+
+	// genericTokenRe matches generic "token" or "auth" key-value pairs.
+	genericTokenRe = regexp.MustCompile(`(?i)(\b(?:token|auth[_-]?token)\s*[:=]\s*)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+
+	// secretPrefixRe matches common secret prefixes (sk-, sk-or-v1-, rk-, etc).
+	secretPrefixRe = regexp.MustCompile(`(?i)(\b(?:sk|rk|pk|ek)-(?:or-[a-zA-Z0-9]+-)?)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+)
+
+// maskSecrets replaces any embedded credentials in s with a redacted placeholder
+// that keeps the prefix and the first and last 4 characters of the secret for
+// identification. It covers Telegram bot tokens, Bearer/Basic Authorization
+// headers, API keys, and common secret prefixes.
 func maskSecrets(s string) string {
-	return botTokenRe.ReplaceAllString(s, "${1}${2}****${3}")
+	// Handle Authorization headers first so the scheme (Bearer/Basic) is kept
+	// and already-redacted values are not masked again by later passes.
+	s = maskAuthorizationHeader(s)
+
+	s = botTokenRe.ReplaceAllString(s, "${1}${2}****${3}")
+	s = bearerTokenRe.ReplaceAllString(s, "${1}${2}****${3}")
+	s = apiKeyRe.ReplaceAllString(s, "${1}${2}****${3}")
+	s = genericTokenRe.ReplaceAllString(s, "${1}${2}****${3}")
+	s = secretPrefixRe.ReplaceAllString(s, "${1}${2}****${3}")
+
+	return s
+}
+
+// maskAuthorizationHeader redacts the credential portion of any "Authorization"
+// header. It preserves the scheme (e.g., Bearer, Basic) and keeps the first and
+// last 4 characters of the token for identification. Already-redacted values
+// (containing "****") are left untouched.
+func maskAuthorizationHeader(s string) string {
+	const header = "Authorization:"
+	offset := 0
+	for {
+		idx := strings.Index(s[offset:], header)
+		if idx == -1 {
+			break
+		}
+		idx += offset
+		valStart := idx + len(header)
+		if valStart >= len(s) {
+			break
+		}
+		valEnd := strings.IndexAny(s[valStart:], "\r\n")
+		if valEnd == -1 {
+			valEnd = len(s) - valStart
+		}
+		value := strings.TrimSpace(s[valStart : valStart+valEnd])
+
+		if len(value) > 12 && !strings.Contains(value, "****") {
+			fields := strings.Fields(value)
+			if len(fields) >= 2 {
+				token := fields[len(fields)-1]
+				if len(token) > 12 {
+					redacted := token[:4] + "****" + token[len(token)-4:]
+					value = value[:len(value)-len(token)] + redacted
+				}
+			} else if len(fields) == 1 {
+				token := fields[0]
+				if len(token) > 12 {
+					value = token[:4] + "****" + token[len(token)-4:]
+				}
+			}
+			s = s[:valStart] + " " + value + s[valStart+valEnd:]
+		}
+		offset = valStart
+	}
+	return s
 }
 
 // Logger implements common Logger interface

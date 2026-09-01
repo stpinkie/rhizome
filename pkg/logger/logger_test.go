@@ -431,3 +431,51 @@ func TestGetPackageNameFromFile(t *testing.T) {
 		})
 	}
 }
+
+func TestMaskSecrets(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "telegram bot token",
+			input: "token bot1234567:AAAAAaaaaaaaaaaaaaaaaaaaaaaaaaaBBBB",
+			want:  "token bot1234567:AAAA****BBBB",
+		},
+		{
+			name:  "bearer token",
+			input: "Authorization: Bearer sk-1234567890abcdef",
+			want:  "Authorization: Bearer sk-1****cdef",
+		},
+		{
+			name:  "api key assignment",
+			input: "api_key=super_secret_value_12345",
+			want:  "api_key=supe****2345",
+		},
+		{
+			name:  "authorization header without bearer",
+			input: "Authorization: Basic c2VjcmV0LWFjY291bnQtdG9rZW4=",
+			want:  "Authorization: Basic c2Vj****ZW4=",
+		},
+		{
+			name:  "sk-or secret prefix",
+			input: "sk-or-v1-1234567890abcdefghijklmnop",
+			want:  "sk-or-v1-1234****mnop",
+		},
+		{
+			name:  "no secrets",
+			input: "normal message with no secrets",
+			want:  "normal message with no secrets",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := maskSecrets(tt.input)
+			if got != tt.want {
+				t.Errorf("maskSecrets(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
