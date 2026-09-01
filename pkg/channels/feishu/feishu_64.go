@@ -31,6 +31,14 @@ import (
 	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
+// stringValue safely dereferences a *string pointer.
+func stringValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 // errCodeTenantTokenInvalid is the Feishu API error code for an expired/revoked
 // tenant_access_token. The Lark SDK's built-in retry does not clear its cache
 // on this error, so we do it ourselves.

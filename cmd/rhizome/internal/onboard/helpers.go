@@ -271,39 +271,39 @@ func copyEmbeddedToTarget(targetDir string) error {
 		return fmt.Errorf("failed to create target directory: %w", err)
 	}
 
-	return fs.WalkDir(embeddedFiles, "workspace", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	return fs.WalkDir(embeddedFiles, "workspace", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 		if d.IsDir() {
 			return nil
 		}
 
-		rel, err := filepath.Rel("workspace", path)
-		if err != nil {
-			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
+		rel, relErr := filepath.Rel("workspace", path)
+		if relErr != nil {
+			return fmt.Errorf("failed to get relative path for %s: %w", path, relErr)
 		}
 		if rel == "AGENTS.md" || rel == "IDENTITY.md" {
 			return nil
 		}
 
 		targetPath := filepath.Join(targetDir, rel)
-		if _, err := os.Stat(targetPath); err == nil {
+		if _, statErr := os.Stat(targetPath); statErr == nil {
 			// Don't clobber an existing workspace.
 			return nil
 		}
 
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(targetPath), err)
+		if mkErr := os.MkdirAll(filepath.Dir(targetPath), 0o755); mkErr != nil {
+			return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(targetPath), mkErr)
 		}
 
-		data, err := embeddedFiles.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		data, readErr := embeddedFiles.ReadFile(path)
+		if readErr != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, readErr)
 		}
 
-		if err := os.WriteFile(targetPath, data, 0o644); err != nil {
-			return fmt.Errorf("failed to write file %s: %w", targetPath, err)
+		if writeErr := os.WriteFile(targetPath, data, 0o644); writeErr != nil {
+			return fmt.Errorf("failed to write file %s: %w", targetPath, writeErr)
 		}
 		return nil
 	})

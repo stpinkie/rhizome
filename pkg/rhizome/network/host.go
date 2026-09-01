@@ -65,7 +65,9 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		// QUIC needs UDP socket options (IP_PKTINFO, ECN) that old kernels and
 		// restricted Android sandboxes may reject. Fall back to TCP-only so the
 		// mesh still works instead of failing startup outright.
-		logger.WarnCF("network", "QUIC transport unavailable; falling back to TCP-only", map[string]any{"error": err.Error()})
+		logger.WarnCF("network",
+		"QUIC transport unavailable; falling back to TCP-only",
+		map[string]any{"error": err.Error()})
 		h, err = libp2p.New(baseOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("create libp2p host: %w", err)

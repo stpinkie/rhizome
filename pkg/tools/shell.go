@@ -1182,6 +1182,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		if err != nil {
 			return ""
 		}
+		cwdPath = resolveLongPath(cwdPath)
 
 		// Web URL schemes whose path components (starting with //) should be exempt
 		// from workspace sandbox checks. file: is intentionally excluded so that
@@ -1284,6 +1285,10 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			if err == nil {
 				p = resolved
 			}
+
+			// On Windows, resolve 8.3 short paths (e.g. RUNNER~1) to their
+			// canonical long form so sandbox comparisons succeed.
+			p = resolveLongPath(p)
 
 			if safePaths[strings.ToLower(p)] {
 				continue
