@@ -489,6 +489,16 @@ type ToolFeedbackConfig struct {
 	SeparateMessages bool `json:"separate_messages" env:"RHIZOME_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
 }
 
+// SteeringMode controls how queued steering messages are dequeued.
+type SteeringMode string
+
+const (
+	// SteeringOneAtATime dequeues only the first queued message per poll.
+	SteeringOneAtATime SteeringMode = "one-at-a-time"
+	// SteeringAll drains the entire queue in a single poll.
+	SteeringAll SteeringMode = "all"
+)
+
 type AgentDefaults struct {
 	Workspace                 string             `json:"workspace"                        env:"RHIZOME_AGENTS_DEFAULTS_WORKSPACE"`
 	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"RHIZOME_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
@@ -506,7 +516,7 @@ type AgentDefaults struct {
 	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"RHIZOME_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
 	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"RHIZOME_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
 	Routing                   *RoutingConfig     `json:"routing,omitempty"`
-	SteeringMode              string             `json:"steering_mode,omitempty"          env:"RHIZOME_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
+	SteeringMode              SteeringMode       `json:"steering_mode,omitempty"          env:"RHIZOME_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
 	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"RHIZOME_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
 	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                     envPrefix:"RHIZOME_AGENTS_DEFAULTS_SUBTURN_"`
 	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/stpinkie/rhizome/pkg/bus"
+	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers"
@@ -15,14 +16,14 @@ import (
 	"github.com/stpinkie/rhizome/pkg/tools"
 )
 
-// SteeringMode controls how queued steering messages are dequeued.
-type SteeringMode string
+// SteeringMode is an alias for the config-level steering mode type.
+type SteeringMode = config.SteeringMode
 
 const (
 	// SteeringOneAtATime dequeues only the first queued message per poll.
-	SteeringOneAtATime SteeringMode = "one-at-a-time"
+	SteeringOneAtATime = config.SteeringOneAtATime
 	// SteeringAll drains the entire queue in a single poll.
-	SteeringAll SteeringMode = "all"
+	SteeringAll = config.SteeringAll
 	// MaxQueueSize number of possible messages in the Steering Queue
 	MaxQueueSize = 10
 	// manualSteeringScope is the legacy fallback queue used when no active

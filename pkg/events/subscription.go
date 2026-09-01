@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -108,12 +109,56 @@ type eventSubscription struct {
 	wg        sync.WaitGroup
 	blockWG   sync.WaitGroup
 
+	keyedMu        sync.RWMutex
+	keyedExecutors map[string]*keyedExecutor
+
 	counters subscriberCounters
 }
 
 type handlerResult struct {
 	err      error
 	panicked bool
+}
+
+type keyedEvent struct {
+	ctx context.Context
+	evt Event
+}
+
+type keyedExecutor struct {
+	ch   chan keyedEvent
+	done chan struct{}
+	wg   sync.WaitGroup
+	once sync.Once
+}
+
+func (ex *keyedExecutor) close() {
+	ex.once.Do(func() { close(ex.done) })
+}
+
+func (ex *keyedExecutor) closeChannel() {
+	close(ex.ch)
+}
+
+func eventScopeKey(evt Event) string {
+	s := evt.Scope
+	parts := make([]string, 0, 3)
+	if s.RuntimeID != "" {
+		parts = append(parts, s.RuntimeID)
+	}
+	if s.AgentID != "" {
+		parts = append(parts, s.AgentID)
+	}
+	if s.SessionKey != "" {
+		parts = append(parts, s.SessionKey)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "/")
+	}
+	if s.Channel != "" {
+		return s.Channel
+	}
+	return "default"
 }
 
 func normalizeSubscribeOptions(opts SubscribeOptions) SubscribeOptions {
@@ -142,16 +187,17 @@ func newSubscription(
 ) *eventSubscription {
 	opts = normalizeSubscribeOptions(opts)
 	return &eventSubscription{
-		bus:     bus,
-		id:      id,
-		name:    opts.Name,
-		opts:    opts,
-		filters: append([]Filter(nil), filters...),
-		handler: handler,
-		once:    once,
-		ch:      make(chan Event, opts.Buffer),
-		done:    make(chan struct{}),
-		closing: make(chan struct{}),
+		bus:            bus,
+		id:             id,
+		name:           opts.Name,
+		opts:           opts,
+		filters:        append([]Filter(nil), filters...),
+		handler:        handler,
+		once:           once,
+		ch:             make(chan Event, opts.Buffer),
+		done:           make(chan struct{}),
+		closing:        make(chan struct{}),
+		keyedExecutors: make(map[string]*keyedExecutor),
 	}
 }
 
@@ -209,7 +255,10 @@ func (s *eventSubscription) Stats() SubscriberStats {
 
 func (s *eventSubscription) run(ctx context.Context) {
 	defer func() {
+		s.closeKeyedExecutors()
 		s.wg.Wait()
+		s.closeKeyedChannels()
+		s.waitKeyedWorkers()
 		s.closeDone()
 	}()
 
@@ -236,11 +285,86 @@ func (s *eventSubscription) dispatch(ctx context.Context, evt Event) {
 			s.handle(ctx, evt)
 		}()
 	case Keyed:
-		// TODO: replace this with keyed executors when runtime events need
-		// per-scope ordering with cross-scope concurrency.
-		s.handle(ctx, evt)
+		s.dispatchKeyed(ctx, evt)
 	default:
 		s.handle(ctx, evt)
+	}
+}
+
+func (s *eventSubscription) dispatchKeyed(ctx context.Context, evt Event) {
+	key := eventScopeKey(evt)
+	ex := s.getOrCreateKeyedExecutor(key)
+
+	ke := keyedEvent{ctx: ctx, evt: evt}
+	select {
+	case ex.ch <- ke:
+	case <-s.closing:
+	}
+}
+
+func (s *eventSubscription) getOrCreateKeyedExecutor(key string) *keyedExecutor {
+	s.keyedMu.RLock()
+	ex, ok := s.keyedExecutors[key]
+	s.keyedMu.RUnlock()
+	if ok {
+		return ex
+	}
+
+	s.keyedMu.Lock()
+	defer s.keyedMu.Unlock()
+	if ex, ok := s.keyedExecutors[key]; ok {
+		return ex
+	}
+
+	ex = &keyedExecutor{
+		ch:   make(chan keyedEvent, s.opts.Buffer),
+		done: make(chan struct{}),
+	}
+	s.keyedExecutors[key] = ex
+	ex.wg.Add(1)
+	go s.keyedWorker(ex)
+	return ex
+}
+
+func (s *eventSubscription) keyedWorker(ex *keyedExecutor) {
+	defer ex.wg.Done()
+	for {
+		select {
+		case ke, ok := <-ex.ch:
+			if !ok {
+				return
+			}
+			s.handle(ke.ctx, ke.evt)
+		case <-ex.done:
+			for ke := range ex.ch {
+				s.handle(ke.ctx, ke.evt)
+			}
+			return
+		}
+	}
+}
+
+func (s *eventSubscription) closeKeyedExecutors() {
+	s.keyedMu.Lock()
+	defer s.keyedMu.Unlock()
+	for _, ex := range s.keyedExecutors {
+		ex.close()
+	}
+}
+
+func (s *eventSubscription) closeKeyedChannels() {
+	s.keyedMu.Lock()
+	defer s.keyedMu.Unlock()
+	for _, ex := range s.keyedExecutors {
+		ex.closeChannel()
+	}
+}
+
+func (s *eventSubscription) waitKeyedWorkers() {
+	s.keyedMu.Lock()
+	defer s.keyedMu.Unlock()
+	for _, ex := range s.keyedExecutors {
+		ex.wg.Wait()
 	}
 }
 

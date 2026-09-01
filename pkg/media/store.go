@@ -49,6 +49,14 @@ type MediaStore interface {
 	// ReleaseAll deletes all files registered under the given scope
 	// and removes the mapping entries. File-not-exist errors are ignored.
 	ReleaseAll(scope string) error
+
+	// Start begins any background maintenance goroutine (e.g. TTL cleanup).
+	// Safe to call more than once.
+	Start()
+
+	// Stop terminates any background maintenance goroutine.
+	// Safe to call more than once.
+	Stop()
 }
 
 // mediaEntry holds the path and metadata for a stored media file.

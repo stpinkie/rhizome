@@ -216,6 +216,11 @@ func RunWithMesh(
 
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+	agentLoop.SetMediaStore(media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
+		Enabled:  true,
+		MaxAge:   15 * time.Minute,
+		Interval: 5 * time.Minute,
+	}))
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 
 	if rhizomeMesh != nil {

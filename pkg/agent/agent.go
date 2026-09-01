@@ -292,6 +292,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					defer al.channelManager.InvokeTypingStop(m.Channel, m.ChatID)
 				}
 
+				if al.mediaStore != nil && m.MediaScope != "" {
+					defer func(scope string) {
+						al.releaseInboundMedia(scope)
+					}(m.MediaScope)
+				}
+
 				if al.takePendingStop(sessionKey) {
 					al.releaseSessionTurnState(sessionKey, nil)
 					target := &continuationTarget{
@@ -313,19 +319,21 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				al.runTurnWithSteering(ctx, m)
 			}(msg, placeholder)
 
-			// TODO: Re-enable media cleanup after inbound media is properly consumed by the agent.
-			// Currently disabled because files are deleted before the LLM can access their content.
-			// defer func() {
-			// 	if al.mediaStore != nil && msg.MediaScope != "" {
-			// 		if releaseErr := al.mediaStore.ReleaseAll(msg.MediaScope); releaseErr != nil {
-			// 			logger.WarnCF("agent", "Failed to release media", map[string]any{
-			// 				"scope": msg.MediaScope,
-			// 				"error": releaseErr.Error(),
-			// 			})
-			// 		}
-			// 	}
-			// }()
+			// Inbound media is released by the worker goroutine after the turn completes.
+
 		}
+	}
+}
+
+func (al *AgentLoop) releaseInboundMedia(scope string) {
+	if al.mediaStore == nil || scope == "" {
+		return
+	}
+	if err := al.mediaStore.ReleaseAll(scope); err != nil {
+		logger.WarnCF("agent", "Failed to release media", map[string]any{
+			"scope": scope,
+			"error": err.Error(),
+		})
 	}
 }
 
@@ -345,6 +353,10 @@ func (al *AgentLoop) Stop() {
 
 // Close releases resources held by agent session stores. Call after Stop.
 func (al *AgentLoop) Close() {
+	if al.mediaStore != nil {
+		al.mediaStore.Stop()
+	}
+
 	if al.contextManager != nil {
 		if err := al.contextManager.Close(); err != nil {
 			logger.ErrorCF("agent", "Failed to close context manager",

@@ -36,6 +36,15 @@ func (al *AgentLoop) GetConfig() *config.Config {
 }
 
 func (al *AgentLoop) SetMediaStore(s media.MediaStore) {
+	if s == al.mediaStore {
+		return
+	}
+
+	if s != nil {
+		s.Start()
+	}
+
+	old := al.mediaStore
 	al.mediaStore = s
 
 	// Propagate store to all registered tools that can emit media.
@@ -50,6 +59,10 @@ func (al *AgentLoop) SetMediaStore(s media.MediaStore) {
 			st.SetMediaStore(s)
 		}
 	})
+
+	if old != nil {
+		old.Stop()
+	}
 }
 
 func (al *AgentLoop) SetTranscriber(t asr.Transcriber) {

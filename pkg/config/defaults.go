@@ -34,7 +34,7 @@ func DefaultConfig() *Config {
 				MaxToolIterations:         50,
 				SummarizeMessageThreshold: 20,
 				SummarizeTokenPercent:     75,
-				SteeringMode:              "one-at-a-time",
+				SteeringMode:              SteeringOneAtATime,
 				ToolFeedback: ToolFeedbackConfig{
 					Enabled:          false,
 					MaxArgsLength:    300,

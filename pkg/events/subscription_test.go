@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -250,5 +251,109 @@ func waitForStat(t *testing.T, stat func() uint64, want uint64) {
 		case <-deadline:
 			t.Fatalf("timed out waiting for stat >= %d", want)
 		}
+	}
+}
+
+func TestKeyedHandlerPreservesScopeOrdering(t *testing.T) {
+	t.Parallel()
+
+	bus := NewBus()
+	defer closeBus(t, bus)
+
+	var mu sync.Mutex
+	seenA := []int{}
+	seenB := []int{}
+	sub, err := bus.Channel().Subscribe(
+		context.Background(),
+		SubscribeOptions{Name: "keyed-order", Buffer: 32, Concurrency: Keyed},
+		func(_ context.Context, evt Event) error {
+			n, _ := evt.Attrs["n"].(int)
+			mu.Lock()
+			defer mu.Unlock()
+			switch evt.Scope.SessionKey {
+			case "A":
+				seenA = append(seenA, n)
+			case "B":
+				seenB = append(seenB, n)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		bus.Publish(context.Background(), Event{
+			Kind:  KindAgentLLMDelta,
+			Scope: Scope{SessionKey: "A"},
+			Attrs: map[string]any{"n": i},
+		})
+	}
+	for i := 0; i < 5; i++ {
+		bus.Publish(context.Background(), Event{
+			Kind:  KindAgentLLMDelta,
+			Scope: Scope{SessionKey: "B"},
+			Attrs: map[string]any{"n": i + 10},
+		})
+	}
+
+	waitForStat(t, func() uint64 {
+		return sub.Stats().Handled
+	}, 10)
+
+	mu.Lock()
+	defer mu.Unlock()
+	for i := 0; i < 5; i++ {
+		if seenA[i] != i {
+			t.Fatalf("scope A ordering wrong at %d: %v", i, seenA)
+		}
+		if seenB[i] != i+10 {
+			t.Fatalf("scope B ordering wrong at %d: %v", i, seenB)
+		}
+	}
+}
+
+func TestKeyedHandlerRunsConcurrentlyAcrossScopes(t *testing.T) {
+	t.Parallel()
+
+	bus := NewBus()
+	defer closeBus(t, bus)
+
+	var active atomic.Int64
+	var maxActive atomic.Int64
+	sub, err := bus.Channel().Subscribe(
+		context.Background(),
+		SubscribeOptions{Name: "keyed-concurrent", Buffer: 32, Concurrency: Keyed},
+		func(_ context.Context, _ Event) error {
+			current := active.Add(1)
+			for {
+				currentMax := maxActive.Load()
+				if current <= currentMax || maxActive.CompareAndSwap(currentMax, current) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			active.Add(-1)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		bus.Publish(context.Background(), Event{Kind: KindAgentLLMDelta, Scope: Scope{SessionKey: "A"}})
+	}
+	for i := 0; i < 3; i++ {
+		bus.Publish(context.Background(), Event{Kind: KindAgentLLMDelta, Scope: Scope{SessionKey: "B"}})
+	}
+
+	waitForStat(t, func() uint64 {
+		return sub.Stats().Handled
+	}, 6)
+
+	if got := maxActive.Load(); got < 2 {
+		t.Fatalf("max active handlers = %d, want at least 2", got)
 	}
 }
