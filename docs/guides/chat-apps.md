@@ -440,7 +440,7 @@ rhizome gateway
 <details>
 <summary><b>Feishu (Lark)</b></summary>
 
-Rhizome connects to Feishu via WebSocket/SDK mode — no public webhook URL or callback server needed.
+Rhizome connects to Feishu via WebSocket/SDK mode — no public webhook URL or callback server needed. Feishu support is an **optional build** to keep the default binary small; build with `-tags feishu` (e.g. `make build-feishu` or `go build -tags goolm,stdjson,feishu ./cmd/...`).
 
 **1. Create an app**
 

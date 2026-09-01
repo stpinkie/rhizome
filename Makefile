@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all lint-docs
+.PHONY: all build build-feishu install uninstall clean help test integration-test build-all lint-docs
 
 # Build variables
 BINARY_NAME=rhizome
@@ -289,6 +289,19 @@ build-whatsapp-native: generate
 ## @$(GO) build $(GOFLAGS) -tags whatsapp_native -ldflags "$(LDFLAGS)" -o $(BINARY_PATH) ./$(CMD_DIR)
 	@echo "Build complete"
 ##	@ln -sf $(BINARY_NAME)-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/$(BINARY_NAME)
+
+## build-feishu: Build the rhizome binary with Feishu (Lark) channel support; larger binary
+build-feishu: generate
+	@echo "Building $(BINARY_NAME) with Feishu support for $(PLATFORM)/$(ARCH)..."
+ifeq ($(OS),Windows_NT)
+	@$(POWERSHELL) "New-Item -ItemType Directory -Force -Path '$(BUILD_DIR)' | Out-Null"
+	@$(GO) build -v -tags $(GO_BUILD_TAGS),feishu -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)-feishu$(EXT) ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)-feishu$(EXT)"
+else
+	@mkdir -p $(BUILD_DIR)
+	@GOOS=$(PLATFORM) GOARCH=$(ARCH) $(GO) build -v -tags $(GO_BUILD_TAGS),feishu -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)-feishu ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)-feishu"
+endif
 
 ## build-linux-arm: Build for Linux ARMv7 (e.g. Raspberry Pi Zero 2 W 32-bit)
 build-linux-arm: generate

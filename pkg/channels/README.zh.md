@@ -1302,7 +1302,7 @@ make test                                       # 全量测试
 | `pkg/channels/line/` | `"line"` | TypingCapable, MediaSender, WebhookHandler |
 | `pkg/channels/onebot/` | `"onebot"` | ReactionCapable, MediaSender |
 | `pkg/channels/dingtalk/` | `"dingtalk"` | — |
-| `pkg/channels/feishu/` | `"feishu"` | — (架构特定 build tags: `feishu_32.go` / `feishu_64.go`) |
+| `pkg/channels/feishu/` | `"feishu"` | — (可选 build tag: `feishu`；仅 64 位) |
 | `pkg/channels/wecom/` | `"wecom"` | MediaSender |
 | `pkg/channels/qq/` | `"qq"` | — |
 | `pkg/channels/whatsapp/` | `"whatsapp"` | — (Bridge 模式) |
@@ -1417,7 +1417,7 @@ agentLoop.Stop()               // 停止 Agent
 
 1. **媒体清理暂时禁用**：Agent loop 中的 `ReleaseAll` 调用被注释掉了（`refactor(loop): disable media cleanup to prevent premature file deletion`），因为会话边界尚未明确定义。TTL 清理仍然有效。
 
-2. **Feishu 架构特定编译**：Feishu channel 使用 build tags 区分 32 位和 64 位架构（`feishu_32.go` / `feishu_64.go`）。Feishu 使用 SDK 的 WebSocket 模式（非 HTTP webhook），因此不实现 `WebhookHandler`。
+2. **Feishu 可选编译**：Feishu channel 仅在设置 `feishu` build tag 且目标为 64 位架构时编译。Feishu 使用 SDK 的 WebSocket 模式（非 HTTP webhook），因此不实现 `WebhookHandler`。
 
 3. **WeCom 现在只有一个 channel**：`"wecom"` 采用 WebSocket AI Bot 实现，带路由持久化；访问控制走统一的 channel 白名单机制，不再保留旧的 webhook/app 双分支。
 

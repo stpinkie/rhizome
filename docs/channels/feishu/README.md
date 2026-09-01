@@ -2,6 +2,8 @@
 
 # Feishu
 
+> **Build requirement:** Feishu/Lark support is an optional build. The default `rhizome` binary does **not** include it. Build with `-tags feishu` (e.g. `make build-feishu` or `go build -tags goolm,stdjson,feishu ./cmd/...`). It is only available on 64-bit targets.
+
 Feishu (international name: Lark) is an enterprise collaboration platform by ByteDance. It supports both Chinese and global markets through event-driven WebSocket connections.
 
 ## Configuration

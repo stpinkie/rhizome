@@ -1,4 +1,4 @@
-//go:build !amd64 && !arm64 && !riscv64 && !mips64 && !ppc64
+//go:build !feishu || (feishu && !amd64 && !arm64 && !riscv64 && !mips64 && !ppc64)
 
 package feishu
 
@@ -11,17 +11,22 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 )
 
-// FeishuChannel is a stub implementation for 32-bit architectures
+// FeishuChannel is a stub implementation used when the feishu build tag is not
+// set or when the target architecture does not support the Lark SDK.
 type FeishuChannel struct {
 	*channels.BaseChannel
 }
 
-var errUnsupported = errors.New("feishu channel is not supported on 32-bit architectures")
+var errUnsupported = errors.New("feishu channel is not compiled in")
 
-// NewFeishuChannel returns an error on 32-bit architectures where the Feishu SDK is not supported
+// NewFeishuChannel returns an error when Feishu support is not compiled in.
+// Build with: go build -tags feishu ./cmd/...
 func NewFeishuChannel(bc *config.Channel, cfg *config.FeishuSettings, bus *bus.MessageBus) (*FeishuChannel, error) {
+	_ = bc
+	_ = cfg
+	_ = bus
 	return nil, errors.New(
-		"feishu channel is not supported on 32-bit architectures (armv7l, 386, etc.). Please use a 64-bit system or disable feishu in your config",
+		"feishu channel is not compiled in; build with -tags feishu on a 64-bit architecture",
 	)
 }
 

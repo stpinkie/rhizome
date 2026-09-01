@@ -68,5 +68,5 @@ CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -tags goolm,stdjson -ldflags '-
 ## Feature availability
 
 - The **Matrix** channel is available on every target where it compiles. It is currently disabled on `linux/mipsle`, `netbsd/*`, and `freebsd/arm` due to `modernc.org/sqlite` / `mautrix` portability issues.
-- The **Feishu** channel has a 32-bit stub (`pkg/channels/feishu/feishu_32.go`) and returns an unsupported error on 32-bit architectures.
+- The **Feishu** channel is an **optional build** (`-tags feishu`) and is only compiled in on 64-bit targets. Without the build tag it is a stub that returns an error at runtime.
 - The **rhizome-launcher** (web UI) is optional and is only guaranteed for desktop targets.
