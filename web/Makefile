@@ -159,7 +159,7 @@ ifeq ($(OS),Windows_NT)
 else
 	@mkdir -p $(BUILD_DIR)
 endif
-	GOOS=android GOARCH=arm64 $(GO) build -tags stdjson -ldflags "$(LDFLAGS)" -o "$(BUILD_DIR)/rhizome-launcher-android-arm64" ./$(BACKEND_DIR)/
+	CGO_ENABLED=0 GOOS=android GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS) -checklinkname=0" -o "$(BUILD_DIR)/rhizome-launcher-android-arm64" ./$(BACKEND_DIR)/
 	@echo "All Android launcher builds complete"
 
 build-frontend:

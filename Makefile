@@ -31,13 +31,6 @@ GO_VERSION=$(if $(GO_VERSION_RAW),$(firstword $(GO_VERSION_RAW)),unknown)
 CONFIG_PKG=github.com/stpinkie/rhizome/pkg/config
 LDFLAGS=-X $(CONFIG_PKG).Version=$(VERSION) -X $(CONFIG_PKG).GitCommit=$(GIT_COMMIT) -X $(CONFIG_PKG).BuildTime=$(BUILD_TIME) -X $(CONFIG_PKG).GoVersion=$(GO_VERSION) -s -w
 
-# Android NDK (required for cgo on android/arm, android/386, android/amd64).
-# android/arm64 can build with CGO_ENABLED=0 but needs -checklinkname=0 for Go 1.23+.
-ANDROID_NDK?=
-ANDROID_API?=19
-ANDROID_NDK_HOST?=$(if $(filter Windows,$(UNAME_S)),windows-x86_64,linux-x86_64)
-ANDROID_LDFLAGS=$(LDFLAGS) -checklinkname=0
-
 # Go variables
 GO?=go
 WEB_GO?=$(GO)
@@ -192,6 +185,42 @@ endif
 
 BINARY_PATH=$(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)
 
+# Android NDK settings. Defined after OS detection because ANDROID_NDK_HOST
+# depends on UNAME_S.
+#
+# android/arm64 builds with CGO_ENABLED=0, but android/arm, android/386, and
+# android/amd64 require external (cgo) linking, so they need an NDK toolchain.
+# All Android targets need -checklinkname=0 because github.com/wlynxg/anet
+# (pulled in by libp2p) uses //go:linkname against net internals, which Go 1.23+
+# rejects by default.
+ANDROID_NDK?=
+ANDROID_API?=19
+ifeq ($(UNAME_S),Windows)
+	ANDROID_NDK_HOST?=windows-x86_64
+else ifeq ($(UNAME_S),Darwin)
+	ANDROID_NDK_HOST?=darwin-x86_64
+else
+	ANDROID_NDK_HOST?=linux-x86_64
+endif
+ANDROID_NDK_BIN=$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin
+ANDROID_LDFLAGS=$(LDFLAGS) -checklinkname=0
+
+# Fail early with an actionable message when an NDK-dependent target is invoked
+# without a usable toolchain, instead of surfacing an opaque clang/link error.
+define REQUIRE_ANDROID_NDK
+	@if [ -z "$(ANDROID_NDK)" ]; then \
+		echo "Error: ANDROID_NDK is not set; required to cross-compile $(1) with cgo"; exit 1; \
+	fi
+	@if [ ! -d "$(ANDROID_NDK_BIN)" ]; then \
+		echo "Error: Android NDK toolchain not found at $(ANDROID_NDK_BIN)"; \
+		echo "Check ANDROID_NDK and ANDROID_NDK_HOST (currently '$(ANDROID_NDK_HOST)')"; exit 1; \
+	fi
+	@if [ ! -x "$(ANDROID_NDK_BIN)/$(2)" ]; then \
+		echo "Error: compiler $(ANDROID_NDK_BIN)/$(2) not found or not executable"; \
+		echo "Check that ANDROID_API=$(ANDROID_API) is provided by this NDK"; exit 1; \
+	fi
+endef
+
 # Default target
 all: build
 
@@ -300,25 +329,25 @@ build-windows-386: generate
 ## build-android-arm: Build core for Android ARMv7 (requires Android NDK with cgo)
 build-android-arm: generate
 	@echo "Building for android/arm..."
-	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
+	$(call REQUIRE_ANDROID_NDK,android/arm,armv7a-linux-androideabi$(ANDROID_API)-clang)
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/armv7a-linux-androideabi$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm ./$(CMD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC="$(ANDROID_NDK_BIN)/armv7a-linux-androideabi$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-arm"
 
 ## build-android-386: Build core for Android x86 (requires Android NDK with cgo)
 build-android-386: generate
 	@echo "Building for android/386..."
-	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
+	$(call REQUIRE_ANDROID_NDK,android/386,i686-linux-android$(ANDROID_API)-clang)
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 GOOS=android GOARCH=386 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/i686-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-386 ./$(CMD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=386 CC="$(ANDROID_NDK_BIN)/i686-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-386 ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-386"
 
 ## build-android-amd64: Build core for Android x86_64 (requires Android NDK with cgo)
 build-android-amd64: generate
 	@echo "Building for android/amd64..."
-	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
+	$(call REQUIRE_ANDROID_NDK,android/amd64,x86_64-linux-android$(ANDROID_API)-clang)
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 GOOS=android GOARCH=amd64 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/x86_64-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-amd64 ./$(CMD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=amd64 CC="$(ANDROID_NDK_BIN)/x86_64-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-amd64 ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-amd64"
 
 ## build-android-arm64: Build core for Android ARM64 (no cgo, needs -checklinkname=0)

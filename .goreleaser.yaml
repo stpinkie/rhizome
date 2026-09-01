@@ -93,12 +93,6 @@ builds:
         goarch: arm
       - goos: netbsd
         goarch: arm
-      - goos: netbsd
-        goarch: s390x
-      - goos: netbsd
-        goarch: mips64
-      - goos: netbsd
-        goarch: arm
 
   - id: rhizome-android
     binary: rhizome

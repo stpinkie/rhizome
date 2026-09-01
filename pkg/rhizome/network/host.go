@@ -48,15 +48,28 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		addrs = []string{"/ip4/0.0.0.0/tcp/0"}
 	}
 
-	h, err := libp2p.New(
+	// Transports are configured explicitly rather than via
+	// libp2p.DefaultTransports so that WebTransport and WebRTC (which need
+	// UDP features and network interface enumeration unavailable on Android
+	// and pre-3.9 kernels) are never required. TCP uses DisableReuseport
+	// because SO_REUSEPORT only exists on Linux 3.9+.
+	baseOpts := []libp2p.Option{
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(addrs...),
 		libp2p.Transport(tcp.NewTCPTransport, tcp.DisableReuseport()),
-		libp2p.Transport(quic.NewTransport),
 		libp2p.NATPortMap(),
-	)
+	}
+
+	h, err := libp2p.New(append(baseOpts, libp2p.Transport(quic.NewTransport))...)
 	if err != nil {
-		return nil, fmt.Errorf("create libp2p host: %w", err)
+		// QUIC needs UDP socket options (IP_PKTINFO, ECN) that old kernels and
+		// restricted Android sandboxes may reject. Fall back to TCP-only so the
+		// mesh still works instead of failing startup outright.
+		logger.WarnCF("network", "QUIC transport unavailable; falling back to TCP-only", map[string]any{"error": err.Error()})
+		h, err = libp2p.New(baseOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("create libp2p host: %w", err)
+		}
 	}
 
 	// Wait briefly for at least one listener to be ready.
@@ -75,6 +88,7 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	n.mdns = mdns.NewMdnsService(h, "_rhizome._p2p", n)
 	if err := n.mdns.Start(); err != nil {
 		logger.WarnCF("network", "mDNS discovery failed; continuing without local multicast discovery", map[string]any{"error": err.Error()})
+		_ = n.mdns.Close()
 		n.mdns = nil
 	}
 
