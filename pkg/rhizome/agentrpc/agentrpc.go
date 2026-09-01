@@ -74,7 +74,7 @@ func (t *Transport) Start(ctx context.Context) error {
 }
 
 // waitForPeerProtocol polls until the given peer advertises support for the
-// agent RPC protocol. It returns false if the context is cancelled or the
+// agent RPC protocol. It returns false if the context is canceled or the
 // timeout expires.
 func (t *Transport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)

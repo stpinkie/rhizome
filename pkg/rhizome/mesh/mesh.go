@@ -337,8 +337,35 @@ func (c *CapsTransport) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// waitForPeerProtocol polls until the given peer advertises support for the
+// capability protocol. It returns false if the context is canceled or the
+// timeout expires.
+func (c *CapsTransport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, p := range c.host.Network().Peers() {
+			if p == pid {
+				protos, err := c.host.Peerstore().SupportsProtocols(pid, CapsProtocolID)
+				if err == nil && len(protos) > 0 {
+					return true
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return false
+}
+
 // Send pushes a capability manifest to a peer.
 func (c *CapsTransport) Send(ctx context.Context, pid peer.ID, capability Capability) error {
+	if !c.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+		return fmt.Errorf("peer %s does not support %s", pid, CapsProtocolID)
+	}
+
 	s, err := c.host.NewStream(ctx, pid, CapsProtocolID)
 	if err != nil {
 		return fmt.Errorf("open caps stream: %w", err)

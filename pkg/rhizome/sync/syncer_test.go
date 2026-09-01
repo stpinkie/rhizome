@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSyncerTwoNodesShareEdits(t *testing.T) {
@@ -90,8 +91,8 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 	require.Eventually(t, func() bool {
 		for _, p := range nodeB.ConnectedPeers() {
 			if p == nodeA.ID() {
-				protos, err := nodeB.Host().Peerstore().SupportsProtocols(p, ProtocolID)
-				return err == nil && len(protos) > 0
+				protos, protoErr := nodeB.Host().Peerstore().SupportsProtocols(p, ProtocolID)
+				return protoErr == nil && len(protos) > 0
 			}
 		}
 		return false
