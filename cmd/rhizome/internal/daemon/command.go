@@ -17,6 +17,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/sync"
+	"github.com/stpinkie/rhizome/pkg/skills"
 )
 
 func NewDaemonCommand() *cobra.Command {
@@ -98,6 +99,16 @@ func NewDaemonCommand() *cobra.Command {
 			var rhizomeMesh *mesh.Mesh
 			if cfg.Mesh.Enabled {
 				rhizomeMesh = mesh.NewMesh(node, syncer, derived, cfg.Mesh, nil)
+				if cfg.Mesh.AdvertiseModels {
+					rhizomeMesh.SetModelList(cfg.ModelList)
+				}
+				if cfg.Mesh.AdvertiseSkills {
+					rhizomeMesh.SetSkillsLoader(skills.NewSkillsLoader(
+						workspace,
+						filepath.Join(home, "skills"),
+						"",
+					))
+				}
 				if err := rhizomeMesh.Start(ctx); err != nil {
 					return fmt.Errorf("failed to start mesh: %w", err)
 				}

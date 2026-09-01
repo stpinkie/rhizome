@@ -19,6 +19,7 @@ import (
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 	rsync "github.com/stpinkie/rhizome/pkg/rhizome/sync"
+	"github.com/stpinkie/rhizome/pkg/skills"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -56,6 +57,12 @@ type Mesh struct {
 	rpc     *agentrpc.Transport
 	cap     *CapsTransport
 	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)
+
+	models   []string
+	modelsMu sync.RWMutex
+
+	skillsLoader   *skills.SkillsLoader
+	skillsLoaderMu sync.RWMutex
 
 	stop   chan struct{}
 	ctx    context.Context
@@ -111,8 +118,10 @@ func (m *Mesh) Start(ctx context.Context) error {
 		m.trust[pid] = true
 	}
 
-	// Seed initial seed trust by resolving config.
-	go m.Advertise(m.ctx)
+	// Start periodic capability advertisement.
+	m.wg.Add(1)
+	go m.announceLoop(m.ctx)
+
 	return nil
 }
 
@@ -242,6 +251,53 @@ func (m *Mesh) Advertise(ctx context.Context) {
 	}
 }
 
+// announceLoop periodically re-advertises capabilities. The interval defaults
+// to the configured DHT reprovide interval to keep capability info fresh.
+func (m *Mesh) announceLoop(ctx context.Context) {
+	defer m.wg.Done()
+
+	m.Advertise(ctx)
+
+	interval := m.cfg.DHTReprovideInterval
+	if interval <= 0 {
+		interval = 5 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.Advertise(ctx)
+		}
+	}
+}
+
+// SetModelList sets the list of model names to advertise. It filters out
+// disabled and virtual models and strips all other metadata to avoid leaking
+// sensitive configuration.
+func (m *Mesh) SetModelList(models config.SecureModelList) {
+	m.modelsMu.Lock()
+	defer m.modelsMu.Unlock()
+
+	m.models = m.models[:0]
+	for _, model := range models {
+		if model == nil || !model.Enabled || model.IsVirtual() || model.ModelName == "" {
+			continue
+		}
+		m.models = append(m.models, model.ModelName)
+	}
+}
+
+// SetSkillsLoader sets the skills loader used to discover skill names for
+// capability advertisement.
+func (m *Mesh) SetSkillsLoader(loader *skills.SkillsLoader) {
+	m.skillsLoaderMu.Lock()
+	defer m.skillsLoaderMu.Unlock()
+	m.skillsLoader = loader
+}
+
 // localCapability builds a capability manifest from local configuration.
 func (m *Mesh) localCapability() Capability {
 	c := Capability{
@@ -254,10 +310,24 @@ func (m *Mesh) localCapability() Capability {
 	c.Allows["sync"] = true
 
 	if m.cfg.AdvertiseModels {
-		// TODO: collect from config.ModelList
+		m.modelsMu.RLock()
+		c.Models = append([]string(nil), m.models...)
+		m.modelsMu.RUnlock()
 	}
 	if m.cfg.AdvertiseSkills {
-		// TODO: collect from workspace/skills
+		m.skillsLoaderMu.RLock()
+		loader := m.skillsLoader
+		m.skillsLoaderMu.RUnlock()
+		if loader != nil {
+			seen := make(map[string]bool)
+			for _, info := range loader.ListSkills() {
+				if info.Name == "" || seen[info.Name] {
+					continue
+				}
+				seen[info.Name] = true
+				c.Skills = append(c.Skills, info.Name)
+			}
+		}
 	}
 
 	// Always advertise the default agent id 'main'.
