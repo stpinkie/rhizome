@@ -31,6 +31,13 @@ GO_VERSION=$(if $(GO_VERSION_RAW),$(firstword $(GO_VERSION_RAW)),unknown)
 CONFIG_PKG=github.com/stpinkie/rhizome/pkg/config
 LDFLAGS=-X $(CONFIG_PKG).Version=$(VERSION) -X $(CONFIG_PKG).GitCommit=$(GIT_COMMIT) -X $(CONFIG_PKG).BuildTime=$(BUILD_TIME) -X $(CONFIG_PKG).GoVersion=$(GO_VERSION) -s -w
 
+# Android NDK (required for cgo on android/arm, android/386, android/amd64).
+# android/arm64 can build with CGO_ENABLED=0 but needs -checklinkname=0 for Go 1.23+.
+ANDROID_NDK?=
+ANDROID_API?=19
+ANDROID_NDK_HOST?=$(if $(filter Windows,$(UNAME_S)),windows-x86_64,linux-x86_64)
+ANDROID_LDFLAGS=$(LDFLAGS) -checklinkname=0
+
 # Go variables
 GO?=go
 WEB_GO?=$(GO)
@@ -276,11 +283,49 @@ build-linux-mipsle: generate
 	$(call PATCH_MIPS_FLAGS,$(BUILD_DIR)/$(BINARY_NAME)-linux-mipsle)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-linux-mipsle"
 
-## build-android-arm64: Build core for Android ARM64
+## build-linux-386: Build for Linux i386
+build-linux-386: generate
+	@echo "Building for linux/386..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=386 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-386 ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-linux-386"
+
+## build-windows-386: Build for Windows i386
+build-windows-386: generate
+	@echo "Building for windows/386..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 GOOS=windows GOARCH=386 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-386.exe ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-windows-386.exe"
+
+## build-android-arm: Build core for Android ARMv7 (requires Android NDK with cgo)
+build-android-arm: generate
+	@echo "Building for android/arm..."
+	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/armv7a-linux-androideabi$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-arm"
+
+## build-android-386: Build core for Android x86 (requires Android NDK with cgo)
+build-android-386: generate
+	@echo "Building for android/386..."
+	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=386 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/i686-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-386 ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-386"
+
+## build-android-amd64: Build core for Android x86_64 (requires Android NDK with cgo)
+build-android-amd64: generate
+	@echo "Building for android/amd64..."
+	@if [ -z "$(ANDROID_NDK)" ]; then echo "ERROR: ANDROID_NDK is not set"; exit 1; fi
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 GOOS=android GOARCH=amd64 CC="$(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)/bin/x86_64-linux-android$(ANDROID_API)-clang" $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-amd64 ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-amd64"
+
+## build-android-arm64: Build core for Android ARM64 (no cgo, needs -checklinkname=0)
 build-android-arm64: generate
 	@echo "Building for android/arm64..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=android GOARCH=arm64 $(GO) build -tags stdjson -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm64 ./$(CMD_DIR)
+	CGO_ENABLED=0 GOOS=android GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm64 ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-android-arm64"
 
 ## build-launcher-android-arm64: Build launcher for Android ARM64
@@ -290,20 +335,37 @@ build-launcher-android-arm64:
 	@$(MAKE) -C web build-android-arm64 \
 		OUTPUT_ANDROID_ARM64="$(CURDIR)/$(BUILD_DIR)/rhizome-launcher-android-arm64" \
 		GO='$(GO)' \
-		LDFLAGS='$(LDFLAGS)'
+		LDFLAGS='$(ANDROID_LDFLAGS)'
 	@echo "Build complete: $(BUILD_DIR)/rhizome-launcher-android-arm64"
 
 ## build-android-bundle: Build core and launcher for all Android architectures and package as universal zip
 build-android-bundle: generate
 	@echo "Building core for all Android architectures..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=android GOARCH=arm64 $(GO) build -tags stdjson -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm64 ./$(CMD_DIR)
+	@$(MAKE) build-android-arm64
+	@if [ ! -z "$(ANDROID_NDK)" ]; then \
+		$(MAKE) build-android-arm; \
+		$(MAKE) build-android-386; \
+		$(MAKE) build-android-amd64; \
+	fi
 	@echo "Building launcher for Android arm64..."
 	@$(MAKE) build-launcher-android-arm64
-	@echo "Staging JNI libs..."
+	@echo "Staging Android native binaries..."
 	@rm -rf $(BUILD_DIR)/android-staging
 	@mkdir -p $(BUILD_DIR)/android-staging/arm64-v8a
 	@cp $(BUILD_DIR)/$(BINARY_NAME)-android-arm64 $(BUILD_DIR)/android-staging/arm64-v8a/librhizome.so
+	@if [ -f $(BUILD_DIR)/$(BINARY_NAME)-android-arm ]; then \
+		mkdir -p $(BUILD_DIR)/android-staging/armeabi-v7a; \
+		cp $(BUILD_DIR)/$(BINARY_NAME)-android-arm $(BUILD_DIR)/android-staging/armeabi-v7a/librhizome.so; \
+	fi
+	@if [ -f $(BUILD_DIR)/$(BINARY_NAME)-android-386 ]; then \
+		mkdir -p $(BUILD_DIR)/android-staging/x86; \
+		cp $(BUILD_DIR)/$(BINARY_NAME)-android-386 $(BUILD_DIR)/android-staging/x86/librhizome.so; \
+	fi
+	@if [ -f $(BUILD_DIR)/$(BINARY_NAME)-android-amd64 ]; then \
+		mkdir -p $(BUILD_DIR)/android-staging/x86_64; \
+		cp $(BUILD_DIR)/$(BINARY_NAME)-android-amd64 $(BUILD_DIR)/android-staging/x86_64/librhizome.so; \
+	fi
 	@cp $(BUILD_DIR)/rhizome-launcher-android-arm64 $(BUILD_DIR)/android-staging/arm64-v8a/librhizome-web.so
 	@cd $(BUILD_DIR)/android-staging && zip -r ../rhizome-android-universal.zip .
 	@rm -rf $(BUILD_DIR)/android-staging
@@ -318,8 +380,10 @@ build-all: generate
 	@echo "Building for multiple platforms..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./$(CMD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=386 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-386 ./$(CMD_DIR)
 	GOOS=linux GOARCH=arm GOARM=7 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm ./$(CMD_DIR)
 	GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 ./$(CMD_DIR)
+	CGO_ENABLED=0 GOOS=android GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(ANDROID_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm64 ./$(CMD_DIR)
 	@$(PTY_PATCH_LOONG64)
 	GOOS=linux GOARCH=loong64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-loong64 ./$(CMD_DIR)
 	GOOS=linux GOARCH=riscv64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-riscv64 ./$(CMD_DIR)
@@ -328,6 +392,7 @@ build-all: generate
 	GOOS=linux GOARCH=arm GOARM=7 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-armv7 ./$(CMD_DIR)
 	GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./$(CMD_DIR)
 	GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./$(CMD_DIR)
+	CGO_ENABLED=0 GOOS=windows GOARCH=386 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-386.exe ./$(CMD_DIR)
 	GOOS=netbsd GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-netbsd-amd64 ./$(CMD_DIR)
 	GOOS=netbsd GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-netbsd-arm64 ./$(CMD_DIR)
 	@echo "Core builds complete"

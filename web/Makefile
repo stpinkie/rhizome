@@ -150,7 +150,7 @@ ifeq ($(OS),Windows_NT)
 else
 	@mkdir -p $(BUILD_DIR)
 endif
-	GOOS=android GOARCH=arm64 $(GO) build -tags stdjson -ldflags "$(LDFLAGS)" -o "$(OUTPUT_ANDROID_ARM64)" ./$(BACKEND_DIR)/
+	CGO_ENABLED=0 GOOS=android GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS) -checklinkname=0" -o "$(OUTPUT_ANDROID_ARM64)" ./$(BACKEND_DIR)/
 
 # Build launcher for all Android architectures
 build-android-bundle: build-frontend

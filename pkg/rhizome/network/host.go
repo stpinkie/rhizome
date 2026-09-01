@@ -13,7 +13,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
+	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
 // Node wraps a libp2p host for Rhizome.
@@ -48,7 +51,8 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	h, err := libp2p.New(
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(addrs...),
-		libp2p.DefaultTransports,
+		libp2p.Transport(tcp.NewTCPTransport, tcp.DisableReuseport()),
+		libp2p.Transport(quic.NewTransport),
 		libp2p.NATPortMap(),
 	)
 	if err != nil {
@@ -70,8 +74,8 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	// mDNS LAN discovery.
 	n.mdns = mdns.NewMdnsService(h, "_rhizome._p2p", n)
 	if err := n.mdns.Start(); err != nil {
-		h.Close()
-		return nil, fmt.Errorf("start mdns: %w", err)
+		logger.WarnCF("network", "mDNS discovery failed; continuing without local multicast discovery", map[string]any{"error": err.Error()})
+		n.mdns = nil
 	}
 
 	// Connect to bootstrap peers with a small amount of retry/backoff.

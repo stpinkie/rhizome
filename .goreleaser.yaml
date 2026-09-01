@@ -35,6 +35,7 @@ builds:
       - netbsd
     goarch:
       - amd64
+      - 386
       - arm64
       - riscv64
       - loong64
@@ -50,10 +51,6 @@ builds:
     ignore:
       - goos: windows
         goarch: arm
-      - goos: netbsd
-        goarch: s390x
-      - goos: netbsd
-        goarch: mips64
       - goos: netbsd
         goarch: arm
 
@@ -78,6 +75,7 @@ builds:
       - netbsd
     goarch:
       - amd64
+      - 386
       - arm64
       - riscv64
       - loong64
@@ -94,11 +92,33 @@ builds:
       - goos: windows
         goarch: arm
       - goos: netbsd
+        goarch: arm
+      - goos: netbsd
         goarch: s390x
       - goos: netbsd
         goarch: mips64
       - goos: netbsd
         goarch: arm
+
+  - id: rhizome-android
+    binary: rhizome
+    env:
+      - CGO_ENABLED=0
+    tags:
+      - goolm
+      - stdjson
+    ldflags:
+      - -s -w
+      - -checklinkname=0
+      - -X github.com/stpinkie/rhizome/pkg/config.Version={{ .Version }}
+      - -X github.com/stpinkie/rhizome/pkg/config.GitCommit={{ .ShortCommit }}
+      - -X github.com/stpinkie/rhizome/pkg/config.BuildTime={{ .Date }}
+      - -X github.com/stpinkie/rhizome/pkg/config.GoVersion={{ with index .Env "GOVERSION" }}{{ . }}{{ else }}unknown{{ end }}
+    goos:
+      - android
+    goarch:
+      - arm64
+    main: ./cmd/rhizome
 
 # Docker images default to stpinkie/rhizome on Docker Hub.
 # Override DOCKERHUB_IMAGE_NAME to publish from a fork.
