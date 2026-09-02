@@ -509,6 +509,7 @@ func DefaultConfig() *Config {
 			EchoTranscription: false,
 			ElevenLabsAPIKey:  "",
 		},
+		Timeouts: DefaultTimeouts(),
 		BuildInfo: BuildInfo{
 			Version:   Version,
 			GitCommit: GitCommit,

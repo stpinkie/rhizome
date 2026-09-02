@@ -35,15 +35,6 @@ const (
 	defaultChannelQueueSize = 16
 	defaultRateLimit        = 10 // default 10 msg/s
 	maxRetries              = 3
-	rateLimitDelay          = 1 * time.Second
-	baseBackoff             = 500 * time.Millisecond
-	maxBackoff              = 8 * time.Second
-
-	janitorInterval = 10 * time.Second
-	typingStopTTL   = 5 * time.Minute
-	placeholderTTL  = 10 * time.Minute
-
-	streamAuxiliaryTombstoneTTL = 30 * time.Second
 )
 
 // typingEntry wraps a typing stop function with a creation timestamp for TTL eviction.
@@ -884,7 +875,7 @@ func (m *Manager) streamAuxiliaryTombstoneActive(key string) bool {
 		return false
 	}
 	createdAt, ok := v.(time.Time)
-	if !ok || time.Since(createdAt) > streamAuxiliaryTombstoneTTL {
+	if !ok || time.Since(createdAt) > config.Global().ChannelMessageCacheTTL() {
 		m.streamAuxiliaryTombstones.Delete(key)
 		return false
 	}
@@ -1144,8 +1135,8 @@ func (m *Manager) SetupHTTPServerListeners(listeners []net.Listener, addr string
 	m.httpServer = &http.Server{
 		Addr:         addr,
 		Handler:      m.mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  config.Global().ChannelRequestTimeout(),
+		WriteTimeout: config.Global().ChannelRequestTimeout(),
 	}
 	m.httpListeners = append([]net.Listener(nil), listeners...)
 }
@@ -1370,7 +1361,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 
 	// Shutdown shared HTTP server first
 	if m.httpServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(ctx, config.Global().ChannelPublishTimeout())
 		defer cancel()
 		if err := m.httpServer.Shutdown(shutdownCtx); err != nil {
 			logger.ErrorCF("channels", "Shared HTTP server shutdown error", map[string]any{
@@ -1596,7 +1587,7 @@ func (m *Manager) sendWithRetry(
 		// Rate limit error — fixed delay
 		if errors.Is(lastErr, ErrRateLimit) {
 			select {
-			case <-time.After(rateLimitDelay):
+			case <-time.After(config.Global().ChannelRateLimitDelay()):
 				continue
 			case <-ctx.Done():
 				return nil, false
@@ -1604,7 +1595,7 @@ func (m *Manager) sendWithRetry(
 		}
 
 		// ErrTemporary or unknown error — exponential backoff
-		backoff := min(time.Duration(float64(baseBackoff)*math.Pow(2, float64(attempt))), maxBackoff)
+		backoff := min(time.Duration(float64(config.Global().ChannelStreamMinInterval())*math.Pow(2, float64(attempt))), config.Global().ChannelMaxBackoff())
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -1791,7 +1782,7 @@ func (m *Manager) sendMediaWithRetry(
 		// Rate limit error — fixed delay
 		if errors.Is(lastErr, ErrRateLimit) {
 			select {
-			case <-time.After(rateLimitDelay):
+			case <-time.After(config.Global().ChannelRateLimitDelay()):
 				continue
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -1799,7 +1790,7 @@ func (m *Manager) sendMediaWithRetry(
 		}
 
 		// ErrTemporary or unknown error — exponential backoff
-		backoff := min(time.Duration(float64(baseBackoff)*math.Pow(2, float64(attempt))), maxBackoff)
+		backoff := min(time.Duration(float64(config.Global().ChannelStreamMinInterval())*math.Pow(2, float64(attempt))), config.Global().ChannelMaxBackoff())
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -1822,7 +1813,7 @@ func (m *Manager) sendMediaWithRetry(
 // tombstone maps and evicts entries that have exceeded their TTL. This prevents
 // memory accumulation when outbound paths fail to trigger preSend (e.g. LLM errors).
 func (m *Manager) runTTLJanitor(ctx context.Context) {
-	ticker := time.NewTicker(janitorInterval)
+	ticker := time.NewTicker(config.Global().ChannelJanitorInterval())
 	defer ticker.Stop()
 
 	for {
@@ -1832,7 +1823,7 @@ func (m *Manager) runTTLJanitor(ctx context.Context) {
 		case now := <-ticker.C:
 			m.typingStops.Range(func(key, value any) bool {
 				if entry, ok := value.(typingEntry); ok {
-					if now.Sub(entry.createdAt) > typingStopTTL {
+					if now.Sub(entry.createdAt) > config.Global().ChannelTypingMaxDuration() {
 						if _, loaded := m.typingStops.LoadAndDelete(key); loaded {
 							entry.stop() // idempotent, safe
 						}
@@ -1842,7 +1833,7 @@ func (m *Manager) runTTLJanitor(ctx context.Context) {
 			})
 			m.reactionUndos.Range(func(key, value any) bool {
 				if entry, ok := value.(reactionEntry); ok {
-					if now.Sub(entry.createdAt) > typingStopTTL {
+					if now.Sub(entry.createdAt) > config.Global().ChannelTypingMaxDuration() {
 						if _, loaded := m.reactionUndos.LoadAndDelete(key); loaded {
 							entry.undo() // idempotent, safe
 						}
@@ -1852,14 +1843,14 @@ func (m *Manager) runTTLJanitor(ctx context.Context) {
 			})
 			m.placeholders.Range(func(key, value any) bool {
 				if entry, ok := value.(placeholderEntry); ok {
-					if now.Sub(entry.createdAt) > placeholderTTL {
+					if now.Sub(entry.createdAt) > config.Global().ChannelPlaceholderTTL() {
 						m.placeholders.Delete(key)
 					}
 				}
 				return true
 			})
 			m.streamAuxiliaryTombstones.Range(func(key, value any) bool {
-				if createdAt, ok := value.(time.Time); !ok || now.Sub(createdAt) > streamAuxiliaryTombstoneTTL {
+				if createdAt, ok := value.(time.Time); !ok || now.Sub(createdAt) > config.Global().ChannelMessageCacheTTL() {
 					m.streamAuxiliaryTombstones.Delete(key)
 				}
 				return true

@@ -27,9 +27,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
-const (
-	sendTimeout = 10 * time.Second
-)
+var sendTimeout = config.Global().ChannelCommandTimeout()
 
 var (
 	// Pre-compiled regexes for resolveDiscordRefs (avoid re-compiling per call)
@@ -700,9 +698,9 @@ func (c *DiscordChannel) startTyping(chatID string) {
 		if err := c.session.ChannelTyping(chatID); err != nil {
 			logger.DebugCF("discord", "ChannelTyping error", map[string]any{"chatID": chatID, "err": err})
 		}
-		ticker := time.NewTicker(8 * time.Second)
+		ticker := time.NewTicker(config.Global().ChannelTypingRefreshInterval())
 		defer ticker.Stop()
-		timeout := time.After(5 * time.Minute)
+		timeout := time.After(config.Global().ChannelTypingMaxDuration())
 		for {
 			select {
 			case <-stop:
@@ -916,7 +914,7 @@ func (c *DiscordChannel) playTTS(ctx context.Context, vc *discordgo.VoiceConnect
 				if result.stream != nil {
 					result.stream.Close()
 				}
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(config.Global().ChannelStreamMinInterval()):
 				// Timed out waiting for a prefetched result; avoid blocking on exit.
 			}
 		}

@@ -6,19 +6,24 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 // CreateHTTPClient creates an HTTP client with optional proxy support.
 // If proxyURL is empty, it uses the system environment proxy settings.
 // Supported proxy schemes: http, https, socks5, socks5h.
 func CreateHTTPClient(proxyURL string, timeout time.Duration) (*http.Client, error) {
+	if timeout <= 0 {
+		timeout = config.Global().HTTPRequestTimeout()
+	}
 	client := &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
 			MaxIdleConns:        10,
-			IdleConnTimeout:     30 * time.Second,
+			IdleConnTimeout:     config.Global().HTTPIdleConnTimeout(),
 			DisableCompression:  false,
-			TLSHandshakeTimeout: 15 * time.Second,
+			TLSHandshakeTimeout: config.Global().HTTPTLSHandshakeTimeout(),
 		},
 	}
 

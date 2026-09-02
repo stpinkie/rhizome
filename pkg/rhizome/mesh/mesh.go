@@ -118,6 +118,14 @@ func (m *Mesh) Start(ctx context.Context) error {
 		m.trust[pid] = true
 	}
 
+	// Eagerly advertise capabilities to newly connected trusted peers.
+	m.node.OnConnected(func(ev rnet.PeerEvent) {
+		if !m.isTrusted(ev.PeerID) {
+			return
+		}
+		m.advertiseTo(ev.PeerID)
+	})
+
 	// Start periodic capability advertisement.
 	m.wg.Add(1)
 	go m.announceLoop(m.ctx)
@@ -202,6 +210,8 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 }
 
 // CallRemote sends an agent task to a trusted peer and waits for the result.
+// It retries on transient failures and attempts to reconnect to the peer
+// between attempts.
 func (m *Mesh) CallRemote(
 	ctx context.Context,
 	pid peer.ID,
@@ -225,17 +235,31 @@ func (m *Mesh) CallRemote(
 	}
 	req.Signature = identity.Sign(m.id.PrivateKey, payload)
 
-	resp, err := m.rpc.Call(ctx, pid, req)
-	if err != nil {
-		return nil, fmt.Errorf("call remote: %w", err)
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			m.node.ForceReconnect(ctx, pid)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+
+		resp, err := m.rpc.Call(ctx, pid, req)
+		if err == nil {
+			if err := m.verifyResponse(pid, &resp); err != nil {
+				return nil, fmt.Errorf("verify response: %w", err)
+			}
+			if resp.Status != "ok" {
+				return nil, fmt.Errorf("remote agent failed: %s", resp.Error)
+			}
+			return resp.Result, nil
+		}
+		lastErr = err
 	}
-	if err := m.verifyResponse(pid, &resp); err != nil {
-		return nil, fmt.Errorf("verify response: %w", err)
-	}
-	if resp.Status != "ok" {
-		return nil, fmt.Errorf("remote agent failed: %s", resp.Error)
-	}
-	return resp.Result, nil
+	return nil, fmt.Errorf("call remote after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // Advertise sends the local capability manifest to all connected peers.
@@ -245,10 +269,20 @@ func (m *Mesh) Advertise(ctx context.Context) {
 		if pid == m.node.ID() {
 			continue
 		}
-		go func(p peer.ID) {
-			_ = m.cap.Send(ctx, p, capability)
-		}(pid)
+		m.advertiseToWithCap(ctx, pid, capability)
 	}
+}
+
+func (m *Mesh) advertiseTo(pid peer.ID) {
+	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+	defer cancel()
+	m.advertiseToWithCap(ctx, pid, m.localCapability())
+}
+
+func (m *Mesh) advertiseToWithCap(ctx context.Context, pid peer.ID, capability Capability) {
+	go func(p peer.ID) {
+		_ = m.cap.Send(ctx, p, capability)
+	}(pid)
 }
 
 // announceLoop periodically re-advertises capabilities. The interval defaults

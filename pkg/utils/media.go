@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/media"
 )
@@ -76,7 +77,7 @@ type DownloadOptions struct {
 func DownloadFile(urlStr, filename string, opts DownloadOptions) string {
 	// Set defaults
 	if opts.Timeout == 0 {
-		opts.Timeout = 60 * time.Second
+		opts.Timeout = config.Global().MediaDownloadTimeout()
 	}
 	if opts.LoggerPrefix == "" {
 		opts.LoggerPrefix = "utils"

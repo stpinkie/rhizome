@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/providers/common"
 )
 
 const (
-	geminiDefaultAPIBase                = "https://generativelanguage.googleapis.com/v1beta"
-	geminiDefaultModel                  = "gemini-2.0-flash"
-	geminiDefaultStreamingReadIdleLimit = 5 * time.Minute
+	geminiDefaultAPIBase = "https://generativelanguage.googleapis.com/v1beta"
+	geminiDefaultModel   = "gemini-2.0-flash"
 )
 
 type GeminiProvider struct {
@@ -172,7 +172,7 @@ func (p *GeminiProvider) ChatStreamEvents(
 
 	return parseGeminiStreamResponse(ctx,
 		withGeminiStreamingReadIdleTimeout(resp.Body,
-			geminiDefaultStreamingReadIdleLimit),
+			config.Global().LLMStreamingIdle()),
 		onChunk)
 }
 

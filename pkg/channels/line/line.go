@@ -22,13 +22,14 @@ import (
 )
 
 const (
-	lineContentEndpoint  = "https://api-data.line.me/v2/bot/message/%s/content"
-	lineReplyTokenMaxAge = 25 * time.Second
+	lineContentEndpoint = "https://api-data.line.me/v2/bot/message/%s/content"
 
 	// Limit request body to prevent memory exhaustion (DoS).
 	// LINE webhook payloads are typically a few KB; 1 MiB is generous.
 	maxWebhookBodySize = 1 << 20 // 1 MiB
 )
+
+var lineReplyTokenMaxAge = config.Global().ChannelMessageCacheTTL()
 
 type replyTokenEntry struct {
 	token     string
@@ -63,7 +64,7 @@ func NewLINEChannel(
 
 	client, err := messaging_api.NewMessagingApiAPI(
 		cfg.ChannelAccessToken.String(),
-		messaging_api.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
+		messaging_api.WithHTTPClient(&http.Client{Timeout: config.Global().ChannelRequestTimeout()}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LINE messaging client: %w", err)
@@ -566,7 +567,7 @@ func (c *LINEChannel) StartTyping(ctx context.Context, chatID string) (func(), e
 		return stop, err
 	}
 
-	ticker := time.NewTicker(50 * time.Second)
+	ticker := time.NewTicker(config.Global().ChannelHeartbeatInterval())
 	go func() {
 		defer ticker.Stop()
 		for {

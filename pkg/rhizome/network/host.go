@@ -10,23 +10,34 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
+	libnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
+
+	rhizomeconfig "github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
+var defaultNetworkTimeouts = rhizomeconfig.DefaultTimeouts().Network
+
 // Node wraps a libp2p host for Rhizome.
 type Node struct {
-	host  host.Host
-	ping  *ping.PingService
-	mdns  mdns.Service
-	dht   *Discovery
-	peers map[peer.ID]peer.AddrInfo
-	mu    sync.RWMutex
+	host            host.Host
+	ping            *ping.PingService
+	mdns            mdns.Service
+	dht             *Discovery
+	peers           map[peer.ID]peer.AddrInfo
+	mu              sync.RWMutex
+	notifiee        *PeerNotifiee
+	timeouts        *rhizomeconfig.NetworkTimeouts
+	reconnectTick   *time.Ticker
+	reconnectWg     sync.WaitGroup
+	reconnectCtx    context.Context
+	reconnectCancel context.CancelFunc
 }
 
 // Config is the static configuration for a Rhizome network node.
@@ -39,6 +50,9 @@ type Config struct {
 
 	// DHT controls public DHT discovery.
 	DHT DHTConfig
+
+	// Timeouts override the built-in defaults. A nil value means use defaults.
+	Timeouts *rhizomeconfig.NetworkTimeouts
 }
 
 // NewNode creates a libp2p host and starts mDNS discovery.
@@ -73,16 +87,31 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	}
 
 	// Wait briefly for at least one listener to be ready.
+	timeouts := cfg.Timeouts
+	if timeouts == nil {
+		timeouts = &defaultNetworkTimeouts
+	}
+	listenerReady := timeouts.ListenerReady.Duration()
+	if listenerReady <= 0 {
+		listenerReady = 2 * time.Second
+	}
 	ready := time.Now()
-	for time.Since(ready) < 2*time.Second && len(h.Addrs()) == 0 {
+	for time.Since(ready) < listenerReady && len(h.Addrs()) == 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	n := &Node{
-		host:  h,
-		ping:  ping.NewPingService(h),
-		peers: make(map[peer.ID]peer.AddrInfo),
+		host:          h,
+		ping:          ping.NewPingService(h),
+		peers:         make(map[peer.ID]peer.AddrInfo),
+		notifiee:      NewPeerNotifiee(),
+		timeouts:      timeouts,
+		reconnectTick: time.NewTicker(10 * time.Second),
 	}
+	n.reconnectCtx, n.reconnectCancel = context.WithCancel(ctx)
+	h.Network().Notify(n.notifiee)
+	n.reconnectWg.Add(1)
+	go n.reconnectLoop(n.reconnectCtx)
 
 	// mDNS LAN discovery.
 	n.mdns = mdns.NewMdnsService(h, "_rhizome._p2p", n)
@@ -94,15 +123,48 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 
 	// Connect to bootstrap peers with a small amount of retry/backoff.
 	// A bootstrap peer may still be starting when we dial it.
+	bootstrapAttempts := timeouts.BootstrapAttempts
+	if bootstrapAttempts <= 0 {
+		bootstrapAttempts = 3
+	}
+	bootstrapBackoff := timeouts.BootstrapBackoff.Duration()
+	if bootstrapBackoff <= 0 {
+		bootstrapBackoff = 250 * time.Millisecond
+	}
 	for _, a := range cfg.BootstrapPeers {
-		if err := n.connectAddrWithRetry(ctx, a, 3, 250*time.Millisecond); err != nil {
+		if err := n.connectAddrWithRetry(ctx, a, bootstrapAttempts, bootstrapBackoff); err != nil {
 			// Log but do not fail startup because a bootstrap may be offline.
 		}
 	}
 
 	// Public DHT discovery.
 	if cfg.DHT.Enabled {
-		d, err := NewDiscovery(h, cfg.DHT)
+		dhtCfg := cfg.DHT
+		if dhtCfg.ReprovideInterval <= 0 {
+			dhtCfg.ReprovideInterval = timeouts.DHTReprovideInterval.Duration()
+			if dhtCfg.ReprovideInterval <= 0 {
+				dhtCfg.ReprovideInterval = 10 * time.Minute
+			}
+		}
+		if dhtCfg.DialTimeout <= 0 {
+			dhtCfg.DialTimeout = timeouts.DHTDial.Duration()
+			if dhtCfg.DialTimeout <= 0 {
+				dhtCfg.DialTimeout = 15 * time.Second
+			}
+		}
+		if dhtCfg.QueryTimeout <= 0 {
+			dhtCfg.QueryTimeout = timeouts.DHTQuery.Duration()
+			if dhtCfg.QueryTimeout <= 0 {
+				dhtCfg.QueryTimeout = 60 * time.Second
+			}
+		}
+		if dhtCfg.RetryInterval <= 0 {
+			dhtCfg.RetryInterval = timeouts.DHTRetry.Duration()
+			if dhtCfg.RetryInterval <= 0 {
+				dhtCfg.RetryInterval = 5 * time.Second
+			}
+		}
+		d, err := NewDiscovery(h, dhtCfg)
 		if err != nil {
 			_ = h.Close()
 			return nil, fmt.Errorf("create dht discovery: %w", err)
@@ -171,6 +233,28 @@ func (n *Node) addPeer(pi peer.AddrInfo) {
 	n.peers[pi.ID] = pi
 }
 
+// OnConnected registers a callback invoked when a peer connects.
+func (n *Node) OnConnected(fn func(PeerEvent)) {
+	n.notifiee.OnConnected(fn)
+}
+
+// OnDisconnected registers a callback invoked when a peer disconnects.
+func (n *Node) OnDisconnected(fn func(PeerEvent)) {
+	n.notifiee.OnDisconnected(fn)
+}
+
+// Connectedness returns the current connectedness state of a peer.
+func (n *Node) Connectedness(pid peer.ID) libnet.Connectedness {
+	return n.host.Network().Connectedness(pid)
+}
+
+func (n *Node) timeoutsOrDefault() *rhizomeconfig.NetworkTimeouts {
+	if n.timeouts != nil {
+		return n.timeouts
+	}
+	return &defaultNetworkTimeouts
+}
+
 // PeerID returns this node's libp2p peer id.
 func (n *Node) PeerID() string {
 	return n.host.ID().String()
@@ -234,6 +318,13 @@ func (n *Node) Ping(ctx context.Context, peerID string, timeout time.Duration) (
 		return 0, fmt.Errorf("connect to peer: %w", err)
 	}
 
+	if timeout <= 0 {
+		timeout = n.timeoutsOrDefault().Ping.Duration()
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -256,11 +347,22 @@ func (n *Node) Connect(ctx context.Context, addr string) error {
 
 // Close shuts down the libp2p host.
 func (n *Node) Close() error {
+	if n.reconnectCancel != nil {
+		n.reconnectCancel()
+	}
+	if n.reconnectTick != nil {
+		n.reconnectTick.Stop()
+	}
+	n.reconnectWg.Wait()
+
 	if n.dht != nil {
 		_ = n.dht.Stop()
 	}
 	if n.mdns != nil {
 		_ = n.mdns.Close()
+	}
+	if n.notifiee != nil {
+		n.host.Network().StopNotify(n.notifiee)
 	}
 	return n.host.Close()
 }

@@ -184,7 +184,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			}
 		}
 		// Use a separate timeout for AWS config loading (credential resolution can block)
-		initTimeout := 30 * time.Second
+		initTimeout := config.Global().LLMProviderInit()
 		if cfg.RequestTimeout > 0 {
 			reqTimeout := time.Duration(cfg.RequestTimeout) * time.Second
 			// Set request timeout for API calls

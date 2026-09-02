@@ -34,6 +34,7 @@ func LoadConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	config.SetGlobal(cfg)
 	logger.SetLevelFromString(cfg.Gateway.LogLevel)
 	return cfg, nil
 }

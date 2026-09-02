@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +24,33 @@ import (
 
 // rrCounter is a global counter for round-robin load balancing across models.
 var rrCounter atomic.Uint64
+
+// globalConfig holds the config set by the running process. It is safe for
+// concurrent reads; writes should happen once during startup.
+var globalConfig struct {
+	mu  sync.RWMutex
+	cfg *Config
+}
+
+// SetGlobal sets the process-wide config. Callers such as the daemon and
+// gateway should set this once after loading user configuration.
+func SetGlobal(cfg *Config) {
+	globalConfig.mu.Lock()
+	defer globalConfig.mu.Unlock()
+	globalConfig.cfg = cfg
+}
+
+// Global returns the process-wide config, or DefaultConfig() if none has been
+// set. It lets libraries resolve timeouts without plumbing a *Config through
+// every constructor.
+func Global() *Config {
+	globalConfig.mu.RLock()
+	defer globalConfig.mu.RUnlock()
+	if globalConfig.cfg == nil {
+		return DefaultConfig()
+	}
+	return globalConfig.cfg
+}
 
 // CurrentVersion is the latest config schema version
 const CurrentVersion = 3
@@ -49,6 +77,7 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
 	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
 	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
+	Timeouts  TimeoutsConfig  `json:"timeouts,omitempty"  yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 

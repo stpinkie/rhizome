@@ -30,11 +30,6 @@ const (
 	sogouUserAgent  = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
 	userAgentHonest = "rhizome/%s (+https://github.com/stpinkie/rhizome; AI assistant bot)"
 
-	// HTTP client timeouts for web tool providers.
-	searchTimeout     = 10 * time.Second // Brave, Tavily, DuckDuckGo
-	perplexityTimeout = 30 * time.Second // Perplexity (LLM-based, slower)
-	fetchTimeout      = 60 * time.Second // WebFetchTool
-
 	defaultMaxChars = 50000
 	maxRedirects    = 5
 )
@@ -520,7 +515,7 @@ func (p *KagiSearchProvider) Search(
 
 	client := p.client
 	if client == nil {
-		client = &http.Client{Timeout: searchTimeout}
+		client = &http.Client{Timeout: config.Global().ToolWebSearchTimeout()}
 	}
 
 	apiClient := newKagiAPIClient(client, p.baseURL)
@@ -1221,7 +1216,7 @@ func (p *SearXNGSearchProvider) Search(
 
 	client := p.client
 	if client == nil {
-		client = &http.Client{Timeout: searchTimeout}
+		client = &http.Client{Timeout: config.Global().ToolWebSearchTimeout()}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -1660,7 +1655,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("sogou") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Sogou: %w", err)
 		}
@@ -1676,7 +1671,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("perplexity") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, perplexityTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebPerplexityTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Perplexity: %w", err)
 		}
@@ -1693,7 +1688,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("brave") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Brave: %w", err)
 		}
@@ -1710,7 +1705,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("gemini") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Gemini: %w", err)
 		}
@@ -1728,7 +1723,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("searxng") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for SearXNG: %w", err)
 		}
@@ -1745,7 +1740,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("tavily") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Tavily: %w", err)
 		}
@@ -1763,7 +1758,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("kagi") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Kagi: %w", err)
 		}
@@ -1781,7 +1776,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("duckduckgo") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for DuckDuckGo: %w", err)
 		}
@@ -1797,7 +1792,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("baidu_search") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, perplexityTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebPerplexityTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Baidu Search: %w", err)
 		}
@@ -1815,7 +1810,7 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("glm_search") {
 			return nil, 0, nil
 		}
-		client, err := utils.CreateHTTPClient(opts.Proxy, searchTimeout)
+		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for GLM Search: %w", err)
 		}
@@ -2047,7 +2042,7 @@ func NewWebFetchToolWithConfig(
 	}
 	client, err := utils.CreateSafeHTTPClient(utils.SafeHTTPClientOptions{
 		ProxyURL:             proxy,
-		Timeout:              fetchTimeout,
+		Timeout:              config.Global().ToolWebFetchTimeout(),
 		PrivateHostWhitelist: privateHostWhitelist,
 		AllowPrivateHosts: func() bool {
 			return allowPrivateWebFetchHosts.Load()

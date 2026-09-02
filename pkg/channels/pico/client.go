@@ -128,7 +128,7 @@ func (c *PicoClientChannel) reconnectLoop() {
 		c.mu.Unlock()
 
 		if pc == nil || pc.closed.Load() {
-			backoff := 5 * time.Second
+			backoff := config.Global().ChannelReconnectInitial()
 			logger.InfoC("pico_client", "Reconnecting...")
 			if err := c.dial(); err != nil {
 				logger.WarnCF("pico_client", "Reconnect failed", map[string]any{
@@ -147,7 +147,7 @@ func (c *PicoClientChannel) reconnectLoop() {
 		select {
 		case <-c.ctx.Done():
 			return
-		case <-time.After(1 * time.Second):
+		case <-time.After(config.Global().ChannelPollInterval()):
 		}
 	}
 }
@@ -157,7 +157,7 @@ func (c *PicoClientChannel) readLoop(connCtx context.Context, pc *picoConn) {
 
 	readTimeout := time.Duration(c.config.ReadTimeout) * time.Second
 	if readTimeout <= 0 {
-		readTimeout = 60 * time.Second
+		readTimeout = config.Global().ChannelRequestTimeout()
 	}
 
 	_ = pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
@@ -167,7 +167,7 @@ func (c *PicoClientChannel) readLoop(connCtx context.Context, pc *picoConn) {
 
 	pingInterval := time.Duration(c.config.PingInterval) * time.Second
 	if pingInterval <= 0 {
-		pingInterval = 30 * time.Second
+		pingInterval = config.Global().ChannelHeartbeatInterval()
 	}
 	go c.pingLoop(connCtx, pc, pingInterval)
 

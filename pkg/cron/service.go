@@ -12,6 +12,7 @@ import (
 
 	"github.com/adhocore/gronx"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/fileutil"
 )
 
@@ -123,7 +124,7 @@ func (cs *CronService) Stop() {
 }
 
 func (cs *CronService) runLoop(stopChan chan struct{}) {
-	timer := time.NewTimer(time.Hour)
+	timer := time.NewTimer(config.Global().CronNextWakeResolution())
 	if !timer.Stop() {
 		<-timer.C
 	}
@@ -140,7 +141,7 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 
 		if nextWake == nil {
 			// no jobs, sleep for a long time (or until a new job is added)
-			delay = time.Hour
+			delay = config.Global().CronNextWakeResolution()
 		} else {
 			diff := *nextWake - now
 			if diff <= 0 {

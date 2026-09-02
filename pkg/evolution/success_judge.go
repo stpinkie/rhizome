@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/providers"
 )
 
@@ -79,7 +80,7 @@ func (j *LLMTaskSuccessJudge) JudgeTaskRecord(
 		return j.fallbackDecision(ctx, record)
 	}
 
-	callCtx, cancel := withLLMCallTimeout(ctx, llmTaskSuccessJudgeTimeout)
+	callCtx, cancel := withLLMCallTimeout(ctx, config.Global().EvolutionTaskSuccessJudge())
 	defer cancel()
 	resp, err := j.provider.Chat(callCtx, []providers.Message{
 		{

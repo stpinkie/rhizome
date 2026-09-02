@@ -2862,7 +2862,7 @@ func TestTypingStopJanitorEviction(t *testing.T) {
 	// Store a typing entry with a creation time far in the past
 	m.typingStops.Store("test:123", typingEntry{
 		stop:      func() { stopCalled.Store(true) },
-		createdAt: time.Now().Add(-10 * time.Minute), // well past typingStopTTL
+		createdAt: time.Now().Add(-10 * time.Minute), // well past max typing duration
 	})
 
 	// Run janitor with a short-lived context
@@ -2874,7 +2874,7 @@ func TestTypingStopJanitorEviction(t *testing.T) {
 		now := time.Now()
 		m.typingStops.Range(func(key, value any) bool {
 			if entry, ok := value.(typingEntry); ok {
-				if now.Sub(entry.createdAt) > typingStopTTL {
+				if now.Sub(entry.createdAt) > config.Global().ChannelTypingMaxDuration() {
 					if _, loaded := m.typingStops.LoadAndDelete(key); loaded {
 						entry.stop()
 					}
@@ -2903,14 +2903,14 @@ func TestPlaceholderJanitorEviction(t *testing.T) {
 	// Store a placeholder entry with a creation time far in the past
 	m.placeholders.Store("test:456", placeholderEntry{
 		id:        "msg_old",
-		createdAt: time.Now().Add(-20 * time.Minute), // well past placeholderTTL
+		createdAt: time.Now().Add(-20 * time.Minute), // well past placeholder TTL
 	})
 
 	// Simulate janitor logic
 	now := time.Now()
 	m.placeholders.Range(func(key, value any) bool {
 		if entry, ok := value.(placeholderEntry); ok {
-			if now.Sub(entry.createdAt) > placeholderTTL {
+			if now.Sub(entry.createdAt) > config.Global().ChannelPlaceholderTTL() {
 				m.placeholders.Delete(key)
 			}
 		}

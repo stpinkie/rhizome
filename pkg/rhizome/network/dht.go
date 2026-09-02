@@ -22,6 +22,9 @@ type DHTConfig struct {
 	Rendezvous        string
 	BootstrapPeers    []string
 	ReprovideInterval time.Duration
+	DialTimeout       time.Duration
+	QueryTimeout      time.Duration
+	RetryInterval     time.Duration
 }
 
 // Discovery provides DHT-based peer discovery for a Rhizome node.
@@ -70,7 +73,11 @@ func (d *Discovery) Start(ctx context.Context) error {
 		opts = append(opts, dht.BootstrapPeers(infos...))
 
 		// Pre-connect to configured DHT bootstraps so the initial provide has a route.
-		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		dialTimeout := d.cfg.DialTimeout
+		if dialTimeout <= 0 {
+			dialTimeout = 15 * time.Second
+		}
+		cctx, cancel := context.WithTimeout(ctx, dialTimeout)
 		for _, info := range infos {
 			_ = d.host.Connect(cctx, info)
 		}
@@ -120,7 +127,11 @@ func (d *Discovery) Stop() error {
 }
 
 func (d *Discovery) bootstrap(ctx context.Context) {
-	bctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	queryTimeout := d.cfg.QueryTimeout
+	if queryTimeout <= 0 {
+		queryTimeout = 60 * time.Second
+	}
+	bctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
 	if err := d.dht.Bootstrap(bctx); err != nil {
@@ -130,7 +141,10 @@ func (d *Discovery) bootstrap(ctx context.Context) {
 }
 
 func (d *Discovery) provideLoop(ctx context.Context) {
-	const retry = 5 * time.Second
+	retry := d.cfg.RetryInterval
+	if retry <= 0 {
+		retry = 5 * time.Second
+	}
 	var provided bool
 
 	t := time.NewTimer(0)
@@ -143,7 +157,11 @@ func (d *Discovery) provideLoop(ctx context.Context) {
 		case <-t.C:
 		}
 
-		pctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		queryTimeout := d.cfg.QueryTimeout
+		if queryTimeout <= 0 {
+			queryTimeout = 60 * time.Second
+		}
+		pctx, cancel := context.WithTimeout(ctx, queryTimeout)
 		err := d.dht.Provide(pctx, d.rendezvous, true)
 		cancel()
 		if err == nil {
@@ -162,7 +180,10 @@ func (d *Discovery) provideLoop(ctx context.Context) {
 }
 
 func (d *Discovery) discoverLoop(ctx context.Context) {
-	const retry = 5 * time.Second
+	retry := d.cfg.RetryInterval
+	if retry <= 0 {
+		retry = 5 * time.Second
+	}
 	var found bool
 
 	// Wrap the OnFound callback so we can detect the first successful discovery.
@@ -200,7 +221,11 @@ func (d *Discovery) discoverLoop(ctx context.Context) {
 }
 
 func (d *Discovery) findAndDialPeers(ctx context.Context) {
-	fctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	queryTimeout := d.cfg.QueryTimeout
+	if queryTimeout <= 0 {
+		queryTimeout = 60 * time.Second
+	}
+	fctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
 	providers, err := d.dht.FindProviders(fctx, d.rendezvous)
@@ -214,7 +239,11 @@ func (d *Discovery) findAndDialPeers(ctx context.Context) {
 		}
 
 		if d.host.Network().Connectedness(info.ID) != network.Connected {
-			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			dialTimeout := d.cfg.DialTimeout
+			if dialTimeout <= 0 {
+				dialTimeout = 15 * time.Second
+			}
+			cctx, cancel := context.WithTimeout(ctx, dialTimeout)
 			_ = d.host.Connect(cctx, info)
 			cancel()
 		}

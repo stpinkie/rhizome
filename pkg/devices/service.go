@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/stpinkie/rhizome/pkg/bus"
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/constants"
 	"github.com/stpinkie/rhizome/pkg/devices/events"
 	"github.com/stpinkie/rhizome/pkg/devices/sources"
@@ -128,7 +128,7 @@ func (s *Service) sendNotification(ev *events.DeviceEvent) {
 	}
 
 	msg := ev.FormatMessage()
-	pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), config.Global().ChannelPublishTimeout())
 	defer pubCancel()
 	msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
 		Context: bus.NewOutboundContext(platform, userID, ""),

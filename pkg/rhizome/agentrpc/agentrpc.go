@@ -1,10 +1,10 @@
 package agentrpc
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -50,9 +50,20 @@ type Response struct {
 }
 
 // Transport provides libp2p stream handling for the agent RPC protocol.
+// It keeps a small in-memory idempotency cache so duplicate requests with the
+// same CorrelationID receive the same response without re-executing the task.
 type Transport struct {
 	host    host.Host
 	handler Handler
+
+	results   map[string]cachedResult
+	resultsMu sync.RWMutex
+	resultTTL time.Duration
+}
+
+type cachedResult struct {
+	resp      Response
+	expiresAt time.Time
 }
 
 // Handler processes incoming agent requests.
@@ -62,7 +73,12 @@ type Handler interface {
 
 // NewTransport creates an agent RPC transport.
 func NewTransport(h host.Host, handler Handler) *Transport {
-	return &Transport{host: h, handler: handler}
+	return &Transport{
+		host:      h,
+		handler:   handler,
+		results:   make(map[string]cachedResult),
+		resultTTL: 5 * time.Minute,
+	}
 }
 
 // Start registers the protocol handler and blocks until the context is done.
@@ -108,30 +124,27 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Respons
 	if err != nil {
 		return Response{}, fmt.Errorf("open agent stream: %w", err)
 	}
-	defer s.Close()
 
-	w := bufio.NewWriter(s)
-	r := bufio.NewReader(s)
+	rto := req.Timeout
+	if rto <= 0 {
+		rto = 5 * time.Minute
+	}
+	wto := rto
+	if wto > 30*time.Second {
+		wto = 30 * time.Second
+	}
+	rc := stream.NewReliableConn(s, stream.WithReadTimeout(rto), stream.WithWriteTimeout(wto))
+	defer rc.Close()
 
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return Response{}, fmt.Errorf("encode request: %w", err)
 	}
-	if err = stream.WriteFrame(w, frameRequest, payload); err != nil {
+	if err = rc.WriteFrame(frameRequest, payload); err != nil {
 		return Response{}, fmt.Errorf("write request: %w", err)
 	}
-	if err = w.Flush(); err != nil {
-		return Response{}, fmt.Errorf("flush request: %w", err)
-	}
 
-	deadline, ok := ctx.Deadline()
-	if ok {
-		_ = s.SetReadDeadline(deadline)
-	} else {
-		_ = s.SetReadDeadline(time.Now().Add(5 * time.Minute))
-	}
-
-	typ, payload, err := stream.ReadFrame(r)
+	typ, payload, err := rc.ReadFrame()
 	if err != nil {
 		return Response{}, fmt.Errorf("read response: %w", err)
 	}
@@ -147,13 +160,10 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Respons
 }
 
 func (t *Transport) handleStream(s network.Stream) {
-	defer s.Close()
+	rc := stream.NewReliableConn(s, stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(5*time.Minute))
+	defer rc.Close()
 
-	r := bufio.NewReader(s)
-	w := bufio.NewWriter(s)
-
-	_ = s.SetReadDeadline(time.Now().Add(30 * time.Second))
-	typ, payload, err := stream.ReadFrame(r)
+	typ, payload, err := rc.ReadFrame()
 	if err != nil {
 		return
 	}
@@ -166,7 +176,24 @@ func (t *Transport) handleStream(s network.Stream) {
 		return
 	}
 
-	resp, err := t.handler.HandleRequest(s.Conn().RemotePeer(), req)
+	resp := t.handleRequestWithCache(s.Conn().RemotePeer(), req)
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return
+	}
+	_ = rc.WriteFrame(frameResponse, data)
+}
+
+func (t *Transport) handleRequestWithCache(from peer.ID, req Request) Response {
+	t.resultsMu.RLock()
+	cached, ok := t.results[req.CorrelationID]
+	t.resultsMu.RUnlock()
+	if ok && time.Now().Before(cached.expiresAt) {
+		return cached.resp
+	}
+
+	resp, err := t.handler.HandleRequest(from, req)
 	if err != nil {
 		resp = Response{
 			CorrelationID: req.CorrelationID,
@@ -175,12 +202,23 @@ func (t *Transport) handleStream(s network.Stream) {
 		}
 	}
 
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return
+	t.resultsMu.Lock()
+	t.results[req.CorrelationID] = cachedResult{resp: resp, expiresAt: time.Now().Add(t.resultTTL)}
+	t.resultsMu.Unlock()
+
+	// Clean up old results opportunistically.
+	t.pruneResults()
+
+	return resp
+}
+
+func (t *Transport) pruneResults() {
+	t.resultsMu.Lock()
+	defer t.resultsMu.Unlock()
+	now := time.Now()
+	for id, cr := range t.results {
+		if now.After(cr.expiresAt) {
+			delete(t.results, id)
+		}
 	}
-	if err := stream.WriteFrame(w, frameResponse, data); err != nil {
-		return
-	}
-	_ = w.Flush()
 }

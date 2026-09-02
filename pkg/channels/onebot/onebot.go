@@ -124,7 +124,7 @@ func (c *OneBotChannel) setMsgEmojiLike(messageID string, emojiID int, set bool)
 			"message_id": messageID,
 			"emoji_id":   emojiID,
 			"set":        set,
-		}, 5*time.Second)
+		}, config.Global().ChannelPublishTimeout())
 		if err != nil {
 			logger.DebugCF("onebot", "Failed to set emoji like", map[string]any{
 				"message_id": messageID,
@@ -186,7 +186,7 @@ func (c *OneBotChannel) Start(ctx context.Context) error {
 
 func (c *OneBotChannel) connect() error {
 	dialer := websocket.DefaultDialer
-	dialer.HandshakeTimeout = 10 * time.Second
+	dialer.HandshakeTimeout = config.Global().ChannelConnectTimeout()
 
 	header := make(map[string][]string)
 	if c.config.AccessToken.String() != "" {
@@ -202,10 +202,10 @@ func (c *OneBotChannel) connect() error {
 	}
 
 	conn.SetPongHandler(func(appData string) error {
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(config.Global().ChannelRequestTimeout()))
 		return nil
 	})
-	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(config.Global().ChannelRequestTimeout()))
 
 	c.mu.Lock()
 	c.conn = conn
@@ -218,7 +218,7 @@ func (c *OneBotChannel) connect() error {
 }
 
 func (c *OneBotChannel) pinger(conn *websocket.Conn) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(config.Global().ChannelHeartbeatInterval())
 	defer ticker.Stop()
 
 	for {
@@ -240,7 +240,7 @@ func (c *OneBotChannel) pinger(conn *websocket.Conn) {
 }
 
 func (c *OneBotChannel) fetchSelfID() {
-	resp, err := c.sendAPIRequest("get_login_info", nil, 5*time.Second)
+	resp, err := c.sendAPIRequest("get_login_info", nil, config.Global().ChannelPublishTimeout())
 	if err != nil {
 		logger.WarnCF("onebot", "Failed to get_login_info", map[string]any{
 			"error": err.Error(),
@@ -319,7 +319,7 @@ func (c *OneBotChannel) sendAPIRequest(action string, params any, timeout time.D
 	}
 
 	c.writeMu.Lock()
-	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetWriteDeadline(time.Now().Add(config.Global().ChannelCommandTimeout()))
 	err = conn.WriteMessage(websocket.TextMessage, data)
 	_ = conn.SetWriteDeadline(time.Time{})
 	c.writeMu.Unlock()
@@ -342,7 +342,7 @@ func (c *OneBotChannel) sendAPIRequest(action string, params any, timeout time.D
 }
 
 func (c *OneBotChannel) reconnectLoop() {
-	interval := max(time.Duration(c.config.ReconnectInterval)*time.Second, 5*time.Second)
+	interval := max(time.Duration(c.config.ReconnectInterval)*time.Second, config.Global().ChannelReconnectInitial())
 
 	for {
 		select {
@@ -435,7 +435,7 @@ func (c *OneBotChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	}
 
 	c.writeMu.Lock()
-	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetWriteDeadline(time.Now().Add(config.Global().ChannelCommandTimeout()))
 	err = conn.WriteMessage(websocket.TextMessage, data)
 	_ = conn.SetWriteDeadline(time.Time{})
 	c.writeMu.Unlock()
@@ -546,7 +546,7 @@ func (c *OneBotChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	}
 
 	c.writeMu.Lock()
-	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetWriteDeadline(time.Now().Add(config.Global().ChannelCommandTimeout()))
 	err = conn.WriteMessage(websocket.TextMessage, data)
 	_ = conn.SetWriteDeadline(time.Time{})
 	c.writeMu.Unlock()
@@ -631,7 +631,7 @@ func (c *OneBotChannel) listen() {
 				return
 			}
 
-			_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			_ = conn.SetReadDeadline(time.Now().Add(config.Global().ChannelRequestTimeout()))
 
 			var raw oneBotRawEvent
 			if err := json.Unmarshal(message, &raw); err != nil {

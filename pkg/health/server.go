@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 type Server struct {
@@ -54,8 +56,8 @@ func NewServer(host string, port int, token string) *Server {
 	s.server = &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+		ReadTimeout:  config.Global().HealthReadTimeout(),
+		WriteTimeout: config.Global().HealthWriteTimeout(),
 	}
 
 	return s

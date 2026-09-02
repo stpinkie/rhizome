@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/auth"
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers/common"
 )
@@ -38,7 +39,7 @@ func NewAntigravityProvider() *AntigravityProvider {
 	return &AntigravityProvider{
 		tokenSource: createAntigravityTokenSource(),
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: config.Global().HTTPRequestTimeout(),
 		},
 	}
 }
@@ -521,7 +522,7 @@ func FetchAntigravityProjectID(accessToken string) (string, error) {
 	req.Header.Set("User-Agent", antigravityUserAgent)
 	req.Header.Set("X-Goog-Api-Client", antigravityXGoogClient)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: config.Global().HTTPRequestTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -565,7 +566,7 @@ func FetchAntigravityModels(accessToken, projectID string) ([]AntigravityModelIn
 	req.Header.Set("User-Agent", antigravityUserAgent)
 	req.Header.Set("X-Goog-Api-Client", antigravityXGoogClient)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: config.Global().HTTPRequestTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

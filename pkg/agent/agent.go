@@ -145,7 +145,6 @@ const (
 	handledToolResponseSummary = "Requested output delivered via tool attachment."
 	sessionKeyAgentPrefix      = "agent:"
 	pendingTurnPrefix          = "pending-"
-	providerReloadGracePeriod  = 30 * time.Second
 	metadataKeyMessageKind     = "message_kind"
 	metadataKeyToolCalls       = "tool_calls"
 	metadataKeyOutboundKind    = "outbound_kind"
@@ -173,7 +172,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 		return err
 	}
 
-	idleTicker := time.NewTicker(100 * time.Millisecond)
+	idleTicker := time.NewTicker(al.cfg.AgentIdleLoopInterval())
 	defer idleTicker.Stop()
 
 	for {

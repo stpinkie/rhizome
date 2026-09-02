@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/providers"
 )
 
@@ -168,7 +169,7 @@ func (c *LLMPatternClusterer) BuildPatterns(
 		return fallback.BuildPatterns(ctx, workspace, tasks, existing)
 	}
 
-	callCtx, cancel := withLLMCallTimeout(ctx, llmPatternClusterTimeout)
+	callCtx, cancel := withLLMCallTimeout(ctx, config.Global().EvolutionPatternCluster())
 	defer cancel()
 	resp, err := c.provider.Chat(callCtx, []providers.Message{
 		{
@@ -240,7 +241,7 @@ func (c *LLMPatternClusterer) BuildPatternsWithEvidence(
 		evidenceTasks = successfulTasks
 	}
 
-	callCtx, cancel := withLLMCallTimeout(ctx, llmPatternClusterTimeout)
+	callCtx, cancel := withLLMCallTimeout(ctx, config.Global().EvolutionPatternCluster())
 	defer cancel()
 	resp, err := c.provider.Chat(callCtx, []providers.Message{
 		{

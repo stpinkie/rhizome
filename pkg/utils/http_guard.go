@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 type SafeHTTPClientOptions struct {
@@ -87,8 +89,8 @@ func CreateSafeHTTPClient(opts SafeHTTPClientOptions) (*http.Client, error) {
 	transport, ok := client.Transport.(*http.Transport)
 	if ok {
 		dialer := &net.Dialer{
-			Timeout:   15 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   config.Global().HTTPDialTimeout(),
+			KeepAlive: config.Global().HTTPKeepAlive(),
 		}
 		transport.DialContext = NewSafeDialContext(dialer, whitelist, opts.AllowPrivateHosts)
 	}

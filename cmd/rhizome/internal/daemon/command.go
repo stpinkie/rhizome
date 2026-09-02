@@ -48,6 +48,7 @@ func NewDaemonCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
+			config.SetGlobal(cfg)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -63,6 +64,7 @@ func NewDaemonCommand() *cobra.Command {
 					BootstrapPeers:    cfg.Mesh.DHTBootstrap,
 					ReprovideInterval: cfg.Mesh.DHTReprovideInterval,
 				},
+				Timeouts: &cfg.Timeouts.Network,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to start Rhizome node: %w", err)
@@ -87,6 +89,7 @@ func NewDaemonCommand() *cobra.Command {
 				CommitInterval:   commitInterval,
 				AnnounceInterval: announceInterval,
 				Exclude:          config.DefaultSyncExclude,
+				Timeouts:         &cfg.Timeouts.Sync,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to open workspace sync: %w", err)

@@ -608,7 +608,7 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 	if job.Payload.Command != "" {
 		if !t.execEnabled || t.execTool == nil {
 			output := "Error executing scheduled command: command execution is disabled"
-			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			pubCtx, pubCancel := context.WithTimeout(context.Background(), config.Global().ChannelPublishTimeout())
 			defer pubCancel()
 			t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
 				Context: bus.NewOutboundContext(channel, chatID, ""),
@@ -632,7 +632,7 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 			output = fmt.Sprintf("Scheduled command '%s' executed:\n%s", job.Payload.Command, result.ForLLM)
 		}
 
-		pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pubCtx, pubCancel := context.WithTimeout(context.Background(), config.Global().ChannelPublishTimeout())
 		defer pubCancel()
 		t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
 			Context: bus.NewOutboundContext(channel, chatID, ""),

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 // CodexHomeEnvVar is the environment variable that overrides the Codex CLI
@@ -46,9 +48,9 @@ func ReadCodexCliCredentials() (accessToken, accountID string, expiresAt time.Ti
 
 	stat, err := os.Stat(authPath)
 	if err != nil {
-		expiresAt = time.Now().Add(time.Hour)
+		expiresAt = time.Now().Add(config.Global().LLMProviderCredentialCacheTTL())
 	} else {
-		expiresAt = stat.ModTime().Add(time.Hour)
+		expiresAt = stat.ModTime().Add(config.Global().LLMProviderCredentialCacheTTL())
 	}
 
 	return auth.Tokens.AccessToken, auth.Tokens.AccountID, expiresAt, nil

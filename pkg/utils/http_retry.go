@@ -6,14 +6,31 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-)
 
-const maxRetries = 3
+	"github.com/stpinkie/rhizome/pkg/config"
+)
 
 var (
+	// retryDelayUnit is the per-attempt delay base. Tests may override it for
+	// speed. When left at the default time.Second, the value from
+	// config.Global() is used instead.
 	retryDelayUnit        = time.Second
-	maxRetrySleepDuration = 1 * time.Minute
+	maxRetrySleepDuration = time.Minute
 )
+
+func currentRetryDelayUnit() time.Duration {
+	if retryDelayUnit != time.Second {
+		return retryDelayUnit
+	}
+	return config.Global().HTTPRetryDelay()
+}
+
+func currentMaxRetrySleep() time.Duration {
+	if maxRetrySleepDuration != time.Minute {
+		return maxRetrySleepDuration
+	}
+	return config.Global().HTTPMaxRetrySleep()
+}
 
 func shouldRetry(statusCode int) bool {
 	return statusCode == http.StatusTooManyRequests ||
@@ -23,8 +40,9 @@ func shouldRetry(statusCode int) bool {
 func DoRequestWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
 	var resp *http.Response
 	var err error
+	maxRetries := config.Global().HTTPMaxRetries()
 
-	for i := range maxRetries {
+	for i := 0; i < maxRetries; i++ {
 		if i > 0 && resp != nil {
 			_ = resp.Body.Close()
 		}
@@ -52,7 +70,7 @@ func DoRequestWithRetry(client *http.Client, req *http.Request) (*http.Response,
 }
 
 func retryDelayForAttempt(resp *http.Response, attempt int) time.Duration {
-	fallback := retryDelayUnit * time.Duration(attempt+1)
+	fallback := currentRetryDelayUnit() * time.Duration(attempt+1)
 	if resp == nil || resp.StatusCode != http.StatusTooManyRequests {
 		return clampRetryDelay(fallback)
 	}
@@ -85,9 +103,10 @@ func numericRetryAfterDelay(retryAfter string) (time.Duration, bool) {
 	if err != nil || seconds < 0 {
 		return 0, false
 	}
-	maxSeconds := int64(maxRetrySleepDuration / time.Second)
+	maxRetrySleep := currentMaxRetrySleep()
+	maxSeconds := int64(maxRetrySleep / time.Second)
 	if seconds > maxSeconds {
-		return maxRetrySleepDuration, true
+		return maxRetrySleep, true
 	}
 	return clampRetryDelay(time.Duration(seconds) * time.Second), true
 }
@@ -96,8 +115,9 @@ func clampRetryDelay(delay time.Duration) time.Duration {
 	if delay <= 0 {
 		return 0
 	}
-	if delay > maxRetrySleepDuration {
-		return maxRetrySleepDuration
+	maxRetrySleep := currentMaxRetrySleep()
+	if delay > maxRetrySleep {
+		return maxRetrySleep
 	}
 	return delay
 }

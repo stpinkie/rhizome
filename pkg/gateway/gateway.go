@@ -58,10 +58,6 @@ import (
 )
 
 const (
-	serviceShutdownTimeout  = 30 * time.Second
-	providerReloadTimeout   = 30 * time.Second
-	gracefulShutdownTimeout = 15 * time.Second
-
 	logPath   = "logs"
 	panicFile = "gateway_panic.log"
 	logFile   = "gateway.log"
@@ -218,8 +214,8 @@ func RunWithMesh(
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
 	agentLoop.SetMediaStore(media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  true,
-		MaxAge:   15 * time.Minute,
-		Interval: 5 * time.Minute,
+		MaxAge:   config.Global().MediaMaxAge(),
+		Interval: config.Global().MediaCleanupInterval(),
 	}))
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 
@@ -444,7 +440,7 @@ func setupAndStartServices(
 ) (*services, error) {
 	runningServices := &services{}
 
-	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
+	execTimeout := config.Global().ToolCronExecTimeout()
 	var err error
 	runningServices.CronService, err = setupCronTool(
 		agentLoop,
@@ -475,9 +471,9 @@ func setupAndStartServices(
 	fmt.Println("✓ Heartbeat service started")
 
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
-		Enabled:  cfg.Tools.MediaCleanup.Enabled,
-		MaxAge:   time.Duration(cfg.Tools.MediaCleanup.MaxAge) * time.Minute,
-		Interval: time.Duration(cfg.Tools.MediaCleanup.Interval) * time.Minute,
+		Enabled:  config.Global().Tools.MediaCleanup.Enabled,
+		MaxAge:   config.Global().MediaMaxAge(),
+		Interval: config.Global().MediaCleanupInterval(),
 	})
 	if fms, ok := runningServices.MediaStore.(*media.FileMediaStore); ok {
 		fms.Start()
@@ -604,7 +600,7 @@ func shutdownGateway(
 		cp.Close()
 	}
 
-	stopAndCleanupServices(runningServices, gracefulShutdownTimeout, false)
+	stopAndCleanupServices(runningServices, config.Global().GatewayGracefulShutdown(), false)
 
 	if fullShutdown && msgBus != nil {
 		msgBus.Close()
@@ -633,7 +629,7 @@ func handleConfigReload(
 	logger.Infof(" New model is '%s', recreating provider...", newModel)
 
 	logger.Info("  Stopping all services...")
-	stopAndCleanupServices(runningServices, serviceShutdownTimeout, true)
+	stopAndCleanupServices(runningServices, config.Global().GatewayServiceShutdown(), true)
 
 	newProvider, newModelID, err := createStartupProvider(newCfg, allowEmptyStartup)
 	if err != nil {
@@ -649,7 +645,7 @@ func handleConfigReload(
 		newCfg.Agents.Defaults.ModelName = newModelID
 	}
 
-	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), providerReloadTimeout)
+	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), config.Global().GatewayProviderReload())
 	defer reloadCancel()
 
 	if err := al.ReloadProviderAndConfig(reloadCtx, newProvider, newCfg); err != nil {
@@ -692,7 +688,7 @@ func restartServices(
 ) error {
 	cfg := al.GetConfig()
 
-	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
+	execTimeout := config.Global().ToolCronExecTimeout()
 	var err error
 	runningServices.CronService, err = setupCronTool(
 		al,
@@ -723,9 +719,9 @@ func restartServices(
 	fmt.Println("  ✓ Heartbeat service restarted")
 
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
-		Enabled:  cfg.Tools.MediaCleanup.Enabled,
-		MaxAge:   time.Duration(cfg.Tools.MediaCleanup.MaxAge) * time.Minute,
-		Interval: time.Duration(cfg.Tools.MediaCleanup.Interval) * time.Minute,
+		Enabled:  config.Global().Tools.MediaCleanup.Enabled,
+		MaxAge:   config.Global().MediaMaxAge(),
+		Interval: config.Global().MediaCleanupInterval(),
 	})
 	if fms, ok := runningServices.MediaStore.(*media.FileMediaStore); ok {
 		fms.Start()
@@ -795,7 +791,7 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 		lastModTime := getFileModTime(configPath)
 		lastSize := getFileSize(configPath)
 
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(config.Global().GatewayConfigReloadInterval())
 		defer ticker.Stop()
 
 		for {
@@ -809,7 +805,7 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 						logger.Debugf("🔍 Config file change detected")
 					}
 
-					time.Sleep(500 * time.Millisecond)
+					time.Sleep(config.Global().GatewayConfigReloadDebounce())
 
 					lastModTime = currentModTime
 					lastSize = currentSize

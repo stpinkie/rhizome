@@ -5,9 +5,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
-const toolFeedbackAnimationInterval = 3 * time.Second
+var toolFeedbackAnimationInterval = config.Global().ChannelToolFeedbackInterval()
 
 const initialToolFeedbackAnimationFrame = ""
 
@@ -178,7 +180,7 @@ func (a *ToolFeedbackAnimator) run(chatID string, entry *toolFeedbackAnimationSt
 			}
 			frame := toolFeedbackAnimationFrames[frameIdx%len(toolFeedbackAnimationFrames)]
 			content := formatAnimatedToolFeedbackContent(entry.baseContent, frame)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), config.Global().ChannelPublishTimeout())
 			_ = a.editFn(ctx, chatID, entry.messageID, content)
 			cancel()
 			frameIdx++

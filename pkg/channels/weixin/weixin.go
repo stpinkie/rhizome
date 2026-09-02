@@ -154,11 +154,11 @@ func (c *WeixinChannel) Stop(ctx context.Context) error {
 // pollLoop is the long-poll receive loop. It runs until ctx is canceled.
 func (c *WeixinChannel) pollLoop(ctx context.Context) {
 	const (
-		defaultPollTimeoutMs = 35_000
-		retryDelay           = 2 * time.Second
-		backoffDelay         = 30 * time.Second
-		maxConsecutiveFails  = 3
+		maxConsecutiveFails = 3
 	)
+	defaultPollTimeoutMs := int(config.Global().ChannelRequestTimeout().Milliseconds())
+	retryDelay := config.Global().ChannelPollInterval()
+	backoffDelay := config.Global().ChannelHeartbeatInterval()
 
 	consecutiveFails := 0
 	getUpdatesBuf, err := loadGetUpdatesBuf(c.syncBufPath)

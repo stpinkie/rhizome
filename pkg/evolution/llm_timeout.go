@@ -5,12 +5,6 @@ import (
 	"time"
 )
 
-const (
-	llmTaskSuccessJudgeTimeout = 15 * time.Second
-	llmPatternClusterTimeout   = 45 * time.Second
-	llmDraftGenerationTimeout  = 60 * time.Second
-)
-
 func withLLMCallTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if parent == nil {
 		parent = context.Background()

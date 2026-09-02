@@ -442,7 +442,7 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 		_ = terminateProcessTree(cmd)
 		select {
 		case err = <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(config.Global().ToolProcessReapGrace()):
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}

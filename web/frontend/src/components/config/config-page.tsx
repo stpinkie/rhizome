@@ -25,6 +25,7 @@ import {
   LauncherSection,
   MCPSection,
   RuntimeSection,
+  TimeoutsSection,
 } from "@/components/config/config-sections"
 import {
   type CoreConfigForm,
@@ -32,6 +33,7 @@ import {
   EMPTY_LAUNCHER_FORM,
   type LauncherForm,
   type MCPServerForm,
+  type TimeoutsForm,
   type TurnProfileForm,
   buildFormFromConfig,
   parseCIDRText,
@@ -210,6 +212,10 @@ export function ConfigPage() {
     value: CoreConfigForm[K],
   ) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const updateTimeouts = (patch: Partial<TimeoutsForm>) => {
+    setForm((prev) => ({ ...prev, timeouts: { ...prev.timeouts, ...patch } }))
   }
 
   const updateLauncherField = <K extends keyof LauncherForm>(
@@ -632,6 +638,38 @@ export function ConfigPage() {
             enabled: form.devicesEnabled,
             monitor_usb: form.monitorUSB,
           },
+          timeouts: {
+            llm: {
+              request: form.timeouts.llmRequest,
+              streaming_idle: form.timeouts.llmStreamingIdle,
+            },
+            tools: {
+              exec_seconds: form.timeouts.toolExecSeconds,
+              cron_exec_minutes: form.timeouts.toolCronExecMinutes,
+            },
+            http: {
+              request: form.timeouts.httpRequest,
+              dial: form.timeouts.httpDial,
+            },
+            media: {
+              download: form.timeouts.mediaDownload,
+            },
+            gateway: {
+              service_shutdown: form.timeouts.gatewayServiceShutdown,
+            },
+            agent: {
+              sub_turn_default: form.timeouts.agentSubTurnDefault,
+            },
+            mesh: {
+              remote_call: form.timeouts.meshRemoteCall,
+            },
+            sync: {
+              commit_interval: form.timeouts.syncCommitInterval,
+            },
+            network: {
+              dht_reprovide_interval: form.timeouts.dhtReprovideInterval,
+            },
+          },
         })
 
         setBaseline(form)
@@ -833,6 +871,8 @@ export function ConfigPage() {
               <ExecSection form={form} onFieldChange={updateField} />
 
               <CronSection form={form} onFieldChange={updateField} />
+
+              <TimeoutsSection form={form.timeouts} onChange={updateTimeouts} />
 
               <DevicesSection
                 form={form}

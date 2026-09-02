@@ -4,10 +4,8 @@ import (
 	"math"
 	"sync"
 	"time"
-)
 
-const (
-	defaultFailureWindow = 24 * time.Hour
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 // CooldownTracker manages per-provider cooldown state for the fallback chain.
@@ -32,7 +30,7 @@ type cooldownEntry struct {
 func NewCooldownTracker() *CooldownTracker {
 	return &CooldownTracker{
 		entries:       make(map[string]*cooldownEntry),
-		failureWindow: defaultFailureWindow,
+		failureWindow: config.Global().LLMCooldownFailureWindow(),
 		nowFunc:       time.Now,
 	}
 }
