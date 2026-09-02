@@ -16,6 +16,7 @@ import (
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/multiformats/go-multiaddr"
+
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
@@ -89,7 +90,9 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	// mDNS LAN discovery.
 	n.mdns = mdns.NewMdnsService(h, "_rhizome._p2p", n)
 	if err := n.mdns.Start(); err != nil {
-		logger.WarnCF("network", "mDNS discovery failed; continuing without local multicast discovery", map[string]any{"error": err.Error()})
+		logger.WarnCF("network",
+			"mDNS discovery failed; continuing without local multicast discovery",
+			map[string]any{"error": err.Error()})
 		_ = n.mdns.Close()
 		n.mdns = nil
 	}

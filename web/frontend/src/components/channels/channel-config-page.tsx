@@ -288,7 +288,7 @@ const CHANNELS_WITHOUT_DOCS = new Set([
 ])
 
 export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { state: gatewayState } = useGateway()
 
   const [loading, setLoading] = useState(true)

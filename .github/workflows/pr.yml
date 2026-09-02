@@ -46,12 +46,11 @@ jobs:
 
       - name: Run Govulncheck
         run: |
-          govulncheck -C . -format text ./...
+          set +e
+          OUTPUT=$(govulncheck -C . -format text ./... 2>&1)
           EXIT=$?
+          set -e
           if [ $EXIT -eq 3 ]; then
-            # Exit code 3 = vulnerabilities found. Re-run to check if all
-            # findings are unfixable upstream issues (no patched version).
-            OUTPUT=$(govulncheck -C . -format text ./... 2>&1 || true)
             # GO-2024-3218 in go-libp2p-kad-dht has no fix (Fixed in: N/A)
             if echo "$OUTPUT" | grep -q "GO-2024-3218" && \
                echo "$OUTPUT" | grep -q "Fixed in: N/A"; then
