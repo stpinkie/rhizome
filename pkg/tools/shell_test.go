@@ -596,9 +596,15 @@ func TestShellTool_ExitCodeDetails(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	var exitCmd string
+	if runtime.GOOS == "windows" {
+		exitCmd = `cmd /c exit 42`
+	} else {
+		exitCmd = `sh -c 'exit 42'`
+	}
 	args := map[string]any{
 		"action":  "run",
-		"command": "sh -c 'exit 42'",
+		"command": exitCmd,
 	}
 
 	result := tool.Execute(ctx, args)

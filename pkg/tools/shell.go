@@ -1139,6 +1139,12 @@ func expandPowerShellEnvVars(cmd string) string {
 	})
 }
 
+// expandTildeOnly replaces standalone ~ with the home directory path,
+// but preserves 8.3 short names like RUNNER~1 where ~ is followed by a digit.
+func expandTildeOnly(cmd, home string) string {
+	return regexp.MustCompile(`~(?!\d)`).ReplaceAllString(cmd, home)
+}
+
 func (t *ExecTool) commandMatchesAllowPattern(lower string) bool {
 	for _, pattern := range t.allowPatterns {
 		if pattern.MatchString(lower) {
@@ -1195,7 +1201,8 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			cmd = expandPowerShellEnvVars(cmd)
 			// Also expand ~ for completeness
 			if home, err := os.UserHomeDir(); err == nil {
-				cmd = strings.ReplaceAll(cmd, "~", filepath.FromSlash(home))
+				// Only replace standalone ~ (not 8.3 short names like RUNNER~1).
+				cmd = expandTildeOnly(cmd, filepath.FromSlash(home))
 			}
 		}
 
