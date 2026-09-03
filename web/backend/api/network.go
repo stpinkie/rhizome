@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -77,13 +78,14 @@ func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	// Custom bootstrap/listen require a temporary node because the running
-	// daemon endpoint does not override its configured network parameters.
-	hasOverrides := len(query["bootstrap"]) > 0 || len(query["listen"]) > 0
+	// A custom listen address cannot be applied to the running daemon's
+	// already-bound listeners; in that case use the CLI fallback directly.
+	// Bootstrap overrides are now honored by the daemon endpoint.
+	hasListen := len(query["listen"]) > 0
 
 	var output []byte
-	if !hasOverrides {
-		output, err = h.networkStatusFromGateway(ctx, timeout)
+	if !hasListen {
+		output, err = h.networkStatusFromGateway(ctx, query, timeout)
 		if err != nil {
 			logger.Warnf("network status gateway fetch failed, falling back to CLI: %v", err)
 		}
@@ -112,7 +114,7 @@ func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request) {
 	w.Write(output)
 }
 
-func (h *Handler) networkStatusFromGateway(ctx context.Context, timeout time.Duration) ([]byte, error) {
+func (h *Handler) networkStatusFromGateway(ctx context.Context, query url.Values, timeout time.Duration) ([]byte, error) {
 	if !h.gatewayAvailableForProxy() {
 		return nil, errors.New("gateway not available for proxy")
 	}
@@ -126,6 +128,18 @@ func (h *Handler) networkStatusFromGateway(ctx context.Context, timeout time.Dur
 
 	u := h.gatewayProxyURL()
 	u.Path = "/network/status"
+
+	// Forward only parameters the daemon endpoint understands.
+	upstream := url.Values{}
+	for _, b := range query["bootstrap"] {
+		if strings.TrimSpace(b) != "" {
+			upstream.Add("bootstrap", b)
+		}
+	}
+	if t := query.Get("timeout"); t != "" {
+		upstream.Set("timeout", t)
+	}
+	u.RawQuery = upstream.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

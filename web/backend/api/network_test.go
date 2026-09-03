@@ -197,3 +197,80 @@ func TestNetworkPeersCache(t *testing.T) {
 		t.Fatalf("runNetworkStatus called %d times, want 1", calls)
 	}
 }
+
+func TestNetworkStatusEndpoint(t *testing.T) {
+	setupNetworkTest(t)
+
+	runNetworkStatus = func(_ context.Context, _ string, _ []string, _ []string) ([]byte, []byte, error) {
+		return []byte(`{"peer_id":"12D3","peers":[],"dht":{}}`), nil, nil
+	}
+
+	h := NewHandler("")
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/network/status", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got["peer_id"] != "12D3" {
+		t.Fatalf("peer_id = %v, want 12D3", got["peer_id"])
+	}
+}
+
+func TestNetworkStatusInvalidBootstrap(t *testing.T) {
+	setupNetworkTest(t)
+
+	h := NewHandler("")
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/network/status?bootstrap=", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestNetworkStatusListenForcesCLI(t *testing.T) {
+	setupNetworkTest(t)
+
+	var gotArgs []string
+	runNetworkStatus = func(_ context.Context, _ string, args []string, _ []string) ([]byte, []byte, error) {
+		gotArgs = args
+		return []byte(`{"peer_id":"12D3","peers":[]}`), nil, nil
+	}
+
+	h := NewHandler("")
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/network/status?listen=/ip4/127.0.0.1/tcp/0", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	hasListen := false
+	for i, a := range gotArgs {
+		if a == "--listen" && i+1 < len(gotArgs) && gotArgs[i+1] == "/ip4/127.0.0.1/tcp/0" {
+			hasListen = true
+			break
+		}
+	}
+	if !hasListen {
+		t.Fatalf("runNetworkStatus args did not include --listen: %v", gotArgs)
+	}
+}

@@ -186,7 +186,14 @@ npx pnpm build
 
 - `GET /api/network/status` on the launcher returns a combined mesh/DHT snapshot.
 - When a `rhizome daemon` is running, the backend proxies to the daemon's `GET /network/status` endpoint, protected by the PID file token (`Authorization: Bearer <pid-token>`).
-- If the daemon is unavailable, or if the caller passes `bootstrap`/`listen` overrides, the launcher falls back to a single `rhizome network status --peers --dht --json` CLI spawn.
+- If the daemon is unavailable, the launcher falls back to a single `rhizome network status --peers --dht --json` CLI spawn.
 - The daemon source lives in `pkg/gateway/networkapi.go` and reads from `Mesh.NetworkStatus()` in `pkg/rhizome/mesh`.
 - Old `GET /api/network/peers` and `GET /api/network/dht` endpoints remain as compatibility aliases over the combined response.
 - The frontend Network page now uses one `useQuery` for `getNetworkStatus` and renders both panels from the same response.
+
+## Daemon Bootstrap Override (v0.4.5)
+
+- `GET /network/status` on the daemon now honors `?bootstrap=<multiaddr>&timeout=<duration>`.
+- The daemon validates each multiaddr and attempts `Mesh.Connect` for it before building the status snapshot. The trust set is not modified.
+- `GET /api/network/status` on the launcher now forwards `bootstrap` and `timeout` to the daemon and only falls back to the CLI for `?listen=...` overrides or when the daemon is unavailable.
+- A custom `?listen=...` still requires a temporary node because the daemon's bound listeners cannot be changed at runtime.

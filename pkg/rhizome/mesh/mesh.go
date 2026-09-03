@@ -154,6 +154,14 @@ func (m *Mesh) Name() string {
 	return m.name
 }
 
+// Connect dials a peer by its multiaddr using the mesh's underlying node.
+func (m *Mesh) Connect(ctx context.Context, addr string) error {
+	if m == nil || m.node == nil {
+		return fmt.Errorf("mesh not ready")
+	}
+	return m.node.Connect(ctx, addr)
+}
+
 // publishMeshEvent publishes a non-blocking mesh runtime event if a bus is configured.
 func (m *Mesh) publishMeshEvent(kind runtimeevents.Kind, attrs map[string]any) {
 	if m.eventBus == nil {
