@@ -148,7 +148,7 @@ type recvResult struct {
 	err   error
 }
 
-// ReliableOptions tunes the ReliableConn behaviour.
+// ReliableOption tunes the ReliableConn behaviour.
 type ReliableOption func(*ReliableConn)
 
 // WithWriteTimeout sets how long the sender waits for an ACK before retransmitting.

@@ -575,7 +575,11 @@ func (p *Provider) ChatStreamEvents(
 		return nil, common.HandleErrorResponse(resp, p.apiBase)
 	}
 
-	return parseStreamResponse(ctx, withStreamingReadIdleTimeout(resp.Body, config.Global().LLMStreamingIdle()), onChunk)
+	return parseStreamResponse(
+		ctx,
+		withStreamingReadIdleTimeout(resp.Body, config.Global().LLMStreamingIdle()),
+		onChunk,
+	)
 }
 
 func withStreamingReadIdleTimeout(body io.ReadCloser, timeout time.Duration) io.ReadCloser {

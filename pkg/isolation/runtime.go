@@ -362,7 +362,10 @@ func validateDarwinExposePaths(items []config.ExposePath) error {
 	case "", "auto", "sandbox-exec", "none":
 		// ok
 	default:
-		return fmt.Errorf("invalid isolation backend %q for darwin; must be one of auto, sandbox-exec, none", isolation.Backend)
+		return fmt.Errorf(
+			"invalid isolation backend %q for darwin; must be one of auto, sandbox-exec, none",
+			isolation.Backend,
+		)
 	}
 	if _, err := os.Stat("/usr/bin/sandbox-exec"); isolation.Backend != "none" && err != nil {
 		if _, err := exec.LookPath("sandbox-exec"); err != nil {
