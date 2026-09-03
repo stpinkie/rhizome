@@ -14,7 +14,7 @@ import (
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
 
-func newPingCommand() *cobra.Command {
+func NewPingCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ping <multiaddr>",
 		Short: "Ping a Rhizome peer by multiaddr",

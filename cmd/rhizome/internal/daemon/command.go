@@ -13,6 +13,7 @@ import (
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 	"github.com/stpinkie/rhizome/pkg"
 	"github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/gateway"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
@@ -53,6 +54,9 @@ func NewDaemonCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
+			// Shared runtime event bus for mesh, DHT, and agent events.
+			eventBus := runtimeevents.NewBus()
+
 			dhtEnabled := cfg.Mesh.DHTEnabled && !noDHT
 			node, err := network.NewNode(ctx, derived.Libp2pPrivKey, network.Config{
 				ListenAddrs:    listenAddrs,
@@ -70,6 +74,7 @@ func NewDaemonCommand() *cobra.Command {
 				return fmt.Errorf("failed to start Rhizome node: %w", err)
 			}
 			defer node.Close()
+			node.SetEventBus(eventBus)
 
 			workspace := filepath.Join(home, pkg.WorkspaceName)
 			commitInterval := syncCommitInterval
@@ -112,6 +117,7 @@ func NewDaemonCommand() *cobra.Command {
 						"",
 					))
 				}
+				rhizomeMesh.SetEventBus(eventBus)
 				if err := rhizomeMesh.Start(ctx); err != nil {
 					return fmt.Errorf("failed to start mesh: %w", err)
 				}
@@ -128,7 +134,7 @@ func NewDaemonCommand() *cobra.Command {
 				<-ctx.Done()
 				return nil
 			}
-			return gateway.RunWithMesh(debug, home, internal.GetConfigPath(), allowEmpty, rhizomeMesh)
+			return gateway.RunWithMesh(debug, home, internal.GetConfigPath(), allowEmpty, rhizomeMesh, eventBus)
 		},
 	}
 

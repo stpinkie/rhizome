@@ -19,6 +19,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	rhizomeconfig "github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
@@ -38,6 +39,7 @@ type Node struct {
 	reconnectWg     sync.WaitGroup
 	reconnectCtx    context.Context
 	reconnectCancel context.CancelFunc
+	eventBus        runtimeevents.Bus
 }
 
 // Config is the static configuration for a Rhizome network node.
@@ -53,6 +55,33 @@ type Config struct {
 
 	// Timeouts override the built-in defaults. A nil value means use defaults.
 	Timeouts *rhizomeconfig.NetworkTimeouts
+}
+
+// SetEventBus sets the runtime event bus used to publish mesh events.
+func (n *Node) SetEventBus(bus runtimeevents.Bus) {
+	n.eventBus = bus
+	if n.dht != nil {
+		n.dht.SetEventBus(bus)
+	}
+}
+
+// publishMeshEvent publishes a non-blocking mesh runtime event if a bus is configured.
+func (n *Node) publishMeshEvent(kind runtimeevents.Kind, attrs map[string]any) {
+	if n.eventBus == nil {
+		return
+	}
+	severity := runtimeevents.SeverityInfo
+	if kind == runtimeevents.KindMeshError {
+		severity = runtimeevents.SeverityError
+	}
+	n.eventBus.PublishNonBlocking(runtimeevents.Event{
+		Kind:     kind,
+		Severity: severity,
+		Source: runtimeevents.Source{
+			Component: "network",
+		},
+		Attrs: attrs,
+	})
 }
 
 // NewNode creates a libp2p host and starts mDNS discovery.
@@ -113,6 +142,19 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	n.reconnectWg.Add(1)
 	go n.reconnectLoop(n.reconnectCtx)
 
+	n.notifiee.OnConnected(func(ev PeerEvent) {
+		n.publishMeshEvent(runtimeevents.KindMeshPeerConnected, map[string]any{
+			"peer_id": ev.PeerID.String(),
+			"addr":    ev.Addr.String(),
+		})
+	})
+	n.notifiee.OnDisconnected(func(ev PeerEvent) {
+		n.publishMeshEvent(runtimeevents.KindMeshPeerDisconnected, map[string]any{
+			"peer_id": ev.PeerID.String(),
+			"addr":    ev.Addr.String(),
+		})
+	})
+
 	// mDNS LAN discovery.
 	n.mdns = mdns.NewMdnsService(h, "_rhizome._p2p", n)
 	if err := n.mdns.Start(); err != nil {
@@ -139,6 +181,9 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 
 	// Public DHT discovery.
 	if cfg.DHT.Enabled {
+		if err := cfg.DHT.Validate(); err != nil {
+			return nil, err
+		}
 		dhtCfg := cfg.DHT
 		if dhtCfg.ReprovideInterval <= 0 {
 			dhtCfg.ReprovideInterval = timeouts.DHTReprovideInterval.Duration()
@@ -268,6 +313,14 @@ func (n *Node) ID() peer.ID {
 // Host returns the underlying libp2p host.
 func (n *Node) Host() host.Host {
 	return n.host
+}
+
+// DHTStatus returns the DHT status snapshot, or an empty status if DHT is disabled.
+func (n *Node) DHTStatus() DHTStatus {
+	if n.dht == nil {
+		return DHTStatus{}
+	}
+	return n.dht.Status()
 }
 
 // ConnectedPeers returns the peer IDs of currently connected peers.

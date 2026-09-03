@@ -18,7 +18,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
 
-func newPeersCommand() *cobra.Command {
+func NewPeersCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "peers",
 		Short: "List trusted and connected peers",
@@ -43,7 +43,7 @@ func newPeersCommand() *cobra.Command {
 	}
 }
 
-func newTrustCommand() *cobra.Command {
+func NewTrustCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "trust <peer-id>",
 		Short: "Add a peer to the trusted list",
@@ -54,7 +54,7 @@ func newTrustCommand() *cobra.Command {
 	}
 }
 
-func newUntrustCommand() *cobra.Command {
+func NewUntrustCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "untrust <peer-id>",
 		Short: "Remove a peer from the trusted list",
@@ -104,7 +104,7 @@ func mutateTrustedPeers(peerID string, add bool) {
 	}
 }
 
-func newDelegateCommand() *cobra.Command {
+func NewDelegateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delegate <peer-multiaddr> <agent-id> <task>",
 		Short: "Delegate a task to a trusted peer (synchronous)",
@@ -128,7 +128,7 @@ func newDelegateCommand() *cobra.Command {
 	return cmd
 }
 
-func newSpawnCommand() *cobra.Command {
+func NewSpawnCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "spawn <peer-multiaddr> <agent-id> <task>",
 		Short: "Spawn a task on a trusted peer (asynchronous)",
@@ -224,7 +224,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		m.TrustPeer(addrInfo.ID)
 	}
 
-	result, err := m.CallRemote(ctx, addrInfo.ID, agentID, task)
+	result, err := m.CallRemote(ctx, addrInfo.ID, agentID, task, spawn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
 		os.Exit(1)

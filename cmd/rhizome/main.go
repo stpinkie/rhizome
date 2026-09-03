@@ -24,6 +24,7 @@ import (
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/daemon"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/gateway"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/mcp"
+	meshcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/mesh"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/migrate"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/model"
 	networkcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/network"
@@ -143,6 +144,7 @@ rhizome --no-color status`,
 		mcp.NewMCPCommand(),
 		migrate.NewMigrateCommand(),
 		networkcmd.NewNetworkCommand(),
+		meshcmd.NewMeshCommand(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
 		updater.NewUpdateCommand("rhizome"),

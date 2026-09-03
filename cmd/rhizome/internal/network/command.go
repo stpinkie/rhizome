@@ -12,14 +12,14 @@ func NewNetworkCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		newOnboardCommand(),
-		newStatusCommand(),
-		newPingCommand(),
-		newPeersCommand(),
-		newTrustCommand(),
-		newUntrustCommand(),
-		newDelegateCommand(),
-		newSpawnCommand(),
+		NewOnboardCommand(),
+		NewStatusCommand(),
+		NewPingCommand(),
+		NewPeersCommand(),
+		NewTrustCommand(),
+		NewUntrustCommand(),
+		NewDelegateCommand(),
+		NewSpawnCommand(),
 	)
 
 	return cmd

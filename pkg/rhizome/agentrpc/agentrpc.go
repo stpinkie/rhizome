@@ -32,6 +32,9 @@ type Request struct {
 	Timeout       time.Duration `json:"timeout,omitempty"`
 	Tools         []ToolRef     `json:"tools,omitempty"`
 	Signature     []byte        `json:"signature,omitempty"`
+	// Async hints that the caller will use the result in the background (spawn)
+	// rather than waiting for it in-line (delegate). Defaults to false.
+	Async bool `json:"async,omitempty"`
 }
 
 // ToolRef is a lightweight reference to a tool capability advertised by a peer.

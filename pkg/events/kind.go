@@ -103,6 +103,33 @@ const (
 	KindMCPToolCallStart Kind = "mcp.tool.call.start"
 	// KindMCPToolCallEnd is emitted when an MCP tool call ends.
 	KindMCPToolCallEnd Kind = "mcp.tool.call.end"
+
+	// Mesh / P2P events
+
+	// KindMeshPeerConnected is emitted when the local node connects to a peer.
+	KindMeshPeerConnected Kind = "mesh.peer.connected"
+	// KindMeshPeerDisconnected is emitted when the local node disconnects from a peer.
+	KindMeshPeerDisconnected Kind = "mesh.peer.disconnected"
+	// KindMeshCapabilityReceived is emitted when a capability announcement is received from a peer.
+	KindMeshCapabilityReceived Kind = "mesh.cap.received"
+	// KindMeshCapabilityQueried is emitted when a peer queries our capability.
+	KindMeshCapabilityQueried Kind = "mesh.cap.queried"
+	// KindMeshDHTBootstrapStart is emitted when the DHT bootstrap begins.
+	KindMeshDHTBootstrapStart Kind = "mesh.dht.bootstrap.start"
+	// KindMeshDHTBootstrapDone is emitted when the DHT bootstrap finishes.
+	KindMeshDHTBootstrapDone Kind = "mesh.dht.bootstrap.done"
+	// KindMeshDHTDiscovered is emitted when the DHT discovers a provider for the rendezvous.
+	KindMeshDHTDiscovered Kind = "mesh.dht.discovered"
+	// KindMeshRemoteDelegateStart is emitted when a remote delegate request begins.
+	KindMeshRemoteDelegateStart Kind = "mesh.remote.delegate.start"
+	// KindMeshRemoteDelegateEnd is emitted when a remote delegate request ends.
+	KindMeshRemoteDelegateEnd Kind = "mesh.remote.delegate.end"
+	// KindMeshRemoteSpawnStart is emitted when a remote spawn request begins.
+	KindMeshRemoteSpawnStart Kind = "mesh.remote.spawn.start"
+	// KindMeshRemoteSpawnEnd is emitted when a remote spawn request ends.
+	KindMeshRemoteSpawnEnd Kind = "mesh.remote.spawn.end"
+	// KindMeshError is emitted when a mesh operation fails.
+	KindMeshError Kind = "mesh.error"
 )
 
 var knownKinds = []Kind{
@@ -152,6 +179,18 @@ var knownKinds = []Kind{
 	KindMCPToolDiscovered,
 	KindMCPToolCallStart,
 	KindMCPToolCallEnd,
+	KindMeshPeerConnected,
+	KindMeshPeerDisconnected,
+	KindMeshCapabilityReceived,
+	KindMeshCapabilityQueried,
+	KindMeshDHTBootstrapStart,
+	KindMeshDHTBootstrapDone,
+	KindMeshDHTDiscovered,
+	KindMeshRemoteDelegateStart,
+	KindMeshRemoteDelegateEnd,
+	KindMeshRemoteSpawnStart,
+	KindMeshRemoteSpawnEnd,
+	KindMeshError,
 }
 
 // KnownKinds returns the runtime event kinds declared by this package.

@@ -143,6 +143,25 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Validate checks the mesh configuration for common errors.
+func (m *MeshConfig) Validate() error {
+	if m.RemoteTimeout < 0 {
+		return fmt.Errorf("mesh.remote_timeout must not be negative")
+	}
+	if m.DHTReprovideInterval < 0 {
+		return fmt.Errorf("mesh.dht_reprovide_interval must not be negative")
+	}
+	if m.DHTRendezvous == "" && m.DHTEnabled {
+		return fmt.Errorf("mesh.dht_rendezvous is required when mesh.dht_enabled is true")
+	}
+	for i, p := range m.TrustedPeers {
+		if p == "" {
+			return fmt.Errorf("mesh.trusted_peers[%d] is empty", i)
+		}
+	}
+	return nil
+}
+
 func (m *MeshConfig) IsPeerTrusted(pid string) bool {
 	for _, p := range m.TrustedPeers {
 		if p == pid {
@@ -1644,6 +1663,11 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Validate model_list for uniqueness and required fields
 	if err = cfg.ValidateModelList(); err != nil {
+		return nil, err
+	}
+
+	// Validate mesh/DHT configuration
+	if err = cfg.Mesh.Validate(); err != nil {
 		return nil, err
 	}
 

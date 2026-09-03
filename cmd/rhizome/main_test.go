@@ -43,6 +43,7 @@ func TestNewRhizomeCommand(t *testing.T) {
 		"cron",
 		"daemon",
 		"gateway",
+		"mesh",
 		"mcp",
 		"migrate",
 		"model",

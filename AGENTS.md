@@ -27,6 +27,10 @@ $env:TMP='D:\tmp'
 
 - `rhizome network onboard` — create a node identity from a BIP39 mnemonic (now supports `--generate` and `--encrypt {keyring|passphrase|none}`).
 - `rhizome network status` — show the saved node identity (`--json` for machine-readable output).
+  - `rhizome network status --peers` — start a temporary node and show connected peers with capabilities.
+  - `rhizome network status --dht` — start a temporary node and show public DHT status.
+- `rhizome mesh status` — shortcut for `rhizome network status --peers --dht`.
+- `rhizome mesh peers` — shortcut for `rhizome network status --peers`.
 - `rhizome network ping <multiaddr>` — start a temporary libp2p host and ping a peer.
 - `rhizome network peers` — list trusted peers from config.
 - `rhizome network trust <peer-id>` / `rhizome network untrust <peer-id>` — manage the mesh trusted peers list.
@@ -64,7 +68,7 @@ Add a `mesh` section to `config.json`:
 }
 ```
 
-When `mesh.enabled` is true, `rhizome daemon` advertises local capabilities over `/rhizome/caps/1.0.0` and accepts remote agent requests over `/rhizome/agent/1.0.0` from trusted peers.
+When `mesh.enabled` is true, `rhizome daemon` advertises local capabilities over `/rhizome/caps/1.0.0`, accepts remote agent requests over `/rhizome/agent/1.0.0` from trusted peers, and publishes mesh/DHT runtime events to the shared event bus.
 
 ## DHT Configuration
 
@@ -87,7 +91,7 @@ The public IPFS DHT is enabled by default. The daemon provides and looks up a re
 - `dht_rendezvous` — string used to derive the DHT rendezvous key.
 - `dht_reprovide_interval` — how often to re-advertise the rendezvous record.
 
-Use `rhizome daemon --no-dht` to disable DHT discovery for a single run.
+Use `rhizome daemon --no-dht` to disable DHT discovery for a single run. Inspect live DHT state with `rhizome network status --dht` or `rhizome mesh status`.
 
 ## Identity Encryption
 

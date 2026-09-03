@@ -117,7 +117,7 @@ func (p *startupBlockedProvider) GetDefaultModel() string {
 
 // Run starts the gateway runtime using the configuration loaded from configPath.
 func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runErr error) {
-	return RunWithMesh(debug, homePath, configPath, allowEmptyStartup, nil)
+	return RunWithMesh(debug, homePath, configPath, allowEmptyStartup, nil, nil)
 }
 
 // RunWithMesh starts the gateway with an optional mesh layer for remote
@@ -127,6 +127,7 @@ func RunWithMesh(
 	homePath, configPath string,
 	allowEmptyStartup bool,
 	rhizomeMesh *mesh.Mesh,
+	eventBus runtimeevents.Bus,
 ) (runErr error) {
 	startedAt := time.Now()
 	panicPath := filepath.Join(homePath, logPath, panicFile)
@@ -211,7 +212,12 @@ func RunWithMesh(
 	}
 
 	msgBus := bus.NewMessageBus()
-	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+
+	agentLoopOpts := []agent.AgentLoopOption{}
+	if eventBus != nil {
+		agentLoopOpts = append(agentLoopOpts, agent.WithRuntimeEvents(eventBus))
+	}
+	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider, agentLoopOpts...)
 	agentLoop.SetMediaStore(media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  true,
 		MaxAge:   config.Global().MediaMaxAge(),
@@ -220,6 +226,9 @@ func RunWithMesh(
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 
 	if rhizomeMesh != nil {
+		if eventBus != nil {
+			rhizomeMesh.SetEventBus(eventBus)
+		}
 		local := agent.NewSubTurnSpawner(agentLoop)
 		rhizomeMesh.SetRunFunc(func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
 			resp, pErr := agentLoop.ProcessDirect(ctx, req.SystemPrompt, "mesh-"+req.CorrelationID)

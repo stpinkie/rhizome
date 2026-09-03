@@ -230,6 +230,39 @@ func TestStatsSubscribersKeepPriorityOrder(t *testing.T) {
 	}
 }
 
+func TestMeshKindsAreKnown(t *testing.T) {
+	t.Parallel()
+
+	meshKinds := []Kind{
+		KindMeshPeerConnected,
+		KindMeshPeerDisconnected,
+		KindMeshCapabilityReceived,
+		KindMeshCapabilityQueried,
+		KindMeshDHTBootstrapStart,
+		KindMeshDHTBootstrapDone,
+		KindMeshDHTDiscovered,
+		KindMeshRemoteDelegateStart,
+		KindMeshRemoteDelegateEnd,
+		KindMeshRemoteSpawnStart,
+		KindMeshRemoteSpawnEnd,
+		KindMeshError,
+	}
+
+	known := make(map[Kind]bool)
+	for _, k := range KnownKinds() {
+		known[k] = true
+	}
+
+	for _, k := range meshKinds {
+		if k.String() == "" {
+			t.Fatalf("mesh kind has empty string: %v", k)
+		}
+		if !known[k] {
+			t.Fatalf("mesh kind %q is not in KnownKinds", k)
+		}
+	}
+}
+
 func receiveEvent(t *testing.T, ch <-chan Event) Event {
 	t.Helper()
 

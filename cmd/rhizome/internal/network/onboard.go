@@ -18,7 +18,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 )
 
-func newOnboardCommand() *cobra.Command {
+func NewOnboardCommand() *cobra.Command {
 	var (
 		mnemonic       string
 		generate       bool

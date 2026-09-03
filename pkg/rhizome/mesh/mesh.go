@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
@@ -28,6 +29,8 @@ const (
 	CapsProtocolID = protocol.ID("/rhizome/caps/1.0.0")
 
 	capFrameAnnounce = byte(1)
+	capFrameQuery    = byte(2)
+	capFrameResponse = byte(3)
 )
 
 // Capability describes what a peer is willing/able to run.
@@ -64,10 +67,11 @@ type Mesh struct {
 	skillsLoader   *skills.SkillsLoader
 	skillsLoaderMu sync.RWMutex
 
-	stop   chan struct{}
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	stop     chan struct{}
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	eventBus runtimeevents.Bus
 }
 
 // NewMesh creates a mesh layer over an existing node and syncer.
@@ -90,8 +94,44 @@ func NewMesh(
 		stop:    make(chan struct{}),
 	}
 	m.rpc = agentrpc.NewTransport(m.host, m)
-	m.cap = NewCapsTransport(m.host, func(pid peer.ID, c Capability) { m.SetCapability(pid, c) })
+	m.cap = NewCapsTransportWithPolicy(
+		m.host,
+		func(pid peer.ID, c Capability) { m.SetCapability(pid, c) },
+		m.isTrusted,
+		m.localCapability,
+		func(pid peer.ID, allowed bool) {
+			m.publishMeshEvent(runtimeevents.KindMeshCapabilityQueried, map[string]any{
+				"peer_id":  pid.String(),
+				"outgoing": false,
+				"allowed":  allowed,
+			})
+		},
+	)
 	return m
+}
+
+// SetEventBus sets the runtime event bus used to publish mesh events.
+func (m *Mesh) SetEventBus(bus runtimeevents.Bus) {
+	m.eventBus = bus
+}
+
+// publishMeshEvent publishes a non-blocking mesh runtime event if a bus is configured.
+func (m *Mesh) publishMeshEvent(kind runtimeevents.Kind, attrs map[string]any) {
+	if m.eventBus == nil {
+		return
+	}
+	severity := runtimeevents.SeverityInfo
+	if kind == runtimeevents.KindMeshError {
+		severity = runtimeevents.SeverityError
+	}
+	m.eventBus.PublishNonBlocking(runtimeevents.Event{
+		Kind:     kind,
+		Severity: severity,
+		Source: runtimeevents.Source{
+			Component: "mesh",
+		},
+		Attrs: attrs,
+	})
 }
 
 // Start registers the agent and capability protocol handlers.
@@ -164,15 +204,44 @@ func (m *Mesh) makeErrorResponse(correlationID, message string) (agentrpc.Respon
 // HandleRequest implements agentrpc.Handler for incoming remote agent tasks.
 func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Response, error) {
 	if !m.isTrusted(from) {
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":          "remote.request",
+			"error":          fmt.Sprintf("peer %s is not trusted", from),
+			"peer_id":        from.String(),
+			"agent_id":       req.TargetAgentID,
+			"correlation_id": req.CorrelationID,
+		})
 		return m.makeErrorResponse(req.CorrelationID, fmt.Sprintf("peer %s is not trusted", from))
 	}
 	if err := m.verifyRequest(from, req); err != nil {
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":          "remote.request",
+			"error":          fmt.Sprintf("verify request: %v", err),
+			"peer_id":        from.String(),
+			"agent_id":       req.TargetAgentID,
+			"correlation_id": req.CorrelationID,
+		})
 		return m.makeErrorResponse(req.CorrelationID, fmt.Sprintf("verify request: %v", err))
 	}
 
 	if !m.cfg.AllowRemoteDelegate && !m.cfg.AllowRemoteSpawn {
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":          "remote.request",
+			"error":          "remote agent execution is disabled",
+			"peer_id":        from.String(),
+			"agent_id":       req.TargetAgentID,
+			"correlation_id": req.CorrelationID,
+		})
 		return m.makeErrorResponse(req.CorrelationID, "remote agent execution is disabled")
 	}
+
+	startKind, endKind := m.remoteAgentEventKinds(req.Async)
+	m.publishMeshEvent(startKind, map[string]any{
+		"peer_id":        from.String(),
+		"agent_id":       req.TargetAgentID,
+		"correlation_id": req.CorrelationID,
+		"async":          req.Async,
+	})
 
 	parent := m.ctx
 	if parent == nil {
@@ -186,6 +255,19 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 	defer cancel()
 
 	result, err := m.runFunc(ctx, req)
+
+	status := "ok"
+	if err != nil {
+		status = "error"
+	}
+	m.publishMeshEvent(endKind, map[string]any{
+		"peer_id":        from.String(),
+		"agent_id":       req.TargetAgentID,
+		"correlation_id": req.CorrelationID,
+		"async":          req.Async,
+		"status":         status,
+	})
+
 	if err != nil {
 		resp := agentrpc.Response{
 			CorrelationID: req.CorrelationID,
@@ -211,11 +293,12 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 
 // CallRemote sends an agent task to a trusted peer and waits for the result.
 // It retries on transient failures and attempts to reconnect to the peer
-// between attempts.
+// between attempts. The async flag is used for event reporting (spawn vs. delegate).
 func (m *Mesh) CallRemote(
 	ctx context.Context,
 	pid peer.ID,
 	targetAgentID, prompt string,
+	async bool,
 ) (*toolshared.ToolResult, error) {
 	if !m.isTrusted(pid) {
 		return nil, fmt.Errorf("peer %s is not trusted", pid)
@@ -226,7 +309,24 @@ func (m *Mesh) CallRemote(
 		TargetAgentID: targetAgentID,
 		SystemPrompt:  prompt,
 		Timeout:       m.cfg.RemoteTimeout,
+		Async:         async,
 	}
+
+	startKind, endKind := m.remoteAgentEventKinds(async)
+	m.publishMeshEvent(startKind, map[string]any{
+		"peer_id":        pid.String(),
+		"agent_id":       targetAgentID,
+		"correlation_id": req.CorrelationID,
+		"async":          async,
+	})
+	defer func() {
+		m.publishMeshEvent(endKind, map[string]any{
+			"peer_id":        pid.String(),
+			"agent_id":       targetAgentID,
+			"correlation_id": req.CorrelationID,
+			"async":          async,
+		})
+	}()
 
 	// Sign the request payload with the local node key.
 	payload, err := json.Marshal(req)
@@ -332,6 +432,13 @@ func (m *Mesh) SetSkillsLoader(loader *skills.SkillsLoader) {
 	m.skillsLoader = loader
 }
 
+func (m *Mesh) remoteAgentEventKinds(async bool) (start, end runtimeevents.Kind) {
+	if async {
+		return runtimeevents.KindMeshRemoteSpawnStart, runtimeevents.KindMeshRemoteSpawnEnd
+	}
+	return runtimeevents.KindMeshRemoteDelegateStart, runtimeevents.KindMeshRemoteDelegateEnd
+}
+
 // localCapability builds a capability manifest from local configuration.
 func (m *Mesh) localCapability() Capability {
 	c := Capability{
@@ -369,11 +476,33 @@ func (m *Mesh) localCapability() Capability {
 	return c
 }
 
+// QueryCapability fetches the current capability from a trusted peer.
+func (m *Mesh) QueryCapability(ctx context.Context, pid peer.ID) (Capability, error) {
+	if !m.isTrusted(pid) {
+		return Capability{}, fmt.Errorf("peer %s is not trusted", pid)
+	}
+
+	m.publishMeshEvent(runtimeevents.KindMeshCapabilityQueried, map[string]any{
+		"peer_id":  pid.String(),
+		"outgoing": true,
+	})
+
+	return m.cap.Query(ctx, pid)
+}
+
 // SetCapability stores a capability received from a peer.
 func (m *Mesh) SetCapability(pid peer.ID, c Capability) {
 	m.capsMu.Lock()
-	defer m.capsMu.Unlock()
 	m.caps[pid] = c
+	m.capsMu.Unlock()
+
+	m.publishMeshEvent(runtimeevents.KindMeshCapabilityReceived, map[string]any{
+		"peer_id":      pid.String(),
+		"models_count": len(c.Models),
+		"skills_count": len(c.Skills),
+		"agents_count": len(c.Agents),
+		"trusted":      m.isTrusted(pid),
+	})
 }
 
 // PeerCapabilities returns the last known capability for a peer.
@@ -400,6 +529,11 @@ func (m *Mesh) UntrustPeer(pid peer.ID) {
 
 // isTrusted reports whether a peer is in the local trust set.
 func (m *Mesh) isTrusted(pid peer.ID) bool {
+	return m.IsTrusted(pid)
+}
+
+// IsTrusted reports whether a peer is in the local trust set.
+func (m *Mesh) IsTrusted(pid peer.ID) bool {
 	m.trustMu.RLock()
 	defer m.trustMu.RUnlock()
 	return m.trust[pid]
@@ -504,13 +638,35 @@ func (m *Mesh) verifyResponse(pid peer.ID, resp *agentrpc.Response) error {
 
 // CapsTransport handles the capability exchange protocol.
 type CapsTransport struct {
-	host    host.Host
-	handler func(peer.ID, Capability)
+	host          host.Host
+	handler       func(peer.ID, Capability)
+	isTrusted     func(peer.ID) bool
+	getCapability func() Capability
+	onQueried     func(peer.ID, bool)
 }
 
 // NewCapsTransport creates a new capability transport.
 func NewCapsTransport(h host.Host, handler func(peer.ID, Capability)) *CapsTransport {
-	return &CapsTransport{host: h, handler: handler}
+	return NewCapsTransportWithPolicy(h, handler, nil, nil, nil)
+}
+
+// NewCapsTransportWithPolicy creates a capability transport with an optional
+// trust policy for responding to capability queries. If isTrusted or
+// getCapability are nil, the transport will not respond to queries.
+func NewCapsTransportWithPolicy(
+	h host.Host,
+	handler func(peer.ID, Capability),
+	isTrusted func(peer.ID) bool,
+	getCapability func() Capability,
+	onQueried func(peer.ID, bool),
+) *CapsTransport {
+	return &CapsTransport{
+		host:          h,
+		handler:       handler,
+		isTrusted:     isTrusted,
+		getCapability: getCapability,
+		onQueried:     onQueried,
+	}
 }
 
 // Start registers the capability protocol and blocks until the context is done.
@@ -575,13 +731,88 @@ func (c *CapsTransport) handleStream(s libnet.Stream) {
 	if err != nil {
 		return
 	}
-	if typ != capFrameAnnounce {
+
+	switch typ {
+	case capFrameAnnounce:
+		var capability Capability
+		if err := json.Unmarshal(payload, &capability); err != nil {
+			return
+		}
+		c.handler(s.Conn().RemotePeer(), capability)
+
+	case capFrameQuery:
+		c.handleQuery(s, r)
+
+	case capFrameResponse:
+		// Response frames are read by the client in Query; the server ignores them.
+	}
+}
+
+func (c *CapsTransport) handleQuery(s libnet.Stream, r *bufio.Reader) {
+	remote := s.Conn().RemotePeer()
+
+	if c.isTrusted != nil && !c.isTrusted(remote) {
+		if c.onQueried != nil {
+			c.onQueried(remote, false)
+		}
+		// Untrusted peers get no response. The stream will be closed.
 		return
+	}
+
+	if c.onQueried != nil {
+		c.onQueried(remote, true)
+	}
+
+	var cap Capability
+	if c.getCapability != nil {
+		cap = c.getCapability()
+	}
+
+	data, err := json.Marshal(cap)
+	if err != nil {
+		return
+	}
+
+	w := bufio.NewWriter(s)
+	if err := stream.WriteFrame(w, capFrameResponse, data); err != nil {
+		return
+	}
+	_ = w.Flush()
+}
+
+// Query requests a capability from a peer. It blocks until the peer responds
+// or the context is canceled. The trust check is the caller's responsibility.
+func (c *CapsTransport) Query(ctx context.Context, pid peer.ID) (Capability, error) {
+	if !c.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+		return Capability{}, fmt.Errorf("peer %s does not support %s", pid, CapsProtocolID)
+	}
+
+	s, err := c.host.NewStream(ctx, pid, CapsProtocolID)
+	if err != nil {
+		return Capability{}, fmt.Errorf("open caps stream: %w", err)
+	}
+	defer s.Close()
+
+	w := bufio.NewWriter(s)
+	if err := stream.WriteFrame(w, capFrameQuery, nil); err != nil {
+		return Capability{}, fmt.Errorf("write query: %w", err)
+	}
+	if err := w.Flush(); err != nil {
+		return Capability{}, fmt.Errorf("flush query: %w", err)
+	}
+
+	r := bufio.NewReader(s)
+	typ, payload, err := stream.ReadFrame(r)
+	if err != nil {
+		return Capability{}, fmt.Errorf("read response: %w", err)
+	}
+	if typ != capFrameResponse {
+		return Capability{}, fmt.Errorf("unexpected caps frame type: %d", typ)
 	}
 
 	var capability Capability
 	if err := json.Unmarshal(payload, &capability); err != nil {
-		return
+		return Capability{}, fmt.Errorf("decode capability: %w", err)
 	}
-	c.handler(s.Conn().RemotePeer(), capability)
+	return capability, nil
 }

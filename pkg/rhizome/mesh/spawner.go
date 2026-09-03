@@ -58,5 +58,5 @@ func (s *RemoteSpawner) SpawnSubTurn(ctx context.Context, cfg tools.SubTurnConfi
 		return nil, fmt.Errorf("no trusted peer advertises agent %q", cfg.TargetAgentID)
 	}
 
-	return s.mesh.CallRemote(ctx, remotePID, cfg.TargetAgentID, cfg.SystemPrompt)
+	return s.mesh.CallRemote(ctx, remotePID, cfg.TargetAgentID, cfg.SystemPrompt, cfg.Async)
 }
