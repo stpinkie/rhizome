@@ -25,7 +25,7 @@ The implementation has four layers:
 
 1. Configuration layer: reads `config.Config.Isolation` and injects it through `isolation.Configure(cfg)`.
 2. Instance layout layer: resolves `config.GetHome()`, prepares instance directories, and builds the runtime user environment.
-3. Platform backend layer: Linux uses `bwrap`; Windows uses a restricted token, low integrity, and a `Job Object`; other platforms are not implemented.
+3. Platform backend layer: Linux uses `bwrap`; Windows uses a restricted token, low integrity, and a `Job Object`; macOS uses `sandbox-exec` with a generated Seatbelt profile; other platforms are not implemented.
 4. Unified startup layer: `PrepareCommand(cmd)`, `Start(cmd)`, and `Run(cmd)`.
 
 All integrations that spawn subprocesses should reuse these helpers instead of calling `cmd.Start` or `cmd.Run` directly.
@@ -46,7 +46,7 @@ Isolation lives under:
 Field meanings:
 
 - `enabled`: enables or disables subprocess isolation. Default: `false`.
-- `expose_paths`: explicitly exposes host paths inside the isolated environment. It only matters when `enabled=true`. This is currently supported on Linux only.
+- `expose_paths`: explicitly exposes host paths inside the isolated environment. It only matters when `enabled=true`. This is supported on Linux and macOS; on macOS the `target` field is ignored because `sandbox-exec` does not support source-to-target remapping.
 
 Example:
 
@@ -186,7 +186,30 @@ The Windows backend currently uses:
 
 It does not currently implement true `source -> target` filesystem remapping.
 
-### macOS And Other Platforms
+### macOS
+
+The macOS backend uses `sandbox-exec` (Seatbelt). It is a deny-default policy that allows:
+
+- read-only access to the instance root and minimum runtime system paths such as `/usr`, `/bin`, `/System`, `/Library`, `/private/etc`, `/private/tmp`, `/dev`, and `/opt`;
+- read-write access to the redirected `runtime-user-env` directories (`HOME`, `TMPDIR`, `XDG_*`, and `~/Library`);
+- outbound network, Mach lookups, `process-exec`, `process-fork`, and signal operations;
+- `ExposePaths` are honored as source-side allow rules. The `target` field is currently ignored because `sandbox-exec` does not support source-to-target filesystem remapping.
+
+The default backend is `sandbox-exec`. Set `isolation.backend` to `none` to use the redirected user environment without a sandbox, or to `auto` to let the runtime pick the default.
+
+```json
+{
+  "isolation": {
+    "enabled": true,
+    "backend": "auto",
+    "expose_paths": []
+  }
+}
+```
+
+`sandbox-exec` is included with macOS / Xcode Command Line Tools. If it is missing, the runtime fails closed.
+
+### Other Platforms
 
 They are not implemented yet.
 
@@ -218,7 +241,7 @@ They complement each other and do not replace each other.
 - Linux isolation is implemented with `bwrap`, not a custom in-process isolation runtime.
 - Linux does not currently enable a dedicated `pid` namespace by default.
 - Windows does not yet implement full host ACL enforcement for every allowed or denied path.
-- macOS is not implemented.
+- macOS uses `sandbox-exec` and may not cover every edge case; `expose_paths` target mapping is not supported.
 - The current design isolates child processes, not the main `rhizome` process.
 
 ## Suggested Reading Order

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 // SearchCache provides lightweight caching for search results.
@@ -36,7 +38,7 @@ func NewSearchCache(maxEntries int, ttl time.Duration) *SearchCache {
 		maxEntries = 50
 	}
 	if ttl <= 0 {
-		ttl = 5 * time.Minute
+		ttl = config.Global().ToolSkillsSearchCacheTTL()
 	}
 	return &SearchCache{
 		entries:    make(map[string]*cacheEntry),

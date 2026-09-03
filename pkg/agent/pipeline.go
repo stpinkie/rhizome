@@ -20,7 +20,7 @@ type Pipeline struct {
 	Fallback       *providers.FallbackChain
 	ChannelManager interfaces.ChannelManager
 	MediaStore     media.MediaStore
-	Steering       any // TODO: *Steering
+	Steering       *steeringQueue
 	al             *AgentLoop
 }
 

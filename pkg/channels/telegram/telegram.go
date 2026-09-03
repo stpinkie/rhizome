@@ -44,10 +44,9 @@ var (
 	reInlineCode = regexp.MustCompile("`([^`]+)`")
 )
 
-const (
-	defaultMediaGroupDelay = 500 * time.Millisecond
-	telegramCaptionLimit   = 1024
-)
+const telegramCaptionLimit = 1024
+
+var defaultMediaGroupDelay = config.Global().ChannelMediaGroupDelay()
 
 type TelegramChannel struct {
 	*channels.BaseChannel
@@ -399,7 +398,7 @@ func (c *TelegramChannel) sendChunk(
 // maxTypingDuration limits how long the typing indicator can run.
 // Prevents endless typing when the LLM fails/hangs and preSend never invokes cancel.
 // Matches channels.Manager's typingStopTTL (5 min) so behavior is consistent.
-const maxTypingDuration = 5 * time.Minute
+var maxTypingDuration = config.Global().ChannelTypingMaxDuration()
 
 // StartTyping implements channels.TypingCapable.
 // It sends ChatAction(typing) immediately and then repeats every 4 seconds
@@ -424,7 +423,7 @@ func (c *TelegramChannel) StartTyping(ctx context.Context, chatID string) (func(
 	maxCtx, maxCancel := context.WithTimeout(typingCtx, maxTypingDuration)
 	go func() {
 		defer maxCancel()
-		ticker := time.NewTicker(4 * time.Second)
+		ticker := time.NewTicker(config.Global().ChannelTypingRefreshInterval())
 		defer ticker.Stop()
 		for {
 			select {

@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/stpinkie/rhizome/pkg/bus"
 	"github.com/stpinkie/rhizome/pkg/channels"
@@ -70,7 +69,7 @@ func NewSlackWebhookChannel(
 		bc:          bc,
 		config:      cfg,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: config.Global().ChannelRequestTimeout(),
 		},
 	}, nil
 }

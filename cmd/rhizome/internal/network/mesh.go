@@ -28,6 +28,7 @@ func newPeersCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				os.Exit(1)
 			}
+			config.SetGlobal(cfg)
 
 			if len(cfg.Mesh.TrustedPeers) == 0 {
 				fmt.Println("No trusted peers configured.")
@@ -70,6 +71,7 @@ func mutateTrustedPeers(peerID string, add bool) {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+	config.SetGlobal(cfg)
 
 	var peers []string
 	seen := make(map[string]bool)
@@ -166,6 +168,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 	if err != nil {
 		cfg = config.DefaultConfig()
 	}
+	config.SetGlobal(cfg)
 
 	cfg.Mesh.Enabled = true
 	if spawn {

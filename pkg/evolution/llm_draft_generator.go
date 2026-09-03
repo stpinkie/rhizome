@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/providers"
 	"github.com/stpinkie/rhizome/pkg/skills"
 )
@@ -62,7 +63,7 @@ func (g *LLMDraftGenerator) GenerateDraftWithEvidence(
 		return g.generateFallback(ctx, rule, matches, evidence)
 	}
 
-	callCtx, cancel := withLLMCallTimeout(ctx, llmDraftGenerationTimeout)
+	callCtx, cancel := withLLMCallTimeout(ctx, config.Global().EvolutionDraftGeneration())
 	defer cancel()
 	resp, err := g.provider.Chat(callCtx, []providers.Message{
 		{

@@ -14,6 +14,12 @@ func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMess
 		defer al.channelManager.InvokeTypingStop(msg.Channel, msg.ChatID)
 	}
 
+	if al.mediaStore != nil && msg.MediaScope != "" {
+		defer func(scope string) {
+			al.releaseInboundMedia(scope)
+		}(msg.MediaScope)
+	}
+
 	response, err := al.processMessage(ctx, msg)
 	al.publishResponseOrError(ctx, msg.Channel, msg.ChatID, msg.SessionKey, response, err)
 }

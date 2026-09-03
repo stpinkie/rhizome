@@ -1,5 +1,20 @@
 export type JsonRecord = Record<string, unknown>
 
+export interface TimeoutsForm {
+  llmRequest: string
+  llmStreamingIdle: string
+  toolExecSeconds: string
+  toolCronExecMinutes: string
+  httpRequest: string
+  httpDial: string
+  mediaDownload: string
+  gatewayServiceShutdown: string
+  agentSubTurnDefault: string
+  meshRemoteCall: string
+  syncCommitInterval: string
+  dhtReprovideInterval: string
+}
+
 export interface CoreConfigForm {
   workspace: string
   restrictToWorkspace: boolean
@@ -40,6 +55,7 @@ export interface CoreConfigForm {
   evolutionMinSuccessRatio: string
   evolutionColdPathTrigger: string
   evolutionColdPathTimesText: string
+  timeouts: TimeoutsForm
 }
 
 export type MCPServerType = "http" | "sse" | "stdio"
@@ -111,6 +127,21 @@ export const DM_SCOPE_OPTIONS = [
   },
 ] as const
 
+export const EMPTY_TIMEOUTS_FORM: TimeoutsForm = {
+  llmRequest: "120s",
+  llmStreamingIdle: "120s",
+  toolExecSeconds: "60s",
+  toolCronExecMinutes: "5m",
+  httpRequest: "120s",
+  httpDial: "15s",
+  mediaDownload: "60s",
+  gatewayServiceShutdown: "30s",
+  agentSubTurnDefault: "5m",
+  meshRemoteCall: "5m",
+  syncCommitInterval: "2s",
+  dhtReprovideInterval: "10m",
+}
+
 export const EMPTY_FORM: CoreConfigForm = {
   workspace: "",
   restrictToWorkspace: true,
@@ -159,6 +190,7 @@ export const EMPTY_FORM: CoreConfigForm = {
   evolutionMinSuccessRatio: "0.7",
   evolutionColdPathTrigger: "after_turn",
   evolutionColdPathTimesText: "",
+  timeouts: EMPTY_TIMEOUTS_FORM,
 }
 
 export const EMPTY_LAUNCHER_FORM: LauncherForm = {
@@ -188,6 +220,16 @@ function asBool(value: unknown): boolean {
 
 function asOptionalBool(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null
+}
+
+function asDurationString(value: unknown, fallback: string): string {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return `${value}s`
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.trim()
+  }
+  return fallback
 }
 
 function asNumberString(value: unknown, fallback: string): string {
@@ -302,6 +344,16 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
   const cron = asRecord(tools.cron)
   const exec = asRecord(tools.exec)
   const toolFeedback = asRecord(defaults.tool_feedback)
+  const timeouts = asRecord(root.timeouts)
+  const llmTimeouts = asRecord(timeouts.llm)
+  const toolsTimeouts = asRecord(timeouts.tools)
+  const httpTimeouts = asRecord(timeouts.http)
+  const mediaTimeouts = asRecord(timeouts.media)
+  const gatewayTimeouts = asRecord(timeouts.gateway)
+  const agentTimeouts = asRecord(timeouts.agent)
+  const meshTimeouts = asRecord(timeouts.mesh)
+  const syncTimeouts = asRecord(timeouts.sync)
+  const networkTimeouts = asRecord(timeouts.network)
 
   return {
     workspace: asString(defaults.workspace) || EMPTY_FORM.workspace,
@@ -440,6 +492,56 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
           .filter((value): value is string => typeof value === "string")
           .join("\n")
       : EMPTY_FORM.evolutionColdPathTimesText,
+    timeouts: {
+      llmRequest: asDurationString(
+        llmTimeouts.request,
+        EMPTY_FORM.timeouts.llmRequest,
+      ),
+      llmStreamingIdle: asDurationString(
+        llmTimeouts.streaming_idle,
+        EMPTY_FORM.timeouts.llmStreamingIdle,
+      ),
+      toolExecSeconds: asDurationString(
+        toolsTimeouts.exec_seconds,
+        EMPTY_FORM.timeouts.toolExecSeconds,
+      ),
+      toolCronExecMinutes: asDurationString(
+        toolsTimeouts.cron_exec_minutes,
+        EMPTY_FORM.timeouts.toolCronExecMinutes,
+      ),
+      httpRequest: asDurationString(
+        httpTimeouts.request,
+        EMPTY_FORM.timeouts.httpRequest,
+      ),
+      httpDial: asDurationString(
+        httpTimeouts.dial,
+        EMPTY_FORM.timeouts.httpDial,
+      ),
+      mediaDownload: asDurationString(
+        mediaTimeouts.download,
+        EMPTY_FORM.timeouts.mediaDownload,
+      ),
+      gatewayServiceShutdown: asDurationString(
+        gatewayTimeouts.service_shutdown,
+        EMPTY_FORM.timeouts.gatewayServiceShutdown,
+      ),
+      agentSubTurnDefault: asDurationString(
+        agentTimeouts.sub_turn_default,
+        EMPTY_FORM.timeouts.agentSubTurnDefault,
+      ),
+      meshRemoteCall: asDurationString(
+        meshTimeouts.remote_call,
+        EMPTY_FORM.timeouts.meshRemoteCall,
+      ),
+      syncCommitInterval: asDurationString(
+        syncTimeouts.commit_interval,
+        EMPTY_FORM.timeouts.syncCommitInterval,
+      ),
+      dhtReprovideInterval: asDurationString(
+        networkTimeouts.dht_reprovide_interval,
+        EMPTY_FORM.timeouts.dhtReprovideInterval,
+      ),
+    },
   }
 }
 

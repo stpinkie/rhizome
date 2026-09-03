@@ -109,7 +109,7 @@ jobs:
       - name: Build universal Android bundle
         run: make build-android-bundle
         env:
-          ANDROID_NDK: ${{ steps.setup-ndk.outputs.android-ndk-path }}
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_HOST: linux-x86_64
 
       - name: Upload Android bundle

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"golang.org/x/sys/unix"
 )
 
@@ -279,8 +280,9 @@ func durationToPollTimeout(timeout time.Duration) int {
 }
 
 func minSerialPollTimeout(timeout time.Duration) time.Duration {
-	if timeout > serialPollInterval {
-		return serialPollInterval
+	poll := config.Global().ToolSerialPollInterval()
+	if timeout > poll {
+		return poll
 	}
 	return timeout
 }

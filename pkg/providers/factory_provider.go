@@ -19,7 +19,7 @@ import (
 )
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
-func createClaudeAuthProvider() (LLMProvider, error) {
+func createClaudeAuthProvider(apiBase string) (LLMProvider, error) {
 	cred, err := getCredential("anthropic")
 	if err != nil {
 		return nil, fmt.Errorf("loading auth credentials: %w", err)
@@ -27,7 +27,10 @@ func createClaudeAuthProvider() (LLMProvider, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("no credentials for anthropic. Run: rhizome auth login --provider anthropic")
 	}
-	return NewClaudeProviderWithTokenSource(cred.AccessToken, createClaudeTokenSource()), nil
+	if apiBase == "" {
+		return NewClaudeProviderWithTokenSource(cred.AccessToken, createClaudeTokenSource()), nil
+	}
+	return NewClaudeProviderWithTokenSourceAndBaseURL(cred.AccessToken, createClaudeTokenSource(), apiBase), nil
 }
 
 // createCodexAuthProvider creates a Codex provider using OAuth credentials from auth store.
@@ -181,7 +184,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			}
 		}
 		// Use a separate timeout for AWS config loading (credential resolution can block)
-		initTimeout := 30 * time.Second
+		initTimeout := config.Global().LLMProviderInit()
 		if cfg.RequestTimeout > 0 {
 			reqTimeout := time.Duration(cfg.RequestTimeout) * time.Second
 			// Set request timeout for API calls
@@ -275,7 +278,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 	case "anthropic":
 		if authMethod == "oauth" || authMethod == "token" {
 			// Use OAuth credentials from auth store
-			provider, err := createClaudeAuthProvider()
+			provider, err := createClaudeAuthProvider(cfg.APIBase)
 			if err != nil {
 				return nil, "", err
 			}

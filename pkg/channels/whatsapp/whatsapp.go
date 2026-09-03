@@ -58,7 +58,7 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 	c.ctx, c.cancel = context.WithCancel(ctx)
 
 	dialer := websocket.DefaultDialer
-	dialer.HandshakeTimeout = 10 * time.Second
+	dialer.HandshakeTimeout = config.Global().ChannelConnectTimeout()
 
 	conn, resp, err := dialer.Dial(c.url, nil)
 	if resp != nil {
@@ -138,7 +138,7 @@ func (c *WhatsAppChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 		return nil, fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	_ = c.conn.SetWriteDeadline(time.Now().Add(config.Global().ChannelCommandTimeout()))
 	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		_ = c.conn.SetWriteDeadline(time.Time{})
 		return nil, fmt.Errorf("whatsapp send: %w", channels.ErrTemporary)
@@ -159,7 +159,7 @@ func (c *WhatsAppChannel) listen() {
 			c.mu.Unlock()
 
 			if conn == nil {
-				time.Sleep(1 * time.Second)
+				time.Sleep(config.Global().ChannelReconnectInitial())
 				continue
 			}
 
@@ -168,7 +168,7 @@ func (c *WhatsAppChannel) listen() {
 				logger.ErrorCF("whatsapp", "WhatsApp read error", map[string]any{
 					"error": err.Error(),
 				})
-				time.Sleep(2 * time.Second)
+				time.Sleep(config.Global().ChannelReconnectInitial())
 				continue
 			}
 

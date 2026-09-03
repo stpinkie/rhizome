@@ -449,7 +449,6 @@ func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return t.largeTextArtifactFallback(text, err)
 	}
-	// TODO: Add lifecycle cleanup/retention for MCP artifact files.
 
 	pattern := fmt.Sprintf(
 		"%s_%s_*.txt",
@@ -469,6 +468,30 @@ func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 	if err = tmpFile.Close(); err != nil {
 		_ = os.Remove(path)
 		return t.largeTextArtifactFallback(text, err)
+	}
+
+	// Register the artifact with the MediaStore so its lifecycle is managed
+	// by the agent's TTL-based cleanup, even though the text itself is not
+	// fed back into the model context.
+	if t.mediaStore != nil {
+		scope := fmt.Sprintf(
+			"mcp:%s:%s",
+			sanitizeIdentifierComponent(t.serverName),
+			sanitizeIdentifierComponent(t.tool.Name),
+		)
+		if _, err := t.mediaStore.Store(path, media.MediaMeta{
+			Filename:      filepath.Base(path),
+			ContentType:   "text/plain",
+			Source:        "mcp",
+			CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
+		}, scope); err != nil {
+			logger.WarnCF("tool", "Failed to register MCP text artifact in media store",
+				map[string]any{
+					"path":  path,
+					"scope": scope,
+					"error": err.Error(),
+				})
+		}
 	}
 
 	return &ToolResult{

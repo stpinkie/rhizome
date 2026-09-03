@@ -39,11 +39,14 @@ import (
 const (
 	sqliteDriver   = "sqlite"
 	whatsappDBName = "store.db"
-
-	reconnectInitial    = 5 * time.Second
-	reconnectMax        = 5 * time.Minute
-	reconnectMultiplier = 2.0
 )
+
+var (
+	reconnectInitial = config.Global().ChannelReconnectInitial()
+	reconnectMax     = config.Global().ChannelReconnectMax()
+)
+
+const reconnectMultiplier = 2.0
 
 // WhatsAppNativeChannel implements the WhatsApp channel using whatsmeow (in-process, no external bridge).
 type WhatsAppNativeChannel struct {

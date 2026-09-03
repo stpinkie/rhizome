@@ -127,7 +127,7 @@ func (c *QQChannel) Start(ctx context.Context) error {
 	}
 
 	// initialize OpenAPI client
-	c.api = botgo.NewOpenAPI(c.config.AppID, c.tokenSource).WithTimeout(5 * time.Second)
+	c.api = botgo.NewOpenAPI(c.config.AppID, c.tokenSource).WithTimeout(config.Global().ChannelPublishTimeout())
 
 	// register event handlers
 	intent := event.RegisterHandlers(

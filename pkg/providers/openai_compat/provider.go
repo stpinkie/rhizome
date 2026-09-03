@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers/common"
 	"github.com/stpinkie/rhizome/pkg/providers/messageutil"
@@ -47,8 +48,7 @@ type Provider struct {
 type Option func(*Provider)
 
 const (
-	defaultRequestTimeout           = common.DefaultRequestTimeout
-	defaultStreamingReadIdleTimeout = 5 * time.Minute
+	defaultRequestTimeout = common.DefaultRequestTimeout
 )
 
 var stripModelPrefixProviders = map[string]struct{}{
@@ -575,7 +575,7 @@ func (p *Provider) ChatStreamEvents(
 		return nil, common.HandleErrorResponse(resp, p.apiBase)
 	}
 
-	return parseStreamResponse(ctx, withStreamingReadIdleTimeout(resp.Body, defaultStreamingReadIdleTimeout), onChunk)
+	return parseStreamResponse(ctx, withStreamingReadIdleTimeout(resp.Body, config.Global().LLMStreamingIdle()), onChunk)
 }
 
 func withStreamingReadIdleTimeout(body io.ReadCloser, timeout time.Duration) io.ReadCloser {

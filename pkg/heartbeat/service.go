@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/bus"
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/constants"
 	"github.com/stpinkie/rhizome/pkg/fileutil"
 	"github.com/stpinkie/rhizome/pkg/logger"
@@ -131,7 +132,7 @@ func (hs *HeartbeatService) runLoop(stopChan chan struct{}) {
 	defer ticker.Stop()
 
 	// Run first heartbeat after initial delay
-	time.AfterFunc(time.Second, func() {
+	time.AfterFunc(config.Global().HeartbeatInitialDelay(), func() {
 		hs.executeHeartbeat()
 	})
 
@@ -336,7 +337,7 @@ func (hs *HeartbeatService) sendResponse(response string) {
 		return
 	}
 
-	pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), config.Global().HeartbeatPublishTimeout())
 	defer pubCancel()
 	msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
 		Context: bus.NewOutboundContext(platform, userID, ""),

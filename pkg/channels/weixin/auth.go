@@ -8,6 +8,7 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
@@ -33,7 +34,7 @@ func PerformLoginInteractive(
 		opts.BotType = "3" // Default iLink Bot Type
 	}
 	if opts.Timeout == 0 {
-		opts.Timeout = 5 * time.Minute
+		opts.Timeout = config.Global().ChannelAuthTimeout()
 	}
 
 	api, err := NewApiClient(opts.BaseURL, "", opts.Proxy)
@@ -67,7 +68,7 @@ func PerformLoginInteractive(
 	timeoutCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	pollTicker := time.NewTicker(2 * time.Second)
+	pollTicker := time.NewTicker(config.Global().ChannelPollInterval())
 	defer pollTicker.Stop()
 
 	scannedPrinted := false

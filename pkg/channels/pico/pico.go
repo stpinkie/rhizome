@@ -1029,7 +1029,7 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		_ = conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "too many connections"),
-			time.Now().Add(2*time.Second),
+			time.Now().Add(config.Global().ChannelPollInterval()),
 		)
 		_ = conn.Close()
 		return
@@ -1102,7 +1102,7 @@ func (c *PicoChannel) readLoop(pc *picoConn) {
 
 	readTimeout := time.Duration(c.config.ReadTimeout) * time.Second
 	if readTimeout <= 0 {
-		readTimeout = 60 * time.Second
+		readTimeout = config.Global().ChannelRequestTimeout()
 	}
 
 	_ = pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
@@ -1114,7 +1114,7 @@ func (c *PicoChannel) readLoop(pc *picoConn) {
 	// Start ping ticker
 	pingInterval := time.Duration(c.config.PingInterval) * time.Second
 	if pingInterval <= 0 {
-		pingInterval = 30 * time.Second
+		pingInterval = config.Global().ChannelHeartbeatInterval()
 	}
 	go c.pingLoop(pc, pingInterval)
 

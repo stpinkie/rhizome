@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 const maxOutputBufferSize = 1 * 1024 * 1024 // 1MB
@@ -181,9 +182,9 @@ func NewSessionManager() *SessionManager {
 		stopCh:   make(chan struct{}),
 	}
 
-	// Start cleaner goroutine - runs every 5 minutes, cleans up sessions done for >30 minutes
+	// Start cleaner goroutine - runs every cleanup interval, cleans up sessions older than cleanup age.
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(config.Global().ToolSessionCleanupInterval())
 		defer ticker.Stop()
 		for {
 			select {
@@ -207,12 +208,12 @@ func (sm *SessionManager) Stop() {
 	})
 }
 
-// cleanupOldSessions removes sessions that are done and older than 30 minutes
+// cleanupOldSessions removes sessions that are done and older than the configured cleanup age.
 func (sm *SessionManager) cleanupOldSessions() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	cutoff := time.Now().Add(-30 * time.Minute)
+	cutoff := time.Now().Add(-config.Global().ToolSessionCleanupAge())
 	for id, session := range sm.sessions {
 		if session.IsDone() && session.StartTime < cutoff.Unix() {
 			delete(sm.sessions, id)

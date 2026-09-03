@@ -649,9 +649,10 @@ func (al *AgentLoop) closeReloadedProvider(ctx context.Context, provider provide
 		waitCtx = context.Background()
 	}
 
-	drained := al.waitForActiveRequests(waitCtx, providerReloadGracePeriod)
+	grace := al.cfg.AgentProviderReloadGrace()
+	drained := al.waitForActiveRequests(waitCtx, grace)
 	if !drained {
-		fields := map[string]any{"grace_period": providerReloadGracePeriod.String()}
+		fields := map[string]any{"grace_period": grace.String()}
 		if err := waitCtx.Err(); err != nil {
 			fields["error"] = err.Error()
 			logger.WarnCF("agent", "Provider reload interrupted while waiting for in-flight requests", fields)

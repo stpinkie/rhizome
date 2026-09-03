@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	defaultClawHubTimeout  = 30 * time.Second
 	defaultMaxZipSize      = 50 * 1024 * 1024 // 50 MB
 	defaultMaxResponseSize = 2 * 1024 * 1024  // 2 MB
 )
@@ -81,7 +80,7 @@ func NewClawHubRegistry(cfg ClawHubConfig) *ClawHubRegistry {
 		downloadPath = "/api/v1/download"
 	}
 
-	timeout := defaultClawHubTimeout
+	timeout := config.Global().HTTPRequestTimeout()
 	if cfg.Timeout > 0 {
 		timeout = time.Duration(cfg.Timeout) * time.Second
 	}

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +24,33 @@ import (
 
 // rrCounter is a global counter for round-robin load balancing across models.
 var rrCounter atomic.Uint64
+
+// globalConfig holds the config set by the running process. It is safe for
+// concurrent reads; writes should happen once during startup.
+var globalConfig struct {
+	mu  sync.RWMutex
+	cfg *Config
+}
+
+// SetGlobal sets the process-wide config. Callers such as the daemon and
+// gateway should set this once after loading user configuration.
+func SetGlobal(cfg *Config) {
+	globalConfig.mu.Lock()
+	defer globalConfig.mu.Unlock()
+	globalConfig.cfg = cfg
+}
+
+// Global returns the process-wide config, or DefaultConfig() if none has been
+// set. It lets libraries resolve timeouts without plumbing a *Config through
+// every constructor.
+func Global() *Config {
+	globalConfig.mu.RLock()
+	defer globalConfig.mu.RUnlock()
+	if globalConfig.cfg == nil {
+		return DefaultConfig()
+	}
+	return globalConfig.cfg
+}
 
 // CurrentVersion is the latest config schema version
 const CurrentVersion = 3
@@ -49,6 +77,7 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
 	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
 	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
+	Timeouts  TimeoutsConfig  `json:"timeouts,omitempty"  yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -247,6 +276,7 @@ func (c EvolutionConfig) AutoAppliesDrafts() bool {
 // It is applied by the isolation package rather than by sandboxing the main process.
 type IsolationConfig struct {
 	Enabled     bool         `json:"enabled,omitempty"`
+	Backend     string       `json:"backend,omitempty"` // sandbox backend: auto, sandbox-exec, none
 	ExposePaths []ExposePath `json:"expose_paths,omitempty"`
 }
 
@@ -488,6 +518,16 @@ type ToolFeedbackConfig struct {
 	SeparateMessages bool `json:"separate_messages" env:"RHIZOME_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
 }
 
+// SteeringMode controls how queued steering messages are dequeued.
+type SteeringMode string
+
+const (
+	// SteeringOneAtATime dequeues only the first queued message per poll.
+	SteeringOneAtATime SteeringMode = "one-at-a-time"
+	// SteeringAll drains the entire queue in a single poll.
+	SteeringAll SteeringMode = "all"
+)
+
 type AgentDefaults struct {
 	Workspace                 string             `json:"workspace"                        env:"RHIZOME_AGENTS_DEFAULTS_WORKSPACE"`
 	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"RHIZOME_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
@@ -505,7 +545,7 @@ type AgentDefaults struct {
 	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"RHIZOME_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
 	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"RHIZOME_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
 	Routing                   *RoutingConfig     `json:"routing,omitempty"`
-	SteeringMode              string             `json:"steering_mode,omitempty"          env:"RHIZOME_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
+	SteeringMode              SteeringMode       `json:"steering_mode,omitempty"          env:"RHIZOME_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
 	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"RHIZOME_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
 	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                     envPrefix:"RHIZOME_AGENTS_DEFAULTS_SUBTURN_"`
 	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`

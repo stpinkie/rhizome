@@ -71,7 +71,7 @@ func NewAgentLoop(
 		fallback:          fallbackChain,
 		cmdRegistry:       commands.NewRegistry(commands.BuiltinDefinitions()),
 		evolution:         bridge,
-		steering:          newSteeringQueue(parseSteeringMode(cfg.Agents.Defaults.SteeringMode)),
+		steering:          newSteeringQueue(parseSteeringMode(string(cfg.Agents.Defaults.SteeringMode))),
 		workerSem:         make(chan struct{}, workerPoolSize),
 		ownsRuntimeEvents: true,
 	}

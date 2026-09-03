@@ -14,7 +14,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
-const messageCacheTTL = 30 * time.Second
+var messageCacheTTL = config.Global().ChannelMessageCacheTTL()
 
 const (
 	maxReplyContextLen = 600
@@ -31,7 +31,7 @@ func (c *FeishuChannel) prependReplyContext(
 		return content, mediaRefs
 	}
 
-	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	lookupCtx, cancel := context.WithTimeout(ctx, config.Global().ChannelPublishTimeout())
 	defer cancel()
 
 	targetMessageID := c.resolveReplyTargetMessageID(lookupCtx, message)

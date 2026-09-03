@@ -68,7 +68,7 @@ func TestIsSupportedOn(t *testing.T) {
 	}{
 		{goos: "linux", want: true},
 		{goos: "windows", want: true},
-		{goos: "darwin", want: false},
+		{goos: "darwin", want: true},
 		{goos: "freebsd", want: false},
 	}
 	for _, tt := range tests {

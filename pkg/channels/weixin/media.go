@@ -26,17 +26,21 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/bus"
 	basechannels "github.com/stpinkie/rhizome/pkg/channels"
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/media"
 )
 
 const (
-	weixinMediaMaxBytes         = 100 << 20
-	weixinTypingKeepAlive       = 5 * time.Second
-	weixinUploadRetryMax        = 3
-	weixinDownloadRetryMax      = 2
-	weixinDownloadRetryDelay    = 300 * time.Millisecond
-	weixinVoiceTranscodeTimeout = 15 * time.Second
+	weixinMediaMaxBytes    = 100 << 20
+	weixinUploadRetryMax   = 3
+	weixinDownloadRetryMax = 2
+)
+
+var (
+	weixinTypingKeepAlive       = config.Global().ChannelPublishTimeout()
+	weixinDownloadRetryDelay    = config.Global().ChannelStreamMinInterval()
+	weixinVoiceTranscodeTimeout = config.Global().ChannelMediaTimeout()
 )
 
 type uploadedFileInfo struct {
@@ -1059,7 +1063,7 @@ func (c *WeixinChannel) StartTyping(ctx context.Context, chatID string) (func(),
 	stop := func() {
 		once.Do(func() {
 			cancel()
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), config.Global().ChannelPublishTimeout())
 			defer stopCancel()
 			if err := c.sendTypingStatus(stopCtx, chatID, ticket, TypingStatusCancel); err != nil {
 				logger.DebugCF("weixin", "Failed to cancel typing indicator", map[string]any{

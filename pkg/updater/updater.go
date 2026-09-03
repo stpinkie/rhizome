@@ -32,7 +32,7 @@ import (
 // a connection (dial) timeout. To control lower-level timeouts (dial,
 // TLS handshake, response header wait), supply a custom Transport with
 // an appropriately configured net.Dialer.
-var httpClient = &http.Client{Timeout: 2 * time.Minute}
+var httpClient = &http.Client{Timeout: config.Global().UpdaterDownloadTimeout()}
 
 func getWithRetry(rawURL string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, nil)
@@ -467,7 +467,7 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	pw.written += int64(n)
 	now := time.Now()
-	if pw.last.IsZero() || now.Sub(pw.last) >= 200*time.Millisecond || (pw.total > 0 && pw.written == pw.total) {
+	if pw.last.IsZero() || now.Sub(pw.last) >= config.Global().UpdaterProgressTick() || (pw.total > 0 && pw.written == pw.total) {
 		pw.print()
 		pw.last = now
 	}

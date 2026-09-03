@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/skills"
 )
 
@@ -24,15 +25,15 @@ func NextLifecycleState(profile SkillProfile, now time.Time) SkillStatus {
 	idle := now.Sub(profile.LastUsedAt)
 	switch profile.Status {
 	case SkillStatusActive:
-		if idle > 90*24*time.Hour && profile.RetentionScore < 0.3 {
+		if idle > config.Global().EvolutionSkillColdThreshold() && profile.RetentionScore < 0.3 {
 			return SkillStatusCold
 		}
 	case SkillStatusCold:
-		if idle > 180*24*time.Hour && profile.RetentionScore < 0.2 {
+		if idle > config.Global().EvolutionSkillArchivedThreshold() && profile.RetentionScore < 0.2 {
 			return SkillStatusArchived
 		}
 	case SkillStatusArchived:
-		if idle > 365*24*time.Hour && profile.RetentionScore < 0.1 {
+		if idle > config.Global().EvolutionSkillDeletedThreshold() && profile.RetentionScore < 0.1 {
 			return SkillStatusDeleted
 		}
 	}

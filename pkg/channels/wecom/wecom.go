@@ -20,17 +20,18 @@ import (
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
-const (
-	wecomConnectTimeout    = 15 * time.Second
-	wecomCommandTimeout    = 10 * time.Second
-	wecomUploadTimeout     = 30 * time.Second
-	wecomHeartbeatInterval = 30 * time.Second
-	wecomStreamMaxDuration = 5*time.Minute + 30*time.Second
-	wecomStreamMinInterval = 500 * time.Millisecond
-	wecomRouteTTL          = 30 * time.Minute
-	wecomMediaTimeout      = 30 * time.Second
-	wecomRecentMessageMax  = 1000
+var (
+	wecomConnectTimeout    = config.Global().ChannelConnectTimeout()
+	wecomCommandTimeout    = config.Global().ChannelCommandTimeout()
+	wecomUploadTimeout     = config.Global().ChannelMediaTimeout()
+	wecomHeartbeatInterval = config.Global().ChannelHeartbeatInterval()
+	wecomStreamMaxDuration = config.Global().ChannelStreamMaxDuration()
+	wecomStreamMinInterval = config.Global().ChannelStreamMinInterval()
+	wecomRouteTTL          = config.Global().ChannelRouteTTL()
+	wecomMediaTimeout      = config.Global().ChannelMediaTimeout()
 )
+
+const wecomRecentMessageMax = 1000
 
 type WeComChannel struct {
 	*channels.BaseChannel
@@ -294,7 +295,7 @@ func (c *WeComChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 }
 
 func (c *WeComChannel) connectLoop() {
-	backoff := time.Second
+	backoff := config.Global().ChannelReconnectInitial()
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -312,10 +313,11 @@ func (c *WeComChannel) connectLoop() {
 			case <-c.ctx.Done():
 				return
 			}
-			if backoff < time.Minute {
+			maxBackoff := config.Global().ChannelReconnectMax()
+			if backoff < maxBackoff {
 				backoff *= 2
-				if backoff > time.Minute {
-					backoff = time.Minute
+				if backoff > maxBackoff {
+					backoff = maxBackoff
 				}
 			}
 			continue

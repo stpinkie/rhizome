@@ -2,6 +2,8 @@ package mesh
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/skills"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -237,4 +240,44 @@ func TestMeshCapabilityExchange(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, nodeB.PeerID(), got.PeerID)
 	assert.Equal(t, []string{"main"}, got.Agents)
+}
+
+func TestMeshCapabilityAdvertisesModelsAndSkills(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	id, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		0,
+	)
+	require.NoError(t, err)
+
+	node, err := network.NewNode(ctx, id.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	require.NoError(t, err)
+	defer node.Close()
+
+	cfg := config.MeshConfig{
+		Enabled:         true,
+		AdvertiseModels: true,
+		AdvertiseSkills: true,
+	}
+	m := NewMesh(node, nil, id, cfg, nil)
+
+	m.SetModelList(config.SecureModelList{
+		{ModelName: "enabled-model", Model: "openai/gpt-5", Enabled: true},
+		{ModelName: "disabled-model", Model: "openai/gpt-4", Enabled: false},
+		{ModelName: "unnamed-model", Model: "openai/gpt-3"},
+	})
+
+	tmp := t.TempDir()
+	skillDir := filepath.Join(tmp, "skills", "demo-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo-skill\ndescription: A demo skill for testing.\n---\n# Demo\n"), 0o644))
+
+	m.SetSkillsLoader(skills.NewSkillsLoader(tmp, "", ""))
+
+	cap := m.localCapability()
+	assert.Equal(t, []string{"enabled-model"}, cap.Models)
+	assert.Equal(t, []string{"demo-skill"}, cap.Skills)
+	assert.Equal(t, []string{"main"}, cap.Agents)
 }

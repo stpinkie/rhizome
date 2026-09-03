@@ -35,7 +35,7 @@ import (
 const chatTypeSingle = "Single"
 
 // configureTimeout bounds the (network-bound) account configuration step.
-const configureTimeout = 90 * time.Second
+var configureTimeout = config.Global().ChannelAuthTimeout()
 
 type chatmailRelay struct {
 	Domain   string
@@ -304,7 +304,7 @@ func (c *DeltaChatChannel) Stop(ctx context.Context) error {
 		c.cancel()
 	}
 	if c.rpc != nil && c.accountID > 0 {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.Background(), config.Global().ChannelPublishTimeout())
 		_, _ = c.rpc.call(stopCtx, "stop_io", c.accountID)
 		cancel()
 	}
@@ -940,13 +940,13 @@ func (c *DeltaChatChannel) waitReady(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		callCtx, cancel := context.WithTimeout(ctx, config.Global().ChannelPollInterval())
 		_, err := c.rpc.call(callCtx, "get_system_info")
 		cancel()
 		if err == nil {
 			return nil
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(config.Global().ChannelStreamMinInterval())
 	}
 	return fmt.Errorf("deltachat: rpc server did not become ready")
 }
@@ -1091,11 +1091,11 @@ func (c *DeltaChatChannel) cleanupPendingAccount(ctx context.Context, accountID 
 	if accountID <= 0 || c.rpc == nil {
 		return
 	}
-	stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	stopCtx, cancel := context.WithTimeout(ctx, config.Global().ChannelCommandTimeout())
 	_, _ = c.rpc.call(stopCtx, "stop_ongoing_process", accountID)
 	cancel()
 
-	removeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	removeCtx, cancel := context.WithTimeout(ctx, config.Global().ChannelCommandTimeout())
 	_, _ = c.rpc.call(removeCtx, "remove_account", accountID)
 	cancel()
 }

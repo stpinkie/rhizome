@@ -18,12 +18,15 @@ import (
 )
 
 const (
-	weixinDefaultCDNBaseURL    = "https://novac2c.cdn.weixin.qq.com/c2c"
-	weixinConfigCacheTTL       = 24 * time.Hour
-	weixinConfigRetryInitial   = 2 * time.Second
-	weixinConfigRetryMax       = time.Hour
-	weixinSessionPauseDuration = time.Hour
-	weixinSessionExpiredCode   = -14
+	weixinDefaultCDNBaseURL  = "https://novac2c.cdn.weixin.qq.com/c2c"
+	weixinSessionExpiredCode = -14
+)
+
+var (
+	weixinConfigCacheTTL       = config.Global().ChannelConfigCacheTTL()
+	weixinConfigRetryInitial   = config.Global().ChannelPollInterval()
+	weixinConfigRetryMax       = config.Global().ChannelSessionPauseDuration()
+	weixinSessionPauseDuration = config.Global().ChannelSessionPauseDuration()
 )
 
 type typingTicketCacheEntry struct {

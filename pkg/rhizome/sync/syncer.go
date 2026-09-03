@@ -11,9 +11,12 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	rhizomeconfig "github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/merge"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
+
+var defaultSyncTimeouts = rhizomeconfig.DefaultTimeouts().Sync
 
 // Syncer owns the workspace git repository and coordinates P2P sync.
 type Syncer struct {
@@ -33,6 +36,7 @@ type Syncer struct {
 	autoSync         bool
 	commitInterval   time.Duration
 	announceInterval time.Duration
+	timeouts         *rhizomeconfig.SyncTimeouts
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -54,6 +58,8 @@ type Config struct {
 	CommitInterval   time.Duration
 	AnnounceInterval time.Duration
 	Exclude          []string
+	// Timeouts override built-in defaults. A nil value uses defaults.
+	Timeouts *rhizomeconfig.SyncTimeouts
 }
 
 // NewSyncer opens the workspace repository and creates a syncer.
@@ -61,6 +67,27 @@ func NewSyncer(ctx context.Context, cfg Config) (*Syncer, error) {
 	repo, w, err := OpenOrInit(cfg.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("open workspace repo: %w", err)
+	}
+
+	commitInterval := cfg.CommitInterval
+	announceInterval := cfg.AnnounceInterval
+	syncTimeouts := cfg.Timeouts
+	if syncTimeouts == nil {
+		syncTimeouts = &defaultSyncTimeouts
+	}
+	if commitInterval <= 0 {
+		if syncTimeouts.CommitInterval > 0 {
+			commitInterval = syncTimeouts.CommitInterval.Duration()
+		} else {
+			commitInterval = 2 * time.Second
+		}
+	}
+	if announceInterval <= 0 {
+		if syncTimeouts.AnnounceInterval > 0 {
+			announceInterval = syncTimeouts.AnnounceInterval.Duration()
+		} else {
+			announceInterval = 30 * time.Second
+		}
 	}
 
 	s := &Syncer{
@@ -72,12 +99,16 @@ func NewSyncer(ctx context.Context, cfg Config) (*Syncer, error) {
 		peerHeads:        make(map[peer.ID]plumbing.Hash),
 		pulling:          make(map[peer.ID]bool),
 		autoSync:         cfg.AutoSync,
-		commitInterval:   cfg.CommitInterval,
-		announceInterval: cfg.AnnounceInterval,
+		commitInterval:   commitInterval,
+		announceInterval: announceInterval,
+		timeouts:         syncTimeouts,
 		stop:             make(chan struct{}),
 	}
 
 	s.transport = NewTransport(cfg.Node.Host(), s)
+	s.transport.requestTimeout = s.transportRequestTimeout()
+	s.transport.packfileTimeout = s.transportPackfileTimeout()
+	s.transport.announceTimeout = s.transportRequestTimeout()
 
 	return s, nil
 }
@@ -95,7 +126,7 @@ func (s *Syncer) Start(ctx context.Context) error {
 	// Wait until the stream handler is registered before returning.
 	select {
 	case <-s.transport.Ready():
-	case <-time.After(5 * time.Second):
+	case <-time.After(s.transportRequestTimeout()):
 		if s.cancel != nil {
 			s.cancel()
 		}
@@ -126,6 +157,48 @@ func (s *Syncer) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *Syncer) timeoutsOrDefault() *rhizomeconfig.SyncTimeouts {
+	if s.timeouts != nil {
+		return s.timeouts
+	}
+	return &defaultSyncTimeouts
+}
+
+func (s *Syncer) peerWait() time.Duration {
+	if s.timeoutsOrDefault().PeerWait > 0 {
+		return s.timeoutsOrDefault().PeerWait.Duration()
+	}
+	return 10 * time.Second
+}
+
+func (s *Syncer) fetchRetry() time.Duration {
+	if s.timeoutsOrDefault().FetchRetry > 0 {
+		return s.timeoutsOrDefault().FetchRetry.Duration()
+	}
+	return 300 * time.Millisecond
+}
+
+func (s *Syncer) fetchAttemptTimeout() time.Duration {
+	if s.timeoutsOrDefault().FetchAttemptTimeout > 0 {
+		return s.timeoutsOrDefault().FetchAttemptTimeout.Duration()
+	}
+	return 60 * time.Second
+}
+
+func (s *Syncer) transportRequestTimeout() time.Duration {
+	if s.timeoutsOrDefault().TransportRequest > 0 {
+		return s.timeoutsOrDefault().TransportRequest.Duration()
+	}
+	return 30 * time.Second
+}
+
+func (s *Syncer) transportPackfileTimeout() time.Duration {
+	if s.timeoutsOrDefault().TransportPackfile > 0 {
+		return s.timeoutsOrDefault().TransportPackfile.Duration()
+	}
+	return 60 * time.Second
 }
 
 // Stop cleanly shuts down the syncer.
@@ -163,7 +236,7 @@ func (s *Syncer) PullFrom(ctx context.Context, pid peer.ID) error {
 	// Ensure the peer is actually connected before opening a sync stream.
 	// CI runs can be heavily loaded, so allow more time for identify/protocol
 	// negotiation before failing the pull.
-	if !s.waitForPeerConnection(ctx, pid, 10*time.Second) {
+	if !s.waitForPeerConnection(ctx, pid, s.peerWait()) {
 		return fmt.Errorf("peer %s is not connected", pid)
 	}
 
@@ -216,7 +289,7 @@ func (s *Syncer) pullFromLocked(ctx context.Context, pid peer.ID) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(300 * time.Millisecond):
+		case <-time.After(s.fetchRetry()):
 		}
 	}
 
@@ -322,7 +395,7 @@ func (s *Syncer) HandleAnnounce(from peer.ID, head plumbing.Hash) {
 		if parent == nil {
 			parent = context.Background()
 		}
-		ctx, cancel := context.WithTimeout(parent, 60*time.Second)
+		ctx, cancel := context.WithTimeout(parent, s.fetchAttemptTimeout())
 		defer cancel()
 		_ = s.PullFrom(ctx, from)
 	}()

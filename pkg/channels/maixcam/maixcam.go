@@ -276,7 +276,7 @@ func (c *MaixCamChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]s
 
 	var sendErr error
 	for conn := range c.clients {
-		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = conn.SetWriteDeadline(time.Now().Add(config.Global().ChannelCommandTimeout()))
 		if _, err := conn.Write(data); err != nil {
 			logger.ErrorCF("maixcam", "Failed to send to client", map[string]any{
 				"client": conn.RemoteAddr().String(),

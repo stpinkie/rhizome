@@ -1,5 +1,5 @@
 
-# 🦐 Rhizome Roadmap
+# 🌱 Rhizome Roadmap
 
 > **Vision**: To build the ultimate lightweight, secure, and fully autonomous AI Agent infrastructure.automate the mundane, unleash your creativity
 

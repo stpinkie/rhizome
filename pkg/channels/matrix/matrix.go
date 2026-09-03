@@ -34,14 +34,16 @@ import (
 )
 
 const (
-	sqliteDriver = "sqlite"
-	dbName       = "store.db"
+	sqliteDriver            = "sqlite"
+	dbName                  = "store.db"
+	roomKindCacheMaxEntries = 2048
+)
 
-	typingRefreshInterval      = 20 * time.Second
-	typingServerTTL            = 30 * time.Second
-	roomKindCacheTTL           = 5 * time.Minute
-	roomKindCacheCleanupPeriod = 1 * time.Minute
-	roomKindCacheMaxEntries    = 2048
+var (
+	typingRefreshInterval      = config.Global().ChannelTypingRefreshInterval()
+	typingServerTTL            = config.Global().ChannelMessageCacheTTL()
+	roomKindCacheTTL           = config.Global().ChannelAuthTimeout()
+	roomKindCacheCleanupPeriod = config.Global().ChannelJanitorInterval()
 )
 
 var matrixMentionHrefRegexp = regexp.MustCompile(`(?i)<a[^>]+href=["']([^"']+)["']`)

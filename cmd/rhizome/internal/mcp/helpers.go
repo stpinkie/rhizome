@@ -100,6 +100,7 @@ func loadConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
+	config.SetGlobal(cfg)
 	return cfg, nil
 }
 

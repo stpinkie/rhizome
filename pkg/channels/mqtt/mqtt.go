@@ -79,7 +79,7 @@ func (c *MQTTChannel) Start(ctx context.Context) error {
 	opts.SetKeepAlive(time.Duration(keepAlive) * time.Second)
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
-	opts.SetConnectRetryInterval(5 * time.Second)
+	opts.SetConnectRetryInterval(config.Global().ChannelReconnectInitial())
 	opts.SetTLSConfig(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec
 
 	if c.cfg.Username.String() != "" {
@@ -102,7 +102,7 @@ func (c *MQTTChannel) Start(ctx context.Context) error {
 
 	client := pahomqtt.NewClient(opts)
 	token := client.Connect()
-	if !token.WaitTimeout(10 * time.Second) {
+	if !token.WaitTimeout(config.Global().ChannelConnectTimeout()) {
 		client.Disconnect(250)
 		return fmt.Errorf("mqtt connect timed out after 10s (broker: %s)", c.cfg.Broker)
 	}

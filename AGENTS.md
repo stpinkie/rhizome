@@ -14,6 +14,14 @@ go test -tags goolm,stdjson ./...
 
 - Some packages (e.g. `maunium.net/go/mautrix/crypto/libolm`) require CGO unless the `goolm` build tag is set. The `stdjson` tag selects the standard `encoding/json` fallback.
 - Windows-specific: `CGO_ENABLED=0` avoids MinGW linker issues when the user home path contains spaces.
+- Cache / scratch locations on Windows: the CI and local build commands use `D:\tmp` to avoid filling `C:\tmp`:
+
+```powershell
+$env:GOCACHE='D:\tmp\rhizome-gocache'
+$env:GOMODCACHE='D:\tmp\rhizome-gomodcache'
+$env:TEMP='D:\tmp'
+$env:TMP='D:\tmp'
+```
 
 ## Rhizome P2P Commands
 
@@ -125,6 +133,26 @@ This script is also run in CI on `ubuntu-latest` as the `mesh-integration` job.
 - `RHIZOME_HOME` overrides the home directory (default `~/.rhizome`).
 - `RHIZOME_CONFIG` overrides the config file path.
 - `RHIZOME_IDENTITY_PASSPHRASE` unlocks an encrypted identity without prompting.
+
+## Track 7 — Timeouts & P2P Resilience
+
+- The `timeouts` section in `config.json` (and `RHIZOME_TIMEOUTS_*` env vars) controls all user-visible wait times (LLM, tools, P2P, sync, HTTP, media, gateway, cron, evolution, health, heartbeat, updater, channels).
+- `pkg/rhizome/stream` provides `ReliableConn`, a stop-and-wait framing layer with per-frame CRC, ACK/NACK, and retransmission.
+- `pkg/rhizome/network` now monitors peer connect/disconnect events and runs an auto-reconnect loop for known peers.
+- `pkg/rhizome/agentrpc` uses `ReliableConn`, caches results by `CorrelationID` for idempotent retries, and `Mesh.CallRemote` retries up to three times with reconnect.
+- `pkg/rhizome/sync` packfile and announce traffic also runs over `ReliableConn` with retry.
+- Capability exchange in `pkg/rhizome/mesh` is re-advertised eagerly when a trusted peer connects.
+- Libraries use `config.Global()` to resolve timeouts after the daemon or gateway calls `config.SetGlobal(cfg)` during startup.
+- The Web UI has a `Timeouts` section under Config where users can edit key duration strings (LLM, tools, HTTP, media, gateway, agent, mesh, sync, network/DHT).
+
+## Web Build
+
+If `pnpm` is not installed globally, use it through `npx`:
+
+```powershell
+npx pnpm install
+npx pnpm build
+```
 
 ## Upstream
 

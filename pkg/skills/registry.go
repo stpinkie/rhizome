@@ -7,7 +7,8 @@ import (
 	"path"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 const (
@@ -228,7 +229,7 @@ func (rm *RegistryManager) SearchAll(ctx context.Context, query string, limit in
 				return
 			}
 
-			searchCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+			searchCtx, cancel := context.WithTimeout(ctx, config.Global().HTTPRequestTimeout())
 			defer cancel()
 
 			results, err := r.Search(searchCtx, query, limit)

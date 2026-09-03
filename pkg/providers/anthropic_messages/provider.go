@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/providers/common"
 	"github.com/stpinkie/rhizome/pkg/providers/protocoltypes"
 )
@@ -31,9 +32,8 @@ type (
 )
 
 const (
-	defaultAPIVersion     = "2023-06-01"
-	defaultBaseURL        = "https://api.anthropic.com/v1"
-	defaultRequestTimeout = 120 * time.Second
+	defaultAPIVersion = "2023-06-01"
+	defaultBaseURL    = "https://api.anthropic.com/v1"
 )
 
 // Provider implements Anthropic Messages API via HTTP (without SDK).
@@ -53,7 +53,7 @@ func NewProvider(apiKey, apiBase, userAgent string) *Provider {
 // NewProviderWithTimeout creates a provider with custom request timeout.
 func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds int) *Provider {
 	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, true)
-	timeout := defaultRequestTimeout
+	timeout := config.Global().HTTPRequestTimeout()
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 	}
