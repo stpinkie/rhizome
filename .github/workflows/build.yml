@@ -105,7 +105,6 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26c
-          local-cache: true
 
       - name: Build universal Android bundle
         run: make build-android-bundle
