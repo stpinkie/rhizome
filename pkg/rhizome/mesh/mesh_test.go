@@ -283,8 +283,8 @@ func TestMeshCapabilityAdvertisesModelsAndSkills(t *testing.T) {
 
 	m.SetSkillsLoader(skills.NewSkillsLoader(tmp, "", ""))
 
-	cap := m.localCapability()
-	assert.Equal(t, []string{"enabled-model"}, cap.Models)
-	assert.Equal(t, []string{"demo-skill"}, cap.Skills)
-	assert.Equal(t, []string{"main"}, cap.Agents)
+	c := m.localCapability()
+	assert.Equal(t, []string{"enabled-model"}, c.Models)
+	assert.Equal(t, []string{"demo-skill"}, c.Skills)
+	assert.Equal(t, []string{"main"}, c.Agents)
 }

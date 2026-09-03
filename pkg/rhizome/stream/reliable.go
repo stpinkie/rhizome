@@ -394,7 +394,7 @@ func (r *ReliableConn) reader() {
 
 func (r *ReliableConn) setReadDeadline(t time.Time) error {
 	type deadliner interface {
-		SetReadDeadline(time.Time) error
+		SetReadDeadline(t time.Time) error
 	}
 	if d, ok := r.conn.(deadliner); ok {
 		return d.SetReadDeadline(t)
@@ -404,7 +404,7 @@ func (r *ReliableConn) setReadDeadline(t time.Time) error {
 
 func (r *ReliableConn) setWriteDeadline(t time.Time) error {
 	type deadliner interface {
-		SetWriteDeadline(time.Time) error
+		SetWriteDeadline(t time.Time) error
 	}
 	if d, ok := r.conn.(deadliner); ok {
 		return d.SetWriteDeadline(t)

@@ -16,8 +16,11 @@ import (
 type Duration time.Duration
 
 // MarshalJSON implements json.Marshaler.
-func (d Duration) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Duration(d).String())
+func (d *Duration) MarshalJSON() ([]byte, error) {
+	if d == nil {
+		return json.Marshal("0s")
+	}
+	return json.Marshal(time.Duration(*d).String())
 }
 
 // UnmarshalJSON implements json.Unmarshaler. It accepts a duration string or a

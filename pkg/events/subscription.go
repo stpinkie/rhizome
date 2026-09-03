@@ -312,8 +312,8 @@ func (s *eventSubscription) getOrCreateKeyedExecutor(key string) *keyedExecutor 
 
 	s.keyedMu.Lock()
 	defer s.keyedMu.Unlock()
-	if ex, ok := s.keyedExecutors[key]; ok {
-		return ex
+	if ex2, ok2 := s.keyedExecutors[key]; ok2 {
+		return ex2
 	}
 
 	ex = &keyedExecutor{
