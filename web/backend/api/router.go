@@ -30,6 +30,9 @@ type Handler struct {
 	weixinFlows map[string]*weixinFlow
 	wecomMu     sync.Mutex
 	wecomFlows  map[string]*wecomFlow
+
+	networkCacheMu sync.Mutex
+	networkCache   map[string]networkCacheEntry
 }
 
 // NewHandler creates an instance of the API handler.
@@ -42,6 +45,7 @@ func NewHandler(configPath string) *Handler {
 		oauthState:                 make(map[string]string),
 		weixinFlows:                make(map[string]*weixinFlow),
 		wecomFlows:                 make(map[string]*wecomFlow),
+		networkCache:               make(map[string]networkCacheEntry),
 	}
 }
 
@@ -112,6 +116,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Runtime build/version metadata
 	h.registerVersionRoutes(mux)
+
+	// Network mesh and DHT status
+	h.registerNetworkRoutes(mux)
 
 	// WeChat QR login flow
 	h.registerWeixinRoutes(mux)

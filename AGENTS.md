@@ -42,6 +42,17 @@ $env:TMP='D:\tmp'
   - `--no-gateway` starts the P2P node and syncer without the HTTP gateway.
   - `--sync-commit-interval` and `--sync-announce-interval` tune auto-sync.
 
+## Web Backend Network API
+
+The web console (the launcher) exposes authenticated JSON endpoints that wrap `rhizome network status` so the dashboard can display live mesh/DHT status:
+
+- `GET /api/network/peers` — start a temporary libp2p node and return connected peers with trust status and advertised capabilities.
+  - Query parameters: `bootstrap` (repeatable), `timeout` (e.g. `10s`), `listen` (repeatable).
+- `GET /api/network/dht` — start a temporary libp2p node and return the DHT status snapshot.
+  - Query parameters: `bootstrap` (repeatable), `timeout` (e.g. `10s`), `listen` (repeatable).
+
+Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOME` and `RHIZOME_CONFIG` automatically. Results are cached for 5 seconds to avoid spawning multiple overlapping nodes.
+
 ## Key Packages
 
 - `pkg/rhizome/identity` — BIP39/SLIP-0010 Ed25519 node identity, persistence, and Ed25519 signing; now supports OS keyring and passphrase encryption.
