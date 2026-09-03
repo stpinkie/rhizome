@@ -107,6 +107,7 @@ func NewDaemonCommand() *cobra.Command {
 			var rhizomeMesh *mesh.Mesh
 			if cfg.Mesh.Enabled {
 				rhizomeMesh = mesh.NewMesh(node, syncer, derived, cfg.Mesh, nil)
+				rhizomeMesh.SetName(name)
 				if cfg.Mesh.AdvertiseModels {
 					rhizomeMesh.SetModelList(cfg.ModelList)
 				}

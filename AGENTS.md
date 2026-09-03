@@ -181,3 +181,12 @@ npx pnpm build
 - Point agents at `.rhizome-tests/SKILL.md`.
 - After running the suite, agents write a Markdown and JSON report to `.rhizome-tests/reports/`.
 - The GitHub Actions matrix in `.github/workflows/pr.yml` runs the same core checks on Linux, Windows, and web.
+
+## Live Network Status API (v0.4.4)
+
+- `GET /api/network/status` on the launcher returns a combined mesh/DHT snapshot.
+- When a `rhizome daemon` is running, the backend proxies to the daemon's `GET /network/status` endpoint, protected by the PID file token (`Authorization: Bearer <pid-token>`).
+- If the daemon is unavailable, or if the caller passes `bootstrap`/`listen` overrides, the launcher falls back to a single `rhizome network status --peers --dht --json` CLI spawn.
+- The daemon source lives in `pkg/gateway/networkapi.go` and reads from `Mesh.NetworkStatus()` in `pkg/rhizome/mesh`.
+- Old `GET /api/network/peers` and `GET /api/network/dht` endpoints remain as compatibility aliases over the combined response.
+- The frontend Network page now uses one `useQuery` for `getNetworkStatus` and renders both panels from the same response.

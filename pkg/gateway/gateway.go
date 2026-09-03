@@ -249,7 +249,7 @@ func RunWithMesh(
 
 	logger.InfoCF("agent", "Agent initialized", startupStatus.logFields)
 
-	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, listenResult)
+	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, homePath, rhizomeMesh, listenResult)
 	if err != nil {
 		return err
 	}
@@ -445,6 +445,8 @@ func setupAndStartServices(
 	agentLoop *agent.AgentLoop,
 	msgBus *bus.MessageBus,
 	authToken string,
+	homePath string,
+	rhizomeMesh *mesh.Mesh,
 	listenResult netbind.OpenResult,
 ) (*services, error) {
 	runningServices := &services{}
@@ -533,6 +535,13 @@ func setupAndStartServices(
 		listenAddr,
 		runningServices.HealthServer,
 	)
+
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/status",
+		newNetworkStatusHandler(rhizomeMesh, authToken, homePath),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network status handler: %w", err)
+	}
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)

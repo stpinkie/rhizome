@@ -14,10 +14,10 @@ import { PeersPanel } from "./peers-panel"
 export function NetworkPage() {
   const { t } = useTranslation()
   const [bootstraps, setBootstraps] = useState<string[]>([])
-  const { peersQuery, dhtQuery, refresh } = useNetwork({ bootstraps })
+  const { statusQuery, refresh } = useNetwork({ bootstraps })
 
-  const isLoading = peersQuery.isLoading || dhtQuery.isLoading
-  const error = peersQuery.error ?? dhtQuery.error
+  const isLoading = statusQuery.isLoading
+  const error = statusQuery.error
 
   return (
     <div className="flex h-full flex-col">
@@ -63,10 +63,13 @@ export function NetworkPage() {
 
           <div className={cn("grid gap-6", "grid-cols-1 lg:grid-cols-2")}>
             <PeersPanel
-              response={peersQuery.data}
-              isLoading={peersQuery.isLoading}
+              response={statusQuery.data}
+              isLoading={statusQuery.isLoading}
             />
-            <DhtPanel response={dhtQuery.data} isLoading={dhtQuery.isLoading} />
+            <DhtPanel
+              response={statusQuery.data}
+              isLoading={statusQuery.isLoading}
+            />
           </div>
         </div>
       </div>

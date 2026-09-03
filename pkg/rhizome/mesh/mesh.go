@@ -43,6 +43,31 @@ type Capability struct {
 	Allows    map[string]bool `json:"allows,omitempty"`
 }
 
+// PeerCapability is a minimal view of a peer's capability for status output.
+type PeerCapability struct {
+	Models []string `json:"models,omitempty"`
+	Skills []string `json:"skills,omitempty"`
+	Agents []string `json:"agents,omitempty"`
+}
+
+// PeerStatus is the JSON-friendly status for one connected peer.
+type PeerStatus struct {
+	PeerID     string         `json:"peer_id"`
+	Addrs      []string       `json:"addrs"`
+	Trusted    bool           `json:"trusted"`
+	Capability PeerCapability `json:"capability,omitempty"`
+}
+
+// NetworkStatus is the combined mesh/DHT snapshot returned by Mesh.NetworkStatus.
+type NetworkStatus struct {
+	Name      string          `json:"name"`
+	NodeIndex uint32          `json:"node_index"`
+	PeerID    string          `json:"peer_id"`
+	Identity  string          `json:"identity"`
+	Peers     []PeerStatus    `json:"peers,omitempty"`
+	DHT       *rnet.DHTStatus `json:"dht,omitempty"`
+}
+
 // Mesh is the decentralized agent runtime layer over a Rhizome node.
 type Mesh struct {
 	node   *rnet.Node
@@ -72,6 +97,7 @@ type Mesh struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	eventBus runtimeevents.Bus
+	name     string
 }
 
 // NewMesh creates a mesh layer over an existing node and syncer.
@@ -113,6 +139,19 @@ func NewMesh(
 // SetEventBus sets the runtime event bus used to publish mesh events.
 func (m *Mesh) SetEventBus(bus runtimeevents.Bus) {
 	m.eventBus = bus
+}
+
+// SetName sets the human-readable node name included in NetworkStatus.
+func (m *Mesh) SetName(name string) {
+	m.name = name
+}
+
+// Name returns the human-readable node name, if any.
+func (m *Mesh) Name() string {
+	if m == nil {
+		return ""
+	}
+	return m.name
 }
 
 // publishMeshEvent publishes a non-blocking mesh runtime event if a bus is configured.
@@ -537,6 +576,52 @@ func (m *Mesh) IsTrusted(pid peer.ID) bool {
 	m.trustMu.RLock()
 	defer m.trustMu.RUnlock()
 	return m.trust[pid]
+}
+
+// NetworkStatus returns a combined snapshot of the local mesh/DHT state.
+// If m is nil, it returns an empty status (callers should decide how to render).
+func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
+	if m == nil {
+		return NetworkStatus{}
+	}
+
+	out := NetworkStatus{
+		Name:      m.name,
+		NodeIndex: m.id.NodeIndex,
+		PeerID:    m.id.PeerID,
+		Identity:  identityPath,
+	}
+	if m.node != nil {
+		out.PeerID = m.node.PeerID()
+		peers := m.node.ConnectedPeers()
+		out.Peers = make([]PeerStatus, 0, len(peers))
+		for _, pid := range peers {
+			ps := PeerStatus{PeerID: pid.String()}
+			for _, a := range m.node.Host().Peerstore().Addrs(pid) {
+				ps.Addrs = append(ps.Addrs, a.String())
+			}
+			ps.Trusted = m.IsTrusted(pid)
+			if cap, ok := m.PeerCapabilities(pid); ok {
+				pc := PeerCapability{}
+				if len(cap.Models) > 0 {
+					pc.Models = cap.Models
+				}
+				if len(cap.Skills) > 0 {
+					pc.Skills = cap.Skills
+				}
+				if len(cap.Agents) > 0 {
+					pc.Agents = cap.Agents
+				}
+				ps.Capability = pc
+			}
+			out.Peers = append(out.Peers, ps)
+		}
+		dht := m.node.DHTStatus()
+		if dht.Rendezvous != "" {
+			out.DHT = &dht
+		}
+	}
+	return out
 }
 
 // TrustedPeers returns the list of trusted peer IDs.

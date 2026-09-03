@@ -1141,6 +1141,21 @@ func (m *Manager) SetupHTTPServerListeners(listeners []net.Listener, addr string
 	m.httpListeners = append([]net.Listener(nil), listeners...)
 }
 
+// RegisterHTTPHandler registers an arbitrary HTTP handler on the shared mux.
+// It must be called after SetupHTTPServerListeners and before the server starts.
+func (m *Manager) RegisterHTTPHandler(pattern string, handler http.Handler) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.mux == nil {
+		return fmt.Errorf("HTTP server not initialized; call SetupHTTPServerListeners first")
+	}
+	m.mux.Handle(pattern, handler)
+	logger.InfoCF("channels", "HTTP handler registered", map[string]any{
+		"pattern": pattern,
+	})
+	return nil
+}
+
 // registerHTTPHandlersLocked registers webhook and health-check handlers for
 // all channels currently in m.channels. Caller must hold m.mu (or ensure
 // exclusive access).

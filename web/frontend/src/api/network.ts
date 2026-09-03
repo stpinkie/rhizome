@@ -68,19 +68,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export async function getNetworkPeers(
+export async function getNetworkStatus(
   options?: NetworkStatusOptions,
 ): Promise<NetworkStatusResponse> {
   return request<NetworkStatusResponse>(
-    `/api/network/peers${buildQuery(options)}`,
-  )
-}
-
-export async function getNetworkDHT(
-  options?: NetworkStatusOptions,
-): Promise<NetworkStatusResponse> {
-  return request<NetworkStatusResponse>(
-    `/api/network/dht${buildQuery(options)}`,
+    `/api/network/status${buildQuery(options)}`,
   )
 }
 

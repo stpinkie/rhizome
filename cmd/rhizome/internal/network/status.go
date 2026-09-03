@@ -20,17 +20,6 @@ import (
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
 
-type peerStatus struct {
-	PeerID     string   `json:"peer_id"`
-	Addrs      []string `json:"addrs"`
-	Trusted    bool     `json:"trusted"`
-	Capability struct {
-		Models []string `json:"models,omitempty"`
-		Skills []string `json:"skills,omitempty"`
-		Agents []string `json:"agents,omitempty"`
-	} `json:"capability,omitempty"`
-}
-
 // NewStatusCommand returns the network status command.
 func NewStatusCommand() *cobra.Command {
 	var (
@@ -109,12 +98,13 @@ func NewStatusCommand() *cobra.Command {
 			defer node.Close()
 
 			var rhizomeMesh *mesh.Mesh
-			if cfg.Mesh.Enabled && showPeers {
+			if showPeers || showDHT {
 				meshCfg := cfg.Mesh
 				// Status is read-only; do not accept remote execution from a status probe.
 				meshCfg.AllowRemoteDelegate = false
 				meshCfg.AllowRemoteSpawn = false
 				rhizomeMesh = mesh.NewMesh(node, nil, derived, meshCfg, nil)
+				rhizomeMesh.SetName(name)
 				if cfg.Mesh.AdvertiseModels {
 					rhizomeMesh.SetModelList(cfg.ModelList)
 				}
@@ -132,9 +122,11 @@ func NewStatusCommand() *cobra.Command {
 						rhizomeMesh.TrustPeer(pid)
 					}
 				}
-				if err := rhizomeMesh.Start(ctx); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to start mesh: %v\n", err)
-					os.Exit(1)
+				if cfg.Mesh.Enabled && showPeers {
+					if err := rhizomeMesh.Start(ctx); err != nil {
+						fmt.Fprintf(os.Stderr, "Failed to start mesh: %v\n", err)
+						os.Exit(1)
+					}
 				}
 				defer rhizomeMesh.Stop()
 			}
@@ -143,17 +135,19 @@ func NewStatusCommand() *cobra.Command {
 				fmt.Fprintln(os.Stderr, "No connected peers found. Check --bootstrap or DHT configuration.")
 			}
 
+			status := rhizomeMesh.NetworkStatus(identityDir)
+
 			out := map[string]any{
-				"name":       name,
-				"node_index": derived.NodeIndex,
-				"peer_id":    derived.PeerID,
-				"identity":   identityDir,
+				"name":       status.Name,
+				"node_index": status.NodeIndex,
+				"peer_id":    status.PeerID,
+				"identity":   status.Identity,
 			}
 			if showPeers {
-				out["peers"] = buildPeerStatus(node, rhizomeMesh)
+				out["peers"] = status.Peers
 			}
-			if showDHT {
-				out["dht"] = node.DHTStatus()
+			if showDHT && status.DHT != nil {
+				out["dht"] = status.DHT
 			}
 
 			if asJSON {
@@ -166,15 +160,15 @@ func NewStatusCommand() *cobra.Command {
 				return
 			}
 
-			fmt.Printf("Node:      %s\n", name)
-			fmt.Printf("Index:     %d\n", derived.NodeIndex)
-			fmt.Printf("Peer ID:   %s\n", derived.PeerID)
-			fmt.Printf("Identity:  %s\n", identityDir)
+			fmt.Printf("Node:      %s\n", status.Name)
+			fmt.Printf("Index:     %d\n", status.NodeIndex)
+			fmt.Printf("Peer ID:   %s\n", status.PeerID)
+			fmt.Printf("Identity:  %s\n", status.Identity)
 			if showPeers {
-				printPeerStatus(out["peers"].([]peerStatus))
+				printPeerStatus(status.Peers)
 			}
-			if showDHT {
-				printDHTStatus(out["dht"].(rnet.DHTStatus))
+			if showDHT && status.DHT != nil {
+				printDHTStatus(*status.DHT)
 			}
 		},
 	}
@@ -230,29 +224,7 @@ func waitForAnyConnectedPeer(ctx context.Context, node *rnet.Node, timeout time.
 	}
 }
 
-func buildPeerStatus(node *rnet.Node, m *mesh.Mesh) []peerStatus {
-	peers := node.ConnectedPeers()
-	out := make([]peerStatus, 0, len(peers))
-
-	for _, pid := range peers {
-		ps := peerStatus{PeerID: pid.String()}
-		for _, a := range node.Host().Peerstore().Addrs(pid) {
-			ps.Addrs = append(ps.Addrs, a.String())
-		}
-		if m != nil {
-			ps.Trusted = m.IsTrusted(pid)
-			if cap, ok := m.PeerCapabilities(pid); ok {
-				ps.Capability.Models = cap.Models
-				ps.Capability.Skills = cap.Skills
-				ps.Capability.Agents = cap.Agents
-			}
-		}
-		out = append(out, ps)
-	}
-	return out
-}
-
-func printPeerStatus(peers []peerStatus) {
+func printPeerStatus(peers []mesh.PeerStatus) {
 	if len(peers) == 0 {
 		fmt.Println("No connected peers.")
 		return

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -34,19 +36,20 @@ var (
 )
 
 func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/network/status", h.handleNetworkStatus)
 	mux.HandleFunc("GET /api/network/peers", h.handleNetworkPeers)
 	mux.HandleFunc("GET /api/network/dht", h.handleNetworkDHT)
 }
 
 func (h *Handler) handleNetworkPeers(w http.ResponseWriter, r *http.Request) {
-	h.handleNetworkStatus(w, r, "peers")
+	h.handleNetworkStatus(w, r)
 }
 
 func (h *Handler) handleNetworkDHT(w http.ResponseWriter, r *http.Request) {
-	h.handleNetworkStatus(w, r, "dht")
+	h.handleNetworkStatus(w, r)
 }
 
-func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request, kind string) {
+func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	timeout, err := parseNetworkTimeout(query.Get("timeout"))
 	if err != nil {
@@ -61,7 +64,7 @@ func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request, ki
 		}
 	}
 
-	cacheKey := networkCacheKey(kind, query)
+	cacheKey := networkCacheKey("status", query)
 	h.networkCacheMu.Lock()
 	if entry, ok := h.networkCache[cacheKey]; ok && time.Now().Before(entry.expires) {
 		h.networkCacheMu.Unlock()
@@ -74,13 +77,86 @@ func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request, ki
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	execPath := findRhizomeBinaryForNetwork()
-	if execPath == "" {
-		respondNetworkError(w, http.StatusInternalServerError, "rhizome binary not found")
+	// Custom bootstrap/listen require a temporary node because the running
+	// daemon endpoint does not override its configured network parameters.
+	hasOverrides := len(query["bootstrap"]) > 0 || len(query["listen"]) > 0
+
+	var output []byte
+	if !hasOverrides {
+		output, err = h.networkStatusFromGateway(ctx, timeout)
+		if err != nil {
+			logger.Warnf("network status gateway fetch failed, falling back to CLI: %v", err)
+		}
+	}
+	if len(output) == 0 {
+		output, err = h.networkStatusFromCLI(ctx, query, timeout)
+	}
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			respondNetworkError(w, http.StatusGatewayTimeout, "network status timed out")
+			return
+		}
+		respondNetworkError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 
-	args := []string{"network", "status", "--" + kind, "--json", "--timeout", timeout.String()}
+	if !json.Valid(output) {
+		respondNetworkError(w, http.StatusBadGateway, "network status returned invalid JSON")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	h.networkCacheMu.Lock()
+	h.networkCache[cacheKey] = networkCacheEntry{body: output, expires: time.Now().Add(networkCacheTTL)}
+	h.networkCacheMu.Unlock()
+	w.Write(output)
+}
+
+func (h *Handler) networkStatusFromGateway(ctx context.Context, timeout time.Duration) ([]byte, error) {
+	if !h.gatewayAvailableForProxy() {
+		return nil, errors.New("gateway not available for proxy")
+	}
+
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		return nil, errors.New("gateway pid data unavailable")
+	}
+
+	u := h.gatewayProxyURL()
+	u.Path = "/network/status"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
+}
+
+func (h *Handler) networkStatusFromCLI(ctx context.Context, query map[string][]string, timeout time.Duration) ([]byte, error) {
+	execPath := findRhizomeBinaryForNetwork()
+	if execPath == "" {
+		return nil, errors.New("rhizome binary not found")
+	}
+
+	args := []string{"network", "status", "--peers", "--dht", "--json", "--timeout", timeout.String()}
 	for _, b := range query["bootstrap"] {
 		args = append(args, "--bootstrap", b)
 	}
@@ -95,28 +171,13 @@ func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request, ki
 
 	output, stderr, err := runNetworkStatus(ctx, execPath, args, env)
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			respondNetworkError(w, http.StatusGatewayTimeout, "network status timed out")
-			return
-		}
 		msg := trimNetworkError(stderr)
 		if msg == "" {
 			msg = err.Error()
 		}
-		respondNetworkError(w, http.StatusBadGateway, msg)
-		return
+		return nil, errors.New(msg)
 	}
-
-	if !json.Valid(output) {
-		respondNetworkError(w, http.StatusBadGateway, "network status returned invalid JSON")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	h.networkCacheMu.Lock()
-	h.networkCache[cacheKey] = networkCacheEntry{body: output, expires: time.Now().Add(networkCacheTTL)}
-	h.networkCacheMu.Unlock()
-	w.Write(output)
+	return output, nil
 }
 
 func parseNetworkTimeout(v string) (time.Duration, error) {

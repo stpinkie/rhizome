@@ -3,8 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 
 import {
   type NetworkStatusOptions,
-  getNetworkDHT,
-  getNetworkPeers,
+  getNetworkStatus,
 } from "@/api/network"
 
 function usePageVisible() {
@@ -34,26 +33,17 @@ export function useNetwork(options?: NetworkStatusOptions) {
     [options?.bootstraps, options?.listen, options?.timeout],
   )
 
-  const peersQuery = useQuery({
-    queryKey: ["network", "peers", memoOptions],
-    queryFn: () => getNetworkPeers(memoOptions),
-    refetchInterval: visible ? 60000 : false,
-    staleTime: 5000,
-    retry: 1,
-  })
-
-  const dhtQuery = useQuery({
-    queryKey: ["network", "dht", memoOptions],
-    queryFn: () => getNetworkDHT(memoOptions),
+  const statusQuery = useQuery({
+    queryKey: ["network", "status", memoOptions],
+    queryFn: () => getNetworkStatus(memoOptions),
     refetchInterval: visible ? 60000 : false,
     staleTime: 5000,
     retry: 1,
   })
 
   const refresh = useCallback(() => {
-    void peersQuery.refetch()
-    void dhtQuery.refetch()
-  }, [peersQuery, dhtQuery])
+    void statusQuery.refetch()
+  }, [statusQuery])
 
-  return { peersQuery, dhtQuery, refresh }
+  return { statusQuery, refresh }
 }
