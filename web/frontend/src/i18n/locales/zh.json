@@ -13,7 +13,9 @@
     "show_more_channels": "更多",
     "show_less_channels": "收起",
     "config": "配置",
-    "logs": "日志"
+    "logs": "日志",
+    "network_group": "网络",
+    "network": "网络"
   },
   "launcherLogin": {
     "title": "登录",
@@ -991,6 +993,35 @@
       "log_level_error": "更新日志等级失败。",
       "clear": "清空日志",
       "empty": "等待日志中..."
+    },
+    "network": {
+      "title": "网络",
+      "peers": "节点",
+      "dht": "DHT",
+      "bootstrap_label": "引导节点（可选）",
+      "bootstrap_placeholder": "/ip4/127.0.0.1/tcp/4001/p2p/12D3...",
+      "apply": "应用",
+      "refresh": "刷新",
+      "no_peers": "未找到已连接节点。",
+      "no_peers_hint": "添加一个引导节点，或检查 DHT/mDNS 配置。",
+      "no_dht": "DHT 状态不可用。",
+      "peer_id": "节点 ID",
+      "trusted": "已信任",
+      "untrusted": "未信任",
+      "addrs": "地址",
+      "models": "模型",
+      "skills": "技能",
+      "agents": "智能体",
+      "dht_rendezvous": "会合点",
+      "dht_mode": "模式",
+      "dht_routing_table": "路由表",
+      "dht_discovered": "已发现节点",
+      "dht_bootstrap": "引导节点",
+      "dht_last_provide": "最后提供",
+      "dht_last_discover": "最后发现",
+      "dht_has_provided": "已提供",
+      "dht_has_discovered": "已发现",
+      "load_error": "加载网络状态失败。"
     }
   },
   "tour": {

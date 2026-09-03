@@ -13,7 +13,9 @@
     "show_more_channels": "More",
     "show_less_channels": "Less",
     "config": "Config",
-    "logs": "Logs"
+    "logs": "Logs",
+    "network_group": "Network",
+    "network": "Network"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -991,6 +993,35 @@
       "log_level_error": "Failed to update log level.",
       "clear": "Clear logs",
       "empty": "Waiting for logs..."
+    },
+    "network": {
+      "title": "Network",
+      "peers": "Peers",
+      "dht": "DHT",
+      "bootstrap_label": "Bootstrap peers (optional)",
+      "bootstrap_placeholder": "/ip4/127.0.0.1/tcp/4001/p2p/12D3...",
+      "apply": "Apply",
+      "refresh": "Refresh",
+      "no_peers": "No connected peers found.",
+      "no_peers_hint": "Add a bootstrap peer or check DHT/mDNS configuration.",
+      "no_dht": "No DHT status available.",
+      "peer_id": "Peer ID",
+      "trusted": "Trusted",
+      "untrusted": "Untrusted",
+      "addrs": "Addresses",
+      "models": "Models",
+      "skills": "Skills",
+      "agents": "Agents",
+      "dht_rendezvous": "Rendezvous",
+      "dht_mode": "Mode",
+      "dht_routing_table": "Routing Table",
+      "dht_discovered": "Discovered Peers",
+      "dht_bootstrap": "Bootstrap Peers",
+      "dht_last_provide": "Last Provide",
+      "dht_last_discover": "Last Discover",
+      "dht_has_provided": "Has Provided",
+      "dht_has_discovered": "Has Discovered",
+      "load_error": "Failed to load network status."
     }
   },
   "tour": {

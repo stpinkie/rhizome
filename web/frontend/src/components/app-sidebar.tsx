@@ -10,6 +10,7 @@ import {
   IconSettings,
   IconSparkles,
   IconTools,
+  IconWorld,
 } from "@tabler/icons-react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import * as React from "react"
@@ -59,6 +60,10 @@ const baseNavGroups: Omit<NavGroup, "items">[] = [
   },
   {
     label: "navigation.agent_group",
+    defaultOpen: true,
+  },
+  {
+    label: "navigation.network_group",
     defaultOpen: true,
   },
   {
@@ -154,6 +159,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       },
       {
         ...baseNavGroups[3],
+        items: [
+          {
+            title: "navigation.network",
+            url: "/network",
+            icon: IconWorld,
+            translateTitle: true,
+          },
+        ],
+      },
+      {
+        ...baseNavGroups[4],
         items: [
           {
             title: "navigation.config",

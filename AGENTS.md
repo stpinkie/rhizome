@@ -51,6 +51,8 @@ The web console (the launcher) exposes authenticated JSON endpoints that wrap `r
 - `GET /api/network/dht` — start a temporary libp2p node and return the DHT status snapshot.
   - Query parameters: `bootstrap` (repeatable), `timeout` (e.g. `10s`), `listen` (repeatable).
 
+The dashboard has a **Network** page (`/network`) that visualizes these endpoints: it shows connected peers with trust/capability badges, a DHT status snapshot, optional bootstrap overrides, and auto-refreshes every 60 seconds.
+
 Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOME` and `RHIZOME_CONFIG` automatically. Results are cached for 5 seconds to avoid spawning multiple overlapping nodes.
 
 ## Key Packages
