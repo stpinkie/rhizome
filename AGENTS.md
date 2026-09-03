@@ -197,3 +197,16 @@ npx pnpm build
 - The daemon validates each multiaddr and attempts `Mesh.Connect` for it before building the status snapshot. The trust set is not modified.
 - `GET /api/network/status` on the launcher now forwards `bootstrap` and `timeout` to the daemon and only falls back to the CLI for `?listen=...` overrides or when the daemon is unavailable.
 - A custom `?listen=...` still requires a temporary node because the daemon's bound listeners cannot be changed at runtime.
+
+## Bootstrap Trust and Persistence (v0.4.6)
+
+- `GET /network/status` on the daemon now accepts `?trust=true` alongside `?bootstrap=...`.
+- When `trust=true` and the bootstrap succeeds, the daemon:
+  - trusts the peer (`Mesh.TrustPeer`),
+  - eagerly fetches and stores the remote capability (`Mesh.TrustAndDiscover`),
+  - advertises the local capability back to the peer,
+  - persists the multiaddr to `mesh.bootstrap_peers` and the peer ID to `mesh.trusted_peers` in `config.json`.
+- `GET /api/network/status` on the launcher forwards `trust=true` to the daemon. If the daemon is unavailable, the launcher falls back to `rhizome network status ... --trust`, which also persists the bootstrapped peer.
+- A custom `?listen=...` still forces the CLI fallback, and the CLI fallback honors `--trust`.
+- The Network dashboard has a "Trust & remember this peer" toggle that adds `trust=true` to the status query.
+- On the next daemon startup, `mesh.bootstrap_peers` are merged into the libp2p bootstrap list and `mesh.trusted_peers` are loaded into the mesh trust set, so saved peers reconnect and are trusted automatically.

@@ -39,6 +39,7 @@ export interface NetworkStatusOptions {
   bootstraps?: string[]
   timeout?: string
   listen?: string[]
+  trust?: boolean
 }
 
 function buildQuery(options?: NetworkStatusOptions): string {
@@ -55,6 +56,9 @@ function buildQuery(options?: NetworkStatusOptions): string {
     if (l.trim() !== "") {
       params.append("listen", l.trim())
     }
+  }
+  if (options?.trust) {
+    params.set("trust", "true")
   }
   const query = params.toString()
   return query ? `?${query}` : ""

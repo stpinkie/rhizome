@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 
 function parseBootstraps(raw: string): string[] {
@@ -17,6 +18,8 @@ interface BootstrapInputProps {
   bootstraps: string[]
   onChange: (bootstraps: string[]) => void
   onApply: () => void
+  trust: boolean
+  onTrustChange: (trust: boolean) => void
   disabled?: boolean
 }
 
@@ -24,6 +27,8 @@ export function BootstrapInput({
   bootstraps,
   onChange,
   onApply,
+  trust,
+  onTrustChange,
   disabled,
 }: BootstrapInputProps) {
   const { t } = useTranslation()
@@ -36,7 +41,7 @@ export function BootstrapInput({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <Label htmlFor="network-bootstrap">
           {t("pages.network.bootstrap_label", "Bootstrap peers (optional)")}
@@ -62,6 +67,20 @@ export function BootstrapInput({
         disabled={disabled}
         rows={3}
       />
+      <div className="flex items-center gap-2">
+        <Switch
+          id="network-trust"
+          checked={trust}
+          onCheckedChange={onTrustChange}
+          disabled={disabled}
+        />
+        <Label
+          htmlFor="network-trust"
+          className="text-sm font-normal text-muted-foreground"
+        >
+          {t("pages.network.trust_bootstrap", "Trust & remember this peer")}
+        </Label>
+      </div>
     </div>
   )
 }

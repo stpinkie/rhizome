@@ -89,6 +89,7 @@ type Config struct {
 type MeshConfig struct {
 	Enabled              bool          `json:"enabled,omitempty"`
 	TrustedPeers         []string      `json:"trusted_peers,omitempty"`
+	BootstrapPeers       []string      `json:"bootstrap_peers,omitempty"`
 	AdvertiseModels      bool          `json:"advertise_models,omitempty"`
 	AdvertiseSkills      bool          `json:"advertise_skills,omitempty"`
 	DHTEnabled           bool          `json:"dht_enabled,omitempty"`
@@ -157,6 +158,14 @@ func (m *MeshConfig) Validate() error {
 	for i, p := range m.TrustedPeers {
 		if p == "" {
 			return fmt.Errorf("mesh.trusted_peers[%d] is empty", i)
+		}
+	}
+	for i, p := range m.BootstrapPeers {
+		if p == "" {
+			return fmt.Errorf("mesh.bootstrap_peers[%d] is empty", i)
+		}
+		if !strings.Contains(p, "/p2p/") {
+			return fmt.Errorf("mesh.bootstrap_peers[%d] must include a /p2p/<peer-id> suffix", i)
 		}
 	}
 	return nil

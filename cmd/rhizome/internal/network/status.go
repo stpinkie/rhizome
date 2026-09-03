@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
 	"github.com/spf13/cobra"
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
@@ -29,6 +28,7 @@ func NewStatusCommand() *cobra.Command {
 		bootstraps []string
 		listen     []string
 		timeout    time.Duration
+		trust      bool
 	)
 
 	cmd := &cobra.Command{
@@ -118,10 +118,26 @@ func NewStatusCommand() *cobra.Command {
 				}
 				// Trust explicit bootstrap peers so we can receive their capabilities.
 				for _, addr := range bootstraps {
-					if pid, err := peerIDFromMultiaddr(addr); err == nil {
+					if pid, err := rnet.PeerIDFromMultiaddr(addr); err == nil {
 						rhizomeMesh.TrustPeer(pid)
 					}
 				}
+
+				if trust && len(bootstraps) > 0 {
+					// NOTE: this save races with any concurrent daemon save of the same
+					// config.json. fileutil.WriteFileAtomic prevents corruption, but the
+					// last writer wins and one side's edits may be lost.
+					for _, addr := range bootstraps {
+						cfg.Mesh.BootstrapPeers = rnet.AppendUnique(cfg.Mesh.BootstrapPeers, strings.TrimSpace(addr))
+						if pid, err := rnet.PeerIDFromMultiaddr(addr); err == nil {
+							cfg.Mesh.TrustedPeers = rnet.AppendUnique(cfg.Mesh.TrustedPeers, pid.String())
+						}
+					}
+					if err := config.SaveConfig(internal.GetConfigPath(), cfg); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to save bootstrap peers to config: %v\n", err)
+					}
+				}
+
 				if cfg.Mesh.Enabled && showPeers {
 					if err := rhizomeMesh.Start(ctx); err != nil {
 						fmt.Fprintf(os.Stderr, "Failed to start mesh: %v\n", err)
@@ -179,6 +195,7 @@ func NewStatusCommand() *cobra.Command {
 	cmd.Flags().StringArrayVar(&bootstraps, "bootstrap", nil, "Bootstrap peer multiaddr(s)")
 	cmd.Flags().StringArrayVar(&listen, "listen", []string{"/ip4/127.0.0.1/tcp/0"}, "Listen multiaddr(s)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 15*time.Second, "Timeout for peer/DHT discovery")
+	cmd.Flags().BoolVar(&trust, "trust", false, "Trust and persist bootstrap peers to config")
 	return cmd
 }
 
@@ -267,16 +284,4 @@ func printDHTStatus(s rnet.DHTStatus) {
 	if !s.LastDiscoverTime.IsZero() {
 		fmt.Printf("  last_discover:     %s\n", s.LastDiscoverTime.Format(time.RFC3339))
 	}
-}
-
-func peerIDFromMultiaddr(addr string) (peer.ID, error) {
-	maddr, err := multiaddr.NewMultiaddr(addr)
-	if err != nil {
-		return "", err
-	}
-	info, err := peer.AddrInfoFromP2pAddr(maddr)
-	if err != nil {
-		return "", err
-	}
-	return info.ID, nil
 }

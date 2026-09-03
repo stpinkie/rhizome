@@ -628,6 +628,7 @@ func DefaultMeshConfig() MeshConfig {
 	return MeshConfig{
 		Enabled:              false,
 		TrustedPeers:         []string{},
+		BootstrapPeers:       []string{},
 		AdvertiseModels:      false,
 		AdvertiseSkills:      false,
 		DHTEnabled:           true,

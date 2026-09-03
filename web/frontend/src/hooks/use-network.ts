@@ -29,8 +29,9 @@ export function useNetwork(options?: NetworkStatusOptions) {
       bootstraps: options?.bootstraps?.filter((b) => b.trim() !== ""),
       timeout: options?.timeout,
       listen: options?.listen?.filter((l) => l.trim() !== ""),
+      trust: options?.trust,
     }),
-    [options?.bootstraps, options?.listen, options?.timeout],
+    [options?.bootstraps, options?.listen, options?.timeout, options?.trust],
   )
 
   const statusQuery = useQuery({

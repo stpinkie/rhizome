@@ -58,9 +58,12 @@ func NewDaemonCommand() *cobra.Command {
 			eventBus := runtimeevents.NewBus()
 
 			dhtEnabled := cfg.Mesh.DHTEnabled && !noDHT
+			allBootstrapPeers := make([]string, 0, len(bootstrapPeers)+len(cfg.Mesh.BootstrapPeers))
+			allBootstrapPeers = append(allBootstrapPeers, bootstrapPeers...)
+			allBootstrapPeers = append(allBootstrapPeers, cfg.Mesh.BootstrapPeers...)
 			node, err := network.NewNode(ctx, derived.Libp2pPrivKey, network.Config{
 				ListenAddrs:    listenAddrs,
-				BootstrapPeers: bootstrapPeers,
+				BootstrapPeers: allBootstrapPeers,
 				DHT: network.DHTConfig{
 					Enabled:           dhtEnabled,
 					Server:            cfg.Mesh.DHTServer,

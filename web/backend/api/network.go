@@ -139,6 +139,9 @@ func (h *Handler) networkStatusFromGateway(ctx context.Context, query url.Values
 	if t := query.Get("timeout"); t != "" {
 		upstream.Set("timeout", t)
 	}
+	if v := query.Get("trust"); v != "" {
+		upstream.Set("trust", v)
+	}
 	u.RawQuery = upstream.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -176,6 +179,12 @@ func (h *Handler) networkStatusFromCLI(ctx context.Context, query map[string][]s
 	}
 	for _, l := range query["listen"] {
 		args = append(args, "--listen", l)
+	}
+	for _, v := range query["trust"] {
+		if strings.TrimSpace(v) == "true" {
+			args = append(args, "--trust")
+			break
+		}
 	}
 
 	env := append(os.Environ(), config.EnvHome+"="+utils.GetRhizomeHome())

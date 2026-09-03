@@ -14,7 +14,8 @@ import { PeersPanel } from "./peers-panel"
 export function NetworkPage() {
   const { t } = useTranslation()
   const [bootstraps, setBootstraps] = useState<string[]>([])
-  const { statusQuery, refresh } = useNetwork({ bootstraps })
+  const [trust, setTrust] = useState(false)
+  const { statusQuery, refresh } = useNetwork({ bootstraps, trust })
 
   const isLoading = statusQuery.isLoading
   const error = statusQuery.error
@@ -46,6 +47,8 @@ export function NetworkPage() {
             bootstraps={bootstraps}
             onChange={setBootstraps}
             onApply={() => refresh()}
+            trust={trust}
+            onTrustChange={setTrust}
             disabled={isLoading}
           />
 

@@ -242,6 +242,39 @@ func TestNetworkStatusInvalidBootstrap(t *testing.T) {
 	}
 }
 
+func TestNetworkStatusTrustAppendsCLIArg(t *testing.T) {
+	setupNetworkTest(t)
+
+	var gotArgs []string
+	runNetworkStatus = func(_ context.Context, _ string, args []string, _ []string) ([]byte, []byte, error) {
+		gotArgs = args
+		return []byte(`{"peer_id":"12D3","peers":[]}`), nil, nil
+	}
+
+	h := NewHandler("")
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/network/status?bootstrap=/ip4/127.0.0.1/tcp/4001/p2p/12D3&trust=true", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	hasTrust := false
+	for _, a := range gotArgs {
+		if a == "--trust" {
+			hasTrust = true
+			break
+		}
+	}
+	if !hasTrust {
+		t.Fatalf("runNetworkStatus args did not include --trust: %v", gotArgs)
+	}
+}
+
 func TestNetworkStatusListenForcesCLI(t *testing.T) {
 	setupNetworkTest(t)
 

@@ -537,6 +537,21 @@ func (m *Mesh) QueryCapability(ctx context.Context, pid peer.ID) (Capability, er
 	return m.cap.Query(ctx, pid)
 }
 
+// TrustAndDiscover trusts a peer, eagerly fetches its capability, stores it,
+// and advertises the local capability back. It returns the fetched capability.
+func (m *Mesh) TrustAndDiscover(ctx context.Context, pid peer.ID) (Capability, error) {
+	m.TrustPeer(pid)
+
+	capability, err := m.QueryCapability(ctx, pid)
+	if err != nil {
+		return Capability{}, err
+	}
+
+	m.SetCapability(pid, capability)
+	m.advertiseTo(pid)
+	return capability, nil
+}
+
 // SetCapability stores a capability received from a peer.
 func (m *Mesh) SetCapability(pid peer.ID, c Capability) {
 	m.capsMu.Lock()
@@ -586,6 +601,14 @@ func (m *Mesh) IsTrusted(pid peer.ID) bool {
 	return m.trust[pid]
 }
 
+// IsConnected reports whether the peer currently has an open connection.
+func (m *Mesh) IsConnected(pid peer.ID) bool {
+	if m == nil || m.node == nil {
+		return false
+	}
+	return m.node.Host().Network().Connectedness(pid) != libnet.NotConnected
+}
+
 // NetworkStatus returns a combined snapshot of the local mesh/DHT state.
 // If m is nil, it returns an empty status (callers should decide how to render).
 func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
@@ -609,16 +632,16 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 				ps.Addrs = append(ps.Addrs, a.String())
 			}
 			ps.Trusted = m.IsTrusted(pid)
-			if cap, ok := m.PeerCapabilities(pid); ok {
+			if capability, ok := m.PeerCapabilities(pid); ok {
 				pc := PeerCapability{}
-				if len(cap.Models) > 0 {
-					pc.Models = cap.Models
+				if len(capability.Models) > 0 {
+					pc.Models = capability.Models
 				}
-				if len(cap.Skills) > 0 {
-					pc.Skills = cap.Skills
+				if len(capability.Skills) > 0 {
+					pc.Skills = capability.Skills
 				}
-				if len(cap.Agents) > 0 {
-					pc.Agents = cap.Agents
+				if len(capability.Agents) > 0 {
+					pc.Agents = capability.Agents
 				}
 				ps.Capability = pc
 			}

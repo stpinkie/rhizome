@@ -3225,6 +3225,25 @@ func TestMakeBackup_SameDateSuffix(t *testing.T) {
 	}
 }
 
+func TestMeshConfig_ValidateBootstrapPeers(t *testing.T) {
+	cfg := MeshConfig{
+		BootstrapPeers: []string{"/ip4/127.0.0.1/tcp/4001/p2p/12D3KooWRn6WAW9iG9TqCSG4YH9Y6iGXwJ8QzD8RTHvJQL2hQeYV"},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid bootstrap peers rejected: %v", err)
+	}
+
+	cfg.BootstrapPeers = []string{"/ip4/127.0.0.1/tcp/4001"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation error for bootstrap peer missing /p2p/")
+	}
+
+	cfg.BootstrapPeers = []string{""}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation error for empty bootstrap peer")
+	}
+}
+
 func testChannelsConfigWithTokens() ChannelsConfig {
 	channels := make(ChannelsConfig)
 	type chDef struct {
