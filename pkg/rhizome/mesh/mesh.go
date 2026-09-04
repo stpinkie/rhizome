@@ -396,8 +396,8 @@ func (m *Mesh) CallRemote(
 
 		resp, err := m.rpc.Call(ctx, pid, req)
 		if err == nil {
-			if err := m.verifyResponse(pid, &resp); err != nil {
-				return nil, fmt.Errorf("verify response: %w", err)
+			if verifyErr := m.verifyResponse(pid, &resp); verifyErr != nil {
+				return nil, fmt.Errorf("verify response: %w", verifyErr)
 			}
 			if resp.Status != "ok" {
 				return nil, fmt.Errorf("remote agent failed: %s", resp.Error)

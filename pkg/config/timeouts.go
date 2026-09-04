@@ -16,8 +16,11 @@ import (
 type Duration time.Duration
 
 // MarshalJSON implements json.Marshaler.
-func (d Duration) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Duration(d).String())
+func (d *Duration) MarshalJSON() ([]byte, error) {
+	if d == nil {
+		return json.Marshal("0s")
+	}
+	return json.Marshal(time.Duration(*d).String())
 }
 
 // UnmarshalJSON implements json.Unmarshaler. It accepts a duration string or a
@@ -85,33 +88,33 @@ type TimeoutsConfig struct {
 
 // LLMTimeouts covers LLM provider calls and streaming.
 type LLMTimeouts struct {
-	RequestSeconds        Duration `json:"request_seconds,omitempty"      env:"RHIZOME_TIMEOUTS_LLM_REQUEST_SECONDS"`
-	StreamingIdle         Duration `json:"streaming_idle,omitempty"       env:"RHIZOME_TIMEOUTS_LLM_STREAMING_IDLE"`
-	ProviderInit          Duration `json:"provider_init,omitempty"        env:"RHIZOME_TIMEOUTS_LLM_PROVIDER_INIT"`
-	FirstTokenTimeout     Duration `json:"first_token_timeout,omitempty"  env:"RHIZOME_TIMEOUTS_LLM_FIRST_TOKEN_TIMEOUT"`
-	CredentialCacheTTL    Duration `json:"credential_cache_ttl,omitempty" env:"RHIZOME_TIMEOUTS_LLM_CREDENTIAL_CACHE_TTL"`
+	RequestSeconds        Duration `json:"request_seconds,omitempty"         env:"RHIZOME_TIMEOUTS_LLM_REQUEST_SECONDS"`
+	StreamingIdle         Duration `json:"streaming_idle,omitempty"          env:"RHIZOME_TIMEOUTS_LLM_STREAMING_IDLE"`
+	ProviderInit          Duration `json:"provider_init,omitempty"           env:"RHIZOME_TIMEOUTS_LLM_PROVIDER_INIT"`
+	FirstTokenTimeout     Duration `json:"first_token_timeout,omitempty"     env:"RHIZOME_TIMEOUTS_LLM_FIRST_TOKEN_TIMEOUT"`
+	CredentialCacheTTL    Duration `json:"credential_cache_ttl,omitempty"    env:"RHIZOME_TIMEOUTS_LLM_CREDENTIAL_CACHE_TTL"`
 	CooldownFailureWindow Duration `json:"cooldown_failure_window,omitempty" env:"RHIZOME_TIMEOUTS_LLM_COOLDOWN_FAILURE_WINDOW"`
 }
 
 // ToolTimeouts covers shell/cron/web tool execution and session cleanup.
 type ToolTimeouts struct {
-	ExecSeconds            Duration `json:"exec_seconds,omitempty"            env:"RHIZOME_TIMEOUTS_TOOLS_EXEC_SECONDS"`
-	CronExecMinutes        Duration `json:"cron_exec_minutes,omitempty"       env:"RHIZOME_TIMEOUTS_TOOLS_CRON_EXEC_MINUTES"`
-	WebSearchSeconds       Duration `json:"web_search_seconds,omitempty"      env:"RHIZOME_TIMEOUTS_TOOLS_WEB_SEARCH_SECONDS"`
-	WebPerplexitySeconds   Duration `json:"web_perplexity_seconds,omitempty"  env:"RHIZOME_TIMEOUTS_TOOLS_WEB_PERPLEXITY_SECONDS"`
-	WebFetchSeconds        Duration `json:"web_fetch_seconds,omitempty"       env:"RHIZOME_TIMEOUTS_TOOLS_WEB_FETCH_SECONDS"`
+	ExecSeconds            Duration `json:"exec_seconds,omitempty"             env:"RHIZOME_TIMEOUTS_TOOLS_EXEC_SECONDS"`
+	CronExecMinutes        Duration `json:"cron_exec_minutes,omitempty"        env:"RHIZOME_TIMEOUTS_TOOLS_CRON_EXEC_MINUTES"`
+	WebSearchSeconds       Duration `json:"web_search_seconds,omitempty"       env:"RHIZOME_TIMEOUTS_TOOLS_WEB_SEARCH_SECONDS"`
+	WebPerplexitySeconds   Duration `json:"web_perplexity_seconds,omitempty"   env:"RHIZOME_TIMEOUTS_TOOLS_WEB_PERPLEXITY_SECONDS"`
+	WebFetchSeconds        Duration `json:"web_fetch_seconds,omitempty"        env:"RHIZOME_TIMEOUTS_TOOLS_WEB_FETCH_SECONDS"`
 	SessionCleanupInterval Duration `json:"session_cleanup_interval,omitempty" env:"RHIZOME_TIMEOUTS_TOOLS_SESSION_CLEANUP_INTERVAL"`
-	SessionCleanupAge      Duration `json:"session_cleanup_age,omitempty"     env:"RHIZOME_TIMEOUTS_TOOLS_SESSION_CLEANUP_AGE"`
-	ProcessReapGrace       Duration `json:"process_reap_grace,omitempty"      env:"RHIZOME_TIMEOUTS_TOOLS_PROCESS_REAP_GRACE"`
-	SerialPollInterval     Duration `json:"serial_poll_interval,omitempty"    env:"RHIZOME_TIMEOUTS_TOOLS_SERIAL_POLL_INTERVAL"`
+	SessionCleanupAge      Duration `json:"session_cleanup_age,omitempty"      env:"RHIZOME_TIMEOUTS_TOOLS_SESSION_CLEANUP_AGE"`
+	ProcessReapGrace       Duration `json:"process_reap_grace,omitempty"       env:"RHIZOME_TIMEOUTS_TOOLS_PROCESS_REAP_GRACE"`
+	SerialPollInterval     Duration `json:"serial_poll_interval,omitempty"     env:"RHIZOME_TIMEOUTS_TOOLS_SERIAL_POLL_INTERVAL"`
 }
 
 // AgentTimeouts covers agent/subturn runtime timing.
 type AgentTimeouts struct {
-	SubTurnDefaultMinutes     Duration `json:"subturn_default_minutes,omitempty"      env:"RHIZOME_TIMEOUTS_AGENT_SUBTURN_DEFAULT_MINUTES"`
-	SubTurnConcurrencySeconds Duration `json:"subturn_concurrency_seconds,omitempty"  env:"RHIZOME_TIMEOUTS_AGENT_SUBTURN_CONCURRENCY_SECONDS"`
-	ProviderReloadGrace       Duration `json:"provider_reload_grace,omitempty"        env:"RHIZOME_TIMEOUTS_AGENT_PROVIDER_RELOAD_GRACE"`
-	IdleLoopInterval          Duration `json:"idle_loop_interval,omitempty"           env:"RHIZOME_TIMEOUTS_AGENT_IDLE_LOOP_INTERVAL"`
+	SubTurnDefaultMinutes     Duration `json:"subturn_default_minutes,omitempty"     env:"RHIZOME_TIMEOUTS_AGENT_SUBTURN_DEFAULT_MINUTES"`
+	SubTurnConcurrencySeconds Duration `json:"subturn_concurrency_seconds,omitempty" env:"RHIZOME_TIMEOUTS_AGENT_SUBTURN_CONCURRENCY_SECONDS"`
+	ProviderReloadGrace       Duration `json:"provider_reload_grace,omitempty"       env:"RHIZOME_TIMEOUTS_AGENT_PROVIDER_RELOAD_GRACE"`
+	IdleLoopInterval          Duration `json:"idle_loop_interval,omitempty"          env:"RHIZOME_TIMEOUTS_AGENT_IDLE_LOOP_INTERVAL"`
 }
 
 // MeshTimeouts covers P2P mesh remote calls and capability advertisement.
@@ -123,13 +126,13 @@ type MeshTimeouts struct {
 
 // NetworkTimeouts covers libp2p listener, bootstrap, ping, and DHT timing.
 type NetworkTimeouts struct {
-	ListenerReady        Duration `json:"listener_ready,omitempty"        env:"RHIZOME_TIMEOUTS_NETWORK_LISTENER_READY"`
-	BootstrapAttempts    int      `json:"bootstrap_attempts,omitempty"    env:"RHIZOME_TIMEOUTS_NETWORK_BOOTSTRAP_ATTEMPTS"`
-	BootstrapBackoff     Duration `json:"bootstrap_backoff,omitempty"     env:"RHIZOME_TIMEOUTS_NETWORK_BOOTSTRAP_BACKOFF"`
-	Ping                 Duration `json:"ping,omitempty"                  env:"RHIZOME_TIMEOUTS_NETWORK_PING"`
-	DHTDial              Duration `json:"dht_dial,omitempty"              env:"RHIZOME_TIMEOUTS_NETWORK_DHT_DIAL"`
-	DHTQuery             Duration `json:"dht_query,omitempty"             env:"RHIZOME_TIMEOUTS_NETWORK_DHT_QUERY"`
-	DHTRetry             Duration `json:"dht_retry,omitempty"             env:"RHIZOME_TIMEOUTS_NETWORK_DHT_RETRY"`
+	ListenerReady        Duration `json:"listener_ready,omitempty"         env:"RHIZOME_TIMEOUTS_NETWORK_LISTENER_READY"`
+	BootstrapAttempts    int      `json:"bootstrap_attempts,omitempty"     env:"RHIZOME_TIMEOUTS_NETWORK_BOOTSTRAP_ATTEMPTS"`
+	BootstrapBackoff     Duration `json:"bootstrap_backoff,omitempty"      env:"RHIZOME_TIMEOUTS_NETWORK_BOOTSTRAP_BACKOFF"`
+	Ping                 Duration `json:"ping,omitempty"                   env:"RHIZOME_TIMEOUTS_NETWORK_PING"`
+	DHTDial              Duration `json:"dht_dial,omitempty"               env:"RHIZOME_TIMEOUTS_NETWORK_DHT_DIAL"`
+	DHTQuery             Duration `json:"dht_query,omitempty"              env:"RHIZOME_TIMEOUTS_NETWORK_DHT_QUERY"`
+	DHTRetry             Duration `json:"dht_retry,omitempty"              env:"RHIZOME_TIMEOUTS_NETWORK_DHT_RETRY"`
 	DHTReprovideInterval Duration `json:"dht_reprovide_interval,omitempty" env:"RHIZOME_TIMEOUTS_NETWORK_DHT_REPROVIDE_INTERVAL"`
 }
 
@@ -147,21 +150,21 @@ type SyncTimeouts struct {
 
 // HTTPTimeouts covers shared HTTP client, dialer, and retry defaults.
 type HTTPTimeouts struct {
-	Request        Duration `json:"request,omitempty"         env:"RHIZOME_TIMEOUTS_HTTP_REQUEST"`
-	IdleConn       Duration `json:"idle_conn,omitempty"       env:"RHIZOME_TIMEOUTS_HTTP_IDLE_CONN"`
-	TLSHandshake   Duration `json:"tls_handshake,omitempty"   env:"RHIZOME_TIMEOUTS_HTTP_TLS_HANDSHAKE"`
-	Dial           Duration `json:"dial,omitempty"            env:"RHIZOME_TIMEOUTS_HTTP_DIAL"`
-	KeepAlive      Duration `json:"keepalive,omitempty"       env:"RHIZOME_TIMEOUTS_HTTP_KEEPALIVE"`
+	Request        Duration `json:"request,omitempty"          env:"RHIZOME_TIMEOUTS_HTTP_REQUEST"`
+	IdleConn       Duration `json:"idle_conn,omitempty"        env:"RHIZOME_TIMEOUTS_HTTP_IDLE_CONN"`
+	TLSHandshake   Duration `json:"tls_handshake,omitempty"    env:"RHIZOME_TIMEOUTS_HTTP_TLS_HANDSHAKE"`
+	Dial           Duration `json:"dial,omitempty"             env:"RHIZOME_TIMEOUTS_HTTP_DIAL"`
+	KeepAlive      Duration `json:"keepalive,omitempty"        env:"RHIZOME_TIMEOUTS_HTTP_KEEPALIVE"`
 	RetryDelayUnit Duration `json:"retry_delay_unit,omitempty" env:"RHIZOME_TIMEOUTS_HTTP_RETRY_DELAY_UNIT"`
-	MaxRetrySleep  Duration `json:"max_retry_sleep,omitempty" env:"RHIZOME_TIMEOUTS_HTTP_MAX_RETRY_SLEEP"`
-	MaxRetries     int      `json:"max_retries,omitempty"     env:"RHIZOME_TIMEOUTS_HTTP_MAX_RETRIES"`
-	MaxRedirects   int      `json:"max_redirects,omitempty"   env:"RHIZOME_TIMEOUTS_HTTP_MAX_REDIRECTS"`
+	MaxRetrySleep  Duration `json:"max_retry_sleep,omitempty"  env:"RHIZOME_TIMEOUTS_HTTP_MAX_RETRY_SLEEP"`
+	MaxRetries     int      `json:"max_retries,omitempty"      env:"RHIZOME_TIMEOUTS_HTTP_MAX_RETRIES"`
+	MaxRedirects   int      `json:"max_redirects,omitempty"    env:"RHIZOME_TIMEOUTS_HTTP_MAX_REDIRECTS"`
 }
 
 // MediaTimeouts covers media download and cleanup timing.
 type MediaTimeouts struct {
-	Download        Duration `json:"download,omitempty"        env:"RHIZOME_TIMEOUTS_MEDIA_DOWNLOAD"`
-	MaxAge          Duration `json:"max_age,omitempty"         env:"RHIZOME_TIMEOUTS_MEDIA_MAX_AGE"`
+	Download        Duration `json:"download,omitempty"         env:"RHIZOME_TIMEOUTS_MEDIA_DOWNLOAD"`
+	MaxAge          Duration `json:"max_age,omitempty"          env:"RHIZOME_TIMEOUTS_MEDIA_MAX_AGE"`
 	CleanupInterval Duration `json:"cleanup_interval,omitempty" env:"RHIZOME_TIMEOUTS_MEDIA_CLEANUP_INTERVAL"`
 }
 
@@ -170,9 +173,9 @@ type GatewayTimeouts struct {
 	ServiceShutdown      Duration `json:"service_shutdown,omitempty"       env:"RHIZOME_TIMEOUTS_GATEWAY_SERVICE_SHUTDOWN"`
 	ProviderReload       Duration `json:"provider_reload,omitempty"        env:"RHIZOME_TIMEOUTS_GATEWAY_PROVIDER_RELOAD"`
 	GracefulShutdown     Duration `json:"graceful_shutdown,omitempty"      env:"RHIZOME_TIMEOUTS_GATEWAY_GRACEFUL_SHUTDOWN"`
-	HealthCheckInterval  Duration `json:"health_check_interval,omitempty"   env:"RHIZOME_TIMEOUTS_GATEWAY_HEALTH_CHECK_INTERVAL"`
-	ConfigReloadInterval Duration `json:"config_reload_interval,omitempty"  env:"RHIZOME_TIMEOUTS_GATEWAY_CONFIG_RELOAD_INTERVAL"`
-	ConfigReloadDebounce Duration `json:"config_reload_debounce,omitempty"  env:"RHIZOME_TIMEOUTS_GATEWAY_CONFIG_RELOAD_DEBOUNCE"`
+	HealthCheckInterval  Duration `json:"health_check_interval,omitempty"  env:"RHIZOME_TIMEOUTS_GATEWAY_HEALTH_CHECK_INTERVAL"`
+	ConfigReloadInterval Duration `json:"config_reload_interval,omitempty" env:"RHIZOME_TIMEOUTS_GATEWAY_CONFIG_RELOAD_INTERVAL"`
+	ConfigReloadDebounce Duration `json:"config_reload_debounce,omitempty" env:"RHIZOME_TIMEOUTS_GATEWAY_CONFIG_RELOAD_DEBOUNCE"`
 }
 
 // CronTimeouts covers the cron service scheduler.
@@ -199,8 +202,8 @@ type HealthTimeouts struct {
 
 // HeartbeatTimeouts covers the heartbeat service scheduling.
 type HeartbeatTimeouts struct {
-	Interval       Duration `json:"interval,omitempty"     env:"RHIZOME_TIMEOUTS_HEARTBEAT_INTERVAL"`
-	InitialDelay   Duration `json:"initial_delay,omitempty" env:"RHIZOME_TIMEOUTS_HEARTBEAT_INITIAL_DELAY"`
+	Interval       Duration `json:"interval,omitempty"        env:"RHIZOME_TIMEOUTS_HEARTBEAT_INTERVAL"`
+	InitialDelay   Duration `json:"initial_delay,omitempty"   env:"RHIZOME_TIMEOUTS_HEARTBEAT_INITIAL_DELAY"`
 	PublishTimeout Duration `json:"publish_timeout,omitempty" env:"RHIZOME_TIMEOUTS_HEARTBEAT_PUBLISH_TIMEOUT"`
 }
 
@@ -212,30 +215,30 @@ type UpdaterTimeouts struct {
 
 // ChannelTimeouts covers shared channel (messaging) operation timeouts.
 type ChannelTimeouts struct {
-	RequestTimeout        Duration `json:"request,omitempty"              env:"RHIZOME_TIMEOUTS_CHANNEL_REQUEST"`
-	ConnectTimeout        Duration `json:"connect,omitempty"              env:"RHIZOME_TIMEOUTS_CHANNEL_CONNECT"`
-	CommandTimeout        Duration `json:"command,omitempty"              env:"RHIZOME_TIMEOUTS_CHANNEL_COMMAND"`
-	AuthTimeout           Duration `json:"auth,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_AUTH"`
-	MediaTimeout          Duration `json:"media,omitempty"                env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA"`
-	PublishTimeout        Duration `json:"publish,omitempty"              env:"RHIZOME_TIMEOUTS_CHANNEL_PUBLISH"`
-	HeartbeatInterval     Duration `json:"heartbeat_interval,omitempty"   env:"RHIZOME_TIMEOUTS_CHANNEL_HEARTBEAT_INTERVAL"`
-	ReconnectInitial      Duration `json:"reconnect_initial,omitempty"    env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_INITIAL"`
-	ReconnectMax          Duration `json:"reconnect_max,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_MAX"`
-	MessageCacheTTL       Duration `json:"message_cache_ttl,omitempty"    env:"RHIZOME_TIMEOUTS_CHANNEL_MESSAGE_CACHE_TTL"`
-	ConfigCacheTTL        Duration `json:"config_cache_ttl,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_CONFIG_CACHE_TTL"`
-	SessionPauseDuration  Duration `json:"session_pause_duration,omitempty" env:"RHIZOME_TIMEOUTS_CHANNEL_SESSION_PAUSE_DURATION"`
-	MediaGroupDelay       Duration `json:"media_group_delay,omitempty"    env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA_GROUP_DELAY"`
-	TypingMaxDuration     Duration `json:"typing_max_duration,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_MAX_DURATION"`
-	ToolFeedbackInterval  Duration `json:"tool_feedback_interval,omitempty" env:"RHIZOME_TIMEOUTS_CHANNEL_TOOL_FEEDBACK_INTERVAL"`
-	StreamMaxDuration     Duration `json:"stream_max_duration,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MAX_DURATION"`
-	StreamMinInterval     Duration `json:"stream_min_interval,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MIN_INTERVAL"`
-	RouteTTL              Duration `json:"route_ttl,omitempty"            env:"RHIZOME_TIMEOUTS_CHANNEL_ROUTE_TTL"`
-	PollInterval          Duration `json:"poll_interval,omitempty"            env:"RHIZOME_TIMEOUTS_CHANNEL_POLL_INTERVAL"`
-	RateLimitDelay        Duration `json:"rate_limit_delay,omitempty"         env:"RHIZOME_TIMEOUTS_CHANNEL_RATE_LIMIT_DELAY"`
-	MaxBackoff            Duration `json:"max_backoff,omitempty"              env:"RHIZOME_TIMEOUTS_CHANNEL_MAX_BACKOFF"`
-	JanitorInterval       Duration `json:"janitor_interval,omitempty"         env:"RHIZOME_TIMEOUTS_CHANNEL_JANITOR_INTERVAL"`
-	PlaceholderTTL        Duration `json:"placeholder_ttl,omitempty"          env:"RHIZOME_TIMEOUTS_CHANNEL_PLACEHOLDER_TTL"`
-	TypingRefreshInterval Duration `json:"typing_refresh_interval,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_REFRESH_INTERVAL"`
+	RequestTimeout        Duration `json:"request,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_REQUEST"`
+	ConnectTimeout        Duration `json:"connect,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_CONNECT"`
+	CommandTimeout        Duration `json:"command,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_COMMAND"`
+	AuthTimeout           Duration `json:"auth,omitempty"                    env:"RHIZOME_TIMEOUTS_CHANNEL_AUTH"`
+	MediaTimeout          Duration `json:"media,omitempty"                   env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA"`
+	PublishTimeout        Duration `json:"publish,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_PUBLISH"`
+	HeartbeatInterval     Duration `json:"heartbeat_interval,omitempty"      env:"RHIZOME_TIMEOUTS_CHANNEL_HEARTBEAT_INTERVAL"`
+	ReconnectInitial      Duration `json:"reconnect_initial,omitempty"       env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_INITIAL"`
+	ReconnectMax          Duration `json:"reconnect_max,omitempty"           env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_MAX"`
+	MessageCacheTTL       Duration `json:"message_cache_ttl,omitempty"       env:"RHIZOME_TIMEOUTS_CHANNEL_MESSAGE_CACHE_TTL"`
+	ConfigCacheTTL        Duration `json:"config_cache_ttl,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_CONFIG_CACHE_TTL"`
+	SessionPauseDuration  Duration `json:"session_pause_duration,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_SESSION_PAUSE_DURATION"`
+	MediaGroupDelay       Duration `json:"media_group_delay,omitempty"       env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA_GROUP_DELAY"`
+	TypingMaxDuration     Duration `json:"typing_max_duration,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_MAX_DURATION"`
+	ToolFeedbackInterval  Duration `json:"tool_feedback_interval,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_TOOL_FEEDBACK_INTERVAL"`
+	StreamMaxDuration     Duration `json:"stream_max_duration,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MAX_DURATION"`
+	StreamMinInterval     Duration `json:"stream_min_interval,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MIN_INTERVAL"`
+	RouteTTL              Duration `json:"route_ttl,omitempty"               env:"RHIZOME_TIMEOUTS_CHANNEL_ROUTE_TTL"`
+	PollInterval          Duration `json:"poll_interval,omitempty"           env:"RHIZOME_TIMEOUTS_CHANNEL_POLL_INTERVAL"`
+	RateLimitDelay        Duration `json:"rate_limit_delay,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_RATE_LIMIT_DELAY"`
+	MaxBackoff            Duration `json:"max_backoff,omitempty"             env:"RHIZOME_TIMEOUTS_CHANNEL_MAX_BACKOFF"`
+	JanitorInterval       Duration `json:"janitor_interval,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_JANITOR_INTERVAL"`
+	PlaceholderTTL        Duration `json:"placeholder_ttl,omitempty"         env:"RHIZOME_TIMEOUTS_CHANNEL_PLACEHOLDER_TTL"`
+	TypingRefreshInterval Duration `json:"typing_refresh_interval,omitempty" env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_REFRESH_INTERVAL"`
 }
 
 // DefaultTimeouts returns the built-in timeout values that match the current

@@ -65,7 +65,11 @@ func (t *Transport) Ready() <-chan struct{} {
 }
 
 func (t *Transport) handleStream(s network.Stream) {
-	rc := stream.NewReliableConn(s, stream.WithReadTimeout(t.requestTimeout), stream.WithWriteTimeout(t.packfileTimeout))
+	rc := stream.NewReliableConn(
+		s,
+		stream.WithReadTimeout(t.requestTimeout),
+		stream.WithWriteTimeout(t.packfileTimeout),
+	)
 	defer rc.Close()
 
 	for {
@@ -122,7 +126,11 @@ func (t *Transport) Fetch(
 		return nil, plumbing.ZeroHash, fmt.Errorf("open stream: %w", err)
 	}
 
-	rc := stream.NewReliableConn(s, stream.WithReadTimeout(t.packfileTimeout), stream.WithWriteTimeout(t.packfileTimeout))
+	rc := stream.NewReliableConn(
+		s,
+		stream.WithReadTimeout(t.packfileTimeout),
+		stream.WithWriteTimeout(t.packfileTimeout),
+	)
 	defer rc.Close()
 
 	req, err := encodeRequest(&requestFrame{Haves: haves, Wants: wants})
@@ -172,7 +180,11 @@ func (t *Transport) AnnounceHead(ctx context.Context, pid peer.ID, head plumbing
 			continue
 		}
 
-		rc := stream.NewReliableConn(s, stream.WithReadTimeout(t.announceTimeout), stream.WithWriteTimeout(t.announceTimeout))
+		rc := stream.NewReliableConn(
+			s,
+			stream.WithReadTimeout(t.announceTimeout),
+			stream.WithWriteTimeout(t.announceTimeout),
+		)
 		if err := rc.WriteFrame(frameAnnounce, head[:]); err != nil {
 			_ = rc.Close()
 			lastErr = err

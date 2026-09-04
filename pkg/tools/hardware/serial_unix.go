@@ -10,8 +10,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/stpinkie/rhizome/pkg/config"
 	"golang.org/x/sys/unix"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 var (

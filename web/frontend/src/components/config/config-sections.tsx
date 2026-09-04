@@ -1333,15 +1333,17 @@ interface TimeoutsSectionProps {
 export function TimeoutsSection({ form, onChange }: TimeoutsSectionProps) {
   const { t } = useTranslation()
 
-  const makeField = (key: keyof TimeoutsForm, labelKey: string, hintKey: string) => (
-    <Field
-      label={t(labelKey)}
-      hint={t(hintKey)}
-      layout="setting-row"
-    >
+  const makeField = (
+    key: keyof TimeoutsForm,
+    labelKey: string,
+    hintKey: string,
+  ) => (
+    <Field label={t(labelKey)} hint={t(hintKey)} layout="setting-row">
       <Input
         value={form[key]}
-        onChange={(e) => onChange({ [key]: e.target.value } as Partial<TimeoutsForm>)}
+        onChange={(e) =>
+          onChange({ [key]: e.target.value } as Partial<TimeoutsForm>)
+        }
       />
     </Field>
   )
@@ -1351,18 +1353,66 @@ export function TimeoutsSection({ form, onChange }: TimeoutsSectionProps) {
       title={t("pages.config.sections.timeouts")}
       description={t("pages.config.timeouts_section_hint")}
     >
-      {makeField("llmRequest", "pages.config.llm_request_timeout", "pages.config.llm_request_timeout_hint")}
-      {makeField("llmStreamingIdle", "pages.config.llm_streaming_idle_timeout", "pages.config.llm_streaming_idle_timeout_hint")}
-      {makeField("toolExecSeconds", "pages.config.tool_exec_timeout", "pages.config.tool_exec_timeout_hint")}
-      {makeField("toolCronExecMinutes", "pages.config.tool_cron_exec_timeout", "pages.config.tool_cron_exec_timeout_hint")}
-      {makeField("httpRequest", "pages.config.http_request_timeout", "pages.config.http_request_timeout_hint")}
-      {makeField("httpDial", "pages.config.http_dial_timeout", "pages.config.http_dial_timeout_hint")}
-      {makeField("mediaDownload", "pages.config.media_download_timeout", "pages.config.media_download_timeout_hint")}
-      {makeField("gatewayServiceShutdown", "pages.config.gateway_service_shutdown_timeout", "pages.config.gateway_service_shutdown_timeout_hint")}
-      {makeField("agentSubTurnDefault", "pages.config.agent_sub_turn_timeout", "pages.config.agent_sub_turn_timeout_hint")}
-      {makeField("meshRemoteCall", "pages.config.mesh_remote_call_timeout", "pages.config.mesh_remote_call_timeout_hint")}
-      {makeField("syncCommitInterval", "pages.config.sync_commit_interval", "pages.config.sync_commit_interval_hint")}
-      {makeField("dhtReprovideInterval", "pages.config.dht_reprovide_interval", "pages.config.dht_reprovide_interval_hint")}
+      {makeField(
+        "llmRequest",
+        "pages.config.llm_request_timeout",
+        "pages.config.llm_request_timeout_hint",
+      )}
+      {makeField(
+        "llmStreamingIdle",
+        "pages.config.llm_streaming_idle_timeout",
+        "pages.config.llm_streaming_idle_timeout_hint",
+      )}
+      {makeField(
+        "toolExecSeconds",
+        "pages.config.tool_exec_timeout",
+        "pages.config.tool_exec_timeout_hint",
+      )}
+      {makeField(
+        "toolCronExecMinutes",
+        "pages.config.tool_cron_exec_timeout",
+        "pages.config.tool_cron_exec_timeout_hint",
+      )}
+      {makeField(
+        "httpRequest",
+        "pages.config.http_request_timeout",
+        "pages.config.http_request_timeout_hint",
+      )}
+      {makeField(
+        "httpDial",
+        "pages.config.http_dial_timeout",
+        "pages.config.http_dial_timeout_hint",
+      )}
+      {makeField(
+        "mediaDownload",
+        "pages.config.media_download_timeout",
+        "pages.config.media_download_timeout_hint",
+      )}
+      {makeField(
+        "gatewayServiceShutdown",
+        "pages.config.gateway_service_shutdown_timeout",
+        "pages.config.gateway_service_shutdown_timeout_hint",
+      )}
+      {makeField(
+        "agentSubTurnDefault",
+        "pages.config.agent_sub_turn_timeout",
+        "pages.config.agent_sub_turn_timeout_hint",
+      )}
+      {makeField(
+        "meshRemoteCall",
+        "pages.config.mesh_remote_call_timeout",
+        "pages.config.mesh_remote_call_timeout_hint",
+      )}
+      {makeField(
+        "syncCommitInterval",
+        "pages.config.sync_commit_interval",
+        "pages.config.sync_commit_interval_hint",
+      )}
+      {makeField(
+        "dhtReprovideInterval",
+        "pages.config.dht_reprovide_interval",
+        "pages.config.dht_reprovide_interval_hint",
+      )}
     </ConfigSectionCard>
   )
 }

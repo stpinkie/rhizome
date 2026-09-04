@@ -272,12 +272,19 @@ func TestMeshCapabilityAdvertisesModelsAndSkills(t *testing.T) {
 	tmp := t.TempDir()
 	skillDir := filepath.Join(tmp, "skills", "demo-skill")
 	require.NoError(t, os.MkdirAll(skillDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo-skill\ndescription: A demo skill for testing.\n---\n# Demo\n"), 0o644))
+	require.NoError(
+		t,
+		os.WriteFile(
+			filepath.Join(skillDir, "SKILL.md"),
+			[]byte("---\nname: demo-skill\ndescription: A demo skill for testing.\n---\n# Demo\n"),
+			0o644,
+		),
+	)
 
 	m.SetSkillsLoader(skills.NewSkillsLoader(tmp, "", ""))
 
-	cap := m.localCapability()
-	assert.Equal(t, []string{"enabled-model"}, cap.Models)
-	assert.Equal(t, []string{"demo-skill"}, cap.Skills)
-	assert.Equal(t, []string{"main"}, cap.Agents)
+	c := m.localCapability()
+	assert.Equal(t, []string{"enabled-model"}, c.Models)
+	assert.Equal(t, []string{"demo-skill"}, c.Skills)
+	assert.Equal(t, []string{"main"}, c.Agents)
 }
