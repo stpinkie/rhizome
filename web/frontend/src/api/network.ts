@@ -35,6 +35,25 @@ export interface NetworkStatusResponse {
   dht?: DHTStatus
 }
 
+export interface SavedPeerCapability {
+  models?: string[]
+  skills?: string[]
+  agents?: string[]
+}
+
+export interface SavedPeer {
+  peer_id: string
+  bootstrap_addrs: string[]
+  trusted: boolean
+  connected?: boolean
+  capability?: SavedPeerCapability
+}
+
+export interface SavedPeersResponse {
+  peer_id: string
+  saved_peers: SavedPeer[]
+}
+
 export interface NetworkStatusOptions {
   bootstraps?: string[]
   timeout?: string
@@ -78,6 +97,24 @@ export async function getNetworkStatus(
   return request<NetworkStatusResponse>(
     `/api/network/status${buildQuery(options)}`,
   )
+}
+
+export async function getNetworkSavedPeers(): Promise<SavedPeersResponse> {
+  return request<SavedPeersResponse>(`/api/network/saved-peers`)
+}
+
+export async function untrustNetworkPeer(peerID: string): Promise<SavedPeer> {
+  const params = new URLSearchParams({ action: "untrust", peer: peerID })
+  return request<SavedPeer>(`/api/network/saved-peers?${params.toString()}`, {
+    method: "POST",
+  })
+}
+
+export async function removeNetworkPeer(peerID: string): Promise<void> {
+  const params = new URLSearchParams({ peer: peerID })
+  await request<void>(`/api/network/saved-peers?${params.toString()}`, {
+    method: "DELETE",
+  })
 }
 
 async function extractErrorMessage(res: Response): Promise<string> {

@@ -16,8 +16,10 @@ func NewNetworkCommand() *cobra.Command {
 		NewStatusCommand(),
 		NewPingCommand(),
 		NewPeersCommand(),
+		NewSavedPeersCommand(),
 		NewTrustCommand(),
 		NewUntrustCommand(),
+		NewRemoveCommand(),
 		NewDelegateCommand(),
 		NewSpawnCommand(),
 	)

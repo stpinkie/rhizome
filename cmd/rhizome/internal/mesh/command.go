@@ -29,8 +29,10 @@ func NewMeshCommand() *cobra.Command {
 	cmd.AddCommand(
 		statusCmd,
 		peersCmd,
+		network.NewSavedPeersCommand(),
 		network.NewTrustCommand(),
 		network.NewUntrustCommand(),
+		network.NewRemoveCommand(),
 		network.NewDelegateCommand(),
 		network.NewSpawnCommand(),
 		network.NewPingCommand(),

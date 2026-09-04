@@ -33,7 +33,9 @@ $env:TMP='D:\tmp'
 - `rhizome mesh peers` — shortcut for `rhizome network status --peers`.
 - `rhizome network ping <multiaddr>` — start a temporary libp2p host and ping a peer.
 - `rhizome network peers` — list trusted peers from config.
+- `rhizome network saved-peers [--json]` — list all saved peers (trusted + bootstrap) merged by peer id.
 - `rhizome network trust <peer-id>` / `rhizome network untrust <peer-id>` — manage the mesh trusted peers list.
+- `rhizome network remove <peer-id>` — remove a peer from both `mesh.trusted_peers` and matching `mesh.bootstrap_peers`.
 - `rhizome network delegate <peer-multiaddr> <agent-id> <task>` — synchronously delegate a task to a remote peer agent.
 - `rhizome network spawn <peer-multiaddr> <agent-id> <task>` — asynchronously spawn a task on a remote peer agent.
 - `rhizome sync status|log|commit|pull|push` — manage the workspace git repo.
@@ -50,8 +52,11 @@ The web console (the launcher) exposes authenticated JSON endpoints that wrap `r
   - Query parameters: `bootstrap` (repeatable), `timeout` (e.g. `10s`), `listen` (repeatable).
 - `GET /api/network/dht` — start a temporary libp2p node and return the DHT status snapshot.
   - Query parameters: `bootstrap` (repeatable), `timeout` (e.g. `10s`), `listen` (repeatable).
+- `GET /api/network/saved-peers` — list persistent mesh peers from `mesh.trusted_peers` and `mesh.bootstrap_peers`, merged by peer id and augmented with live connection/capability status when the daemon is running.
+- `POST /api/network/saved-peers?action=untrust&peer=<peer-id>` — remove the peer from runtime trust and `mesh.trusted_peers`.
+- `DELETE /api/network/saved-peers?peer=<peer-id>` — remove the peer from runtime trust, `mesh.trusted_peers`, and any matching `mesh.bootstrap_peers`.
 
-The dashboard has a **Network** page (`/network`) that visualizes these endpoints: it shows connected peers with trust/capability badges, a DHT status snapshot, optional bootstrap overrides, and auto-refreshes every 60 seconds.
+The dashboard has a **Network** page (`/network`) that visualizes these endpoints: it shows connected peers with trust/capability badges, a DHT status snapshot, a Saved Peers panel with Untrust/Remove actions, optional bootstrap overrides, and auto-refreshes every 60 seconds.
 
 Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOME` and `RHIZOME_CONFIG` automatically. Results are cached for 5 seconds to avoid spawning multiple overlapping nodes.
 
@@ -181,6 +186,16 @@ npx pnpm build
 - Point agents at `.rhizome-tests/SKILL.md`.
 - After running the suite, agents write a Markdown and JSON report to `.rhizome-tests/reports/`.
 - The GitHub Actions matrix in `.github/workflows/pr.yml` runs the same core checks on Linux, Windows, and web.
+
+## Saved Peer Management (v0.4.7)
+
+- The daemon exposes `GET/POST/DELETE /network/saved-peers` on its gateway HTTP mux.
+  - `GET` returns merged `mesh.trusted_peers` and `mesh.bootstrap_peers`, optionally merged with live connection, trust, and capability state.
+  - `POST ?action=untrust&peer=<peer-id>` removes the peer from the runtime trust set and `mesh.trusted_peers`.
+  - `DELETE ?peer=<peer-id>` untrusts the peer, disconnects it, removes it from `mesh.trusted_peers`, and removes all matching `mesh.bootstrap_peers`.
+- The launcher proxies these calls to the daemon when it is running; otherwise it edits `config.json` directly and serves the saved list from the file.
+- CLI adds `rhizome network saved-peers`/`rhizome mesh saved-peers` and `rhizome network remove`/`rhizome mesh remove <peer-id>`.
+- The Network dashboard has a **Saved Peers** panel with Untrust and Remove actions; Remove shows a confirmation dialog.
 
 ## Live Network Status API (v0.4.4)
 

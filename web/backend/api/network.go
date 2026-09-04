@@ -17,6 +17,7 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
+	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/web/backend/utils"
 )
 
@@ -40,6 +41,9 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/network/status", h.handleNetworkStatus)
 	mux.HandleFunc("GET /api/network/peers", h.handleNetworkPeers)
 	mux.HandleFunc("GET /api/network/dht", h.handleNetworkDHT)
+	mux.HandleFunc("GET /api/network/saved-peers", h.handleNetworkSavedPeers)
+	mux.HandleFunc("POST /api/network/saved-peers", h.handleNetworkSavedPeers)
+	mux.HandleFunc("DELETE /api/network/saved-peers", h.handleNetworkSavedPeers)
 }
 
 func (h *Handler) handleNetworkPeers(w http.ResponseWriter, r *http.Request) {
@@ -256,4 +260,383 @@ func executeNetworkStatus(ctx context.Context, execPath string, args, env []stri
 	cmd.Stderr = &errb
 	err := cmd.Run()
 	return outb.Bytes(), errb.Bytes(), err
+}
+
+// savedPeer and savedPeersResponse are the JSON shapes returned by
+// /api/network/saved-peers. They match the daemon's SavedPeer / SavedPeersResponse.
+type savedPeer struct {
+	PeerID         string              `json:"peer_id"`
+	BootstrapAddrs []string            `json:"bootstrap_addrs,omitempty"`
+	Trusted        bool                `json:"trusted"`
+	Connected      bool                `json:"connected"`
+	Capability     savedPeerCapability `json:"capability,omitempty"`
+}
+
+type savedPeerCapability struct {
+	Models []string `json:"models,omitempty"`
+	Skills []string `json:"skills,omitempty"`
+	Agents []string `json:"agents,omitempty"`
+}
+
+type savedPeersResponse struct {
+	PeerID     string      `json:"peer_id"`
+	SavedPeers []savedPeer `json:"saved_peers"`
+}
+
+func (h *Handler) handleNetworkSavedPeers(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.listSavedPeers(w, r)
+	case http.MethodPost:
+		h.untrustSavedPeer(w, r)
+	case http.MethodDelete:
+		h.removeSavedPeer(w, r)
+	default:
+		respondNetworkError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (h *Handler) listSavedPeers(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	timeout, err := parseNetworkTimeout(query.Get("timeout"))
+	if err != nil {
+		respondNetworkError(w, http.StatusBadRequest, "invalid timeout: "+err.Error())
+		return
+	}
+
+	cacheKey := networkCacheKey("saved-peers", query)
+	h.networkCacheMu.Lock()
+	if entry, ok := h.networkCache[cacheKey]; ok && time.Now().Before(entry.expires) {
+		h.networkCacheMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(entry.body)
+		return
+	}
+	h.networkCacheMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
+	if h.gatewayAvailableForProxy() {
+		output, err := h.savedPeersFromGateway(ctx, http.MethodGet, query, timeout)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			h.networkCacheMu.Lock()
+			h.networkCache[cacheKey] = networkCacheEntry{body: output, expires: time.Now().Add(networkCacheTTL)}
+			h.networkCacheMu.Unlock()
+			w.Write(output)
+			return
+		}
+		logger.Warnf("saved peers gateway fetch failed, falling back to config: %v", err)
+	}
+
+	resp, err := h.savedPeersFromConfig()
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	body, err := json.Marshal(resp)
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, "encode response: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	h.networkCacheMu.Lock()
+	h.networkCache[cacheKey] = networkCacheEntry{body: body, expires: time.Now().Add(networkCacheTTL)}
+	h.networkCacheMu.Unlock()
+	w.Write(body)
+}
+
+func (h *Handler) untrustSavedPeer(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	peerID := strings.TrimSpace(query.Get("peer"))
+	if peerID == "" {
+		respondNetworkError(w, http.StatusBadRequest, "peer id is required")
+		return
+	}
+	if strings.ContainsAny(peerID, " \t\r\n") {
+		respondNetworkError(w, http.StatusBadRequest, "peer id contains whitespace")
+		return
+	}
+
+	timeout, err := parseNetworkTimeout(query.Get("timeout"))
+	if err != nil {
+		respondNetworkError(w, http.StatusBadRequest, "invalid timeout: "+err.Error())
+		return
+	}
+
+	if h.gatewayAvailableForProxy() {
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		output, err := h.savedPeersFromGateway(ctx, http.MethodPost, query, timeout)
+		if err == nil {
+			h.invalidateNetworkCache()
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(output)
+			return
+		}
+		logger.Warnf("saved peers gateway untrust failed, falling back to config: %v", err)
+	}
+
+	resp, err := h.savedPeersFromConfig()
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	wasKnown := false
+	for _, p := range resp.SavedPeers {
+		if p.PeerID == peerID {
+			wasKnown = true
+			break
+		}
+	}
+	if !wasKnown {
+		respondNetworkError(w, http.StatusNotFound, "peer not found in saved peers")
+		return
+	}
+
+	if err := h.untrustSavedPeerInConfig(peerID); err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.invalidateNetworkCache()
+	resp, err = h.savedPeersFromConfig()
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	for _, p := range resp.SavedPeers {
+		if p.PeerID == peerID {
+			writeJSON(w, http.StatusOK, p)
+			return
+		}
+	}
+	respondNetworkError(w, http.StatusNotFound, "peer not found in saved peers")
+}
+
+func (h *Handler) removeSavedPeer(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	peerID := strings.TrimSpace(query.Get("peer"))
+	if peerID == "" {
+		respondNetworkError(w, http.StatusBadRequest, "peer id is required")
+		return
+	}
+	if strings.ContainsAny(peerID, " \t\r\n") {
+		respondNetworkError(w, http.StatusBadRequest, "peer id contains whitespace")
+		return
+	}
+
+	timeout, err := parseNetworkTimeout(query.Get("timeout"))
+	if err != nil {
+		respondNetworkError(w, http.StatusBadRequest, "invalid timeout: "+err.Error())
+		return
+	}
+
+	if h.gatewayAvailableForProxy() {
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		_, err := h.savedPeersFromGateway(ctx, http.MethodDelete, query, timeout)
+		if err == nil {
+			h.invalidateNetworkCache()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		logger.Warnf("saved peers gateway remove failed, falling back to config: %v", err)
+	}
+
+	resp, err := h.savedPeersFromConfig()
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	wasKnown := false
+	for _, p := range resp.SavedPeers {
+		if p.PeerID == peerID {
+			wasKnown = true
+			break
+		}
+	}
+	if !wasKnown {
+		respondNetworkError(w, http.StatusNotFound, "peer not found in saved peers")
+		return
+	}
+
+	if err := h.removeSavedPeerFromConfig(peerID); err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.invalidateNetworkCache()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) savedPeersFromConfig() (savedPeersResponse, error) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		return savedPeersResponse{}, fmt.Errorf("load config: %w", err)
+	}
+
+	return buildSavedPeersResponseFromConfig(cfg), nil
+}
+
+func (h *Handler) untrustSavedPeerInConfig(peerID string) error {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	cfg.Mesh.TrustedPeers = filterStringSlice(cfg.Mesh.TrustedPeers, func(s string) bool { return s != peerID })
+
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+	return nil
+}
+
+func (h *Handler) removeSavedPeerFromConfig(peerID string) error {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	cfg.Mesh.TrustedPeers = filterStringSlice(cfg.Mesh.TrustedPeers, func(s string) bool { return s != peerID })
+	cfg.Mesh.BootstrapPeers = filterStringSlice(cfg.Mesh.BootstrapPeers, func(b string) bool {
+		return !isBootstrapForPeer(b, peerID)
+	})
+
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+	return nil
+}
+
+func (h *Handler) savedPeersFromGateway(ctx context.Context, method string, query url.Values, timeout time.Duration) ([]byte, error) {
+	if !h.gatewayAvailableForProxy() {
+		return nil, errors.New("gateway not available for proxy")
+	}
+
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		return nil, errors.New("gateway pid data unavailable")
+	}
+
+	u := h.gatewayProxyURL()
+	u.Path = "/network/saved-peers"
+	u.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
+}
+
+func (h *Handler) invalidateNetworkCache() {
+	h.networkCacheMu.Lock()
+	defer h.networkCacheMu.Unlock()
+	h.networkCache = make(map[string]networkCacheEntry)
+}
+
+func buildSavedPeersResponseFromConfig(cfg *config.Config) savedPeersResponse {
+	m := make(map[string]*savedPeer)
+
+	for _, p := range cfg.Mesh.TrustedPeers {
+		if p == "" {
+			continue
+		}
+		if _, ok := m[p]; !ok {
+			m[p] = &savedPeer{PeerID: p}
+		}
+		m[p].Trusted = true
+	}
+
+	for _, b := range cfg.Mesh.BootstrapPeers {
+		if b == "" {
+			continue
+		}
+		pid, ok := peerIDFromBootstrapMultiaddr(b)
+		if !ok {
+			continue
+		}
+		if _, ok := m[pid]; !ok {
+			m[pid] = &savedPeer{PeerID: pid}
+		}
+		m[pid].BootstrapAddrs = appendUniqueString(m[pid].BootstrapAddrs, b)
+	}
+
+	out := make([]savedPeer, 0, len(m))
+	for _, p := range m {
+		out = append(out, *p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PeerID < out[j].PeerID })
+
+	return savedPeersResponse{SavedPeers: out}
+}
+
+func peerIDFromBootstrapMultiaddr(addr string) (string, bool) {
+	pid, err := rnet.PeerIDFromMultiaddr(addr)
+	if err != nil {
+		return "", false
+	}
+	return pid.String(), true
+}
+
+func isBootstrapForPeer(bootstrap, peerID string) bool {
+	got, ok := peerIDFromBootstrapMultiaddr(bootstrap)
+	return ok && got == peerID
+}
+
+func filterStringSlice(items []string, keep func(string) bool) []string {
+	out := items[:0]
+	for _, s := range items {
+		if keep(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func appendUniqueString(items []string, value string) []string {
+	for _, s := range items {
+		if s == value {
+			return items
+		}
+	}
+	return append(items, value)
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }

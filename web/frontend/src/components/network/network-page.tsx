@@ -5,17 +5,24 @@ import { useTranslation } from "react-i18next"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { useNetwork } from "@/hooks/use-network"
+import { useSavedPeers } from "@/hooks/use-saved-peers"
 import { cn } from "@/lib/utils"
 
 import { BootstrapInput } from "./bootstrap-input"
 import { DhtPanel } from "./dht-panel"
 import { PeersPanel } from "./peers-panel"
+import { SavedPeersPanel } from "./saved-peers-panel"
 
 export function NetworkPage() {
   const { t } = useTranslation()
   const [bootstraps, setBootstraps] = useState<string[]>([])
   const [trust, setTrust] = useState(false)
   const { statusQuery, refresh } = useNetwork({ bootstraps, trust })
+  const {
+    query: savedPeersQuery,
+    untrust,
+    remove,
+  } = useSavedPeers()
 
   const isLoading = statusQuery.isLoading
   const error = statusQuery.error
@@ -74,6 +81,15 @@ export function NetworkPage() {
               isLoading={statusQuery.isLoading}
             />
           </div>
+
+          <SavedPeersPanel
+            peers={savedPeersQuery.data?.saved_peers ?? []}
+            isLoading={savedPeersQuery.isLoading}
+            isUntrusting={untrust.isPending}
+            isRemoving={remove.isPending}
+            onUntrust={(peerID) => untrust.mutate(peerID)}
+            onRemove={(peerID) => remove.mutate(peerID)}
+          />
         </div>
       </div>
     </div>

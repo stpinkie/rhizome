@@ -328,6 +328,14 @@ func (n *Node) ConnectedPeers() []peer.ID {
 	return n.host.Network().Peers()
 }
 
+// Disconnect closes any open connection to the peer.
+func (n *Node) Disconnect(pid peer.ID) error {
+	if n == nil || n.host == nil {
+		return nil
+	}
+	return n.host.Network().ClosePeer(pid)
+}
+
 // Addrs returns the listen addresses of this node as strings.
 func (n *Node) Addrs() []string {
 	out := make([]string, 0, len(n.host.Addrs()))

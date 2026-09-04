@@ -544,6 +544,13 @@ func setupAndStartServices(
 		return nil, fmt.Errorf("error registering network status handler: %w", err)
 	}
 
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/saved-peers",
+		newNetworkSavedPeersHandler(rhizomeMesh, authToken, configPath),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network saved peers handler: %w", err)
+	}
+
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
 	}

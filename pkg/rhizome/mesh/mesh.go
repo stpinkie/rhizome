@@ -609,6 +609,14 @@ func (m *Mesh) IsConnected(pid peer.ID) bool {
 	return m.node.Host().Network().Connectedness(pid) != libnet.NotConnected
 }
 
+// Disconnect closes any open connection to the peer.
+func (m *Mesh) Disconnect(pid peer.ID) error {
+	if m == nil || m.node == nil {
+		return nil
+	}
+	return m.node.Disconnect(pid)
+}
+
 // NetworkStatus returns a combined snapshot of the local mesh/DHT state.
 // If m is nil, it returns an empty status (callers should decide how to render).
 func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {

@@ -149,7 +149,7 @@ func (h *networkStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 func (h *networkStatusHandler) authorize(r *http.Request) bool {
 	if h.authToken == "" {
-		return true
+		return false
 	}
 	given := extractBearerToken(r.Header.Get("Authorization"))
 	return given != "" && subtle.ConstantTimeCompare([]byte(given), []byte(h.authToken)) == 1

@@ -5,11 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
+	ppid "github.com/stpinkie/rhizome/pkg/pid"
 )
 
 func setupNetworkTest(t *testing.T) {
@@ -305,5 +312,252 @@ func TestNetworkStatusListenForcesCLI(t *testing.T) {
 	}
 	if !hasListen {
 		t.Fatalf("runNetworkStatus args did not include --listen: %v", gotArgs)
+	}
+}
+
+func TestNetworkSavedPeers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+
+	peerID := "12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv"
+	bootstrap := "/ip4/127.0.0.1/tcp/4001/p2p/" + peerID
+
+	cfg := config.DefaultConfig()
+	cfg.Mesh.TrustedPeers = []string{peerID}
+	cfg.Mesh.BootstrapPeers = []string{bootstrap}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/network/saved-peers", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var got savedPeersResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(got.SavedPeers) != 1 {
+		t.Fatalf("saved peers count = %d, want 1", len(got.SavedPeers))
+	}
+	if got.SavedPeers[0].PeerID != peerID {
+		t.Fatalf("peer id = %q, want %q", got.SavedPeers[0].PeerID, peerID)
+	}
+	if !got.SavedPeers[0].Trusted {
+		t.Fatalf("expected saved peer to be trusted")
+	}
+	if len(got.SavedPeers[0].BootstrapAddrs) != 1 || got.SavedPeers[0].BootstrapAddrs[0] != bootstrap {
+		t.Fatalf("unexpected bootstrap addrs: %v", got.SavedPeers[0].BootstrapAddrs)
+	}
+}
+
+func TestNetworkSavedPeersUntrust(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+
+	peerID := "12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv"
+	bootstrap := "/ip4/127.0.0.1/tcp/4001/p2p/" + peerID
+
+	cfg := config.DefaultConfig()
+	cfg.Mesh.TrustedPeers = []string{peerID}
+	cfg.Mesh.BootstrapPeers = []string{bootstrap}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/network/saved-peers?action=untrust&peer="+peerID, nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	saved, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if len(saved.Mesh.TrustedPeers) != 0 {
+		t.Fatalf("trusted peers = %v, want empty", saved.Mesh.TrustedPeers)
+	}
+	if len(saved.Mesh.BootstrapPeers) != 1 || saved.Mesh.BootstrapPeers[0] != bootstrap {
+		t.Fatalf("bootstrap peers = %v, want [%s]", saved.Mesh.BootstrapPeers, bootstrap)
+	}
+}
+
+func TestNetworkSavedPeersRemove(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+
+	peerID := "12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv"
+	bootstrap := "/ip4/127.0.0.1/tcp/4001/p2p/" + peerID
+
+	cfg := config.DefaultConfig()
+	cfg.Mesh.TrustedPeers = []string{peerID}
+	cfg.Mesh.BootstrapPeers = []string{bootstrap}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/network/saved-peers?peer="+peerID, nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+
+	saved, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if len(saved.Mesh.TrustedPeers) != 0 {
+		t.Fatalf("trusted peers = %v, want empty", saved.Mesh.TrustedPeers)
+	}
+	if len(saved.Mesh.BootstrapPeers) != 0 {
+		t.Fatalf("bootstrap peers = %v, want empty", saved.Mesh.BootstrapPeers)
+	}
+}
+
+func TestNetworkSavedPeersUntrustMissingPeer(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if err := config.SaveConfig(configPath, config.DefaultConfig()); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	peerID := "12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv"
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/network/saved-peers?action=untrust&peer="+peerID, nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestNetworkSavedPeersRemoveMissingPeer(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if err := config.SaveConfig(configPath, config.DefaultConfig()); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	peerID := "12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv"
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/network/saved-peers?peer="+peerID, nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestNetworkSavedPeersRemoveMissingPeerViaGateway(t *testing.T) {
+	// Override the gateway process matcher so the launcher treats the current
+	// process as a live gateway without requiring a real rhizome binary.
+	originalMatcher := gatewayProcessMatcher
+	t.Cleanup(func() { gatewayProcessMatcher = originalMatcher })
+	gatewayProcessMatcher = func(int) (bool, bool) { return true, true }
+
+	// Snapshot and isolate package-level gateway state.
+	originalPIDData := gateway.pidData
+	originalCmd := gateway.cmd
+	originalPicoToken := gateway.picoToken
+	originalRuntimeStatus := gateway.runtimeStatus
+	t.Cleanup(func() {
+		gateway.pidData = originalPIDData
+		gateway.cmd = originalCmd
+		gateway.picoToken = originalPicoToken
+		gateway.runtimeStatus = originalRuntimeStatus
+	})
+
+	peerID := "12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv"
+	token := "test-token"
+
+	// Start a mock gateway that returns 404 for saved-peers.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/network/saved-peers" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "peer not found in saved peers"})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	host, portStr, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("parse server address: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	// Write a PID file so gatewayAvailableForProxy sees a valid gateway.
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+
+	pidData := ppid.PidFileData{
+		PID:     os.Getpid(),
+		Token:   token,
+		Version: "test",
+		Port:    1,
+		Host:    "127.0.0.1",
+	}
+	raw, err := json.Marshal(pidData)
+	if err != nil {
+		t.Fatalf("marshal pid data: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".rhizome.pid"), raw, 0o600); err != nil {
+		t.Fatalf("write pid file: %v", err)
+	}
+
+	// Configure the launcher with the mock gateway's host/port.
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.DefaultConfig()
+	cfg.Gateway.Host = host
+	cfg.Gateway.Port = port
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/network/saved-peers?peer="+peerID, nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
 	}
 }

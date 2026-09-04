@@ -2,9 +2,11 @@ package network
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -234,5 +236,94 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		fmt.Println(result.ForUser)
 	} else {
 		fmt.Println(result.ForLLM)
+	}
+}
+
+// NewSavedPeersCommand returns the saved-peers command, which lists all
+// persistent mesh peers from config (trusted + bootstrap) merged by peer id.
+func NewSavedPeersCommand() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "saved-peers",
+		Short: "List saved mesh peers from config",
+		Long:  "List all peers persisted in mesh.trusted_peers and mesh.bootstrap_peers, merged by peer id.",
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg, err := config.LoadConfig(internal.GetConfigPath())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+				os.Exit(1)
+			}
+			config.SetGlobal(cfg)
+
+			resp := mesh.BuildSavedPeersResponse(nil, cfg, false)
+
+			if asJSON {
+				data, err := json.MarshalIndent(resp, "", "  ")
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error encoding saved peers: %v\n", err)
+					os.Exit(1)
+				}
+				cmd.Println(string(data))
+				return
+			}
+
+			if len(resp.SavedPeers) == 0 {
+				cmd.Println("No saved peers.")
+				return
+			}
+
+			cmd.Println("Saved peers:")
+			for _, p := range resp.SavedPeers {
+				status := ""
+				if p.Trusted {
+					status = "trusted"
+				}
+				cmd.Printf("  - %s", p.PeerID)
+				if status != "" {
+					cmd.Printf(" (%s)", status)
+				}
+				cmd.Println()
+				if len(p.BootstrapAddrs) > 0 {
+					cmd.Printf("      addrs: %s\n", strings.Join(p.BootstrapAddrs, ", "))
+				}
+			}
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print saved peers as JSON")
+	return cmd
+}
+
+// NewRemoveCommand returns the remove command, which removes a peer id from
+// mesh.trusted_peers and any mesh.bootstrap_peers whose /p2p/ suffix matches.
+func NewRemoveCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <peer-id>",
+		Short: "Remove a saved peer from the mesh config",
+		Long:  "Remove the peer id from mesh.trusted_peers and delete any mesh.bootstrap_peers that contain the same peer id.",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			peerID := args[0]
+			pid, err := peer.Decode(peerID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid peer id: %v\n", err)
+				os.Exit(1)
+			}
+
+			configPath := internal.GetConfigPath()
+			removed, err := mesh.RemoveSavedPeer(configPath, nil, pid)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error removing saved peer: %v\n", err)
+				os.Exit(1)
+			}
+
+			if !removed {
+				cmd.Printf("Peer %s is not in saved peers\n", pid.String())
+				return
+			}
+
+			cmd.Printf("Removed peer %s\n", pid.String())
+		},
 	}
 }
