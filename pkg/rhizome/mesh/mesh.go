@@ -44,9 +44,9 @@ type Capability struct {
 	Timestamp int64           `json:"timestamp"`
 	Allows    map[string]bool `json:"allows,omitempty"`
 	// Signature covers the canonical encoding of all fields above, proving
-	// the manifest was issued by PeerID. Unsigned manifests are accepted
-	// from trusted peers for one release but flagged via the
-	// mesh.cap.unsigned event.
+	// the manifest was issued by PeerID. Unsigned manifests are rejected
+	// unless mesh.require_signed_caps is disabled; a mesh.cap.unsigned
+	// event is emitted either way.
 	Signature []byte `json:"signature,omitempty"`
 }
 
@@ -332,18 +332,12 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		return reject(fmt.Sprintf("verify request: %v", err))
 	}
 
-	// Replay protection. Callers on this version always send a nonce and
-	// timestamp; both are covered by the signature. A one-release grace
-	// applies to legacy callers that omit them, but the request is still
-	// keyed on its (signed) correlation id so a captured signed request
-	// cannot simply be replayed, and the absence is audited.
-	if req.Nonce == "" && req.Timestamp == 0 {
-		if err := m.replay.check(from, req.CorrelationID, 0); err != nil {
-			return reject(fmt.Sprintf("replay check failed: %v", err))
-		}
-		m.auditMesh(from, op, req.TargetAgentID, req.CorrelationID, "legacy_request", started,
-			"request carries no nonce/timestamp")
-	} else if err := m.replay.check(from, req.Nonce, req.Timestamp); err != nil {
+	// Replay protection. Requests must carry a nonce and timestamp, both
+	// covered by the signature; requests without them are rejected.
+	if req.Nonce == "" || req.Timestamp == 0 {
+		return reject("request missing nonce/timestamp")
+	}
+	if err := m.replay.check(from, req.Nonce, req.Timestamp); err != nil {
 		return reject(fmt.Sprintf("replay check failed: %v", err))
 	}
 
@@ -639,8 +633,9 @@ func (m *Mesh) signCapability(c *Capability) {
 // verifyCapability authenticates a capability received from a peer. It
 // enforces that the claimed peer id matches the sender and, when the
 // manifest is signed, that the signature verifies against the sender's
-// public key and the timestamp is fresh. Unsigned manifests are accepted
-// for one release but flagged via the mesh.cap.unsigned event.
+// public key and the timestamp is fresh. Unsigned manifests are flagged
+// via the mesh.cap.unsigned event and rejected unless
+// mesh.require_signed_caps is disabled.
 func (m *Mesh) verifyCapability(from peer.ID, c *Capability) error {
 	if c.PeerID == "" {
 		c.PeerID = from.String()

@@ -43,7 +43,11 @@
 
 ## 📢 News
 
-2026-09-01 🚧 **v0.4.0 — 32-bit and Android portability** adds `linux/386`, `windows/386`, `linux/armv7`, and native Android `arm64`/`arm`/`386`/`amd64` builds. P2P transports are hardened for Linux 3.4 / Android 4.4 kernels, and mDNS now fails gracefully when multicast is unavailable. (Work in progress toward release.)
+2026-09-05 🌐 **v0.5.0 — Mesh maturity** adds NAT traversal (AutoNATv2, hole punching, circuit relay v2 with self-organizing relays), asynchronous remote agent tasks over `/rhizome/agent-task/1.0.0`, enforced mesh security (signed requests and capability manifests, per-peer ACLs, rate limits, audit trail), and hardened workspace sync with reconnect catch-up. See the [v0.5.0 release notes](docs/release-notes/v0.5.0.md).
+
+2026-09-04 🚀 **v0.4.2–v0.4.8** shipped the live network status API and Network dashboard, trust/capability persistence, saved-peer management across CLI/daemon/launcher, and a catalog-driven provider protocol refactor with first-class local providers (Ollama, vLLM, LM Studio, LiteLLM). Release notes: [v0.4.2](docs/release-notes/v0.4.2.md)–[v0.4.8](docs/release-notes/v0.4.8.md).
+
+2026-09-01 🚀 **v0.4.0 — 32-bit and Android portability** adds `linux/386`, `windows/386`, `linux/armv7`, and native Android `arm64`/`arm`/`386`/`amd64` builds. P2P transports are hardened for Linux 3.4 / Android 4.4 kernels, and mDNS now fails gracefully when multicast is unavailable.
 
 2026-05-28 🚀 **v0.2.9 Released!** MCP server management in Web UI, configurable Sogou-backed web search, tool feedback animation in channels, `pretty_print` and `disable_escape_html` defaults, and numerous bug fixes across providers and channels.
 

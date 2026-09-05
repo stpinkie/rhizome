@@ -646,6 +646,7 @@ func DefaultMeshConfig() MeshConfig {
 		RateLimitPerPeer:     30,
 		RateLimitGlobal:      300,
 		AuditLog:             true,
+		RequireSignedCaps:    true,
 	}
 }
 

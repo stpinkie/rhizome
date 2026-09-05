@@ -144,7 +144,7 @@ const (
 	// (accepted, rejected, rate-limited, completed, failed).
 	KindMeshRemoteAudit Kind = "mesh.remote.audit"
 	// KindMeshCapabilityUnsigned is emitted when a trusted peer sends an
-	// unsigned capability manifest (one-release compatibility grace).
+	// unsigned capability manifest (rejected unless require_signed_caps is off).
 	KindMeshCapabilityUnsigned Kind = "mesh.cap.unsigned"
 	// KindMeshError is emitted when a mesh operation fails.
 	KindMeshError Kind = "mesh.error"

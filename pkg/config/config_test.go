@@ -3244,6 +3244,53 @@ func TestMeshConfig_ValidateBootstrapPeers(t *testing.T) {
 	}
 }
 
+func TestMeshConfig_RequireSignedCapsDefaultAndRoundTrip(t *testing.T) {
+	if !DefaultMeshConfig().RequireSignedCaps {
+		t.Fatal("require_signed_caps should default to true")
+	}
+
+	mustSetupSSHKey(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	// Explicit false is honored on load...
+	if err := os.WriteFile(path,
+		[]byte(`{"version":3,"mesh":{"enabled":true,"require_signed_caps":false}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Mesh.RequireSignedCaps {
+		t.Fatal("explicit require_signed_caps=false should be honored")
+	}
+
+	// ...and survives a SaveConfig/LoadConfig round-trip.
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig after SaveConfig: %v", err)
+	}
+	if reloaded.Mesh.RequireSignedCaps {
+		t.Fatal("explicit require_signed_caps=false must survive SaveConfig/LoadConfig")
+	}
+
+	// Absent field resolves to the default (true).
+	if err := os.WriteFile(path, []byte(`{"version":3,"mesh":{"enabled":true}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg2, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg2.Mesh.RequireSignedCaps {
+		t.Fatal("absent require_signed_caps should resolve to the default (true)")
+	}
+}
+
 func testChannelsConfigWithTokens() ChannelsConfig {
 	channels := make(ChannelsConfig)
 	type chDef struct {

@@ -140,7 +140,8 @@ try {
         Stop-Process -Id $bJob.Id -Force -ErrorAction SilentlyContinue
         $bJob.WaitForExit()
     }
-    $processes = $processes | Where-Object { $_.Id -ne $bJob.Id }
+    # @() keeps $processes an array when the filter leaves a single element.
+    $processes = @($processes | Where-Object { $_.Id -ne $bJob.Id })
 
     # Commit a change on A while B is down.
     Set-Content -Path (Join-Path $aWorkspace "AFTER-RECONNECT.md") -Value "second edit" -NoNewline

@@ -138,10 +138,10 @@ type MeshConfig struct {
 	// ~/.rhizome/mesh-audit.jsonl. Defaults to true.
 	AuditLog bool `json:"audit_log"`
 	// RequireSignedCaps rejects unsigned capability manifests from peers.
-	// Defaults to false for one release so older nodes can still announce
-	// (unsigned manifests emit a mesh.cap.unsigned event); set true to
-	// enforce signed manifests immediately.
-	RequireSignedCaps bool `json:"require_signed_caps,omitempty"`
+	// Defaults to true; set false to accept unsigned manifests from trusted
+	// peers (a mesh.cap.unsigned event is emitted either way). Not omitempty
+	// so an explicit false survives config write-back.
+	RequireSignedCaps bool `json:"require_signed_caps"`
 }
 
 // MeshACLRule authorizes a single peer for remote execution. Nil/empty fields

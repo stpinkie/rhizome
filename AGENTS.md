@@ -88,7 +88,7 @@ Add a `mesh` section to `config.json`:
     "rate_limit_per_peer": 30,
     "rate_limit_global": 300,
     "audit_log": true,
-    "require_signed_caps": false,
+    "require_signed_caps": true,
     "acl": [
       {
         "peer_id": "12D3KooW...",
@@ -105,7 +105,7 @@ Add a `mesh` section to `config.json`:
 - `request_max_skew` — max accepted clock difference for signed request timestamps (replay protection window).
 - `rate_limit_per_peer` / `rate_limit_global` — remote request caps in requests per minute (0 = unlimited).
 - `audit_log` — append-only `~/.rhizome/mesh-audit.jsonl` trail (10 MB × 3 rotation); a `mesh.remote.audit` runtime event is always emitted.
-- `require_signed_caps` — reject unsigned capability manifests instead of accepting them during the one-release compatibility grace.
+- `require_signed_caps` — reject unsigned capability manifests (default `true`); set `false` to accept unsigned manifests from trusted peers. A `mesh.cap.unsigned` event is emitted either way.
 - `acl` — per-peer overrides: `allow_delegate`/`allow_spawn` fall back to the global flags when omitted; `agents` restricts which agent ids the peer may run (`"*"` for all); `rate_limit` overrides the per-peer cap (negative = unlimited).
 - Rejected remote calls carry machine-readable prefixes: `forbidden:` (ACL) and `rate_limited:`.
 

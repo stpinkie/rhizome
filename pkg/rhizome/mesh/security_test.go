@@ -125,7 +125,7 @@ func TestMeshStaleTimestampRejected(t *testing.T) {
 	assert.Contains(t, resp.Error, "skew")
 }
 
-func TestMeshLegacyRequestWithoutNonceAudited(t *testing.T) {
+func TestMeshLegacyRequestWithoutNonceRejected(t *testing.T) {
 	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
 	f := newSecurityMeshFixture(t, config.MeshConfig{
 		Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second,
@@ -133,7 +133,7 @@ func TestMeshLegacyRequestWithoutNonceAudited(t *testing.T) {
 	f.meshB.SetAuditPath(auditPath)
 
 	ctx := context.Background()
-	// Legacy-style request: signed but no nonce/timestamp → grace path.
+	// Legacy-style request: signed but no nonce/timestamp → rejected.
 	req := agentrpc.Request{
 		CorrelationID: newCorrelationID(),
 		TargetAgentID: "main",
@@ -145,11 +145,12 @@ func TestMeshLegacyRequestWithoutNonceAudited(t *testing.T) {
 
 	resp, err := f.meshA.rpc.Call(ctx, f.nodeB.ID(), req)
 	require.NoError(t, err)
-	assert.Equal(t, "ok", resp.Status)
+	assert.Equal(t, "error", resp.Status)
+	assert.Contains(t, resp.Error, "nonce/timestamp")
 
 	data, err := os.ReadFile(auditPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "legacy_request")
+	assert.Contains(t, string(data), "rejected")
 }
 
 func TestMeshACLDeniesAgent(t *testing.T) {
@@ -224,9 +225,12 @@ func TestMeshSignedCapabilityRoundTrip(t *testing.T) {
 	tampered.Agents = []string{"backdoor"}
 	require.Error(t, f.meshA.verifyCapability(f.nodeB.ID(), &tampered))
 
-	// Unsigned is accepted (grace) but the peer_id still cannot be spoofed.
+	// Unsigned manifests are accepted only when require_signed_caps is off;
+	// the peer_id cannot be spoofed either way.
 	unsigned := Capability{PeerID: f.nodeB.PeerID(), Timestamp: time.Now().Unix()}
 	require.NoError(t, f.meshA.verifyCapability(f.nodeB.ID(), &unsigned))
+	f.meshA.cfg.RequireSignedCaps = true
+	require.Error(t, f.meshA.verifyCapability(f.nodeB.ID(), &unsigned))
 	spoof := Capability{PeerID: f.nodeA.PeerID(), Timestamp: time.Now().Unix()}
 	require.Error(t, f.meshA.verifyCapability(f.nodeB.ID(), &spoof))
 }
