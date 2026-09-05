@@ -123,6 +123,8 @@ jobs:
           INCLUDE_ANDROID_BUNDLE: "true"
           ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_HOST: linux-x86_64
+          # NDK r26+ dropped API <= 20; override in case an older tag is built.
+          ANDROID_API: "21"
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
           MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
