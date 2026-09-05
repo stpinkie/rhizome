@@ -194,7 +194,7 @@ BINARY_PATH=$(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)
 # (pulled in by libp2p) uses //go:linkname against net internals, which Go 1.23+
 # rejects by default.
 ANDROID_NDK?=
-ANDROID_API?=19
+ANDROID_API?=21
 ifeq ($(UNAME_S),Windows)
 	ANDROID_NDK_HOST?=windows-x86_64
 else ifeq ($(UNAME_S),Darwin)

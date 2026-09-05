@@ -88,12 +88,12 @@ jobs:
       - name: Run go build
         run: go build -tags goolm,stdjson ./...
         env:
-          CGO_ENABLED: '0'
+          CGO_ENABLED: 0
 
       - name: Run go test
         run: go test -tags goolm,stdjson ./...
         env:
-          CGO_ENABLED: '0'
+          CGO_ENABLED: 0
 
   test-web:
     name: Web Tests
@@ -153,7 +153,7 @@ jobs:
       - name: Build and run mesh integration script
         run: bash ./scripts/integration-mesh.sh
         env:
-          CGO_ENABLED: '0'
+          CGO_ENABLED: 0
 
   cross-compile:
     name: Cross-compile core targets
@@ -211,3 +211,4 @@ jobs:
         env:
           ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_HOST: linux-x86_64
+          ANDROID_API: 21

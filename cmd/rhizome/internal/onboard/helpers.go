@@ -288,13 +288,13 @@ func copyEmbeddedToTarget(targetDir string) error {
 		}
 
 		targetPath := filepath.Join(targetDir, rel)
-		if _, err := os.Stat(targetPath); err == nil {
+		if _, statErr := os.Stat(targetPath); statErr == nil {
 			// Don't clobber an existing workspace.
 			return nil
 		}
 
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(targetPath), err)
+		if mkdirErr := os.MkdirAll(filepath.Dir(targetPath), 0o755); mkdirErr != nil {
+			return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(targetPath), mkdirErr)
 		}
 
 		data, err := embeddedFiles.ReadFile(path)

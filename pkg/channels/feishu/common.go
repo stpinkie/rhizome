@@ -7,14 +7,6 @@ import (
 	"github.com/stpinkie/rhizome/pkg/channels"
 )
 
-// stringValue safely dereferences a *string pointer.
-func stringValue(v *string) string {
-	if v == nil {
-		return ""
-	}
-	return *v
-}
-
 // buildMarkdownCard builds a Feishu Interactive Card JSON 2.0 string with markdown content.
 // JSON 2.0 cards support full CommonMark standard markdown syntax.
 func buildMarkdownCard(content string) (string, error) {

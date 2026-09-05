@@ -484,8 +484,8 @@ func (m *Mesh) CallRemote(
 
 		resp, err := m.rpc.Call(ctx, pid, req)
 		if err == nil {
-			if err := m.verifyResponse(pid, &resp); err != nil {
-				return nil, fmt.Errorf("verify response: %w", err)
+			if verifyErr := m.verifyResponse(pid, &resp); verifyErr != nil {
+				return nil, fmt.Errorf("verify response: %w", verifyErr)
 			}
 			// The signed response must echo the request nonce so it is bound
 			// to this exact request and cannot be replayed for another.

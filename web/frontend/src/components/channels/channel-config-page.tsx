@@ -288,7 +288,7 @@ const CHANNELS_WITHOUT_DOCS = new Set([
 ])
 
 export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { state: gatewayState } = useGateway()
 
   const [loading, setLoading] = useState(true)
@@ -402,7 +402,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
     if (CHANNELS_WITHOUT_DOCS.has(channel.name)) return ""
     const base = "https://github.com/stpinkie/rhizome/tree/main/docs/channels"
     return `${base}/${getChannelDocSlug(channel.name)}`
-  }, [channel, i18n.language, i18n.resolvedLanguage])
+  }, [channel])
 
   const channelDisplayName = useMemo(() => {
     if (!channel) return channelName
