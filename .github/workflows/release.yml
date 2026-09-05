@@ -107,7 +107,9 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26c
-          local-cache: true
+          # Disable the local cache: a partially-extracted NDK entry breaks
+          # the toolchain (missing bin/clang) and persists across runs.
+          local-cache: false
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
