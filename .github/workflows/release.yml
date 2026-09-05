@@ -95,6 +95,8 @@ jobs:
         run: |
           # Remove docker.io/ image lines so GoReleaser only pushes to GHCR.
           sed -i '/docker\.io/d' .goreleaser.yaml
+          # GoReleaser refuses to run on a dirty tree; hide the local edit.
+          git update-index --assume-unchanged .goreleaser.yaml
           echo "Docker Hub credentials not configured; stripped docker.io targets."
 
       - name: Install zip
