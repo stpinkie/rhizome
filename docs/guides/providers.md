@@ -14,7 +14,7 @@
 | `zai-coding` | LLM (Z.AI Coding Plan)                | [z.ai](https://z.ai/manage-apikey/apikey-list)           |
 | `volcengine` | LLM(Volcengine direct)                  | [volcengine.com](https://www.volcengine.com/activity/codingplan?utm_campaign=Rhizome&utm_content=Rhizome&utm_medium=devrel&utm_source=OWO&utm_term=Rhizome)                 |
 | `openrouter` | LLM (recommended, access to all models) | [openrouter.ai](https://openrouter.ai)                       |
-| `anthropic`  | LLM (Claude direct)                     | [console.anthropic.com](https://console.anthropic.com)       |
+| `anthropic-messages` | LLM (Claude native Messages API)        | [console.anthropic.com](https://console.anthropic.com)       |
 | `openai`     | LLM (GPT direct)                        | [platform.openai.com](https://platform.openai.com)           |
 | `venice`     | LLM (Venice AI direct)                  | [venice.ai](https://venice.ai)                               |
 | `nearai`     | LLM (NEAR AI Cloud TEE inference)       | [near.ai](https://near.ai)                                   |
@@ -52,7 +52,7 @@ This design also enables **multi-agent support** with flexible provider selectio
 | **OpenAI**          | `openai`          | `https://api.openai.com/v1`                         | OpenAI    | [Get Key](https://platform.openai.com)                           |
 | **Venice AI**       | `venice`          | `https://api.venice.ai/api/v1`                      | OpenAI    | [Get Key](https://venice.ai)                                     |
 | **NEAR AI Cloud**   | `nearai`          | `https://cloud-api.near.ai/v1`                      | OpenAI    | [Get Key](https://near.ai)                                       |
-| **Anthropic**       | `anthropic`       | `https://api.anthropic.com/v1`                      | Anthropic | [Get Key](https://console.anthropic.com)                         |
+| **Anthropic**       | `anthropic-messages` | `https://api.anthropic.com/v1`                   | Anthropic | [Get Key](https://console.anthropic.com)                         |
 | **智谱 AI (GLM)**   | `zhipu`           | `https://open.bigmodel.cn/api/paas/v4`              | OpenAI    | [Get Key](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) |
 | **Z.AI Coding Plan** | `openai`         | `https://api.z.ai/api/coding/paas/v4`               | OpenAI    | [Get Key](https://z.ai/manage-apikey/apikey-list)                |
 | **DeepSeek**        | `deepseek`        | `https://api.deepseek.com/v1`                       | OpenAI    | [Get Key](https://platform.deepseek.com)                         |
@@ -530,12 +530,12 @@ For detailed migration guide, see [migration/model-list-migration.md](../migrati
 
 Rhizome routes providers by protocol family:
 
-- OpenAI-compatible protocol: OpenRouter, OpenAI-compatible gateways, Groq, Zhipu, and vLLM-style endpoints.
-- Gemini native protocol: Google Gemini via the native `models/*:generateContent` and `models/*:streamGenerateContent` endpoints.
-- Anthropic protocol: Claude-native API behavior.
-- Codex/OAuth path: OpenAI OAuth/token authentication route.
+- **OpenAI-compatible protocol**: OpenRouter, OpenAI-compatible gateways, Groq, Zhipu, and vLLM-style endpoints.
+- **Gemini native protocol**: Google Gemini via the native `models/*:generateContent` and `models/*:streamGenerateContent` endpoints.
+- **Anthropic Messages protocol**: Native Claude `v1/messages` API.
+- **Codex/OAuth path**: OpenAI OAuth/token authentication route.
 
-This keeps the runtime lightweight while making new OpenAI-compatible backends mostly a config operation (`api_base` + `api_keys`).
+The runtime provider catalog (`pkg/providers/model_catalog.go`) decides which protocol family, default API base, whether the protocol strips a leading provider prefix, and whether an API key is optional. Adding a new OpenAI-compatible backend is usually a catalog entry; adding a new protocol family requires a small factory constructor.
 
 <details>
 <summary><b>Zhipu</b></summary>

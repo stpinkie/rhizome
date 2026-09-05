@@ -68,8 +68,8 @@ func v0ProvidersMapToModelList(providers map[string]any, userProvider, userModel
 		},
 		{
 			jsonKeys: []string{"anthropic", "claude"},
-			protocol: "anthropic",
-			defModel: "anthropic/claude-sonnet-4.6",
+			protocol: "anthropic-messages",
+			defModel: "claude-sonnet-4.6",
 			extractFn: func(prov map[string]any) map[string]any {
 				entry := make(map[string]any)
 				if v, ok := prov["api_key"]; ok && v != "" {

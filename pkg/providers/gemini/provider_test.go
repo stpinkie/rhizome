@@ -1,4 +1,4 @@
-package httpapi
+package gemini
 
 import (
 	"encoding/json"

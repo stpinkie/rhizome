@@ -389,7 +389,7 @@ Rhizome supports 30+ LLM providers through the `model_list` configuration. Use t
 | Provider | Protocol | API Key | Notes |
 |----------|----------|---------|-------|
 | [OpenAI](https://platform.openai.com/api-keys) | `openai/` | Required | GPT-5.4, GPT-4o, o3, etc. |
-| [Anthropic](https://console.anthropic.com/settings/keys) | `anthropic/` | Required | Claude Opus 4.6, Sonnet 4.6, etc. |
+| [Anthropic](https://console.anthropic.com/settings/keys) | `anthropic-messages/` | Required | Native Claude Messages API |
 | [Google Gemini](https://aistudio.google.com/apikey) | `gemini/` | Required | Gemini 3 Flash, 2.5 Pro, etc. |
 | [OpenRouter](https://openrouter.ai/keys) | `openrouter/` | Required | 200+ models, unified API |
 | [Zhipu (GLM)](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) | `zhipu/` | Required | GLM-4.7, GLM-5, etc. |
@@ -407,7 +407,8 @@ Rhizome supports 30+ LLM providers through the `model_list` configuration. Use t
 | [Xiaomi MiMo](https://platform.xiaomimimo.com/) | `mimo/` | Required | MiMo models |
 | [Ollama](https://ollama.com/) | `ollama/` | Not needed | Local models, self-hosted |
 | [vLLM](https://docs.vllm.ai/) | `vllm/` | Not needed | Local deployment, OpenAI-compatible |
-| [LiteLLM](https://docs.litellm.ai/) | `litellm/` | Varies | Proxy for 100+ providers |
+| [LM Studio](https://lmstudio.ai/) | `lmstudio/` | Not needed | Local GUI server, OpenAI-compatible |
+|| [LiteLLM](https://docs.litellm.ai/) | `litellm/` | Varies | Proxy for 100+ providers |
 | [Azure OpenAI](https://portal.azure.com/) | `azure/` | API key or Entra ID** | Enterprise Azure deployment |
 | [GitHub Copilot](https://github.com/features/copilot) | `github-copilot/` | OAuth | Device code login |
 | [Antigravity](https://console.cloud.google.com/) | `antigravity/` | OAuth | Google Cloud AI |
@@ -441,6 +442,19 @@ Rhizome supports 30+ LLM providers through the `model_list` configuration. Use t
       "model_name": "local-vllm",
       "model": "vllm/your-model",
       "api_base": "http://localhost:8000/v1"
+    }
+  ]
+}
+```
+
+**LM Studio:**
+```json
+{
+  "model_list": [
+    {
+      "model_name": "local-lmstudio",
+      "model": "lmstudio/your-model",
+      "api_base": "http://localhost:1234/v1"
     }
   ]
 }

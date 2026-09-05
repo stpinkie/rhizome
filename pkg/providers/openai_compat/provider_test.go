@@ -1234,39 +1234,32 @@ func TestProviderChat_AcceptsNumericOptionTypes(t *testing.T) {
 }
 
 func TestNormalizeModel_UsesAPIBase(t *testing.T) {
-	if got := normalizeModel("deepseek/deepseek-chat", "https://api.deepseek.com/v1"); got != "deepseek-chat" {
-		t.Fatalf("normalizeModel(deepseek) = %q, want %q", got, "deepseek-chat")
+	cases := []struct {
+		model   string
+		apiBase string
+		want    string
+	}{
+		{"deepseek/deepseek-chat", "https://api.deepseek.com/v1", "deepseek-chat"},
+		{"lmstudio/openai/gpt-oss-20b", "http://localhost:1234/v1", "openai/gpt-oss-20b"},
+		{"venice/venice-uncensored", "https://api.venice.ai/api/v1", "venice-uncensored"},
+		{"openrouter/auto", "https://openrouter.ai/api/v1", "openrouter/auto"},
+		{"vivgrid/managed", "https://api.vivgrid.com/v1", "managed"},
+		{"vivgrid/auto", "https://api.vivgrid.com/v1", "auto"},
+		{"siliconflow/deepseek-ai/DeepSeek-V3", "https://api.siliconflow.cn/v1", "deepseek-ai/DeepSeek-V3"},
+		{"novita/deepseek/deepseek-v3.2", "https://api.novita.ai/openai", "deepseek/deepseek-v3.2"},
 	}
-	if got := normalizeModel("lmstudio/openai/gpt-oss-20b", "http://localhost:1234/v1"); got != "openai/gpt-oss-20b" {
-		t.Fatalf("normalizeModel(lmstudio) = %q, want %q", got, "openai/gpt-oss-20b")
+
+	for _, tc := range cases {
+		p := NewProvider("", tc.apiBase, "", WithStripModelPrefix(true))
+		if got := p.normalizeModel(tc.model); got != tc.want {
+			t.Fatalf("normalizeModel(%q, %q) = %q, want %q", tc.model, tc.apiBase, got, tc.want)
+		}
 	}
-	if got := normalizeModel("venice/venice-uncensored", "https://api.venice.ai/api/v1"); got != "venice-uncensored" {
-		t.Fatalf("normalizeModel(venice) = %q, want %q", got, "venice-uncensored")
-	}
-	if got := normalizeModel("openrouter/auto", "https://openrouter.ai/api/v1"); got != "openrouter/auto" {
-		t.Fatalf("normalizeModel(openrouter) = %q, want %q", got, "openrouter/auto")
-	}
-	if got := normalizeModel("vivgrid/managed", "https://api.vivgrid.com/v1"); got != "managed" {
-		t.Fatalf("normalizeModel(vivgrid) = %q, want %q", got, "managed")
-	}
-	if got := normalizeModel("vivgrid/auto", "https://api.vivgrid.com/v1"); got != "auto" {
-		t.Fatalf("normalizeModel(vivgrid auto) = %q, want %q", got, "auto")
-	}
-	if got := normalizeModel(
-		"siliconflow/deepseek-ai/DeepSeek-V3",
-		"https://api.siliconflow.cn/v1",
-	); got != "deepseek-ai/DeepSeek-V3" {
-		t.Fatalf(
-			"normalizeModel(siliconflow) = %q, want %q",
-			got,
-			"deepseek-ai/DeepSeek-V3",
-		)
-	}
-	if got := normalizeModel(
-		"novita/deepseek/deepseek-v3.2",
-		"https://api.novita.ai/openai",
-	); got != "deepseek/deepseek-v3.2" {
-		t.Fatalf("normalizeModel(novita) = %q, want %q", got, "deepseek/deepseek-v3.2")
+
+	// When stripModelPrefix is disabled, the original model string is preserved.
+	p := NewProvider("", "https://api.example.com/v1", "", WithStripModelPrefix(false))
+	if got := p.normalizeModel("foo/bar"); got != "foo/bar" {
+		t.Fatalf("normalizeModel with strip=false = %q, want %q", got, "foo/bar")
 	}
 }
 

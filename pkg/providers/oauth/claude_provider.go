@@ -5,51 +5,36 @@ import (
 	"fmt"
 
 	"github.com/stpinkie/rhizome/pkg/auth"
-	anthropicprovider "github.com/stpinkie/rhizome/pkg/providers/anthropic"
+	anthropicmessages "github.com/stpinkie/rhizome/pkg/providers/anthropic_messages"
 )
 
 type ClaudeProvider struct {
-	delegate *anthropicprovider.Provider
+	delegate *anthropicmessages.Provider
 }
 
 func NewClaudeProvider(token string) *ClaudeProvider {
-	return &ClaudeProvider{
-		delegate: anthropicprovider.NewProvider(token),
-	}
+	return NewClaudeProviderWithBaseURL(token, "")
 }
 
 func NewClaudeProviderWithBaseURL(token, apiBase string) *ClaudeProvider {
-	return &ClaudeProvider{
-		delegate: anthropicprovider.NewProviderWithBaseURL(token, apiBase),
-	}
+	return NewClaudeProviderWithTokenSourceAndBaseURL(token, nil, apiBase)
 }
 
 func NewClaudeProviderWithTokenSource(token string, tokenSource func() (string, error)) *ClaudeProvider {
-	return &ClaudeProvider{
-		delegate: anthropicprovider.NewProviderWithTokenSource(token, tokenSource),
-	}
+	return NewClaudeProviderWithTokenSourceAndBaseURL(token, tokenSource, "")
 }
 
 func NewClaudeProviderWithTokenSourceAndBaseURL(
 	token string, tokenSource func() (string, error), apiBase string,
 ) *ClaudeProvider {
-	return &ClaudeProvider{
-		delegate: anthropicprovider.NewProviderWithTokenSourceAndBaseURL(token, tokenSource, apiBase),
-	}
-}
-
-func newClaudeProviderWithDelegate(delegate *anthropicprovider.Provider) *ClaudeProvider {
+	delegate := anthropicmessages.NewProviderWithTokenSource(token, tokenSource, apiBase, "", 0)
 	return &ClaudeProvider{delegate: delegate}
 }
 
 func (p *ClaudeProvider) Chat(
 	ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) (*LLMResponse, error) {
-	resp, err := p.delegate.Chat(ctx, messages, tools, model, options)
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
+	return p.delegate.Chat(ctx, messages, tools, model, options)
 }
 
 func (p *ClaudeProvider) GetDefaultModel() string {

@@ -15,11 +15,12 @@ import (
 	anthropicmessages "github.com/stpinkie/rhizome/pkg/providers/anthropic_messages"
 	"github.com/stpinkie/rhizome/pkg/providers/azure"
 	"github.com/stpinkie/rhizome/pkg/providers/bedrock"
-	"github.com/stpinkie/rhizome/pkg/providers/common"
+	"github.com/stpinkie/rhizome/pkg/providers/gemini"
+	openaicompat "github.com/stpinkie/rhizome/pkg/providers/openai_compat"
 )
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
-func createClaudeAuthProvider(apiBase string) (LLMProvider, error) {
+func createClaudeAuthProvider(apiBase, userAgent string) (LLMProvider, error) {
 	cred, err := getCredential("anthropic")
 	if err != nil {
 		return nil, fmt.Errorf("loading auth credentials: %w", err)
@@ -27,10 +28,13 @@ func createClaudeAuthProvider(apiBase string) (LLMProvider, error) {
 	if cred == nil {
 		return nil, fmt.Errorf("no credentials for anthropic. Run: rhizome auth login --provider anthropic")
 	}
-	if apiBase == "" {
-		return NewClaudeProviderWithTokenSource(cred.AccessToken, createClaudeTokenSource()), nil
-	}
-	return NewClaudeProviderWithTokenSourceAndBaseURL(cred.AccessToken, createClaudeTokenSource(), apiBase), nil
+	return anthropicmessages.NewProviderWithTokenSource(
+		cred.AccessToken,
+		createClaudeTokenSource(),
+		apiBase,
+		userAgent,
+		0,
+	), nil
 }
 
 // createCodexAuthProvider creates a Codex provider using OAuth credentials from auth store.
@@ -87,9 +91,9 @@ func ResolveAPIBase(cfg *config.ModelConfig) string {
 
 // CreateProviderFromConfig creates a provider based on the ModelConfig.
 // It uses ExtractProtocol to determine which provider to create.
-// Supported protocol families include OpenAI-compatible prefixes (e.g., openai, openrouter, groq),
-// Azure OpenAI, Amazon Bedrock, Anthropic (including messages), and various CLI/compatibility shims.
-// See the switch on protocol in this function for the authoritative list.
+// OpenAI-compatible providers are constructed from catalog metadata; special
+// protocols (Anthropic Messages, Gemini, Azure, Bedrock, CLI, OAuth) have
+// explicit constructors.
 // Returns the provider, the effective model ID from ExtractProtocol, and any error.
 func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, error) {
 	if cfg == nil {
@@ -108,249 +112,206 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		userAgent = fmt.Sprintf("Rhizome/%s", config.Version)
 	}
 
-	switch protocol {
-	case "openai":
-		// OpenAI with OAuth/token auth (Codex-style)
-		if authMethod == "oauth" || authMethod == "token" {
+	// OAuth/token auth is protocol-specific and must be resolved before the
+	// catalog-driven path. OpenAI uses Codex; Anthropic uses Claude via the
+	// Anthropic Messages protocol.
+	if authMethod == "oauth" || authMethod == "token" {
+		switch protocol {
+		case "openai":
 			provider, err := createCodexAuthProvider()
 			if err != nil {
 				return nil, "", err
 			}
 			return finalizeProviderFromConfig(provider, modelID, cfg)
-		}
-		// OpenAI with API key
-		if cfg.APIKey() == "" && cfg.APIBase == "" {
-			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
-		}
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = getDefaultAPIBase(protocol)
-		}
-		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
-			cfg.APIKey(),
-			apiBase,
-			cfg.Proxy,
-			cfg.MaxTokensField,
-			userAgent,
-			cfg.RequestTimeout,
-			cfg.ExtraBody,
-			cfg.CustomHeaders,
-		)
-		provider.SetProviderName(protocol)
-		return finalizeProviderFromConfig(provider, modelID, cfg)
-
-	case "azure":
-		// Azure OpenAI uses deployment-based URLs. Auth is Bearer token via api_key
-		// when set; otherwise falls back to Entra ID (DefaultAzureCredential).
-		if cfg.APIBase == "" {
-			return nil, "", fmt.Errorf(
-				"api_base is required for azure protocol (e.g., https://your-resource.openai.azure.com)",
-			)
-		}
-		if cfg.APIKey() != "" {
-			return finalizeProviderFromConfig(azure.NewProviderWithTimeout(
-				cfg.APIKey(),
-				cfg.APIBase,
-				cfg.Proxy,
-				userAgent,
-				cfg.RequestTimeout,
-			), modelID, cfg)
-		}
-		provider, err := azure.NewProviderWithIdentityAndTimeout(
-			cfg.APIBase,
-			cfg.Proxy,
-			userAgent,
-			cfg.RequestTimeout,
-		)
-		if err != nil {
-			return nil, "", err
-		}
-		return finalizeProviderFromConfig(provider, modelID, cfg)
-
-	case "bedrock":
-		// AWS Bedrock uses AWS SDK credentials (env vars, profiles, IAM roles, etc.)
-		// api_base can be:
-		//   - A full endpoint URL: https://bedrock-runtime.us-east-1.amazonaws.com
-		//   - A region name: us-east-1 (AWS SDK resolves endpoint automatically)
-		var opts []bedrock.Option
-		if cfg.APIBase != "" {
-			if !strings.Contains(cfg.APIBase, "://") {
-				// Treat as region: let AWS SDK resolve the correct endpoint
-				// (supports all AWS partitions: aws, aws-cn, aws-us-gov, etc.)
-				opts = append(opts, bedrock.WithRegion(cfg.APIBase))
-			} else {
-				// Full endpoint URL provided (for custom endpoints or testing)
-				opts = append(opts, bedrock.WithBaseEndpoint(cfg.APIBase))
-			}
-		}
-		// Use a separate timeout for AWS config loading (credential resolution can block)
-		initTimeout := config.Global().LLMProviderInit()
-		if cfg.RequestTimeout > 0 {
-			reqTimeout := time.Duration(cfg.RequestTimeout) * time.Second
-			// Set request timeout for API calls
-			opts = append(opts, bedrock.WithRequestTimeout(reqTimeout))
-			// Ensure init timeout is at least as large as request timeout
-			if reqTimeout > initTimeout {
-				initTimeout = reqTimeout
-			}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), initTimeout)
-		defer cancel()
-		// Note: AWS_PROFILE env var is automatically used by AWS SDK
-		provider, err := bedrock.NewProvider(ctx, opts...)
-		if err != nil {
-			return nil, "", fmt.Errorf("creating bedrock provider: %w", err)
-		}
-		return finalizeProviderFromConfig(provider, modelID, cfg)
-
-	case "litellm", "lmstudio", "gpt4free", "openrouter", "groq", "zhipu", "nvidia", "venice",
-		"nearai", "ollama", "moonshot", "shengsuanyun", "siliconflow", "deepseek", "cerebras",
-		"vivgrid", "volcengine", "vllm", "qwen-portal", "qwen-intl", "qwen-us", "mistral",
-		"avian", "longcat", "modelscope", "novita", "alibaba-coding", "zai", "mimo":
-		// All other OpenAI-compatible HTTP providers
-		if cfg.APIKey() == "" && cfg.APIBase == "" && !isEmptyAPIKeyAllowed(protocol) {
-			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
-		}
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = getDefaultAPIBase(protocol)
-		}
-		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
-			cfg.APIKey(),
-			apiBase,
-			cfg.Proxy,
-			cfg.MaxTokensField,
-			userAgent,
-			cfg.RequestTimeout,
-			cfg.ExtraBody,
-			cfg.CustomHeaders,
-		)
-		provider.SetProviderName(protocol)
-		return finalizeProviderFromConfig(provider, modelID, cfg)
-
-	case "gemini":
-		if cfg.APIKey() == "" && cfg.APIBase == "" {
-			return nil, "", fmt.Errorf("api_key or api_base is required for gemini protocol (model: %s)", cfg.Model)
-		}
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = getDefaultAPIBase(protocol)
-		}
-		return finalizeProviderFromConfig(NewGeminiProvider(
-			cfg.APIKey(),
-			apiBase,
-			cfg.Proxy,
-			userAgent,
-			cfg.RequestTimeout,
-			cfg.ExtraBody,
-			cfg.CustomHeaders,
-		), modelID, cfg)
-
-	case "minimax":
-		// Minimax requires reasoning_split: true in the request body
-		if cfg.APIKey() == "" && cfg.APIBase == "" {
-			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
-		}
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = getDefaultAPIBase(protocol)
-		}
-		extraBody := cfg.ExtraBody
-		if extraBody == nil {
-			extraBody = make(map[string]any)
-		}
-		if _, ok := extraBody["reasoning_split"]; !ok {
-			extraBody["reasoning_split"] = true
-		}
-		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
-			cfg.APIKey(),
-			apiBase,
-			cfg.Proxy,
-			cfg.MaxTokensField,
-			userAgent,
-			cfg.RequestTimeout,
-			extraBody,
-			cfg.CustomHeaders,
-		)
-		provider.SetProviderName(protocol)
-		return finalizeProviderFromConfig(provider, modelID, cfg)
-
-	case "anthropic":
-		if authMethod == "oauth" || authMethod == "token" {
-			// Use OAuth credentials from auth store
-			provider, err := createClaudeAuthProvider(cfg.APIBase)
+		case "anthropic", "anthropic-messages":
+			apiBase := ResolveAPIBase(cfg)
+			provider, err := createClaudeAuthProvider(apiBase, userAgent)
 			if err != nil {
 				return nil, "", err
 			}
 			return finalizeProviderFromConfig(provider, modelID, cfg)
 		}
-		// Use API key with HTTP API
-		apiBase := common.NormalizeBaseURL(cfg.APIBase, "https://api.anthropic.com/v1", true)
-		if cfg.APIKey() == "" {
-			return nil, "", fmt.Errorf("api_key is required for anthropic protocol (model: %s)", cfg.Model)
-		}
-		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
-			cfg.APIKey(),
-			apiBase,
-			cfg.Proxy,
-			cfg.MaxTokensField,
-			userAgent,
-			cfg.RequestTimeout,
-			cfg.ExtraBody,
-			cfg.CustomHeaders,
-		)
-		provider.SetProviderName(protocol)
-		return finalizeProviderFromConfig(provider, modelID, cfg)
+	}
 
+	option, ok := modelProviderOptionForName(protocol)
+	if !ok {
+		return nil, "", fmt.Errorf("unknown protocol %q in model %q", protocol, cfg.Model)
+	}
+
+	switch option.ProtocolFamily {
+	case "openai-compatible":
+		return createOpenAICompatibleProvider(cfg, option, modelID, userAgent)
 	case "anthropic-messages":
-		// Anthropic Messages API with native format (HTTP-based, no SDK)
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = "https://api.anthropic.com/v1"
-		}
-		if cfg.APIKey() == "" {
-			return nil, "", fmt.Errorf("api_key is required for anthropic-messages protocol (model: %s)", cfg.Model)
-		}
-		return finalizeProviderFromConfig(anthropicmessages.NewProviderWithTimeout(
+		return createAnthropicMessagesProvider(cfg, option, modelID, userAgent)
+	case "gemini":
+		return createGeminiProvider(cfg, option, modelID, userAgent)
+	case "azure":
+		return createAzureProvider(cfg, modelID, userAgent)
+	case "bedrock":
+		return createBedrockProvider(cfg, modelID)
+	case "oauth":
+		return createOAuthProvider(protocol, modelID, cfg)
+	case "cli":
+		return createCLIProvider(cfg, protocol, modelID)
+	case "asr":
+		return nil, "", fmt.Errorf("provider %q is not an LLM chat provider", protocol)
+	default:
+		return nil, "", fmt.Errorf("unknown protocol family %q for provider %q", option.ProtocolFamily, protocol)
+	}
+}
+
+func createOpenAICompatibleProvider(cfg *config.ModelConfig, option ModelProviderOption, modelID, userAgent string) (LLMProvider, string, error) {
+	if cfg.APIKey() == "" && cfg.APIBase == "" && !option.EmptyAPIKeyAllowed {
+		return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", option.ID)
+	}
+
+	apiBase := ResolveAPIBase(cfg)
+
+	extraBody := mergeExtraBody(option.ExtraBodyDefaults, cfg.ExtraBody)
+
+	var timeout time.Duration
+	if cfg.RequestTimeout > 0 {
+		timeout = time.Duration(cfg.RequestTimeout) * time.Second
+	}
+
+	provider := openaicompat.NewProvider(
+		cfg.APIKey(),
+		apiBase,
+		cfg.Proxy,
+		openaicompat.WithMaxTokensField(cfg.MaxTokensField),
+		openaicompat.WithUserAgent(userAgent),
+		openaicompat.WithRequestTimeout(timeout),
+		openaicompat.WithExtraBody(extraBody),
+		openaicompat.WithCustomHeaders(cfg.CustomHeaders),
+		openaicompat.WithProviderName(option.ID),
+		openaicompat.WithStripModelPrefix(option.StripModelPrefix),
+	)
+
+	return finalizeProviderFromConfig(provider, modelID, cfg)
+}
+
+func createAnthropicMessagesProvider(cfg *config.ModelConfig, option ModelProviderOption, modelID, userAgent string) (LLMProvider, string, error) {
+	if cfg.APIKey() == "" {
+		return nil, "", fmt.Errorf("api_key is required for %q protocol (model: %s)", option.ID, cfg.Model)
+	}
+	apiBase := ResolveAPIBase(cfg)
+	if apiBase == "" {
+		apiBase = "https://api.anthropic.com/v1"
+	}
+
+	var timeout time.Duration
+	if cfg.RequestTimeout > 0 {
+		timeout = time.Duration(cfg.RequestTimeout) * time.Second
+	}
+
+	provider := anthropicmessages.NewProviderWithTimeout(
+		cfg.APIKey(),
+		apiBase,
+		userAgent,
+		int(timeout.Seconds()),
+	)
+	return finalizeProviderFromConfig(provider, modelID, cfg)
+}
+
+func createGeminiProvider(cfg *config.ModelConfig, option ModelProviderOption, modelID, userAgent string) (LLMProvider, string, error) {
+	if cfg.APIKey() == "" && cfg.APIBase == "" {
+		return nil, "", fmt.Errorf("api_key or api_base is required for gemini protocol (model: %s)", cfg.Model)
+	}
+	apiBase := ResolveAPIBase(cfg)
+
+	var timeout time.Duration
+	if cfg.RequestTimeout > 0 {
+		timeout = time.Duration(cfg.RequestTimeout) * time.Second
+	}
+
+	provider := gemini.NewGeminiProvider(
+		cfg.APIKey(),
+		apiBase,
+		cfg.Proxy,
+		userAgent,
+		int(timeout.Seconds()),
+		cfg.ExtraBody,
+		cfg.CustomHeaders,
+	)
+	return finalizeProviderFromConfig(provider, modelID, cfg)
+}
+
+func createAzureProvider(cfg *config.ModelConfig, modelID, userAgent string) (LLMProvider, string, error) {
+	if cfg.APIBase == "" {
+		return nil, "", fmt.Errorf(
+			"api_base is required for azure protocol (e.g., https://your-resource.openai.azure.com)",
+		)
+	}
+	if cfg.APIKey() != "" {
+		return finalizeProviderFromConfig(azure.NewProviderWithTimeout(
 			cfg.APIKey(),
-			apiBase,
+			cfg.APIBase,
+			cfg.Proxy,
 			userAgent,
 			cfg.RequestTimeout,
 		), modelID, cfg)
+	}
+	provider, err := azure.NewProviderWithIdentityAndTimeout(
+		cfg.APIBase,
+		cfg.Proxy,
+		userAgent,
+		cfg.RequestTimeout,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	return finalizeProviderFromConfig(provider, modelID, cfg)
+}
 
-	case "alibaba-coding-anthropic":
-		// Alibaba Coding Plan with Anthropic-compatible API
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = getDefaultAPIBase(protocol)
+func createBedrockProvider(cfg *config.ModelConfig, modelID string) (LLMProvider, string, error) {
+	var opts []bedrock.Option
+	if cfg.APIBase != "" {
+		if !strings.Contains(cfg.APIBase, "://") {
+			opts = append(opts, bedrock.WithRegion(cfg.APIBase))
+		} else {
+			opts = append(opts, bedrock.WithBaseEndpoint(cfg.APIBase))
 		}
-		if cfg.APIKey() == "" {
-			return nil, "", fmt.Errorf("api_key is required for %q protocol (model: %s)", protocol, cfg.Model)
+	}
+	initTimeout := config.Global().LLMProviderInit()
+	if cfg.RequestTimeout > 0 {
+		reqTimeout := time.Duration(cfg.RequestTimeout) * time.Second
+		opts = append(opts, bedrock.WithRequestTimeout(reqTimeout))
+		if reqTimeout > initTimeout {
+			initTimeout = reqTimeout
 		}
-		return finalizeProviderFromConfig(anthropicmessages.NewProviderWithTimeout(
-			cfg.APIKey(),
-			apiBase,
-			userAgent,
-			cfg.RequestTimeout,
-		), modelID, cfg)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), initTimeout)
+	defer cancel()
+	provider, err := bedrock.NewProvider(ctx, opts...)
+	if err != nil {
+		return nil, "", fmt.Errorf("creating bedrock provider: %w", err)
+	}
+	return finalizeProviderFromConfig(provider, modelID, cfg)
+}
 
+func createOAuthProvider(protocol, modelID string, cfg *config.ModelConfig) (LLMProvider, string, error) {
+	switch protocol {
 	case "antigravity":
 		return finalizeProviderFromConfig(NewAntigravityProvider(), modelID, cfg)
+	default:
+		return nil, "", fmt.Errorf("unsupported oauth protocol %q", protocol)
+	}
+}
 
+func createCLIProvider(cfg *config.ModelConfig, protocol, modelID string) (LLMProvider, string, error) {
+	switch protocol {
 	case "claude-cli":
 		workspace := cfg.Workspace
 		if workspace == "" {
 			workspace = "."
 		}
 		return finalizeProviderFromConfig(NewClaudeCliProvider(workspace), modelID, cfg)
-
 	case "codex-cli":
 		workspace := cfg.Workspace
 		if workspace == "" {
 			workspace = "."
 		}
 		return finalizeProviderFromConfig(NewCodexCliProvider(workspace), modelID, cfg)
-
 	case "github-copilot":
 		apiBase := cfg.APIBase
 		if apiBase == "" {
@@ -365,10 +326,23 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			return nil, "", err
 		}
 		return finalizeProviderFromConfig(provider, modelID, cfg)
-
 	default:
-		return nil, "", fmt.Errorf("unknown protocol %q in model %q", protocol, cfg.Model)
+		return nil, "", fmt.Errorf("unsupported cli protocol %q", protocol)
 	}
+}
+
+func mergeExtraBody(defaults, overrides map[string]any) map[string]any {
+	merged := make(map[string]any)
+	for k, v := range defaults {
+		merged[k] = v
+	}
+	for k, v := range overrides {
+		merged[k] = v
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 func finalizeProviderFromConfig(
@@ -397,12 +371,19 @@ func IsEmptyAPIKeyAllowedForProtocol(protocol string) bool {
 
 // IsHTTPAPIProtocol reports whether a provider uses an HTTP API base in the
 // model configuration path. This excludes providers such as Bedrock, CLI
-// bridges, and OAuth-only managed providers even if they do not require an
+// bridges, and managed OAuth providers even if they do not require an
 // explicit api_key field.
 func IsHTTPAPIProtocol(protocol string) bool {
 	protocol = NormalizeProvider(protocol)
 	option, ok := modelProviderOptionsByName[protocol]
-	return ok && option.httpAPI
+	if !ok {
+		return false
+	}
+	switch option.ProtocolFamily {
+	case "openai-compatible", "anthropic-messages", "gemini", "azure", "asr":
+		return true
+	}
+	return false
 }
 
 // DefaultAPIBaseForProtocol returns the configured default API base for a protocol.

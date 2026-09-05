@@ -225,3 +225,14 @@ npx pnpm build
 - A custom `?listen=...` still forces the CLI fallback, and the CLI fallback honors `--trust`.
 - The Network dashboard has a "Trust & remember this peer" toggle that adds `trust=true` to the status query.
 - On the next daemon startup, `mesh.bootstrap_peers` are merged into the libp2p bootstrap list and `mesh.trusted_peers` are loaded into the mesh trust set, so saved peers reconnect and are trusted automatically.
+
+## Provider Protocol Refactor (v0.4.8)
+
+- LLM providers are now driven by a protocol catalog in `pkg/providers/model_catalog.go`.
+- `ModelProviderOption` carries `ProtocolFamily`, `StripModelPrefix`, `ExtraBodyDefaults`, `EmptyAPIKeyAllowed`, and construction flags.
+- `pkg/providers/factory_provider.go` dispatches by `ProtocolFamily`; OpenAI-compatible providers are created with one helper instead of a per-provider `switch`.
+- Anthropic Claude uses the native Messages protocol (`anthropic-messages`); the old `pkg/providers/anthropic` SDK wrapper and `pkg/providers/httpapi` facade have been removed.
+- Gemini lives in its own package: `pkg/providers/gemini`.
+- First-class local protocols (`ollama`, `vllm`, `lmstudio`, `litellm`) set `Local: true` and `EmptyAPIKeyAllowed: true`; the frontend shows them as "local" and allows blank API keys.
+- `openai_compat.Provider` strips the leading `provider/` segment when configured (`WithStripModelPrefix`) and preserves prefixes for `openrouter` endpoints.
+- When editing provider code, run `go build -tags goolm,stdjson ./...` and `go test -tags goolm,stdjson ./pkg/... ./web/...` (full `./...` includes slow `cmd/membench`).

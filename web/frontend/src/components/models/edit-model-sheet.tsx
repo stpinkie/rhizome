@@ -253,6 +253,9 @@ export function EditModelSheet({
       ) {
         apiBase = ""
       }
+      if (!currentApiBase && nextDefaultBase) {
+        apiBase = nextDefaultBase
+      }
       return {
         ...f,
         provider: getCanonicalProviderKey(provider, providerOptions),
@@ -567,8 +570,13 @@ export function EditModelSheet({
               {!isOAuth && (
                 <Field
                   label={t("models.field.apiKey")}
+                  required={!providerDef?.emptyApiKeyAllowed}
                   hint={
-                    hasSavedAPIKey ? t("models.edit.apiKeyHint") : undefined
+                    providerDef?.emptyApiKeyAllowed
+                      ? t("models.field.apiKeyOptional")
+                      : hasSavedAPIKey
+                        ? t("models.edit.apiKeyHint")
+                        : undefined
                   }
                 >
                   <KeyInput

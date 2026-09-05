@@ -39,10 +39,13 @@ const (
 // Provider implements Anthropic Messages API via HTTP (without SDK).
 // It supports custom endpoints that use Anthropic's native message format.
 type Provider struct {
-	apiKey     string
-	apiBase    string
-	httpClient *http.Client
-	userAgent  string
+	apiKey           string
+	apiBase          string
+	httpClient       *http.Client
+	userAgent        string
+	tokenSource      func() (string, error)
+	stripModelPrefix bool
+	providerName     string
 }
 
 // NewProvider creates a new Anthropic Messages API provider.
@@ -52,6 +55,22 @@ func NewProvider(apiKey, apiBase, userAgent string) *Provider {
 
 // NewProviderWithTimeout creates a provider with custom request timeout.
 func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds int) *Provider {
+	return newProvider(apiKey, nil, apiBase, userAgent, timeoutSeconds)
+}
+
+// NewProviderWithTokenSource creates a provider that refreshes its API key
+// from a token source before each request. The initial token is used as a
+// fallback when the token source is not yet invoked.
+func NewProviderWithTokenSource(
+	apiKey string,
+	tokenSource func() (string, error),
+	apiBase, userAgent string,
+	timeoutSeconds int,
+) *Provider {
+	return newProvider(apiKey, tokenSource, apiBase, userAgent, timeoutSeconds)
+}
+
+func newProvider(apiKey string, tokenSource func() (string, error), apiBase, userAgent string, timeoutSeconds int) *Provider {
 	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, true)
 	timeout := config.Global().HTTPRequestTimeout()
 	if timeoutSeconds > 0 {
@@ -59,13 +78,54 @@ func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds in
 	}
 
 	return &Provider{
-		apiKey:    apiKey,
-		apiBase:   baseURL,
-		userAgent: userAgent,
+		apiKey:      apiKey,
+		apiBase:     baseURL,
+		userAgent:   userAgent,
+		tokenSource: tokenSource,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
 	}
+}
+
+// WithStripModelPrefix configures whether the provider strips the leading
+// "provider/" segment from model names before sending them upstream.
+func WithStripModelPrefix(strip bool) func(*Provider) {
+	return func(p *Provider) {
+		p.stripModelPrefix = strip
+	}
+}
+
+// WithProviderName sets the canonical provider ID used when stripping prefixes.
+func WithProviderName(name string) func(*Provider) {
+	return func(p *Provider) {
+		p.providerName = strings.ToLower(strings.TrimSpace(name))
+	}
+}
+
+func (p *Provider) currentAPIKey() (string, error) {
+	if p.tokenSource == nil {
+		return p.apiKey, nil
+	}
+	key, err := p.tokenSource()
+	if err != nil {
+		return "", err
+	}
+	if key == "" {
+		return p.apiKey, nil
+	}
+	return key, nil
+}
+
+func (p *Provider) normalizeModel(model string) string {
+	if !p.stripModelPrefix {
+		return model
+	}
+	_, after, ok := strings.Cut(model, "/")
+	if !ok {
+		return model
+	}
+	return after
 }
 
 // Chat sends messages to the Anthropic Messages API and returns the response.
@@ -76,9 +136,15 @@ func (p *Provider) Chat(
 	model string,
 	options map[string]any,
 ) (*LLMResponse, error) {
-	if p.apiKey == "" {
+	apiKey, err := p.currentAPIKey()
+	if err != nil {
+		return nil, fmt.Errorf("loading API key: %w", err)
+	}
+	if apiKey == "" {
 		return nil, fmt.Errorf("API key not configured")
 	}
+
+	model = p.normalizeModel(model)
 
 	// Build request body
 	requestBody, err := buildRequestBody(messages, tools, model, options)
@@ -106,7 +172,7 @@ func (p *Provider) Chat(
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", p.apiKey) //nolint:canonicalheader // Anthropic API requires exact header name
+	req.Header.Set("X-API-Key", apiKey) //nolint:canonicalheader // Anthropic API requires exact header name
 	req.Header.Set("Anthropic-Version", defaultAPIVersion)
 	if p.userAgent != "" {
 		req.Header.Set("User-Agent", p.userAgent)

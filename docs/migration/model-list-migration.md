@@ -30,7 +30,7 @@ The new `model_list` configuration offers several advantages:
       "api_key": "sk-your-openai-key",
       "api_base": "https://api.openai.com/v1"
     },
-    "anthropic": {
+    "anthropic-messages": {
       "api_key": "sk-ant-your-key"
     },
     "deepseek": {
@@ -61,7 +61,7 @@ The new `model_list` configuration offers several advantages:
     },
     {
       "model_name": "claude-sonnet-4.6",
-      "provider": "anthropic",
+      "provider": "anthropic-messages",
       "model": "claude-sonnet-4.6",
       "api_keys": ["sk-ant-your-key"]
     },

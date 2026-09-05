@@ -328,6 +328,7 @@
       "selectProviderFirst": "Select a provider first",
       "apiBase": "API Base URL",
       "apiKey": "API Key",
+      "apiKeyOptional": "Optional; leave blank for local or API-key-optional providers.",
       "apiKeyPlaceholder": "Enter your API key",
       "apiKeyPlaceholderSet": "Leave blank to keep existing key",
       "proxy": "HTTP Proxy",

@@ -268,6 +268,9 @@ export function AddModelSheet({
       ) {
         apiBase = ""
       }
+      if (!currentApiBase && nextDefaultBase) {
+        apiBase = nextDefaultBase
+      }
       return {
         ...f,
         provider: getCanonicalProviderKey(provider, providerOptions),
@@ -596,7 +599,15 @@ export function AddModelSheet({
               </Field>
 
               {!isOAuth && (
-                <Field label={t("models.field.apiKey")}>
+                <Field
+                  label={t("models.field.apiKey")}
+                  required={!providerDef?.emptyApiKeyAllowed}
+                  hint={
+                    providerDef?.emptyApiKeyAllowed
+                      ? t("models.field.apiKeyOptional")
+                      : undefined
+                  }
+                >
                   <KeyInput
                     value={form.apiKey}
                     onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}

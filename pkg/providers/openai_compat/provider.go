@@ -35,14 +35,15 @@ type (
 )
 
 type Provider struct {
-	apiKey         string
-	apiBase        string
-	providerName   string
-	maxTokensField string // Field name for max tokens (e.g., "max_completion_tokens" for o1/glm models)
-	httpClient     *http.Client
-	extraBody      map[string]any // Additional fields to inject into request body
-	customHeaders  map[string]string
-	userAgent      string
+	apiKey           string
+	apiBase          string
+	providerName     string
+	maxTokensField   string // Field name for max tokens (e.g., "max_completion_tokens" for o1/glm models)
+	stripModelPrefix bool   // Strip the leading "provider/" segment from model names
+	httpClient       *http.Client
+	extraBody        map[string]any // Additional fields to inject into request body
+	customHeaders    map[string]string
+	userAgent        string
 }
 
 type Option func(*Provider)
@@ -51,6 +52,10 @@ const (
 	defaultRequestTimeout = common.DefaultRequestTimeout
 )
 
+// stripModelPrefixProviders is the set of provider IDs whose leading prefix
+// should be removed from model names before they are sent to an
+// OpenAI-compatible endpoint. It matches the legacy behavior and the catalog's
+// StripModelPrefix flag for OpenAI-compatible providers.
 var stripModelPrefixProviders = map[string]struct{}{
 	"litellm":     {},
 	"nearai":      {},
@@ -69,6 +74,15 @@ var stripModelPrefixProviders = map[string]struct{}{
 	"minimax":     {},
 	"novita":      {},
 	"lmstudio":    {},
+	"vllm":        {},
+}
+
+// stripModelPrefixForAPIBase returns true when the apiBase belongs to a host
+// whose model registry already includes the upstream provider prefix and should
+// not be stripped. OpenRouter is the canonical example: model ids such as
+// "openai/gpt-4o" or "openrouter/auto" are the actual model names.
+func stripModelPrefixForAPIBase(apiBase string) bool {
+	return !strings.Contains(strings.ToLower(apiBase), "openrouter.ai")
 }
 
 func WithMaxTokensField(maxTokensField string) Option {
@@ -109,11 +123,18 @@ func WithProviderName(providerName string) Option {
 	}
 }
 
+func WithStripModelPrefix(strip bool) Option {
+	return func(p *Provider) {
+		p.stripModelPrefix = strip
+	}
+}
+
 func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
 	p := &Provider{
-		apiKey:     apiKey,
-		apiBase:    strings.TrimRight(apiBase, "/"),
-		httpClient: common.NewHTTPClient(proxy),
+		apiKey:           apiKey,
+		apiBase:          strings.TrimRight(apiBase, "/"),
+		stripModelPrefix: true,
+		httpClient:       common.NewHTTPClient(proxy),
 	}
 
 	for _, opt := range opts {
@@ -146,7 +167,7 @@ func NewProviderWithMaxTokensFieldAndTimeout(
 func (p *Provider) buildRequestBody(
 	messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) map[string]any {
-	model = normalizeModel(model, p.apiBase)
+	model = p.normalizeModel(model)
 
 	requestBody := map[string]any{
 		"model":    model,
@@ -334,6 +355,10 @@ func (p *Provider) applyCustomHeaders(req *http.Request) {
 
 func (p *Provider) SetProviderName(providerName string) {
 	p.providerName = strings.ToLower(strings.TrimSpace(providerName))
+}
+
+func (p *Provider) GetDefaultModel() string {
+	return ""
 }
 
 func (p *Provider) SupportsThinking() bool {
@@ -812,22 +837,22 @@ func parseStreamResponse(
 	}, nil
 }
 
-func normalizeModel(model, apiBase string) string {
+func (p *Provider) normalizeModel(model string) string {
+	if !p.stripModelPrefix || !stripModelPrefixForAPIBase(p.apiBase) {
+		return model
+	}
+
 	before, after, ok := strings.Cut(model, "/")
 	if !ok {
 		return model
 	}
 
-	if strings.Contains(strings.ToLower(apiBase), "openrouter.ai") {
+	prefix := strings.ToLower(before)
+	if _, ok := stripModelPrefixProviders[prefix]; !ok {
 		return model
 	}
 
-	prefix := strings.ToLower(before)
-	if _, ok := stripModelPrefixProviders[prefix]; ok {
-		return after
-	}
-
-	return model
+	return after
 }
 
 func buildToolsList(tools []ToolDefinition, nativeSearch bool) []any {

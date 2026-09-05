@@ -5,6 +5,8 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/auth"
 	"github.com/stpinkie/rhizome/pkg/config"
+	anthropicmessages "github.com/stpinkie/rhizome/pkg/providers/anthropic_messages"
+	openaicompat "github.com/stpinkie/rhizome/pkg/providers/openai_compat"
 )
 
 func TestCreateProviderReturnsHTTPProviderForOpenRouter(t *testing.T) {
@@ -23,8 +25,8 @@ func TestCreateProviderReturnsHTTPProviderForOpenRouter(t *testing.T) {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
 
-	if _, ok := provider.(*HTTPProvider); !ok {
-		t.Fatalf("provider type = %T, want *HTTPProvider", provider)
+	if _, ok := provider.(*openaicompat.Provider); !ok {
+		t.Fatalf("provider type = %T, want *openaicompat.Provider", provider)
 	}
 }
 
@@ -44,8 +46,8 @@ func TestCreateProviderResolvesRawDefaultFromProviderTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
-		t.Fatalf("provider type = %T, want *HTTPProvider", provider)
+	if _, ok := provider.(*openaicompat.Provider); !ok {
+		t.Fatalf("provider type = %T, want *openaicompat.Provider", provider)
 	}
 	if modelID != "deepseek/deepseek-v3.2" {
 		t.Fatalf("model ID = %q, want %q", modelID, "deepseek/deepseek-v3.2")
@@ -255,8 +257,8 @@ func TestCreateProviderReturnsClaudeProviderForAnthropicOAuth(t *testing.T) {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
 
-	if _, ok := provider.(*ClaudeProvider); !ok {
-		t.Fatalf("provider type = %T, want *ClaudeProvider", provider)
+	if _, ok := provider.(*anthropicmessages.Provider); !ok {
+		t.Fatalf("provider type = %T, want *anthropicmessages.Provider", provider)
 	}
 }
 
@@ -289,8 +291,8 @@ func TestCreateProviderReturnsClaudeProviderForAnthropicOAuthWithCustomBase(t *t
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
 
-	if _, ok := provider.(*ClaudeProvider); !ok {
-		t.Fatalf("provider type = %T, want *ClaudeProvider", provider)
+	if _, ok := provider.(*anthropicmessages.Provider); !ok {
+		t.Fatalf("provider type = %T, want *anthropicmessages.Provider", provider)
 	}
 }
 

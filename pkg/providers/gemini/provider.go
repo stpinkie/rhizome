@@ -1,4 +1,4 @@
-package httpapi
+package gemini
 
 import (
 	"bufio"
@@ -793,6 +793,25 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func extractPartThoughtSignature(thoughtSignature string, thoughtSignatureSnake string) string {
+	if thoughtSignature != "" {
+		return thoughtSignature
+	}
+	if thoughtSignatureSnake != "" {
+		return thoughtSignatureSnake
+	}
+	return ""
+}
+
+func extractProtocol(model string) (protocol, modelID string) {
+	model = strings.TrimSpace(model)
+	protocol, modelID, found := strings.Cut(model, "/")
+	if !found {
+		return "openai", model
+	}
+	return protocol, modelID
 }
 
 type geminiGenerateContentResponse struct {

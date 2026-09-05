@@ -42,8 +42,8 @@
 *Connect every model, reach every platform.*
 
 * **Provider**
-  * [**Architecture Upgrade**](https://github.com/stpinkie/rhizome/issues/283): Refactor from "Vendor-based" to "Protocol-based" classification (e.g., OpenAI-compatible, Ollama-compatible). *(Status: In progress by @Daming, ETA 5 days)*
-  * **Local Models**: Deep integration with **Ollama**, **vLLM**, **LM Studio**, and **Mistral** (local inference).
+  * [**Architecture Upgrade**](https://github.com/stpinkie/rhizome/issues/283): Refactor from "Vendor-based" to "Protocol-based" classification (e.g., OpenAI-compatible, Anthropic Messages, Gemini). *(Status: Completed in v0.4.8)*
+  * **Local Models**: First-class support for **Ollama**, **vLLM**, **LM Studio**, and **LiteLLM** proxy.
   * **Online Models**: Continued support for frontier closed-source models.
 
 
