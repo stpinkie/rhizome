@@ -168,6 +168,9 @@ notarize:
 
 archives:
   - formats: [tar.gz]
+    ids:
+      - rhizome
+      - rhizome-launcher
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
       {{ .ProjectName }}_
@@ -180,6 +183,18 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+
+  # The android build produces a single binary while desktop archives carry
+  # both rhizome and rhizome-launcher; keep it in its own archive so binary
+  # counts are consistent per archive (GoReleaser v2 validation).
+  - formats: [tar.gz]
+    ids:
+      - rhizome-android
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- .Arch }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
 
 nfpms:
   - id: rhizome
