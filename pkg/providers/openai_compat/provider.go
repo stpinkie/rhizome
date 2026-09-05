@@ -52,14 +52,6 @@ const (
 	defaultRequestTimeout = common.DefaultRequestTimeout
 )
 
-// stripModelPrefixForAPIBase returns true when the apiBase belongs to a host
-// whose model registry already includes the upstream provider prefix and should
-// not be stripped. OpenRouter is the canonical example: model ids such as
-// "openai/gpt-4o" or "openrouter/auto" are the actual model names.
-func stripModelPrefixForAPIBase(apiBase string) bool {
-	return !strings.Contains(strings.ToLower(apiBase), "openrouter.ai")
-}
-
 func WithMaxTokensField(maxTokensField string) Option {
 	return func(p *Provider) {
 		p.maxTokensField = maxTokensField
@@ -813,25 +805,10 @@ func parseStreamResponse(
 }
 
 func (p *Provider) normalizeModel(model string) string {
-	if !p.stripModelPrefix || !stripModelPrefixForAPIBase(p.apiBase) {
+	if !p.stripModelPrefix {
 		return model
 	}
-
-	before, after, ok := strings.Cut(model, "/")
-	if !ok {
-		return model
-	}
-
-	// Only strip the prefix when it matches the configured provider's own ID.
-	// This preserves embedded upstream prefixes (e.g. "openai/gpt-4o" on
-	// OpenRouter) while correctly stripping "deepseek/deepseek-chat" on
-	// DeepSeek's own endpoint.
-	prefix := strings.ToLower(strings.TrimSpace(before))
-	if prefix == "" || prefix != p.providerName {
-		return model
-	}
-
-	return after
+	return common.StripModelPrefix(model, p.providerName, p.apiBase)
 }
 
 func buildToolsList(tools []ToolDefinition, nativeSearch bool) []any {

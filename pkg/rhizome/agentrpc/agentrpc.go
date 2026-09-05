@@ -31,7 +31,12 @@ type Request struct {
 	SystemPrompt  string        `json:"system_prompt"`
 	Timeout       time.Duration `json:"timeout,omitempty"`
 	Tools         []ToolRef     `json:"tools,omitempty"`
-	Signature     []byte        `json:"signature,omitempty"`
+	// Nonce is a caller-generated random value (16 bytes, hex) used for replay
+	// protection. Timestamp is the unix time the request was created. Both are
+	// covered by Signature.
+	Nonce     string `json:"nonce,omitempty"`
+	Timestamp int64  `json:"timestamp,omitempty"`
+	Signature []byte `json:"signature,omitempty"`
 	// Async hints that the caller will use the result in the background (spawn)
 	// rather than waiting for it in-line (delegate). Defaults to false.
 	Async bool `json:"async,omitempty"`
@@ -45,12 +50,19 @@ type ToolRef struct {
 
 // Response carries the result of a remote agent task.
 type Response struct {
-	CorrelationID string                 `json:"correlation_id"`
-	Status        string                 `json:"status"`
-	Result        *toolshared.ToolResult `json:"result,omitempty"`
-	Error         string                 `json:"error,omitempty"`
-	Signature     []byte                 `json:"signature,omitempty"`
+	CorrelationID string `json:"correlation_id"`
+	// Nonce echoes the request nonce so the signed response is bound to the
+	// exact request it answers.
+	Nonce     string                 `json:"nonce,omitempty"`
+	Status    string                 `json:"status"`
+	Result    *toolshared.ToolResult `json:"result,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+	Signature []byte                 `json:"signature,omitempty"`
 }
+
+// maxCachedResults bounds the idempotency cache so a peer cannot grow it
+// without limit by sending fresh correlation ids.
+const maxCachedResults = 1024
 
 // Transport provides libp2p stream handling for the agent RPC protocol.
 // It keeps a small in-memory idempotency cache so duplicate requests with the
@@ -60,6 +72,7 @@ type Transport struct {
 	handler Handler
 
 	results   map[string]cachedResult
+	order     []string // insertion order for count-bounded eviction
 	resultsMu sync.RWMutex
 	resultTTL time.Duration
 }
@@ -188,9 +201,17 @@ func (t *Transport) handleStream(s network.Stream) {
 	_ = rc.WriteFrame(frameResponse, data)
 }
 
+// resultCacheKey scopes a cached result to the authenticated peer. The cache
+// lookup runs before the handler's trust/signature/ACL checks, so a bare
+// correlation id must never leak one peer's response to another peer.
+func resultCacheKey(from peer.ID, correlationID string) string {
+	return string(from) + "\x00" + correlationID
+}
+
 func (t *Transport) handleRequestWithCache(from peer.ID, req Request) Response {
+	key := resultCacheKey(from, req.CorrelationID)
 	t.resultsMu.RLock()
-	cached, ok := t.results[req.CorrelationID]
+	cached, ok := t.results[key]
 	t.resultsMu.RUnlock()
 	if ok && time.Now().Before(cached.expiresAt) {
 		return cached.resp
@@ -200,28 +221,46 @@ func (t *Transport) handleRequestWithCache(from peer.ID, req Request) Response {
 	if err != nil {
 		resp = Response{
 			CorrelationID: req.CorrelationID,
+			Nonce:         req.Nonce,
 			Status:        "error",
 			Error:         err.Error(),
 		}
 	}
+	resp.Nonce = req.Nonce
 
 	t.resultsMu.Lock()
-	t.results[req.CorrelationID] = cachedResult{resp: resp, expiresAt: time.Now().Add(t.resultTTL)}
+	if _, exists := t.results[key]; !exists {
+		t.order = append(t.order, key)
+	}
+	t.results[key] = cachedResult{resp: resp, expiresAt: time.Now().Add(t.resultTTL)}
+	t.pruneResultsLocked()
 	t.resultsMu.Unlock()
-
-	// Clean up old results opportunistically.
-	t.pruneResults()
 
 	return resp
 }
 
-func (t *Transport) pruneResults() {
-	t.resultsMu.Lock()
-	defer t.resultsMu.Unlock()
+// pruneResultsLocked evicts expired entries and, when the cache exceeds
+// maxCachedResults, the oldest entries by insertion order. Caller holds the
+// write lock.
+func (t *Transport) pruneResultsLocked() {
 	now := time.Now()
 	for id, cr := range t.results {
 		if now.After(cr.expiresAt) {
 			delete(t.results, id)
 		}
+	}
+	if len(t.results) <= maxCachedResults {
+		return
+	}
+	kept := t.order[:0]
+	for _, id := range t.order {
+		if _, ok := t.results[id]; ok {
+			kept = append(kept, id)
+		}
+	}
+	t.order = kept
+	for len(t.results) > maxCachedResults && len(t.order) > 0 {
+		delete(t.results, t.order[0])
+		t.order = t.order[1:]
 	}
 }

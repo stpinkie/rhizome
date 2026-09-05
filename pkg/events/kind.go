@@ -128,6 +128,24 @@ const (
 	KindMeshRemoteSpawnStart Kind = "mesh.remote.spawn.start"
 	// KindMeshRemoteSpawnEnd is emitted when a remote spawn request ends.
 	KindMeshRemoteSpawnEnd Kind = "mesh.remote.spawn.end"
+	// KindMeshTaskSubmit is emitted when an async mesh task is submitted to or
+	// accepted from a peer over /rhizome/agent-task/1.0.0.
+	KindMeshTaskSubmit Kind = "mesh.task.submit"
+	// KindMeshTaskUpdate is emitted when a mesh task changes status
+	// (running, done, error, cancelled).
+	KindMeshTaskUpdate Kind = "mesh.task.update"
+	// KindMeshReachabilityChanged is emitted when the node's detected NAT
+	// reachability changes (public, private, unknown).
+	KindMeshReachabilityChanged Kind = "mesh.reachability.changed"
+	// KindMeshRelayReservation is emitted when the set of relayed
+	// (/p2p-circuit) addresses advertised by this node changes.
+	KindMeshRelayReservation Kind = "mesh.relay.reservation"
+	// KindMeshRemoteAudit is emitted for every remote agent request outcome
+	// (accepted, rejected, rate-limited, completed, failed).
+	KindMeshRemoteAudit Kind = "mesh.remote.audit"
+	// KindMeshCapabilityUnsigned is emitted when a trusted peer sends an
+	// unsigned capability manifest (one-release compatibility grace).
+	KindMeshCapabilityUnsigned Kind = "mesh.cap.unsigned"
 	// KindMeshError is emitted when a mesh operation fails.
 	KindMeshError Kind = "mesh.error"
 )
@@ -190,6 +208,12 @@ var knownKinds = []Kind{
 	KindMeshRemoteDelegateEnd,
 	KindMeshRemoteSpawnStart,
 	KindMeshRemoteSpawnEnd,
+	KindMeshTaskSubmit,
+	KindMeshTaskUpdate,
+	KindMeshReachabilityChanged,
+	KindMeshRelayReservation,
+	KindMeshRemoteAudit,
+	KindMeshCapabilityUnsigned,
 	KindMeshError,
 }
 

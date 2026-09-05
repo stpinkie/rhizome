@@ -31,6 +31,9 @@ export interface NetworkStatusResponse {
   node_index: number
   peer_id: string
   identity: string
+  reachability?: string
+  addrs?: string[]
+  relayed_addrs?: string[]
   peers?: NetworkPeer[]
   dht?: DHTStatus
 }

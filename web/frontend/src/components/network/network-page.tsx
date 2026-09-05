@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 
 import { BootstrapInput } from "./bootstrap-input"
 import { DhtPanel } from "./dht-panel"
+import { NodePanel } from "./node-panel"
 import { PeersPanel } from "./peers-panel"
 import { SavedPeersPanel } from "./saved-peers-panel"
 
@@ -71,7 +72,11 @@ export function NetworkPage() {
             </div>
           )}
 
-          <div className={cn("grid gap-6", "grid-cols-1 lg:grid-cols-2")}>
+          <div className={cn("grid gap-6", "grid-cols-1 lg:grid-cols-3")}>
+            <NodePanel
+              response={statusQuery.data}
+              isLoading={statusQuery.isLoading}
+            />
             <PeersPanel
               response={statusQuery.data}
               isLoading={statusQuery.isLoading}

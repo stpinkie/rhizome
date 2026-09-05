@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -230,14 +231,34 @@ func RunWithMesh(
 			rhizomeMesh.SetEventBus(eventBus)
 		}
 		local := agent.NewSubTurnSpawner(agentLoop)
+		rhizomeMesh.SetAgentLister(func() []string {
+			return agentLoop.GetRegistry().ListAgentIDs()
+		})
 		rhizomeMesh.SetRunFunc(func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
-			resp, pErr := agentLoop.ProcessDirect(ctx, req.SystemPrompt, "mesh-"+req.CorrelationID)
+			var toolNames []string
+			for _, t := range req.Tools {
+				if strings.TrimSpace(t.Name) != "" {
+					toolNames = append(toolNames, t.Name)
+				}
+			}
+			resp, pErr := agentLoop.ProcessRemoteDispatch(ctx, agent.RemoteDispatchRequest{
+				AgentID:    req.TargetAgentID,
+				Model:      req.Model,
+				Tools:      toolNames,
+				Prompt:     req.SystemPrompt,
+				SessionKey: "mesh-" + req.CorrelationID,
+				SenderID:   "mesh",
+			})
 			if pErr != nil {
 				return nil, pErr
 			}
 			return toolshared.NewToolResult(resp), nil
 		})
 		remoteSpawner := mesh.NewRemoteSpawner(rhizomeMesh, local)
+		remoteSpawner.SetLocalAgentChecker(func(id string) bool {
+			_, ok := agentLoop.GetRegistry().GetAgent(id)
+			return ok
+		})
 		agentLoop.SetSubTurnSpawner(remoteSpawner)
 	}
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayStart, startedAt, nil)

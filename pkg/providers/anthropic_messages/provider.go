@@ -131,17 +131,7 @@ func (p *Provider) normalizeModel(model string) string {
 	if !p.stripModelPrefix {
 		return model
 	}
-	before, after, ok := strings.Cut(model, "/")
-	if !ok {
-		return model
-	}
-	// Only strip the prefix when it matches the configured provider's own ID,
-	// preserving any embedded upstream prefix that is part of the model name.
-	prefix := strings.ToLower(strings.TrimSpace(before))
-	if prefix == "" || (p.providerName != "" && prefix != p.providerName) {
-		return model
-	}
-	return after
+	return common.StripModelPrefix(model, p.providerName, p.apiBase)
 }
 
 // Chat sends messages to the Anthropic Messages API and returns the response.

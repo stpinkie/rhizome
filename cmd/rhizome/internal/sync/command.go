@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,7 +48,9 @@ func openRepo() (*git.Repository, *git.Worktree, error) {
 }
 
 func newSyncStatusCommand() *cobra.Command {
-	return &cobra.Command{
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show workspace sync status",
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -61,8 +64,6 @@ func newSyncStatusCommand() *cobra.Command {
 				return fmt.Errorf("head: %w", err)
 			}
 
-			fmt.Printf("HEAD: %s (%s)\n", head.Hash().String()[:8], head.Name().Short())
-
 			w, err := repo.Worktree()
 			if err != nil {
 				return err
@@ -72,19 +73,59 @@ func newSyncStatusCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("status: %w", err)
 			}
-			if status.IsClean() {
-				fmt.Println("Workspace: clean")
-			} else {
-				fmt.Println("Workspace: modified")
-				for path, f := range status {
-					fmt.Printf("  %c%c %s\n", f.Staging, f.Worktree, path)
-				}
-			}
 
 			conflicts, err := rsync.ConflictPaths(w)
 			if err != nil {
 				return fmt.Errorf("conflicts: %w", err)
 			}
+
+			syncStatus, _ := rsync.LoadSyncStatus(workspacePath())
+
+			modifiedFiles := make([]string, 0, len(status))
+			for path := range status {
+				modifiedFiles = append(modifiedFiles, path)
+			}
+
+			out := struct {
+				Head          string            `json:"head"`
+				Branch        string            `json:"branch"`
+				Workspace     string            `json:"workspace"`
+				ModifiedFiles []string          `json:"modified_files,omitempty"`
+				Conflicts     []string          `json:"conflicts,omitempty"`
+				LastSyncError string            `json:"last_sync_error,omitempty"`
+				LastErrorTime time.Time         `json:"last_error_time,omitempty"`
+				PeerHeads     map[string]string `json:"peer_heads,omitempty"`
+			}{
+				Head:          head.Hash().String()[:8],
+				Branch:        head.Name().Short(),
+				Workspace:     "clean",
+				ModifiedFiles: modifiedFiles,
+				Conflicts:     conflicts,
+				LastSyncError: syncStatus.LastSyncError,
+				LastErrorTime: syncStatus.LastErrorTime,
+				PeerHeads:     syncStatus.PeerHeads,
+			}
+			if !status.IsClean() {
+				out.Workspace = "modified"
+			}
+
+			if jsonOutput {
+				data, err := json.MarshalIndent(out, "", "  ")
+				if err != nil {
+					return fmt.Errorf("marshal status: %w", err)
+				}
+				fmt.Println(string(data))
+				return nil
+			}
+
+			fmt.Printf("HEAD: %s (%s)\n", out.Head, out.Branch)
+			fmt.Printf("Workspace: %s\n", out.Workspace)
+			if !status.IsClean() {
+				for path, f := range status {
+					fmt.Printf("  %c%c %s\n", f.Staging, f.Worktree, path)
+				}
+			}
+
 			if len(conflicts) > 0 {
 				fmt.Println("Conflicts:")
 				for _, c := range conflicts {
@@ -92,9 +133,28 @@ func newSyncStatusCommand() *cobra.Command {
 				}
 			}
 
+			if syncStatus.LastSyncError != "" {
+				fmt.Printf("Last sync error: %s (%s)\n", syncStatus.LastSyncError, syncStatus.LastErrorTime.Format(time.RFC3339))
+			} else {
+				fmt.Println("Last sync error: none")
+			}
+
+			if len(syncStatus.PeerHeads) > 0 {
+				fmt.Println("Peer heads:")
+				for pid, h := range syncStatus.PeerHeads {
+					fmt.Printf("  %s: %s\n", pid, h)
+				}
+			} else {
+				fmt.Println("Peer heads: none")
+			}
+
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output status as JSON")
+
+	return cmd
 }
 
 func newSyncLogCommand() *cobra.Command {

@@ -639,6 +639,13 @@ func DefaultMeshConfig() MeshConfig {
 		AllowRemoteSpawn:     false,
 		AllowRemoteDelegate:  false,
 		RemoteTimeout:        5 * time.Minute,
+		NATTraversal:         true,
+		RelayService:         true,
+		NATService:           true,
+		RequestMaxSkew:       2 * time.Minute,
+		RateLimitPerPeer:     30,
+		RateLimitGlobal:      300,
+		AuditLog:             true,
 	}
 }
 

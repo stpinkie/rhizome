@@ -75,7 +75,11 @@ func NewStatusCommand() *cobra.Command {
 					BootstrapPeers:    append([]string(nil), cfg.Mesh.DHTBootstrap...),
 					ReprovideInterval: cfg.Mesh.DHTReprovideInterval,
 				},
-				Timeouts: &cfg.Timeouts.Network,
+				Timeouts:          &cfg.Timeouts.Network,
+				NATTraversal:      cfg.Mesh.NATTraversal,
+				StaticRelays:      cfg.Mesh.StaticRelays,
+				ForceReachability: cfg.Mesh.ForceReachability,
+				PublicAddrs:       cfg.Mesh.PublicAddrs,
 			}
 			if showDHT {
 				nodeCfg.DHT.Enabled = true
@@ -154,10 +158,15 @@ func NewStatusCommand() *cobra.Command {
 			status := rhizomeMesh.NetworkStatus(identityDir)
 
 			out := map[string]any{
-				"name":       status.Name,
-				"node_index": status.NodeIndex,
-				"peer_id":    status.PeerID,
-				"identity":   status.Identity,
+				"name":         status.Name,
+				"node_index":   status.NodeIndex,
+				"peer_id":      status.PeerID,
+				"identity":     status.Identity,
+				"reachability": status.Reachability,
+				"addrs":        status.Addrs,
+			}
+			if len(status.RelayedAddrs) > 0 {
+				out["relayed_addrs"] = status.RelayedAddrs
 			}
 			if showPeers {
 				out["peers"] = status.Peers
@@ -180,6 +189,15 @@ func NewStatusCommand() *cobra.Command {
 			fmt.Printf("Index:     %d\n", status.NodeIndex)
 			fmt.Printf("Peer ID:   %s\n", status.PeerID)
 			fmt.Printf("Identity:  %s\n", status.Identity)
+			if status.Reachability != "" {
+				fmt.Printf("Reachability: %s\n", status.Reachability)
+			}
+			if len(status.Addrs) > 0 {
+				fmt.Printf("Addrs:        %s\n", strings.Join(status.Addrs, ", "))
+			}
+			if len(status.RelayedAddrs) > 0 {
+				fmt.Printf("Relayed:      %s\n", strings.Join(status.RelayedAddrs, ", "))
+			}
 			if showPeers {
 				printPeerStatus(status.Peers)
 			}

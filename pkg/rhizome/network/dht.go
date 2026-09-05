@@ -10,7 +10,6 @@ import (
 	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multihash"
 
@@ -394,7 +393,7 @@ func (d *Discovery) findAndDialPeers(ctx context.Context) {
 			"addrs_count": len(info.Addrs),
 		})
 
-		if d.host.Network().Connectedness(info.ID) != network.Connected {
+		if !IsConnectednessUp(d.host.Network().Connectedness(info.ID)) {
 			dialTimeout := d.cfg.DialTimeout
 			if dialTimeout <= 0 {
 				dialTimeout = 15 * time.Second

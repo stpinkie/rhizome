@@ -136,7 +136,9 @@ type ReliableConn struct {
 	sendCh       chan sendReq
 	nextSendSeq  uint32
 	lastAckRecv  uint32
+	ackReceived  bool // lastAckRecv is only meaningful once a real ACK arrived
 	unackedFrame *ReliableFrame
+	ackCh        chan struct{} // signalled (non-blocking) when an ACK frame arrives
 
 	done    chan struct{}
 	closed  bool
@@ -178,6 +180,7 @@ func NewReliableConn(conn io.ReadWriteCloser, opts ...ReliableOption) *ReliableC
 		recvCh:       make(chan recvResult, 1),
 		sendCh:       make(chan sendReq, 1),
 		done:         make(chan struct{}),
+		ackCh:        make(chan struct{}, 1),
 	}
 	for _, o := range opts {
 		if o != nil {
@@ -208,7 +211,11 @@ func (r *ReliableConn) WriteFrame(typ byte, payload []byte) error {
 		err:   make(chan error, 1),
 	}
 
-	r.sendCh <- req
+	select {
+	case r.sendCh <- req:
+	case <-r.done:
+		return errors.New("reliable conn closed")
+	}
 
 	select {
 	case <-req.ack:
@@ -216,6 +223,14 @@ func (r *ReliableConn) WriteFrame(typ byte, payload []byte) error {
 	case err := <-req.err:
 		return err
 	case <-r.done:
+		// The writer reports the concrete send failure on req.err before
+		// shutdown closes r.done, so drain it first instead of masking the
+		// real error with a generic "closed" message.
+		select {
+		case err := <-req.err:
+			return err
+		default:
+		}
 		return errors.New("reliable conn closed")
 	}
 }
@@ -302,7 +317,6 @@ func (r *ReliableConn) sendWithRetry(req sendReq) error {
 		if r.waitForAck(seq, timeout) {
 			r.wrMu.Lock()
 			r.unackedFrame = nil
-			r.lastAckRecv = seq
 			r.wrMu.Unlock()
 			return nil
 		}
@@ -330,18 +344,22 @@ func (r *ReliableConn) backoff(attempt int) time.Duration {
 }
 
 func (r *ReliableConn) waitForAck(seq uint32, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
 	for {
 		r.wrMu.Lock()
-		acked := r.lastAckRecv >= seq
+		acked := r.ackReceived && r.lastAckRecv >= seq
 		r.wrMu.Unlock()
 		if acked {
 			return true
 		}
-		if time.Now().After(deadline) {
+		select {
+		case <-r.done:
 			return false
+		case <-deadline.C:
+			return false
+		case <-r.ackCh:
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -441,17 +459,29 @@ func (r *ReliableConn) handleDataFrame(frame *ReliableFrame) {
 
 func (r *ReliableConn) handleAckFrame(frame *ReliableFrame) {
 	r.wrMu.Lock()
-	if frame.Ack >= r.lastAckRecv {
+	if !r.ackReceived || frame.Ack >= r.lastAckRecv {
 		r.lastAckRecv = frame.Ack
+		r.ackReceived = true
 	}
 	r.wrMu.Unlock()
+	// Wake any waitForAck so it can re-check the ack state without polling.
+	select {
+	case r.ackCh <- struct{}{}:
+	default:
+	}
 }
 
 func (r *ReliableConn) handleNackFrame(frame *ReliableFrame) {
+	// The retransmit must hold wrMu through the encode: writeFrame and
+	// sendControlFrame serialize their writes under the same lock, and a
+	// lock-free encode here would interleave bytes with an in-flight write.
 	r.wrMu.Lock()
+	defer r.wrMu.Unlock()
 	f := r.unackedFrame
-	r.wrMu.Unlock()
 	if f != nil && frame.Ack == f.Seq {
+		if r.writeTimeout > 0 {
+			_ = r.setWriteDeadline(time.Now().Add(r.writeTimeout))
+		}
 		_ = f.encode(r.conn)
 	}
 }

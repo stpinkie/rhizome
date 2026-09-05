@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/host"
 	libnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
@@ -40,6 +43,12 @@ type Node struct {
 	reconnectCtx    context.Context
 	reconnectCancel context.CancelFunc
 	eventBus        runtimeevents.Bus
+
+	reachability atomic.Int32 // stores libnet.Reachability
+	relayAddrs   []string
+	relayAddrsMu sync.RWMutex
+	eventSubs    []event.Subscription
+	relaySource  *relayPeerSource
 }
 
 // Config is the static configuration for a Rhizome network node.
@@ -55,6 +64,29 @@ type Config struct {
 
 	// Timeouts override the built-in defaults. A nil value means use defaults.
 	Timeouts *rhizomeconfig.NetworkTimeouts
+
+	// NATTraversal enables the circuit-relay client transport, DCUtR hole
+	// punching, AutoNATv2 reachability detection, and AutoRelay reservations.
+	NATTraversal bool
+
+	// RelayService runs a circuit relay v2 service when the node detects it
+	// is publicly reachable, letting it relay traffic for NAT'd peers.
+	RelayService bool
+
+	// NATService provides the AutoNAT dial-back service to other peers when
+	// the node is publicly reachable.
+	NATService bool
+
+	// StaticRelays are extra relay multiaddrs (with /p2p/<peer-id>) used as
+	// AutoRelay candidates in addition to discovered mesh peers.
+	StaticRelays []string
+
+	// ForceReachability overrides reachability detection: "public" or "private".
+	ForceReachability string
+
+	// PublicAddrs are extra multiaddrs advertised to peers (e.g. a static
+	// public endpoint behind port-forwarding).
+	PublicAddrs []string
 }
 
 // SetEventBus sets the runtime event bus used to publish mesh events.
@@ -101,6 +133,70 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		libp2p.ListenAddrStrings(addrs...),
 		libp2p.Transport(tcp.NewTCPTransport, tcp.DisableReuseport()),
 		libp2p.NATPortMap(),
+	}
+
+	// relaySource is late-bound: AutoRelay calls it after the host (and Node)
+	// exist, so it can feed candidates from the live peer table.
+	relaySource := &relayPeerSource{}
+
+	if cfg.NATTraversal {
+		// EnableRelay wires the /p2p-circuit transport (accept inbound via a
+		// relay, dial out through one). EnableHolePunching upgrades relayed
+		// connections to direct ones where the NAT allows it. EnableAutoNATv2
+		// measures our own reachability.
+		baseOpts = append(baseOpts,
+			libp2p.EnableRelay(),
+			libp2p.EnableHolePunching(),
+			libp2p.EnableAutoNATv2(),
+		)
+
+		var staticRelays []peer.AddrInfo
+		if len(cfg.StaticRelays) > 0 {
+			relayMaddrs, err := MultiaddrStrings(cfg.StaticRelays)
+			if err != nil {
+				return nil, fmt.Errorf("parse static_relays: %w", err)
+			}
+			staticRelays, err = peer.AddrInfosFromP2pAddrs(relayMaddrs...)
+			if err != nil {
+				return nil, fmt.Errorf("parse static_relays: %w", err)
+			}
+		}
+		relaySource.static = staticRelays
+		// libp2p's autorelay defaults (4 min candidates, 3m boot delay, 30s
+		// query interval) are tuned for the public IPFS fleet. Rhizome meshes
+		// are small, so reserve a relay slot as soon as one candidate is found.
+		baseOpts = append(baseOpts, libp2p.EnableAutoRelayWithPeerSource(
+			relaySource.peers,
+			autorelay.WithMinCandidates(1),
+			autorelay.WithBootDelay(5*time.Second),
+			autorelay.WithMinInterval(15*time.Second),
+		))
+	}
+
+	// Both services only run when the node detects it is publicly reachable,
+	// so they are safe to leave enabled on NAT'd nodes.
+	if cfg.RelayService {
+		baseOpts = append(baseOpts, libp2p.EnableRelayService())
+	}
+	if cfg.NATService {
+		baseOpts = append(baseOpts, libp2p.EnableNATService())
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cfg.ForceReachability)) {
+	case "public":
+		baseOpts = append(baseOpts, libp2p.ForceReachabilityPublic())
+	case "private":
+		baseOpts = append(baseOpts, libp2p.ForceReachabilityPrivate())
+	}
+
+	if len(cfg.PublicAddrs) > 0 {
+		extra, err := MultiaddrStrings(cfg.PublicAddrs)
+		if err != nil {
+			return nil, fmt.Errorf("parse public_addrs: %w", err)
+		}
+		baseOpts = append(baseOpts, libp2p.AddrsFactory(func(addrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
+			return append(addrs, extra...)
+		}))
 	}
 
 	h, err := libp2p.New(append(baseOpts, libp2p.Transport(quic.NewTransport))...)
@@ -154,6 +250,11 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 			"addr":    ev.Addr.String(),
 		})
 	})
+
+	relaySource.node.Store(n)
+	n.relaySource = relaySource
+	n.reachability.Store(int32(libnet.ReachabilityUnknown))
+	n.watchHostEvents(n.reconnectCtx)
 
 	// mDNS LAN discovery.
 	n.mdns = mdns.NewMdnsService(h, "_rhizome._p2p", n)
@@ -278,6 +379,181 @@ func (n *Node) addPeer(pi peer.AddrInfo) {
 	n.peers[pi.ID] = pi
 }
 
+// relayPeerSource feeds AutoRelay candidates: configured static relays plus
+// the node's known peers (trusted/bootstrap/DHT/mDNS discovered). AutoRelay
+// filters out candidates that do not run the circuit relay v2 hop protocol.
+type relayPeerSource struct {
+	static []peer.AddrInfo
+	node   atomic.Pointer[Node]
+}
+
+func (r *relayPeerSource) peers(ctx context.Context, _ int) <-chan peer.AddrInfo {
+	out := make(chan peer.AddrInfo)
+	go func() {
+		defer close(out)
+		seen := make(map[peer.ID]struct{})
+		send := func(ai peer.AddrInfo) bool {
+			if ai.ID == "" {
+				return true
+			}
+			if _, dup := seen[ai.ID]; dup {
+				return true
+			}
+			seen[ai.ID] = struct{}{}
+			select {
+			case out <- ai:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+		var selfID peer.ID
+		if n := r.node.Load(); n != nil {
+			selfID = n.ID()
+		}
+		for _, ai := range r.static {
+			if ai.ID == selfID {
+				continue
+			}
+			if !send(ai) {
+				return
+			}
+		}
+		if n := r.node.Load(); n != nil {
+			for _, ai := range n.Peers() {
+				if ai.ID == selfID {
+					continue
+				}
+				if !send(ai) {
+					return
+				}
+			}
+		}
+	}()
+	return out
+}
+
+// watchHostEvents subscribes to the host event bus for reachability and
+// advertised-address changes, keeping Node state and mesh events current.
+func (n *Node) watchHostEvents(ctx context.Context) {
+	reachSub, err := n.host.EventBus().Subscribe(new(event.EvtLocalReachabilityChanged))
+	if err != nil {
+		logger.WarnCF("network", "failed to subscribe to reachability events", map[string]any{"error": err.Error()})
+	} else {
+		n.eventSubs = append(n.eventSubs, reachSub)
+	}
+	addrSub, err := n.host.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		logger.WarnCF("network", "failed to subscribe to address events", map[string]any{"error": err.Error()})
+	} else {
+		n.eventSubs = append(n.eventSubs, addrSub)
+	}
+	if reachSub == nil && addrSub == nil {
+		return
+	}
+
+	n.reconnectWg.Add(1)
+	go func() {
+		defer n.reconnectWg.Done()
+		var reachCh <-chan any
+		if reachSub != nil {
+			reachCh = reachSub.Out()
+		}
+		var addrCh <-chan any
+		if addrSub != nil {
+			addrCh = addrSub.Out()
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-reachCh:
+				if !ok {
+					reachCh = nil
+					continue
+				}
+				if e, ok := ev.(event.EvtLocalReachabilityChanged); ok {
+					n.setReachability(e.Reachability)
+				}
+			case _, ok := <-addrCh:
+				if !ok {
+					addrCh = nil
+					continue
+				}
+				n.refreshRelayedAddrs()
+			}
+		}
+	}()
+}
+
+func (n *Node) setReachability(r libnet.Reachability) {
+	prev := libnet.Reachability(n.reachability.Swap(int32(r)))
+	if prev == r {
+		return
+	}
+	n.publishMeshEvent(runtimeevents.KindMeshReachabilityChanged, map[string]any{
+		"reachability": n.ReachabilityString(),
+		"previous":     prev.String(),
+	})
+}
+
+// refreshRelayedAddrs recomputes the /p2p-circuit addrs this node advertises
+// and emits an event when the set changes (relay reservation gained/lost).
+func (n *Node) refreshRelayedAddrs() {
+	var current []string
+	for _, a := range n.host.Addrs() {
+		if strings.Contains(a.String(), "/p2p-circuit") {
+			current = append(current, fmt.Sprintf("%s/p2p/%s", a.String(), n.host.ID().String()))
+		}
+	}
+	n.relayAddrsMu.Lock()
+	changed := !equalStringsUnordered(current, n.relayAddrs)
+	if changed {
+		n.relayAddrs = current
+	}
+	n.relayAddrsMu.Unlock()
+	if changed {
+		n.publishMeshEvent(runtimeevents.KindMeshRelayReservation, map[string]any{
+			"relay_addrs": current,
+		})
+	}
+}
+
+func equalStringsUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, s := range a {
+		seen[s]++
+	}
+	for _, s := range b {
+		seen[s]--
+		if seen[s] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// Reachability returns the node's last detected NAT reachability.
+func (n *Node) Reachability() libnet.Reachability {
+	return libnet.Reachability(n.reachability.Load())
+}
+
+// ReachabilityString returns the node's reachability as a display string.
+func (n *Node) ReachabilityString() string {
+	return n.Reachability().String()
+}
+
+// RelayedAddrs returns the /p2p-circuit multiaddrs (with /p2p/<peer-id>)
+// currently advertised by this node, one per relay reservation.
+func (n *Node) RelayedAddrs() []string {
+	n.relayAddrsMu.RLock()
+	defer n.relayAddrsMu.RUnlock()
+	return append([]string(nil), n.relayAddrs...)
+}
+
 // OnConnected registers a callback invoked when a peer connects.
 func (n *Node) OnConnected(fn func(PeerEvent)) {
 	n.notifiee.OnConnected(fn)
@@ -291,6 +567,13 @@ func (n *Node) OnDisconnected(fn func(PeerEvent)) {
 // Connectedness returns the current connectedness state of a peer.
 func (n *Node) Connectedness(pid peer.ID) libnet.Connectedness {
 	return n.host.Network().Connectedness(pid)
+}
+
+// IsConnectednessUp reports whether the given connectedness means we have a
+// usable connection: Connected for direct links or Limited for transient
+// (e.g. relayed) links that can still carry streams.
+func IsConnectednessUp(c libnet.Connectedness) bool {
+	return c == libnet.Connected || c == libnet.Limited
 }
 
 func (n *Node) timeoutsOrDefault() *rhizomeconfig.NetworkTimeouts {
@@ -413,6 +696,9 @@ func (n *Node) Close() error {
 	}
 	if n.reconnectTick != nil {
 		n.reconnectTick.Stop()
+	}
+	for _, sub := range n.eventSubs {
+		_ = sub.Close()
 	}
 	n.reconnectWg.Wait()
 

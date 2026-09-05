@@ -99,7 +99,7 @@ func (n *Node) reconnectOnce(ctx context.Context) {
 	n.mu.RUnlock()
 
 	for _, pi := range peers {
-		if n.Connectedness(pi.ID) == network.Connected {
+		if IsConnectednessUp(n.Connectedness(pi.ID)) {
 			continue
 		}
 

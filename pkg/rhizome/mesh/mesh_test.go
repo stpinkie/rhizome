@@ -72,7 +72,10 @@ func TestMeshRemoteCall(t *testing.T) {
 	meshA.TrustPeer(nodeB.ID())
 	meshB.TrustPeer(nodeA.ID())
 
-	result, err := meshA.CallRemote(ctx, nodeB.ID(), "main", "say hello", false)
+	result, err := meshA.CallRemote(ctx, nodeB.ID(), RemoteCall{
+		TargetAgentID: "main",
+		SystemPrompt:  "say hello",
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "hello from remote", result.ForLLM)
 }
@@ -120,7 +123,10 @@ func TestMeshUntrustedPeer(t *testing.T) {
 	defer meshB.Stop()
 
 	// A does not trust B and B does not trust A.
-	_, err = meshA.CallRemote(ctx, nodeB.ID(), "main", "say hello", false)
+	_, err = meshA.CallRemote(ctx, nodeB.ID(), RemoteCall{
+		TargetAgentID: "main",
+		SystemPrompt:  "say hello",
+	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not trusted")
 }

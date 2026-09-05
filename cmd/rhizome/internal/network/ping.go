@@ -30,12 +30,20 @@ func NewPingCommand() *cobra.Command {
 				os.Exit(1)
 			}
 
+			cfg, err := config.LoadConfig(internal.GetConfigPath())
+			if err != nil {
+				cfg = config.DefaultConfig()
+			}
+			config.SetGlobal(cfg)
+
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 
 			node, err := rnet.NewNode(ctx, derived.Libp2pPrivKey, rnet.Config{
 				ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
 				BootstrapPeers: []string{args[0]},
+				NATTraversal:   cfg.Mesh.NATTraversal,
+				StaticRelays:   cfg.Mesh.StaticRelays,
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to start node: %v\n", err)

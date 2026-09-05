@@ -22,6 +22,7 @@ func NewNetworkCommand() *cobra.Command {
 		NewRemoveCommand(),
 		NewDelegateCommand(),
 		NewSpawnCommand(),
+		NewTaskCommand(),
 	)
 
 	return cmd

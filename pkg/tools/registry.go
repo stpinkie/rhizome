@@ -493,6 +493,40 @@ func (r *ToolRegistry) Clone() *ToolRegistry {
 	return clone
 }
 
+// CloneFiltered returns a clone containing only the named tools. Names are
+// matched case-insensitively against registered tool names. It returns the
+// requested names that were not present in the source registry.
+func (r *ToolRegistry) CloneFiltered(names []string) (*ToolRegistry, []string) {
+	want := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		if trimmed := strings.ToLower(strings.TrimSpace(n)); trimmed != "" {
+			want[trimmed] = struct{}{}
+		}
+	}
+
+	clone := r.Clone()
+	// clone.tools is private to the clone; no lock needed while filtering.
+	var missing []string
+	for name := range clone.tools {
+		if _, ok := want[strings.ToLower(name)]; !ok {
+			delete(clone.tools, name)
+		}
+	}
+	for n := range want {
+		found := false
+		for name := range clone.tools {
+			if strings.EqualFold(name, n) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, n)
+		}
+	}
+	return clone, missing
+}
+
 // Count returns the number of registered tools.
 func (r *ToolRegistry) Count() int {
 	r.mu.RLock()

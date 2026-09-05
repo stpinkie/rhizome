@@ -71,7 +71,13 @@ func NewDaemonCommand() *cobra.Command {
 					BootstrapPeers:    cfg.Mesh.DHTBootstrap,
 					ReprovideInterval: cfg.Mesh.DHTReprovideInterval,
 				},
-				Timeouts: &cfg.Timeouts.Network,
+				Timeouts:          &cfg.Timeouts.Network,
+				NATTraversal:      cfg.Mesh.NATTraversal,
+				RelayService:      cfg.Mesh.RelayService,
+				NATService:        cfg.Mesh.NATService,
+				StaticRelays:      cfg.Mesh.StaticRelays,
+				ForceReachability: cfg.Mesh.ForceReachability,
+				PublicAddrs:       cfg.Mesh.PublicAddrs,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to start Rhizome node: %w", err)

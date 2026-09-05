@@ -81,6 +81,26 @@ export CGO_ENABLED=0
 5. If Docker is available, optionally run `bash ./scripts/run-integration-tests.sh` and `CGO_ENABLED=0 bash ./scripts/integration-mesh.sh`; otherwise skip them and note this in the report.
 6. Write the report.
 
+## Mesh-focused suite
+
+In addition to the generic suite, run the mesh/P2P packages directly so flakes
+are easy to isolate and the report can call them out individually:
+
+```bash
+go test -tags goolm,stdjson -count=1 ./pkg/rhizome/network/ ./pkg/rhizome/mesh/ \
+  ./pkg/rhizome/sync/ ./pkg/rhizome/stream/ ./pkg/rhizome/agentrpc/ \
+  ./pkg/rhizome/agenttask/
+```
+
+These cover capability signing + replay protection, per-peer ACL and rate
+limits, the async task lifecycle (submit/status/result/cancel), NAT traversal
+and relay reachability, multi-peer sync convergence, and reliable-stream fault
+injection. If `TestMeshInvalidRequestSignature` flakes, rerun it in isolation:
+
+```bash
+go test -tags goolm,stdjson -count=1 -run TestMeshInvalidRequestSignature ./pkg/rhizome/mesh
+```
+
 ## Report fields
 
 At minimum, record:

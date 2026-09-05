@@ -100,6 +100,60 @@ type MeshConfig struct {
 	AllowRemoteSpawn     bool          `json:"allow_remote_spawn,omitempty"`
 	AllowRemoteDelegate  bool          `json:"allow_remote_delegate,omitempty"`
 	RemoteTimeout        time.Duration `json:"remote_timeout,omitempty"`
+
+	// NATTraversal enables the relay client transport, DCUtR hole punching,
+	// AutoNATv2 reachability detection, and AutoRelay reservations. It defaults
+	// to true; set false to opt out (e.g. constrained embedded builds).
+	NATTraversal bool `json:"nat_traversal"`
+	// RelayService runs a circuit relay v2 service, but only when the node
+	// detects it is publicly reachable. Defaults to true so reachable nodes
+	// can relay traffic for NAT'd peers.
+	RelayService bool `json:"relay_service"`
+	// NATService provides the AutoNAT dial-back service to other peers when
+	// publicly reachable. Defaults to true.
+	NATService bool `json:"nat_service"`
+	// StaticRelays are extra relay multiaddrs (with /p2p/<peer-id>) used as
+	// AutoRelay candidates in addition to discovered mesh peers.
+	StaticRelays []string `json:"static_relays,omitempty"`
+	// ForceReachability overrides reachability detection: "public" or "private".
+	ForceReachability string `json:"force_reachability,omitempty"`
+	// PublicAddrs are extra multiaddrs advertised to peers (e.g. a static
+	// public endpoint behind port-forwarding).
+	PublicAddrs []string `json:"public_addrs,omitempty"`
+
+	// RequestMaxSkew is the maximum accepted clock difference between mesh
+	// peers for signed request timestamps. Requests outside the window are
+	// rejected. Defaults to 2m.
+	RequestMaxSkew time.Duration `json:"request_max_skew,omitempty"`
+	// ACL holds per-peer authorization rules for remote execution. A peer not
+	// listed falls back to AllowRemoteDelegate/AllowRemoteSpawn.
+	ACL []MeshACLRule `json:"acl,omitempty"`
+	// RateLimitPerPeer caps remote agent requests per peer, in requests per
+	// minute. 0 means unlimited. Defaults to 30.
+	RateLimitPerPeer float64 `json:"rate_limit_per_peer,omitempty"`
+	// RateLimitGlobal caps the total inbound remote agent request rate across
+	// all peers, in requests per minute. 0 means unlimited. Defaults to 300.
+	RateLimitGlobal float64 `json:"rate_limit_global,omitempty"`
+	// AuditLog enables the append-only mesh audit trail at
+	// ~/.rhizome/mesh-audit.jsonl. Defaults to true.
+	AuditLog bool `json:"audit_log"`
+	// RequireSignedCaps rejects unsigned capability manifests from peers.
+	// Defaults to false for one release so older nodes can still announce
+	// (unsigned manifests emit a mesh.cap.unsigned event); set true to
+	// enforce signed manifests immediately.
+	RequireSignedCaps bool `json:"require_signed_caps,omitempty"`
+}
+
+// MeshACLRule authorizes a single peer for remote execution. Nil/empty fields
+// fall back to the global mesh policy.
+type MeshACLRule struct {
+	PeerID        string   `json:"peer_id"`
+	AllowDelegate *bool    `json:"allow_delegate,omitempty"`
+	AllowSpawn    *bool    `json:"allow_spawn,omitempty"`
+	Agents        []string `json:"agents,omitempty"`
+	// RateLimit overrides the per-peer rate limit (requests per minute).
+	// 0 means "use the global per-peer default"; negative means unlimited.
+	RateLimit float64 `json:"rate_limit,omitempty"`
 }
 
 func (m *MeshConfig) MarshalJSON() ([]byte, error) {
@@ -108,10 +162,12 @@ func (m *MeshConfig) MarshalJSON() ([]byte, error) {
 		*Alias
 		RemoteTimeout        string `json:"remote_timeout,omitempty"`
 		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
+		RequestMaxSkew       string `json:"request_max_skew,omitempty"`
 	}{
 		Alias:                (*Alias)(m),
 		RemoteTimeout:        m.RemoteTimeout.String(),
 		DHTReprovideInterval: m.DHTReprovideInterval.String(),
+		RequestMaxSkew:       m.RequestMaxSkew.String(),
 	})
 }
 
@@ -121,6 +177,7 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 		*Alias
 		RemoteTimeout        string `json:"remote_timeout,omitempty"`
 		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
+		RequestMaxSkew       string `json:"request_max_skew,omitempty"`
 	}{
 		Alias: (*Alias)(m),
 	}
@@ -140,6 +197,13 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		m.DHTReprovideInterval = d
+	}
+	if aux.RequestMaxSkew != "" {
+		d, err := time.ParseDuration(aux.RequestMaxSkew)
+		if err != nil {
+			return err
+		}
+		m.RequestMaxSkew = d
 	}
 	return nil
 }
@@ -166,6 +230,43 @@ func (m *MeshConfig) Validate() error {
 		}
 		if !strings.Contains(p, "/p2p/") {
 			return fmt.Errorf("mesh.bootstrap_peers[%d] must include a /p2p/<peer-id> suffix", i)
+		}
+	}
+	for i, r := range m.StaticRelays {
+		if r == "" {
+			return fmt.Errorf("mesh.static_relays[%d] is empty", i)
+		}
+		if !strings.Contains(r, "/p2p/") {
+			return fmt.Errorf("mesh.static_relays[%d] must include a /p2p/<peer-id> suffix", i)
+		}
+	}
+	for i, a := range m.PublicAddrs {
+		if strings.TrimSpace(a) == "" {
+			return fmt.Errorf("mesh.public_addrs[%d] is empty", i)
+		}
+	}
+	switch m.ForceReachability {
+	case "", "public", "private":
+	default:
+		return fmt.Errorf("mesh.force_reachability must be \"public\", \"private\", or empty")
+	}
+	if m.RequestMaxSkew < 0 {
+		return fmt.Errorf("mesh.request_max_skew must be non-negative")
+	}
+	if m.RateLimitPerPeer < 0 {
+		return fmt.Errorf("mesh.rate_limit_per_peer must be non-negative")
+	}
+	if m.RateLimitGlobal < 0 {
+		return fmt.Errorf("mesh.rate_limit_global must be non-negative")
+	}
+	for i, rule := range m.ACL {
+		if strings.TrimSpace(rule.PeerID) == "" {
+			return fmt.Errorf("mesh.acl[%d].peer_id is empty", i)
+		}
+		for j, a := range rule.Agents {
+			if strings.TrimSpace(a) == "" {
+				return fmt.Errorf("mesh.acl[%d].agents[%d] is empty", i, j)
+			}
 		}
 	}
 	return nil

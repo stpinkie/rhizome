@@ -38,7 +38,8 @@ $env:TMP='D:\tmp'
 - `rhizome network remove <peer-id>` — remove a peer from both `mesh.trusted_peers` and matching `mesh.bootstrap_peers`.
 - `rhizome network delegate <peer-multiaddr> <agent-id> <task>` — synchronously delegate a task to a remote peer agent.
 - `rhizome network spawn <peer-multiaddr> <agent-id> <task>` — asynchronously spawn a task on a remote peer agent.
-- `rhizome sync status|log|commit|pull|push` — manage the workspace git repo.
+- `rhizome network task submit|status|result|cancel|list <peer-multiaddr> …` — manage asynchronous remote tasks over `/rhizome/agent-task/1.0.0`. The same commands are mirrored under `rhizome mesh task`.
+- `rhizome sync status|log|commit|pull|push` — manage the workspace git repo. `sync status` shows HEAD, branch, workspace state, conflicts, last error, and per-peer heads (`--json` for machine-readable).
 - `rhizome daemon` — start a long-running P2P node, workspace syncer, agent gateway, and (when enabled) the decentralised mesh.
   - `--no-dht` disables public DHT discovery.
   - `--no-gateway` starts the P2P node and syncer without the HTTP gateway.
@@ -66,8 +67,9 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 - `pkg/rhizome/network` — libp2p host, mDNS discovery, bootstrap, ping, and public DHT discovery.
 - `pkg/rhizome/sync` — workspace Git sync, packfile transport, file watcher, and three-way merge.
 - `pkg/rhizome/merge` — diff3-based file and tree merging.
-- `pkg/rhizome/agentrpc` — libp2p request/response framing for remote agent tasks.
-- `pkg/rhizome/mesh` — peer capability exchange, trust, and remote `delegate`/`spawn`.
+- `pkg/rhizome/agentrpc` — libp2p request/response framing for remote agent tasks (`/rhizome/agent/1.0.0`), with signed nonce+timestamp replay fields and a bounded idempotency cache.
+- `pkg/rhizome/agenttask` — asynchronous task protocol (`/rhizome/agent-task/1.0.0`): submit/status/result(long-poll)/cancel/list.
+- `pkg/rhizome/mesh` — peer capability exchange (signed manifests), trust, remote `delegate`/`spawn`, per-peer ACL + rate limits, replay protection, and the audit trail (`~/.rhizome/mesh-audit.jsonl`).
 - `cmd/rhizome/internal/network`, `cmd/rhizome/internal/daemon`, and `cmd/rhizome/internal/sync` — CLI commands.
 
 ## Mesh Configuration
@@ -81,10 +83,40 @@ Add a `mesh` section to `config.json`:
     "trusted_peers": ["12D3KooW..."],
     "allow_remote_delegate": true,
     "allow_remote_spawn": true,
-    "remote_timeout": "5m"
+    "remote_timeout": "5m",
+    "request_max_skew": "2m",
+    "rate_limit_per_peer": 30,
+    "rate_limit_global": 300,
+    "audit_log": true,
+    "require_signed_caps": false,
+    "acl": [
+      {
+        "peer_id": "12D3KooW...",
+        "allow_delegate": true,
+        "allow_spawn": false,
+        "agents": ["main"],
+        "rate_limit": 10
+      }
+    ]
   }
 }
 ```
+
+- `request_max_skew` — max accepted clock difference for signed request timestamps (replay protection window).
+- `rate_limit_per_peer` / `rate_limit_global` — remote request caps in requests per minute (0 = unlimited).
+- `audit_log` — append-only `~/.rhizome/mesh-audit.jsonl` trail (10 MB × 3 rotation); a `mesh.remote.audit` runtime event is always emitted.
+- `require_signed_caps` — reject unsigned capability manifests instead of accepting them during the one-release compatibility grace.
+- `acl` — per-peer overrides: `allow_delegate`/`allow_spawn` fall back to the global flags when omitted; `agents` restricts which agent ids the peer may run (`"*"` for all); `rate_limit` overrides the per-peer cap (negative = unlimited).
+- Rejected remote calls carry machine-readable prefixes: `forbidden:` (ACL) and `rate_limited:`.
+
+### NAT traversal (v0.5.0)
+
+- `nat_traversal` (default true) — AutoNATv2, hole punching, and circuit-relay v2 client + AutoRelay reservations.
+- `relay_service` / `nat_service` (default true) — publicly reachable nodes volunteer as relays and AutoNAT dial-back servers.
+- `static_relays` — relay multiaddrs to always reserve.
+- `force_reachability` — `"public"`/`"private"` override when AutoNAT is wrong.
+- `public_addrs` — extra multiaddrs advertised to peers (e.g. a static public endpoint).
+- `network status` reports `reachability`, `addrs`, and `relayed_addrs`; relayed (`Limited`) connections count as usable.
 
 When `mesh.enabled` is true, `rhizome daemon` advertises local capabilities over `/rhizome/caps/1.0.0`, accepts remote agent requests over `/rhizome/agent/1.0.0` from trusted peers, and publishes mesh/DHT runtime events to the shared event bus.
 

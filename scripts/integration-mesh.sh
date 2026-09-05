@@ -6,6 +6,8 @@ set -euo pipefail
 # 2. Start daemon A and daemon B (B bootstraps to A).
 # 3. Ping A from C.
 # 4. Write a file in A's workspace and wait for B to converge.
+# 5. Write a file in B's workspace and wait for A to converge (bidirectional).
+# 6. Restart daemon B and verify a fresh edit on A propagates after reconnect.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -134,4 +136,84 @@ if [[ "${SYNCED}" -ne 1 ]]; then
   exit 1
 fi
 
-echo "Integration test passed: ping and workspace sync both work."
+# Write a file on B and wait for it to appear on A (bidirectional sync).
+echo "hello from B" >"${B_WORKSPACE}/REPLY.md"
+
+echo "Waiting for workspace sync from B to A..."
+SYNCED=0
+for _ in $(seq 1 60); do
+  if [[ -f "${A_WORKSPACE}/REPLY.md" ]]; then
+    CONTENT=$(cat "${A_WORKSPACE}/REPLY.md" 2>/dev/null || true)
+    if [[ "${CONTENT}" == "hello from B" ]]; then
+      SYNCED=1
+      break
+    fi
+  fi
+  sleep 1
+done
+
+if [[ "${SYNCED}" -ne 1 ]]; then
+  echo "Workspace sync from B to A failed" >&2
+  echo "A log:" >&2
+  cat "${A_LOG}" >&2 || true
+  echo "B log:" >&2
+  cat "${B_LOG}" >&2 || true
+  exit 1
+fi
+
+# Restart daemon B to verify announce-on-reconnect catch-up.
+echo "Restarting daemon B to test reconnect catch-up..."
+kill "${B_PID}" 2>/dev/null || true
+wait "${B_PID}" 2>/dev/null || true
+B_PID=""
+
+# Commit a change on A while B is down.
+echo "second edit" >"${A_WORKSPACE}/AFTER-RECONNECT.md"
+
+B_LOG="${B_HOME}/daemon2.log"
+RHIZOME_HOME="${B_HOME}" "${RHIZOME_BIN}" daemon \
+  --allow-empty --no-dht --no-gateway \
+  --listen /ip4/127.0.0.1/tcp/0 \
+  --bootstrap "${A_ADDR}" \
+  --sync-commit-interval 1s \
+  --sync-announce-interval 1s >"${B_LOG}" 2>&1 &
+B_PID=$!
+
+B_ONLINE=0
+for _ in $(seq 1 50); do
+  if [[ -s "${B_LOG}" ]] && grep -q "Rhizome daemon online" "${B_LOG}"; then
+    B_ONLINE=1
+    break
+  fi
+  sleep 0.2
+done
+
+if [[ "${B_ONLINE}" -ne 1 ]]; then
+  echo "Timed out waiting for restarted daemon B" >&2
+  cat "${B_LOG}" >&2 || true
+  exit 1
+fi
+
+echo "Waiting for post-reconnect sync from A to B..."
+SYNCED=0
+for _ in $(seq 1 60); do
+  if [[ -f "${B_WORKSPACE}/AFTER-RECONNECT.md" ]]; then
+    CONTENT=$(cat "${B_WORKSPACE}/AFTER-RECONNECT.md" 2>/dev/null || true)
+    if [[ "${CONTENT}" == "second edit" ]]; then
+      SYNCED=1
+      break
+    fi
+  fi
+  sleep 1
+done
+
+if [[ "${SYNCED}" -ne 1 ]]; then
+  echo "Workspace sync after reconnect failed" >&2
+  echo "A log:" >&2
+  cat "${A_LOG}" >&2 || true
+  echo "B log:" >&2
+  cat "${B_LOG}" >&2 || true
+  exit 1
+fi
+
+echo "Integration test passed: ping, bidirectional workspace sync, and reconnect catch-up all work."

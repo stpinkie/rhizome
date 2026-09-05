@@ -43,15 +43,6 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 		t.Fatalf("node A has no addrs")
 	}
 
-	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addsA[0]},
-	})
-	if err != nil {
-		t.Fatalf("new node B: %v", err)
-	}
-	defer nodeB.Close()
-
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 
@@ -70,6 +61,28 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 		t.Fatalf("start syncer A: %v", err)
 	}
 	defer syncerA.Stop()
+
+	// Edit on A *before* B connects: the commit must precede any packfile fetch
+	// B might perform, because a background announce-on-connect pull would
+	// otherwise race the explicit PullFrom below (a pull that started before
+	// the commit can return a stale head and the dedup in PullFrom lets the
+	// explicit call join it).
+	if err = os.WriteFile(filepath.Join(dirA, "AGENT.md"), []byte("hello from A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = Commit(syncerA.worktree, "node-a", "test edit"); err != nil {
+		t.Fatalf("commit A: %v", err)
+	}
+
+	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
+		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers: []string{addsA[0]},
+	})
+	if err != nil {
+		t.Fatalf("new node B: %v", err)
+	}
+	defer nodeB.Close()
 
 	syncerB, err := NewSyncer(ctx, Config{
 		Workspace:        dirB,
@@ -97,15 +110,6 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 		}
 		return false
 	}, 10*time.Second, 50*time.Millisecond, "node B did not see sync protocol on node A")
-
-	// Edit on A.
-	if err = os.WriteFile(filepath.Join(dirA, "AGENT.md"), []byte("hello from A\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err = Commit(syncerA.worktree, "node-a", "test edit"); err != nil {
-		t.Fatalf("commit A: %v", err)
-	}
 
 	if err = syncerB.PullFrom(ctx, nodeA.ID()); err != nil {
 		t.Fatalf("pull from A: %v", err)

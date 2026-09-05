@@ -151,13 +151,18 @@ func NewSpawnCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("bootstrap", "", "Optional bootstrap multiaddr of a Rhizome daemon")
+	cmd.Flags().Bool("no-wait", false, "Submit the task and return its id without waiting for the result")
 	return cmd
 }
 
-func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
+// dialMeshPeer starts a temporary node and mesh, connects to the peer at
+// maddrStr, and returns the mesh plus the resolved peer id. The returned
+// cleanup shuts everything down.
+func dialMeshPeer(
+	ctx context.Context,
+	flags *pflag.FlagSet,
+	maddrStr string,
+) (*mesh.Mesh, peer.ID, func()) {
 	home := config.GetHome()
 	identityDir := filepath.Join(home, "identity")
 	derived, _, err := internal.LoadIdentity(identityDir)
@@ -171,13 +176,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		cfg = config.DefaultConfig()
 	}
 	config.SetGlobal(cfg)
-
 	cfg.Mesh.Enabled = true
-	if spawn {
-		cfg.Mesh.AllowRemoteSpawn = true
-	} else {
-		cfg.Mesh.AllowRemoteDelegate = true
-	}
 
 	maddr, err := multiaddr.NewMultiaddr(maddrStr)
 	if err != nil {
@@ -200,25 +199,28 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 	node, err := network.NewNode(ctx, derived.Libp2pPrivKey, network.Config{
 		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
 		BootstrapPeers: bootstraps,
+		NATTraversal:   cfg.Mesh.NATTraversal,
+		StaticRelays:   cfg.Mesh.StaticRelays,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting node: %v\n", err)
 		os.Exit(1)
 	}
-	defer node.Close()
 
 	m := mesh.NewMesh(node, nil, derived, cfg.Mesh, nil)
 	if err = m.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting mesh: %v\n", err)
+		_ = node.Close()
 		os.Exit(1)
 	}
-	defer m.Stop()
 
 	// Wait briefly for mDNS and bootstrap connections.
 	time.Sleep(500 * time.Millisecond)
 
 	if err = node.Connect(ctx, maddrStr); err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to peer %s: %v\n", maddrStr, err)
+		_ = m.Stop()
+		_ = node.Close()
 		os.Exit(1)
 	}
 
@@ -226,7 +228,41 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		m.TrustPeer(addrInfo.ID)
 	}
 
-	result, err := m.CallRemote(ctx, addrInfo.ID, agentID, task, spawn)
+	cleanup := func() {
+		_ = m.Stop()
+		_ = node.Close()
+	}
+	return m, addrInfo.ID, cleanup
+}
+
+func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	m, pid, cleanup := dialMeshPeer(ctx, flags, maddrStr)
+	defer cleanup()
+
+	if spawn {
+		if noWait, _ := flags.GetBool("no-wait"); noWait {
+			taskID, err := m.SubmitRemoteTask(ctx, pid, mesh.RemoteCall{
+				TargetAgentID: agentID,
+				SystemPrompt:  task,
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Task submitted: %s\n", taskID)
+			fmt.Println("Check progress: rhizome network task status <peer-multiaddr> " + taskID)
+			return
+		}
+	}
+
+	result, err := m.CallRemote(ctx, pid, mesh.RemoteCall{
+		TargetAgentID: agentID,
+		SystemPrompt:  task,
+		Async:         spawn,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
 		os.Exit(1)

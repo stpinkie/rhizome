@@ -12,10 +12,12 @@ import (
 	libnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"golang.org/x/time/rate"
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
+	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
@@ -41,6 +43,11 @@ type Capability struct {
 	Agents    []string        `json:"agents,omitempty"`
 	Timestamp int64           `json:"timestamp"`
 	Allows    map[string]bool `json:"allows,omitempty"`
+	// Signature covers the canonical encoding of all fields above, proving
+	// the manifest was issued by PeerID. Unsigned manifests are accepted
+	// from trusted peers for one release but flagged via the
+	// mesh.cap.unsigned event.
+	Signature []byte `json:"signature,omitempty"`
 }
 
 // PeerCapability is a minimal view of a peer's capability for status output.
@@ -60,12 +67,15 @@ type PeerStatus struct {
 
 // NetworkStatus is the combined mesh/DHT snapshot returned by Mesh.NetworkStatus.
 type NetworkStatus struct {
-	Name      string          `json:"name"`
-	NodeIndex uint32          `json:"node_index"`
-	PeerID    string          `json:"peer_id"`
-	Identity  string          `json:"identity"`
-	Peers     []PeerStatus    `json:"peers,omitempty"`
-	DHT       *rnet.DHTStatus `json:"dht,omitempty"`
+	Name         string          `json:"name"`
+	NodeIndex    uint32          `json:"node_index"`
+	PeerID       string          `json:"peer_id"`
+	Identity     string          `json:"identity"`
+	Reachability string          `json:"reachability,omitempty"`
+	Addrs        []string        `json:"addrs,omitempty"`
+	RelayedAddrs []string        `json:"relayed_addrs,omitempty"`
+	Peers        []PeerStatus    `json:"peers,omitempty"`
+	DHT          *rnet.DHTStatus `json:"dht,omitempty"`
 }
 
 // Mesh is the decentralized agent runtime layer over a Rhizome node.
@@ -84,10 +94,15 @@ type Mesh struct {
 
 	rpc     *agentrpc.Transport
 	cap     *CapsTransport
+	taskRPC *agenttask.Transport
+	tasks   *TaskStore
 	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)
 
 	models   []string
 	modelsMu sync.RWMutex
+
+	agentLister   func() []string
+	agentListerMu sync.RWMutex
 
 	skillsLoader   *skills.SkillsLoader
 	skillsLoaderMu sync.RWMutex
@@ -98,6 +113,12 @@ type Mesh struct {
 	wg       sync.WaitGroup
 	eventBus runtimeevents.Bus
 	name     string
+
+	replay    *replayGuard
+	rateMu    sync.Mutex
+	peerLims  map[peer.ID]*rate.Limiter
+	globalLim *rate.Limiter
+	auditLog  *auditLogger
 }
 
 // NewMesh creates a mesh layer over an existing node and syncer.
@@ -118,11 +139,27 @@ func NewMesh(
 		trust:   make(map[peer.ID]bool),
 		runFunc: runFunc,
 		stop:    make(chan struct{}),
+		replay:  newReplayGuard(cfg.RequestMaxSkew),
+	}
+	if cfg.AuditLog {
+		m.auditLog = newAuditLogger(defaultAuditPath())
 	}
 	m.rpc = agentrpc.NewTransport(m.host, m)
+	m.tasks = NewTaskStore()
+	m.taskRPC = agenttask.NewTransport(m.host, m)
 	m.cap = NewCapsTransportWithPolicy(
 		m.host,
-		func(pid peer.ID, c Capability) { m.SetCapability(pid, c) },
+		func(pid peer.ID, c Capability) {
+			if err := m.verifyCapability(pid, &c); err != nil {
+				m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+					"stage":   "capability.announce",
+					"error":   err.Error(),
+					"peer_id": pid.String(),
+				})
+				return
+			}
+			m.SetCapability(pid, c)
+		},
 		m.isTrusted,
 		m.localCapability,
 		func(pid peer.ID, allowed bool) {
@@ -139,6 +176,16 @@ func NewMesh(
 // SetEventBus sets the runtime event bus used to publish mesh events.
 func (m *Mesh) SetEventBus(bus runtimeevents.Bus) {
 	m.eventBus = bus
+}
+
+// SetAuditPath overrides the audit trail location. An empty path disables
+// file-based auditing (the mesh.remote.audit event is still emitted).
+func (m *Mesh) SetAuditPath(path string) {
+	if path == "" {
+		m.auditLog = nil
+		return
+	}
+	m.auditLog = newAuditLogger(path)
 }
 
 // SetName sets the human-readable node name included in NetworkStatus.
@@ -197,6 +244,12 @@ func (m *Mesh) Start(ctx context.Context) error {
 		_ = m.cap.Start(m.ctx)
 	}()
 
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		_ = m.taskRPC.Start(m.ctx)
+	}()
+
 	for _, p := range m.cfg.TrustedPeers {
 		pid, err := peer.Decode(p)
 		if err != nil {
@@ -232,13 +285,17 @@ func (m *Mesh) Stop() error {
 		m.cancel()
 	}
 	close(m.stop)
+	if m.tasks != nil {
+		m.tasks.Close()
+	}
 	m.wg.Wait()
 	return nil
 }
 
-func (m *Mesh) makeErrorResponse(correlationID, message string) (agentrpc.Response, error) {
+func (m *Mesh) makeErrorResponse(req agentrpc.Request, message string) (agentrpc.Response, error) {
 	resp := agentrpc.Response{
-		CorrelationID: correlationID,
+		CorrelationID: req.CorrelationID,
+		Nonce:         req.Nonce,
 		Status:        "error",
 		Error:         message,
 	}
@@ -250,36 +307,51 @@ func (m *Mesh) makeErrorResponse(correlationID, message string) (agentrpc.Respon
 
 // HandleRequest implements agentrpc.Handler for incoming remote agent tasks.
 func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Response, error) {
-	if !m.isTrusted(from) {
-		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
-			"stage":          "remote.request",
-			"error":          fmt.Sprintf("peer %s is not trusted", from),
-			"peer_id":        from.String(),
-			"agent_id":       req.TargetAgentID,
-			"correlation_id": req.CorrelationID,
-		})
-		return m.makeErrorResponse(req.CorrelationID, fmt.Sprintf("peer %s is not trusted", from))
+	started := time.Now()
+	op := "delegate"
+	if req.Async {
+		op = "spawn"
 	}
-	if err := m.verifyRequest(from, req); err != nil {
+	reject := func(msg string) (agentrpc.Response, error) {
 		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
 			"stage":          "remote.request",
-			"error":          fmt.Sprintf("verify request: %v", err),
+			"error":          msg,
 			"peer_id":        from.String(),
 			"agent_id":       req.TargetAgentID,
 			"correlation_id": req.CorrelationID,
+			"op":             op,
 		})
-		return m.makeErrorResponse(req.CorrelationID, fmt.Sprintf("verify request: %v", err))
+		m.auditMesh(from, op, req.TargetAgentID, req.CorrelationID, "rejected", started, msg)
+		return m.makeErrorResponse(req, msg)
 	}
 
-	if !m.cfg.AllowRemoteDelegate && !m.cfg.AllowRemoteSpawn {
-		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
-			"stage":          "remote.request",
-			"error":          "remote agent execution is disabled",
-			"peer_id":        from.String(),
-			"agent_id":       req.TargetAgentID,
-			"correlation_id": req.CorrelationID,
-		})
-		return m.makeErrorResponse(req.CorrelationID, "remote agent execution is disabled")
+	if !m.isTrusted(from) {
+		return reject(fmt.Sprintf("peer %s is not trusted", from))
+	}
+	if err := m.verifyRequest(from, req); err != nil {
+		return reject(fmt.Sprintf("verify request: %v", err))
+	}
+
+	// Replay protection. Callers on this version always send a nonce and
+	// timestamp; both are covered by the signature. A one-release grace
+	// applies to legacy callers that omit them, but the request is still
+	// keyed on its (signed) correlation id so a captured signed request
+	// cannot simply be replayed, and the absence is audited.
+	if req.Nonce == "" && req.Timestamp == 0 {
+		if err := m.replay.check(from, req.CorrelationID, 0); err != nil {
+			return reject(fmt.Sprintf("replay check failed: %v", err))
+		}
+		m.auditMesh(from, op, req.TargetAgentID, req.CorrelationID, "legacy_request", started,
+			"request carries no nonce/timestamp")
+	} else if err := m.replay.check(from, req.Nonce, req.Timestamp); err != nil {
+		return reject(fmt.Sprintf("replay check failed: %v", err))
+	}
+
+	if err := m.checkRemoteAllowed(from, op, req.TargetAgentID); err != nil {
+		return reject(fmt.Sprintf("forbidden: %v", err))
+	}
+	if !m.allowRate(from) {
+		return reject("rate_limited: too many requests")
 	}
 
 	startKind, endKind := m.remoteAgentEventKinds(req.Async)
@@ -314,10 +386,12 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		"async":          req.Async,
 		"status":         status,
 	})
+	m.auditMesh(from, op, req.TargetAgentID, req.CorrelationID, status, started, errString(err))
 
 	if err != nil {
 		resp := agentrpc.Response{
 			CorrelationID: req.CorrelationID,
+			Nonce:         req.Nonce,
 			Status:        "error",
 			Error:         err.Error(),
 		}
@@ -329,6 +403,7 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 
 	resp := agentrpc.Response{
 		CorrelationID: req.CorrelationID,
+		Nonce:         req.Nonce,
 		Status:        "ok",
 		Result:        result,
 	}
@@ -340,38 +415,51 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 
 // CallRemote sends an agent task to a trusted peer and waits for the result.
 // It retries on transient failures and attempts to reconnect to the peer
-// between attempts. The async flag is used for event reporting (spawn vs. delegate).
+// between attempts. Async calls go through the task protocol
+// (/rhizome/agent-task/1.0.0) and poll for completion; peers without task
+// support fall back to the synchronous agent protocol.
 func (m *Mesh) CallRemote(
 	ctx context.Context,
 	pid peer.ID,
-	targetAgentID, prompt string,
-	async bool,
+	call RemoteCall,
 ) (*toolshared.ToolResult, error) {
 	if !m.isTrusted(pid) {
 		return nil, fmt.Errorf("peer %s is not trusted", pid)
 	}
 
-	req := agentrpc.Request{
-		CorrelationID: newCorrelationID(),
-		TargetAgentID: targetAgentID,
-		SystemPrompt:  prompt,
-		Timeout:       m.cfg.RemoteTimeout,
-		Async:         async,
+	if call.Async {
+		if result, err, ok := m.callRemoteTask(ctx, pid, call); ok {
+			return result, err
+		}
+		// Peer does not support the task protocol; fall through to the
+		// synchronous request/response protocol for compatibility.
 	}
 
-	startKind, endKind := m.remoteAgentEventKinds(async)
+	req := agentrpc.Request{
+		CorrelationID: newCorrelationID(),
+		TargetAgentID: call.TargetAgentID,
+		Model:         call.Model,
+		SystemPrompt:  call.SystemPrompt,
+		Timeout:       m.cfg.RemoteTimeout,
+		Tools:         toolNamesToRefs(call.Tools),
+		Async:         call.Async,
+		Nonce:         newTaskNonce(),
+		Timestamp:     time.Now().Unix(),
+	}
+
+	startKind, endKind := m.remoteAgentEventKinds(call.Async)
 	m.publishMeshEvent(startKind, map[string]any{
 		"peer_id":        pid.String(),
-		"agent_id":       targetAgentID,
+		"agent_id":       call.TargetAgentID,
 		"correlation_id": req.CorrelationID,
-		"async":          async,
+		"async":          call.Async,
 	})
 	defer func() {
 		m.publishMeshEvent(endKind, map[string]any{
 			"peer_id":        pid.String(),
-			"agent_id":       targetAgentID,
+			"agent_id":       call.TargetAgentID,
 			"correlation_id": req.CorrelationID,
-			"async":          async,
+			"async":          call.Async,
 		})
 	}()
 
@@ -398,6 +486,11 @@ func (m *Mesh) CallRemote(
 		if err == nil {
 			if err := m.verifyResponse(pid, &resp); err != nil {
 				return nil, fmt.Errorf("verify response: %w", err)
+			}
+			// The signed response must echo the request nonce so it is bound
+			// to this exact request and cannot be replayed for another.
+			if req.Nonce != "" && resp.Nonce != req.Nonce {
+				return nil, fmt.Errorf("response nonce does not match request")
 			}
 			if resp.Status != "ok" {
 				return nil, fmt.Errorf("remote agent failed: %s", resp.Error)
@@ -518,9 +611,87 @@ func (m *Mesh) localCapability() Capability {
 		}
 	}
 
-	// Always advertise the default agent id 'main'.
-	c.Agents = append(c.Agents, "main")
+	// Advertise the configured agent ids so remote spawn/delegate can target
+	// them. The gateway wires the registry's live agent list via SetAgentLister.
+	m.agentListerMu.RLock()
+	lister := m.agentLister
+	m.agentListerMu.RUnlock()
+	if lister != nil {
+		c.Agents = lister()
+	}
+	if len(c.Agents) == 0 {
+		c.Agents = append(c.Agents, "main")
+	}
+	m.signCapability(&c)
 	return c
+}
+
+// signCapability signs the canonical capability payload with the node key.
+func (m *Mesh) signCapability(c *Capability) {
+	c.Signature = nil
+	payload, err := json.Marshal(c)
+	if err != nil {
+		return
+	}
+	c.Signature = identity.Sign(m.id.PrivateKey, payload)
+}
+
+// verifyCapability authenticates a capability received from a peer. It
+// enforces that the claimed peer id matches the sender and, when the
+// manifest is signed, that the signature verifies against the sender's
+// public key and the timestamp is fresh. Unsigned manifests are accepted
+// for one release but flagged via the mesh.cap.unsigned event.
+func (m *Mesh) verifyCapability(from peer.ID, c *Capability) error {
+	if c.PeerID == "" {
+		c.PeerID = from.String()
+	}
+	if c.PeerID != from.String() {
+		return fmt.Errorf("capability claims peer %s but was sent by %s", c.PeerID, from)
+	}
+
+	if len(c.Signature) == 0 {
+		m.publishMeshEvent(runtimeevents.KindMeshCapabilityUnsigned, map[string]any{
+			"peer_id": from.String(),
+		})
+		if m.cfg.RequireSignedCaps {
+			return fmt.Errorf("unsigned capability manifest from peer %s", from)
+		}
+		return nil
+	}
+
+	sig := c.Signature
+	c.Signature = nil
+	defer func() { c.Signature = sig }()
+
+	payload, err := json.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("encode capability: %w", err)
+	}
+	pub := m.host.Peerstore().PubKey(from)
+	if pub == nil {
+		return fmt.Errorf("no public key for peer %s", from)
+	}
+	ok, err := pub.Verify(payload, sig)
+	if err != nil {
+		return fmt.Errorf("verify capability signature: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("invalid capability signature from peer %s", from)
+	}
+
+	if age := time.Since(time.Unix(c.Timestamp, 0)); c.Timestamp == 0 || age < 0 || age > capabilityMaxAge {
+		return fmt.Errorf("capability timestamp outside allowed window")
+	}
+	return nil
+}
+
+// SetAgentLister sets the function used to enumerate local agent ids for
+// capability advertisement. It is called each time a capability is built so
+// reloads are reflected without further wiring.
+func (m *Mesh) SetAgentLister(fn func() []string) {
+	m.agentListerMu.Lock()
+	defer m.agentListerMu.Unlock()
+	m.agentLister = fn
 }
 
 // QueryCapability fetches the current capability from a trusted peer.
@@ -534,7 +705,14 @@ func (m *Mesh) QueryCapability(ctx context.Context, pid peer.ID) (Capability, er
 		"outgoing": true,
 	})
 
-	return m.cap.Query(ctx, pid)
+	capability, err := m.cap.Query(ctx, pid)
+	if err != nil {
+		return Capability{}, err
+	}
+	if err := m.verifyCapability(pid, &capability); err != nil {
+		return Capability{}, err
+	}
+	return capability, nil
 }
 
 // TrustAndDiscover trusts a peer, eagerly fetches its capability, stores it,
@@ -632,6 +810,11 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 	}
 	if m.node != nil {
 		out.PeerID = m.node.PeerID()
+		out.Reachability = m.node.ReachabilityString()
+		out.Addrs = m.node.BootstrapAddrs()
+		if relayed := m.node.RelayedAddrs(); len(relayed) > 0 {
+			out.RelayedAddrs = relayed
+		}
 		peers := m.node.ConnectedPeers()
 		out.Peers = make([]PeerStatus, 0, len(peers))
 		for _, pid := range peers {
@@ -717,7 +900,8 @@ func (m *Mesh) verifyRequest(from peer.ID, req agentrpc.Request) error {
 }
 
 func newCorrelationID() string {
-	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Nanosecond())
+	now := time.Now()
+	return fmt.Sprintf("%d-%d", now.UnixNano(), now.Nanosecond())
 }
 
 // signResponse signs the response payload with the local node key.
