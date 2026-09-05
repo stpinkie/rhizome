@@ -15,6 +15,7 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/auth"
 	"github.com/stpinkie/rhizome/pkg/config"
+	anthropicmessages "github.com/stpinkie/rhizome/pkg/providers/anthropic_messages"
 	"github.com/stpinkie/rhizome/pkg/providers/gemini"
 	openaicompat "github.com/stpinkie/rhizome/pkg/providers/openai_compat"
 )
@@ -1024,9 +1025,10 @@ func TestCreateProviderFromConfig_CodingPlanAnthropic(t *testing.T) {
 			if modelID != wantModelID {
 				t.Errorf("modelID = %q, want %q", modelID, wantModelID)
 			}
-			// alibaba-coding-anthropic uses Anthropic Messages provider
-			// Verify it's the anthropic messages provider by checking interface
-			var _ LLMProvider = provider
+			// alibaba-coding-anthropic uses the native Anthropic Messages protocol.
+			if _, ok := provider.(*anthropicmessages.Provider); !ok {
+				t.Fatalf("expected *anthropicmessages.Provider, got %T", provider)
+			}
 		})
 	}
 }

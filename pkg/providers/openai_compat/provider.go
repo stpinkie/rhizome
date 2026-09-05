@@ -52,31 +52,6 @@ const (
 	defaultRequestTimeout = common.DefaultRequestTimeout
 )
 
-// stripModelPrefixProviders is the set of provider IDs whose leading prefix
-// should be removed from model names before they are sent to an
-// OpenAI-compatible endpoint. It matches the legacy behavior and the catalog's
-// StripModelPrefix flag for OpenAI-compatible providers.
-var stripModelPrefixProviders = map[string]struct{}{
-	"litellm":     {},
-	"nearai":      {},
-	"venice":      {},
-	"moonshot":    {},
-	"nvidia":      {},
-	"groq":        {},
-	"ollama":      {},
-	"deepseek":    {},
-	"google":      {},
-	"openrouter":  {},
-	"siliconflow": {},
-	"zhipu":       {},
-	"mistral":     {},
-	"vivgrid":     {},
-	"minimax":     {},
-	"novita":      {},
-	"lmstudio":    {},
-	"vllm":        {},
-}
-
 // stripModelPrefixForAPIBase returns true when the apiBase belongs to a host
 // whose model registry already includes the upstream provider prefix and should
 // not be stripped. OpenRouter is the canonical example: model ids such as
@@ -847,8 +822,12 @@ func (p *Provider) normalizeModel(model string) string {
 		return model
 	}
 
-	prefix := strings.ToLower(before)
-	if _, ok := stripModelPrefixProviders[prefix]; !ok {
+	// Only strip the prefix when it matches the configured provider's own ID.
+	// This preserves embedded upstream prefixes (e.g. "openai/gpt-4o" on
+	// OpenRouter) while correctly stripping "deepseek/deepseek-chat" on
+	// DeepSeek's own endpoint.
+	prefix := strings.ToLower(strings.TrimSpace(before))
+	if prefix == "" || prefix != p.providerName {
 		return model
 	}
 

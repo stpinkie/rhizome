@@ -1055,7 +1055,7 @@ func TestProviderChat_StripsMoonshotPrefixAndNormalizesKimiTemperature(t *testin
 	}))
 	defer server.Close()
 
-	p := NewProvider("key", server.URL, "")
+	p := NewProvider("key", server.URL, "", WithProviderName("moonshot"))
 	_, err := p.Chat(
 		t.Context(),
 		[]Message{{Role: "user", Content: "hi"}},
@@ -1096,64 +1096,75 @@ func TestProviderChat_StripsKnownProviderPrefixes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewProvider("key", server.URL, "")
 	tests := []struct {
 		name      string
+		provider  string
 		input     string
 		wantModel string
 	}{
 		{
 			name:      "strips litellm prefix and preserves proxy model name",
+			provider:  "litellm",
 			input:     "litellm/my-proxy-alias",
 			wantModel: "my-proxy-alias",
 		},
 		{
 			name:      "strips groq prefix and keeps nested model",
+			provider:  "groq",
 			input:     "groq/openai/gpt-oss-120b",
 			wantModel: "openai/gpt-oss-120b",
 		},
 		{
 			name:      "strips ollama prefix",
+			provider:  "ollama",
 			input:     "ollama/qwen2.5:14b",
 			wantModel: "qwen2.5:14b",
 		},
 		{
 			name:      "strips lmstudio prefix and keeps nested model",
+			provider:  "lmstudio",
 			input:     "lmstudio/openai/gpt-oss-20b",
 			wantModel: "openai/gpt-oss-20b",
 		},
 		{
 			name:      "strips venice prefix",
+			provider:  "venice",
 			input:     "venice/venice-uncensored",
 			wantModel: "venice-uncensored",
 		},
 		{
 			name:      "strips deepseek prefix",
+			provider:  "deepseek",
 			input:     "deepseek/deepseek-chat",
 			wantModel: "deepseek-chat",
 		},
 		{
 			name:      "strips vivgrid prefix",
+			provider:  "vivgrid",
 			input:     "vivgrid/auto",
 			wantModel: "auto",
 		},
 		{
 			name:      "strips siliconflow prefix and keeps nested model",
+			provider:  "siliconflow",
 			input:     "siliconflow/deepseek-ai/DeepSeek-V3",
 			wantModel: "deepseek-ai/DeepSeek-V3",
 		},
 		{
 			name:      "strips novita prefix deepseek model",
+			provider:  "novita",
 			input:     "novita/deepseek/deepseek-v3.2",
 			wantModel: "deepseek/deepseek-v3.2",
 		},
 		{
 			name:      "strips novita prefix zai model",
+			provider:  "novita",
 			input:     "novita/zai-org/glm-5",
 			wantModel: "zai-org/glm-5",
 		},
 		{
 			name:      "strips novita prefix minimax model",
+			provider:  "novita",
 			input:     "novita/minimax/minimax-m2.5",
 			wantModel: "minimax/minimax-m2.5",
 		},
@@ -1161,6 +1172,7 @@ func TestProviderChat_StripsKnownProviderPrefixes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			p := NewProvider("key", server.URL, "", WithProviderName(tt.provider))
 			_, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, tt.input, nil)
 			if err != nil {
 				t.Fatalf("Chat() error = %v", err)
@@ -1235,29 +1247,35 @@ func TestProviderChat_AcceptsNumericOptionTypes(t *testing.T) {
 
 func TestNormalizeModel_UsesAPIBase(t *testing.T) {
 	cases := []struct {
-		model   string
-		apiBase string
-		want    string
+		providerName string
+		model        string
+		apiBase      string
+		want         string
 	}{
-		{"deepseek/deepseek-chat", "https://api.deepseek.com/v1", "deepseek-chat"},
-		{"lmstudio/openai/gpt-oss-20b", "http://localhost:1234/v1", "openai/gpt-oss-20b"},
-		{"venice/venice-uncensored", "https://api.venice.ai/api/v1", "venice-uncensored"},
-		{"openrouter/auto", "https://openrouter.ai/api/v1", "openrouter/auto"},
-		{"vivgrid/managed", "https://api.vivgrid.com/v1", "managed"},
-		{"vivgrid/auto", "https://api.vivgrid.com/v1", "auto"},
-		{"siliconflow/deepseek-ai/DeepSeek-V3", "https://api.siliconflow.cn/v1", "deepseek-ai/DeepSeek-V3"},
-		{"novita/deepseek/deepseek-v3.2", "https://api.novita.ai/openai", "deepseek/deepseek-v3.2"},
+		{"deepseek", "deepseek/deepseek-chat", "https://api.deepseek.com/v1", "deepseek-chat"},
+		{"lmstudio", "lmstudio/openai/gpt-oss-20b", "http://localhost:1234/v1", "openai/gpt-oss-20b"},
+		{"venice", "venice/venice-uncensored", "https://api.venice.ai/api/v1", "venice-uncensored"},
+		{"openrouter", "openrouter/auto", "https://openrouter.ai/api/v1", "openrouter/auto"},
+		{"vivgrid", "vivgrid/managed", "https://api.vivgrid.com/v1", "managed"},
+		{"vivgrid", "vivgrid/auto", "https://api.vivgrid.com/v1", "auto"},
+		{"siliconflow", "siliconflow/deepseek-ai/DeepSeek-V3", "https://api.siliconflow.cn/v1", "deepseek-ai/DeepSeek-V3"},
+		{"novita", "novita/deepseek/deepseek-v3.2", "https://api.novita.ai/openai", "deepseek/deepseek-v3.2"},
+		// Embedded upstream prefix on OpenRouter must not be stripped even
+		// though the provider is configured with strip=true.
+		{"openrouter", "openai/gpt-4o", "https://openrouter.ai/api/v1", "openai/gpt-4o"},
+		// Prefix that does not match the configured provider is preserved.
+		{"deepseek", "openai/gpt-4o", "https://api.deepseek.com/v1", "openai/gpt-4o"},
 	}
 
 	for _, tc := range cases {
-		p := NewProvider("", tc.apiBase, "", WithStripModelPrefix(true))
+		p := NewProvider("", tc.apiBase, "", WithStripModelPrefix(true), WithProviderName(tc.providerName))
 		if got := p.normalizeModel(tc.model); got != tc.want {
-			t.Fatalf("normalizeModel(%q, %q) = %q, want %q", tc.model, tc.apiBase, got, tc.want)
+			t.Fatalf("normalizeModel(%q, %q, provider=%q) = %q, want %q", tc.model, tc.apiBase, tc.providerName, got, tc.want)
 		}
 	}
 
 	// When stripModelPrefix is disabled, the original model string is preserved.
-	p := NewProvider("", "https://api.example.com/v1", "", WithStripModelPrefix(false))
+	p := NewProvider("", "https://api.example.com/v1", "", WithStripModelPrefix(false), WithProviderName("foo"))
 	if got := p.normalizeModel("foo/bar"); got != "foo/bar" {
 		t.Fatalf("normalizeModel with strip=false = %q, want %q", got, "foo/bar")
 	}

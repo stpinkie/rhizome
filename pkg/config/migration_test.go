@@ -209,6 +209,49 @@ func TestMigrateV0ToV3(t *testing.T) {
 	require.Equal(t, true, discordGroupTrigger["mention_only"])
 }
 
+// TestMigrateV0ToV3_AnthropicWithoutUserModel verifies that a V0 config with
+// only a providers.anthropic section (no agents.defaults matching it) migrates
+// to a model entry whose model string carries the "anthropic-messages/" prefix
+// so that ExtractProtocol resolves it to the native Anthropic Messages protocol
+// instead of falling back to "openai".
+func TestMigrateV0ToV3_AnthropicWithoutUserModel(t *testing.T) {
+	v0Config := `{
+		"providers": {
+			"anthropic": {
+				"api_key": "sk-ant-test"
+			}
+		}
+	}`
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(v0Config), 0o600))
+	m, err := loadConfigMap(configPath)
+	require.NoError(t, err)
+
+	require.NoError(t, migrateV0ToV1(m))
+	require.NoError(t, migrateV1ToV2(m))
+	require.NoError(t, migrateV2ToV3(m))
+
+	modelList, ok := m["model_list"].([]any)
+	require.True(t, ok, "model_list should exist")
+	require.NotEmpty(t, modelList, "model_list should not be empty")
+
+	var anthropicEntry map[string]any
+	for _, entry := range modelList {
+		if me, ok := entry.(map[string]any); ok && me["model_name"] == "anthropic" {
+			anthropicEntry = me
+			break
+		}
+	}
+	require.NotNil(t, anthropicEntry, "expected an anthropic model entry")
+
+	model, ok := anthropicEntry["model"].(string)
+	require.True(t, ok, "model should be a string")
+	require.Equal(t, "anthropic-messages/claude-sonnet-4.6", model,
+		"migrated anthropic model must carry the anthropic-messages/ prefix so ExtractProtocol routes it correctly")
+}
+
 // TestMigrateV0ToV3_WithExistingModelList preserves existing model_list when present.
 func TestMigrateV0ToV3_WithExistingModelList(t *testing.T) {
 	v0Config := `{

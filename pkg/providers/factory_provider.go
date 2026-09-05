@@ -209,6 +209,8 @@ func createAnthropicMessagesProvider(cfg *config.ModelConfig, option ModelProvid
 		apiBase,
 		userAgent,
 		int(timeout.Seconds()),
+		anthropicmessages.WithStripModelPrefix(option.StripModelPrefix),
+		anthropicmessages.WithProviderName(option.ID),
 	)
 	return finalizeProviderFromConfig(provider, modelID, cfg)
 }

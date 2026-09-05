@@ -268,7 +268,7 @@ export function AddModelSheet({
       ) {
         apiBase = ""
       }
-      if (!currentApiBase && nextDefaultBase) {
+      if (!apiBase && nextDefaultBase) {
         apiBase = nextDefaultBase
       }
       return {

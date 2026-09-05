@@ -679,7 +679,7 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		Priority:              36.25,
 		CommonModels:          []string{"qwen3.6-plus", "kimi-k2.5", "glm-5", "MiniMax-M2.5"},
 		Aliases:               []string{"coding-plan-anthropic"},
-		ProtocolFamily:        "openai-compatible",
+		ProtocolFamily:        "anthropic-messages",
 		DefaultMaxTokensField: "",
 		ExtraBodyDefaults:     nil,
 		StripModelPrefix:      true,

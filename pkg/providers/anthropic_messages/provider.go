@@ -48,14 +48,17 @@ type Provider struct {
 	providerName     string
 }
 
+// Option configures a Provider at construction time.
+type Option func(*Provider)
+
 // NewProvider creates a new Anthropic Messages API provider.
-func NewProvider(apiKey, apiBase, userAgent string) *Provider {
-	return NewProviderWithTimeout(apiKey, apiBase, userAgent, 0)
+func NewProvider(apiKey, apiBase, userAgent string, opts ...Option) *Provider {
+	return NewProviderWithTimeout(apiKey, apiBase, userAgent, 0, opts...)
 }
 
 // NewProviderWithTimeout creates a provider with custom request timeout.
-func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds int) *Provider {
-	return newProvider(apiKey, nil, apiBase, userAgent, timeoutSeconds)
+func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds int, opts ...Option) *Provider {
+	return newProvider(apiKey, nil, apiBase, userAgent, timeoutSeconds, opts...)
 }
 
 // NewProviderWithTokenSource creates a provider that refreshes its API key
@@ -66,18 +69,19 @@ func NewProviderWithTokenSource(
 	tokenSource func() (string, error),
 	apiBase, userAgent string,
 	timeoutSeconds int,
+	opts ...Option,
 ) *Provider {
-	return newProvider(apiKey, tokenSource, apiBase, userAgent, timeoutSeconds)
+	return newProvider(apiKey, tokenSource, apiBase, userAgent, timeoutSeconds, opts...)
 }
 
-func newProvider(apiKey string, tokenSource func() (string, error), apiBase, userAgent string, timeoutSeconds int) *Provider {
+func newProvider(apiKey string, tokenSource func() (string, error), apiBase, userAgent string, timeoutSeconds int, opts ...Option) *Provider {
 	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, true)
 	timeout := config.Global().HTTPRequestTimeout()
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 	}
 
-	return &Provider{
+	p := &Provider{
 		apiKey:      apiKey,
 		apiBase:     baseURL,
 		userAgent:   userAgent,
@@ -86,18 +90,24 @@ func newProvider(apiKey string, tokenSource func() (string, error), apiBase, use
 			Timeout: timeout,
 		},
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(p)
+		}
+	}
+	return p
 }
 
 // WithStripModelPrefix configures whether the provider strips the leading
 // "provider/" segment from model names before sending them upstream.
-func WithStripModelPrefix(strip bool) func(*Provider) {
+func WithStripModelPrefix(strip bool) Option {
 	return func(p *Provider) {
 		p.stripModelPrefix = strip
 	}
 }
 
 // WithProviderName sets the canonical provider ID used when stripping prefixes.
-func WithProviderName(name string) func(*Provider) {
+func WithProviderName(name string) Option {
 	return func(p *Provider) {
 		p.providerName = strings.ToLower(strings.TrimSpace(name))
 	}
@@ -121,8 +131,14 @@ func (p *Provider) normalizeModel(model string) string {
 	if !p.stripModelPrefix {
 		return model
 	}
-	_, after, ok := strings.Cut(model, "/")
+	before, after, ok := strings.Cut(model, "/")
 	if !ok {
+		return model
+	}
+	// Only strip the prefix when it matches the configured provider's own ID,
+	// preserving any embedded upstream prefix that is part of the model name.
+	prefix := strings.ToLower(strings.TrimSpace(before))
+	if prefix == "" || (p.providerName != "" && prefix != p.providerName) {
 		return model
 	}
 	return after
