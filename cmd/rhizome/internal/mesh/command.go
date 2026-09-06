@@ -36,6 +36,8 @@ func NewMeshCommand() *cobra.Command {
 		network.NewDelegateCommand(),
 		network.NewSpawnCommand(),
 		network.NewTaskCommand(),
+		network.NewRouteCommand(),
+		network.NewAuditCommand(),
 		network.NewPingCommand(),
 	)
 

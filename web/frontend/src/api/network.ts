@@ -120,6 +120,114 @@ export async function removeNetworkPeer(peerID: string): Promise<void> {
   })
 }
 
+// --- Remote task operations (/api/network/tasks) ---
+
+export interface MeshTaskInfo {
+  task_id: string
+  status: string
+  agent_id?: string
+  model?: string
+  created_at?: string
+  updated_at?: string
+  error?: string
+}
+
+export interface MeshTaskListResponse {
+  peer_id: string
+  tasks?: MeshTaskInfo[]
+}
+
+export interface MeshTaskResultPayload {
+  for_llm: string
+  for_user?: string
+  is_error?: boolean
+}
+
+export interface MeshTaskResponse {
+  task_id?: string
+  status: string
+  result?: MeshTaskResultPayload
+  tasks?: MeshTaskInfo[]
+  error?: string
+}
+
+export interface MeshTaskSubmitRequest {
+  peer: string
+  agent_id?: string
+  model?: string
+  task: string
+  tools?: string[]
+}
+
+export interface MeshTaskSubmitResponse {
+  task_id: string
+  peer_id: string
+}
+
+export async function listNetworkTasks(
+  peer: string,
+): Promise<MeshTaskListResponse> {
+  const params = new URLSearchParams({ peer })
+  return request<MeshTaskListResponse>(
+    `/api/network/tasks?${params.toString()}`,
+  )
+}
+
+export async function getNetworkTask(
+  peer: string,
+  task: string,
+  wait?: string,
+): Promise<MeshTaskResponse> {
+  const params = new URLSearchParams({ peer, task })
+  if (wait) {
+    params.set("wait", wait)
+  }
+  return request<MeshTaskResponse>(`/api/network/tasks?${params.toString()}`)
+}
+
+export async function submitNetworkTask(
+  body: MeshTaskSubmitRequest,
+): Promise<MeshTaskSubmitResponse> {
+  return request<MeshTaskSubmitResponse>(`/api/network/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function cancelNetworkTask(
+  peer: string,
+  task: string,
+): Promise<MeshTaskResponse> {
+  const params = new URLSearchParams({ action: "cancel", peer, task })
+  return request<MeshTaskResponse>(`/api/network/tasks?${params.toString()}`, {
+    method: "POST",
+  })
+}
+
+// --- Mesh audit trail (/api/network/audit) ---
+
+export interface MeshAuditEntry {
+  ts?: string
+  peer_id?: string
+  op?: string
+  agent_id?: string
+  ref?: string
+  status?: string
+  duration_ms?: number
+  detail?: string
+}
+
+export interface MeshAuditResponse {
+  entries: MeshAuditEntry[]
+  count: number
+}
+
+export async function getNetworkAudit(tail = 50): Promise<MeshAuditResponse> {
+  const params = new URLSearchParams({ tail: String(tail) })
+  return request<MeshAuditResponse>(`/api/network/audit?${params.toString()}`)
+}
+
 async function extractErrorMessage(res: Response): Promise<string> {
   try {
     const raw = await res.text()

@@ -54,7 +54,10 @@ func newSecurityMeshFixture(t *testing.T, cfgB config.MeshConfig) *securityMeshF
 	require.NoError(t, err)
 	t.Cleanup(func() { nodeB.Close() })
 
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the bootstrap connection to come up.
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 10*time.Second, 50*time.Millisecond, "nodeB should connect to nodeA")
 
 	ran := make(chan struct{}, 8)
 	runFunc := func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
@@ -265,4 +268,102 @@ func TestMeshAuditLogWritten(t *testing.T) {
 		}
 	}
 	assert.True(t, found, fmt.Sprintf("no ok delegate audit entry in %q", string(data)))
+}
+
+// writeAuditLines writes count JSONL entries of roughly entryBytes each to a
+// temp file and returns its path. Each entry is valid JSON with an "op" and
+// "seq" field so tests can verify ordering and count.
+func writeAuditLines(t *testing.T, count, entryBytes int) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mesh-audit.jsonl")
+
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	w := bufio.NewWriter(f)
+	for i := 0; i < count; i++ {
+		// Build a valid JSON object, then pad with a "pad" field so each
+		// line is approximately entryBytes long. This forces the audit tail
+		// reader to grow its read window past the 512 KiB initial size.
+		entry := map[string]any{
+			"op":  "submit",
+			"seq": i,
+			"pad": strings.Repeat("x", entryBytes),
+		}
+		raw, err := json.Marshal(entry)
+		require.NoError(t, err)
+		_, err = w.Write(raw)
+		require.NoError(t, err)
+		require.NoError(t, w.WriteByte('\n'))
+	}
+	require.NoError(t, w.Flush())
+	return path
+}
+
+func TestReadAuditTailGrowsWindow(t *testing.T) {
+	// 800 entries of ~1.5 KiB each ≈ 1.2 MB, well over the 512 KiB initial
+	// window. Requesting all 800 forces the reader to grow the window.
+	const count = 800
+	const entryBytes = 1500
+	path := writeAuditLines(t, count, entryBytes)
+
+	entries, err := ReadAuditTail(path, count)
+	require.NoError(t, err)
+	require.Len(t, entries, count, "should return all %d entries after growing the window", count)
+
+	// Entries are newest-last; verify ordering and that the last entry is
+	// the highest seq.
+	var last map[string]any
+	require.NoError(t, json.Unmarshal(entries[len(entries)-1], &last))
+	assert.Equal(t, float64(count-1), last["seq"], "last entry should be the highest seq")
+
+	var first map[string]any
+	require.NoError(t, json.Unmarshal(entries[0], &first))
+	assert.Equal(t, float64(0), first["seq"], "first entry should be seq 0")
+}
+
+func TestReadAuditTailSmallFile(t *testing.T) {
+	// 3 small entries; window is larger than the file, no growth needed.
+	path := writeAuditLines(t, 3, 0)
+
+	entries, err := ReadAuditTail(path, 10)
+	require.NoError(t, err)
+	assert.Len(t, entries, 3, "should return all 3 entries when requesting more than available")
+}
+
+func TestReadAuditTailMissingFile(t *testing.T) {
+	entries, err := ReadAuditTail(filepath.Join(t.TempDir(), "does-not-exist.jsonl"), 10)
+	require.NoError(t, err, "missing file should not be an error")
+	assert.Nil(t, entries, "missing file should return nil entries")
+}
+
+func TestReadAuditTailEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte{}, 0o600))
+
+	entries, err := ReadAuditTail(path, 10)
+	require.NoError(t, err)
+	assert.Nil(t, entries, "empty file should return nil entries")
+}
+
+func TestReadAuditTailSkipsInvalidLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mesh-audit.jsonl")
+	lines := []string{
+		`{"op":"a","seq":0}`,
+		`not-json`,
+		`{"op":"b","seq":1}`,
+		``,
+		`{"op":"c","seq":2}`,
+	}
+	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600))
+
+	entries, err := ReadAuditTail(path, 10)
+	require.NoError(t, err)
+	require.Len(t, entries, 3, "should skip invalid and empty lines")
+	var last map[string]any
+	require.NoError(t, json.Unmarshal(entries[2], &last))
+	assert.Equal(t, "c", last["op"])
 }

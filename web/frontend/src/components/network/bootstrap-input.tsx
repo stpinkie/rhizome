@@ -76,7 +76,7 @@ export function BootstrapInput({
         />
         <Label
           htmlFor="network-trust"
-          className="text-sm font-normal text-muted-foreground"
+          className="text-muted-foreground text-sm font-normal"
         >
           {t("pages.network.trust_bootstrap", "Trust & remember this peer")}
         </Label>

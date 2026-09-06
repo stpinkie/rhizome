@@ -1,4 +1,3 @@
-import { useState } from "react"
 import {
   IconCheck,
   IconLoader2,
@@ -6,6 +5,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { SavedPeer } from "@/api/network"
@@ -75,9 +75,7 @@ export function SavedPeersPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          {t("pages.network.saved_peers", "Saved peers")}
-        </CardTitle>
+        <CardTitle>{t("pages.network.saved_peers", "Saved peers")}</CardTitle>
         <CardDescription>
           {t(
             "pages.network.saved_peers_description",
@@ -93,9 +91,7 @@ export function SavedPeersPanel({
           </div>
         ) : peers.length === 0 ? (
           <div className="text-muted-foreground py-6 text-center text-sm">
-            <p>
-              {t("pages.network.no_saved_peers", "No saved peers found.")}
-            </p>
+            <p>{t("pages.network.no_saved_peers", "No saved peers found.")}</p>
             <p className="mt-1 opacity-70">
               {t(
                 "pages.network.no_saved_peers_hint",
@@ -106,10 +102,7 @@ export function SavedPeersPanel({
         ) : (
           <div className="space-y-4">
             {peers.map((peer) => (
-              <div
-                key={peer.peer_id}
-                className="bg-muted/40 rounded-lg p-4"
-              >
+              <div key={peer.peer_id} className="bg-muted/40 rounded-lg p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -147,7 +140,10 @@ export function SavedPeersPanel({
                     {peer.bootstrap_addrs.length > 0 && (
                       <div className="mt-2 space-y-1">
                         <span className="text-muted-foreground text-xs">
-                          {t("pages.network.bootstrap_addrs", "Bootstrap addresses")}
+                          {t(
+                            "pages.network.bootstrap_addrs",
+                            "Bootstrap addresses",
+                          )}
                         </span>
                         <ul className="space-y-0.5">
                           {peer.bootstrap_addrs.map((addr) => (
@@ -216,7 +212,10 @@ export function SavedPeersPanel({
                       <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle>
-                            {t("pages.network.remove_peer", "Remove saved peer?")}
+                            {t(
+                              "pages.network.remove_peer",
+                              "Remove saved peer?",
+                            )}
                           </AlertDialogTitle>
                           <AlertDialogDescription>
                             {t(
@@ -226,7 +225,9 @@ export function SavedPeersPanel({
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel onClick={() => setConfirming(null)}>
+                          <AlertDialogCancel
+                            onClick={() => setConfirming(null)}
+                          >
                             {t("common.cancel", "Cancel")}
                           </AlertDialogCancel>
                           <AlertDialogAction

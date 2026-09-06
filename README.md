@@ -43,6 +43,8 @@
 
 ## 📢 News
 
+2026-09-06 🌐 **v0.6.0 — Mesh operations** makes the v0.5 mesh stack operationally usable: remote tasks are now exposed over the daemon gateway, the launcher, the web console, and the CLI, with capability-driven routing (`active_tasks` load), `rhizome mesh route`, mesh audit log, and new protocol unit tests. See the [v0.6.0 release notes](docs/release-notes/v0.6.0.md).
+
 2026-09-05 🌐 **v0.5.0 — Mesh maturity** adds NAT traversal (AutoNATv2, hole punching, circuit relay v2 with self-organizing relays), asynchronous remote agent tasks over `/rhizome/agent-task/1.0.0`, enforced mesh security (signed requests and capability manifests, per-peer ACLs, rate limits, audit trail), and hardened workspace sync with reconnect catch-up. See the [v0.5.0 release notes](docs/release-notes/v0.5.0.md).
 
 2026-09-04 🚀 **v0.4.2–v0.4.8** shipped the live network status API and Network dashboard, trust/capability persistence, saved-peer management across CLI/daemon/launcher, and a catalog-driven provider protocol refactor with first-class local providers (Ollama, vLLM, LM Studio, LiteLLM). Release notes: [v0.4.2](docs/release-notes/v0.4.2.md)–[v0.4.8](docs/release-notes/v0.4.8.md).

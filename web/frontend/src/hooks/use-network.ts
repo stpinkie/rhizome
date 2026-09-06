@@ -1,10 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import {
-  type NetworkStatusOptions,
-  getNetworkStatus,
-} from "@/api/network"
+import { type NetworkStatusOptions, getNetworkStatus } from "@/api/network"
 
 function usePageVisible() {
   const [visible, setVisible] = useState(

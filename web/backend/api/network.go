@@ -11,12 +11,15 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/web/backend/utils"
 )
@@ -44,6 +47,9 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/network/saved-peers", h.handleNetworkSavedPeers)
 	mux.HandleFunc("POST /api/network/saved-peers", h.handleNetworkSavedPeers)
 	mux.HandleFunc("DELETE /api/network/saved-peers", h.handleNetworkSavedPeers)
+	mux.HandleFunc("GET /api/network/tasks", h.handleNetworkTasks)
+	mux.HandleFunc("POST /api/network/tasks", h.handleNetworkTasks)
+	mux.HandleFunc("GET /api/network/audit", h.handleNetworkAudit)
 }
 
 func (h *Handler) handleNetworkPeers(w http.ResponseWriter, r *http.Request) {
@@ -639,4 +645,297 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// --- Remote task operations ---
+//
+// /api/network/tasks proxies the daemon's /network/tasks endpoint. When the
+// daemon is unavailable, read ops and cancel fall back to spawning
+// `rhizome network task` against the peer's saved bootstrap address. Submit
+// requires the daemon because a temporary node cannot share the daemon's
+// live connections, so a submit whose gateway proxy fails returns 503
+// instead of falling back to the CLI.
+func (h *Handler) handleNetworkTasks(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	isSubmit := r.Method == http.MethodPost && query.Get("action") == ""
+
+	// Validate the peer up front. For GET/cancel it comes from the query
+	// string; for submit it comes from the JSON body, which we buffer here
+	// so the gateway proxy and any fallback can both read it.
+	var submitBody []byte
+	peerID := strings.TrimSpace(query.Get("peer"))
+	if isSubmit {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			respondNetworkError(w, http.StatusBadRequest, "read request body: "+err.Error())
+			return
+		}
+		var parsed struct {
+			Peer string `json:"peer"`
+		}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			respondNetworkError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+			return
+		}
+		peerID = strings.TrimSpace(parsed.Peer)
+		submitBody = raw
+	}
+	if peerID == "" {
+		respondNetworkError(w, http.StatusBadRequest, "peer id is required")
+		return
+	}
+	if strings.ContainsAny(peerID, " \t\r\n") {
+		respondNetworkError(w, http.StatusBadRequest, "peer id contains whitespace")
+		return
+	}
+
+	timeout, err := parseNetworkTimeout(query.Get("timeout"))
+	if err != nil {
+		respondNetworkError(w, http.StatusBadRequest, "invalid timeout: "+err.Error())
+		return
+	}
+	// Result long-polls need the HTTP timeout to exceed the requested wait.
+	if wait, werr := time.ParseDuration(query.Get("wait")); werr == nil && wait > 0 {
+		if wait+15*time.Second > timeout {
+			timeout = wait + 15*time.Second
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
+	if h.gatewayAvailableForProxy() {
+		var bodyReader io.Reader
+		if isSubmit {
+			bodyReader = bytes.NewReader(submitBody)
+		}
+		output, err := h.networkTasksFromGateway(ctx, r.Method, query, bodyReader, timeout)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(output)
+			return
+		}
+		logger.Warnf("network tasks gateway request failed: %v", err)
+		// Submit requires the daemon's live connections; a temporary node
+		// cannot serve it, so do not fall back to the CLI.
+		if isSubmit {
+			respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+			return
+		}
+		logger.Warnf("falling back to CLI for network task request")
+	} else if isSubmit {
+		// No gateway detected at all — submit is impossible without it.
+		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+		return
+	}
+
+	output, err := h.networkTasksFromCLI(ctx, r.Method, query)
+	if err != nil {
+		if errors.Is(err, errDaemonRequired) {
+			respondNetworkError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		if ctx.Err() == context.DeadlineExceeded {
+			respondNetworkError(w, http.StatusGatewayTimeout, "network task request timed out")
+			return
+		}
+		respondNetworkError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(output)
+}
+
+var errDaemonRequired = errors.New("operation requires a running rhizome daemon")
+
+func (h *Handler) networkTasksFromGateway(ctx context.Context, method string, query url.Values, body io.Reader, timeout time.Duration) ([]byte, error) {
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		return nil, errors.New("gateway pid data unavailable")
+	}
+
+	u := h.gatewayProxyURL()
+	u.Path = "/network/tasks"
+	u.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return data, nil
+}
+
+// networkTasksFromCLI maps the request onto `rhizome network task` using the
+// peer's saved bootstrap address. Returns errDaemonRequired when no address
+// is known or the op cannot be served by a temporary node. Submit is never
+// routed here — it requires the daemon's live connections.
+func (h *Handler) networkTasksFromCLI(ctx context.Context, method string, query url.Values) ([]byte, error) {
+	execPath := findRhizomeBinaryForNetwork()
+	if execPath == "" {
+		return nil, errors.New("rhizome binary not found")
+	}
+
+	peerParam := strings.TrimSpace(query.Get("peer"))
+	if peerParam == "" {
+		return nil, errors.New("peer id is required")
+	}
+
+	maddr, err := h.peerMultiaddr(peerParam)
+	if err != nil {
+		return nil, err
+	}
+
+	var args []string
+	switch {
+	case method == http.MethodGet && query.Get("task") == "":
+		args = []string{"network", "task", "list", maddr, "--json"}
+	case method == http.MethodGet && query.Get("wait") != "":
+		args = []string{"network", "task", "result", maddr, query.Get("task"), "--json", "--wait", query.Get("wait")}
+	case method == http.MethodGet:
+		args = []string{"network", "task", "status", maddr, query.Get("task"), "--json"}
+	case method == http.MethodPost && strings.EqualFold(query.Get("action"), "cancel"):
+		taskID := strings.TrimSpace(query.Get("task"))
+		if taskID == "" {
+			return nil, errors.New("task id is required")
+		}
+		args = []string{"network", "task", "cancel", maddr, taskID, "--json"}
+	default:
+		return nil, errDaemonRequired
+	}
+
+	env := append(os.Environ(), config.EnvHome+"="+utils.GetRhizomeHome())
+	if h.configPath != "" {
+		env = append(env, config.EnvConfig+"="+h.configPath)
+	}
+
+	output, stderr, err := runNetworkStatus(ctx, execPath, args, env)
+	if err != nil {
+		msg := trimNetworkError(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, errors.New(msg)
+	}
+	return output, nil
+}
+
+// peerMultiaddr returns raw unchanged when it is already a multiaddr;
+// otherwise it looks the peer id up in mesh.bootstrap_peers.
+func (h *Handler) peerMultiaddr(raw string) (string, error) {
+	if strings.Contains(raw, "/") {
+		return raw, nil
+	}
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		return "", fmt.Errorf("load config: %w", err)
+	}
+	for _, b := range cfg.Mesh.BootstrapPeers {
+		if isBootstrapForPeer(b, raw) {
+			return b, nil
+		}
+	}
+	return "", errDaemonRequired
+}
+
+// --- Mesh audit trail ---
+
+// handleNetworkAudit serves the tail of the daemon's mesh audit log. Without
+// a running daemon it reads the local audit file directly — the file lives
+// under RHIZOME_HOME and is shared by any daemon using that home.
+func (h *Handler) handleNetworkAudit(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	tail := 50
+	if v := strings.TrimSpace(query.Get("tail")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 || n > 1000 {
+			respondNetworkError(w, http.StatusBadRequest, "invalid tail: must be 1-1000")
+			return
+		}
+		tail = n
+	}
+
+	if h.gatewayAvailableForProxy() {
+		ctx, cancel := context.WithTimeout(r.Context(), defaultNetworkTimeout)
+		defer cancel()
+		output, err := h.networkAuditFromGateway(ctx, query)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(output)
+			return
+		}
+		logger.Warnf("network audit gateway fetch failed, reading local file: %v", err)
+	}
+
+	entries, err := mesh.ReadAuditTail(filepath.Join(utils.GetRhizomeHome(), "mesh-audit.jsonl"), tail)
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, "read audit log: "+err.Error())
+		return
+	}
+	if entries == nil {
+		entries = []json.RawMessage{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries": entries,
+		"count":   len(entries),
+	})
+}
+
+func (h *Handler) networkAuditFromGateway(ctx context.Context, query url.Values) ([]byte, error) {
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		return nil, errors.New("gateway pid data unavailable")
+	}
+
+	u := h.gatewayProxyURL()
+	u.Path = "/network/audit"
+	upstream := url.Values{}
+	if t := query.Get("tail"); t != "" {
+		upstream.Set("tail", t)
+	}
+	u.RawQuery = upstream.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+
+	client := &http.Client{Timeout: defaultNetworkTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
 }

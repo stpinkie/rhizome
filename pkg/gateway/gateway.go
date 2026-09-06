@@ -572,6 +572,20 @@ func setupAndStartServices(
 		return nil, fmt.Errorf("error registering network saved peers handler: %w", err)
 	}
 
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/tasks",
+		newNetworkTasksHandler(rhizomeMesh, authToken),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network tasks handler: %w", err)
+	}
+
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/audit",
+		newNetworkAuditHandler(authToken, homePath),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network audit handler: %w", err)
+	}
+
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
 	}

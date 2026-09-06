@@ -39,6 +39,8 @@ $env:TMP='D:\tmp'
 - `rhizome network delegate <peer-multiaddr> <agent-id> <task>` — synchronously delegate a task to a remote peer agent.
 - `rhizome network spawn <peer-multiaddr> <agent-id> <task>` — asynchronously spawn a task on a remote peer agent.
 - `rhizome network task submit|status|result|cancel|list <peer-multiaddr> …` — manage asynchronous remote tasks over `/rhizome/agent-task/1.0.0`. The same commands are mirrored under `rhizome mesh task`.
+- `rhizome network route <agent-id> <task>` / `rhizome mesh route` — pick the best connected, trusted peer for an agent id (capability + load aware, via `Mesh.PickPeer`) and dispatch the task. `--sync` delegates synchronously; `--wait <dur>` long-polls the result after submitting.
+- `rhizome network audit` / `rhizome mesh audit` — print the tail of the local mesh audit trail (`~/.rhizome/mesh-audit.jsonl`); `--tail N`, `--json`.
 - `rhizome sync status|log|commit|pull|push` — manage the workspace git repo. `sync status` shows HEAD, branch, workspace state, conflicts, last error, and per-peer heads (`--json` for machine-readable).
 - `rhizome daemon` — start a long-running P2P node, workspace syncer, agent gateway, and (when enabled) the decentralised mesh.
   - `--no-dht` disables public DHT discovery.
@@ -56,8 +58,12 @@ The web console (the launcher) exposes authenticated JSON endpoints that wrap `r
 - `GET /api/network/saved-peers` — list persistent mesh peers from `mesh.trusted_peers` and `mesh.bootstrap_peers`, merged by peer id and augmented with live connection/capability status when the daemon is running.
 - `POST /api/network/saved-peers?action=untrust&peer=<peer-id>` — remove the peer from runtime trust and `mesh.trusted_peers`.
 - `DELETE /api/network/saved-peers?peer=<peer-id>` — remove the peer from runtime trust, `mesh.trusted_peers`, and any matching `mesh.bootstrap_peers`.
+- `GET /api/network/tasks?peer=<id>[&task=<id>][&wait=<dur>]` — list remote tasks on a peer, or fetch status/result of one task. Proxies the daemon's `GET /network/tasks`; falls back to `rhizome network task …` using the peer's saved bootstrap address.
+- `POST /api/network/tasks` — submit a remote task (`{"peer","agent_id","model","task","tools"}`); daemon required.
+- `POST /api/network/tasks?action=cancel&peer=<id>&task=<id>` — cancel a running remote task.
+- `GET /api/network/audit?tail=N` — tail of the daemon's mesh audit trail; falls back to reading `mesh-audit.jsonl` under `RHIZOME_HOME` directly.
 
-The dashboard has a **Network** page (`/network`) that visualizes these endpoints: it shows connected peers with trust/capability badges, a DHT status snapshot, a Saved Peers panel with Untrust/Remove actions, optional bootstrap overrides, and auto-refreshes every 60 seconds.
+The dashboard has a **Network** page (`/network`) that visualizes these endpoints: it shows connected peers with trust/capability badges, a DHT status snapshot, a Saved Peers panel with Untrust/Remove actions, optional bootstrap overrides, a Remote Tasks panel (peer picker, submit form, live status, cancel, result viewer), and a Mesh Audit Log panel. The status query auto-refreshes every 60 seconds.
 
 Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOME` and `RHIZOME_CONFIG` automatically. Results are cached for 5 seconds to avoid spawning multiple overlapping nodes.
 
@@ -257,6 +263,20 @@ npx pnpm build
 - A custom `?listen=...` still forces the CLI fallback, and the CLI fallback honors `--trust`.
 - The Network dashboard has a "Trust & remember this peer" toggle that adds `trust=true` to the status query.
 - On the next daemon startup, `mesh.bootstrap_peers` are merged into the libp2p bootstrap list and `mesh.trusted_peers` are loaded into the mesh trust set, so saved peers reconnect and are trusted automatically.
+
+## Tracks 16–18 — Mesh operations surface
+
+- `pkg/rhizome/agentrpc` and `pkg/rhizome/agenttask` now have unit suites covering round-trip calls, handler errors, nonce echo, idempotency cache (peer-scoped keys, TTL, 1024-entry bound), protocol advertisement checks, and malformed-frame handling. The fixed 500 ms connection sleeps in mesh tests were replaced with `require.Eventually` on `network.IsConnectednessUp`.
+- The daemon exposes remote task ops on its gateway mux (PID-token auth):
+  - `GET /network/tasks?peer=<id>` — list tasks this node owns on the peer.
+  - `GET /network/tasks?peer=<id>&task=<id>` — status; `&wait=<dur>` turns it into a long-poll result fetch (cap 90 s).
+  - `POST /network/tasks` — submit; JSON body `{peer, agent_id, model, task, tools}`. `peer` accepts a peer id or a `/p2p/` multiaddr (dialed on demand).
+  - `POST /network/tasks?action=cancel&peer=<id>&task=<id>` — cancel.
+  - `GET /network/audit?tail=N` — last N entries of `mesh-audit.jsonl` (1–1000, default 50) via `mesh.ReadAuditTail`.
+- The launcher proxies both under `/api/network/tasks` and `/api/network/audit`. Task reads/cancel fall back to `rhizome network task …` using the peer's saved `mesh.bootstrap_peers` address; submit and unresolved peers return 503 (daemon required). Audit falls back to reading the local file.
+- Capability manifests gained `active_tasks` (non-terminal task count, signed like the rest of the manifest) and `PeerCapability`/`network status` surface it.
+- `Mesh.PickPeer(agentID, op)` picks a connected, trusted peer whose signed manifest lists the agent (or `"*"`) and allows the op, preferring direct connections then fewest `active_tasks`. `rhizome mesh route` builds on it.
+- The Network dashboard gained Remote Tasks and Mesh Audit Log panels; `rhizome network audit` / `rhizome mesh audit` print the audit tail.
 
 ## Provider Protocol Refactor (v0.4.8)
 

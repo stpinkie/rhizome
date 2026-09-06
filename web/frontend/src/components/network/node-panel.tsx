@@ -31,7 +31,10 @@ function AddrList({ addrs }: { addrs: string[] }) {
   return (
     <ul className="space-y-0.5">
       {addrs.map((addr) => (
-        <li key={addr} className="text-muted-foreground font-mono text-xs break-all">
+        <li
+          key={addr}
+          className="text-muted-foreground font-mono text-xs break-all"
+        >
           {addr}
         </li>
       ))}
@@ -48,11 +51,23 @@ export function NodePanel({ response, isLoading }: NodePanelProps) {
   const reachabilityBadge = () => {
     switch (reachability) {
       case "Public":
-        return <Badge variant="default">{t("pages.network.reachability_public", "Public")}</Badge>
+        return (
+          <Badge variant="default">
+            {t("pages.network.reachability_public", "Public")}
+          </Badge>
+        )
       case "Private":
-        return <Badge variant="secondary">{t("pages.network.reachability_private", "Private (NAT'd)")}</Badge>
+        return (
+          <Badge variant="secondary">
+            {t("pages.network.reachability_private", "Private (NAT'd)")}
+          </Badge>
+        )
       default:
-        return <Badge variant="outline">{t("pages.network.reachability_unknown", "Unknown")}</Badge>
+        return (
+          <Badge variant="outline">
+            {t("pages.network.reachability_unknown", "Unknown")}
+          </Badge>
+        )
     }
   }
 

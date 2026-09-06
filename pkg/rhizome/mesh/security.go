@@ -1,8 +1,10 @@
 package mesh
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -332,4 +334,102 @@ func defaultAuditPath() string {
 		return ""
 	}
 	return filepath.Join(home, "mesh-audit.jsonl")
+}
+
+// ReadAuditTail returns the last n entries of the JSONL audit trail at path,
+// newest last. Missing or empty files return an empty slice, not an error.
+// Lines that fail to parse are skipped. n <= 0 returns nil.
+//
+// The reader starts with a 512 KiB tail window and grows it (doubling, up to
+// the full file size) when fewer than n valid entries are found, so callers
+// always receive up to n entries when they exist — even when entries are
+// large or the file is big.
+func ReadAuditTail(path string, n int) ([]json.RawMessage, error) {
+	if n <= 0 || path == "" {
+		return nil, nil
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	if size == 0 {
+		return nil, nil
+	}
+
+	// Entries average a few hundred bytes; 512 KiB comfortably covers the
+	// common tail. When entries are large or n is big, the window grows up
+	// to the full file size so callers always get up to n entries.
+	const initialWindow = 512 * 1024
+	window := int64(initialWindow)
+	if window > size {
+		window = size
+	}
+
+	var entries []json.RawMessage
+	for {
+		start := size - window
+		if start < 0 {
+			start = 0
+		}
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(f)
+		if err != nil {
+			return nil, err
+		}
+		if start > 0 {
+			// Drop the first, possibly partial, line of the window.
+			if i := bytes.IndexByte(data, '\n'); i >= 0 {
+				data = data[i+1:]
+			} else {
+				data = nil
+			}
+		}
+
+		entries = collectAuditEntries(data, n)
+
+		// Stop when we have enough entries or have already read the whole file.
+		if len(entries) >= n || window >= size {
+			if len(entries) > n {
+				entries = entries[len(entries)-n:]
+			}
+			return entries, nil
+		}
+		// Grow the window and re-read. Doubling keeps the worst-case total
+		// read within a small constant factor of the final window size.
+		window *= 2
+		if window > size {
+			window = size
+		}
+	}
+}
+
+// collectAuditEntries splits data into lines, keeps the valid JSONL ones,
+// and returns at most the last n. The slice is newest-last.
+func collectAuditEntries(data []byte, n int) []json.RawMessage {
+	lines := bytes.Split(data, []byte{'\n'})
+	entries := make([]json.RawMessage, 0, n)
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || !json.Valid(line) {
+			continue
+		}
+		entries = append(entries, json.RawMessage(append([]byte(nil), line...)))
+	}
+	if len(entries) > n {
+		entries = entries[len(entries)-n:]
+	}
+	return entries
 }

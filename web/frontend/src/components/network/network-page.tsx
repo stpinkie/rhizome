@@ -8,22 +8,20 @@ import { useNetwork } from "@/hooks/use-network"
 import { useSavedPeers } from "@/hooks/use-saved-peers"
 import { cn } from "@/lib/utils"
 
+import { AuditPanel } from "./audit-panel"
 import { BootstrapInput } from "./bootstrap-input"
 import { DhtPanel } from "./dht-panel"
 import { NodePanel } from "./node-panel"
 import { PeersPanel } from "./peers-panel"
 import { SavedPeersPanel } from "./saved-peers-panel"
+import { TasksPanel } from "./tasks-panel"
 
 export function NetworkPage() {
   const { t } = useTranslation()
   const [bootstraps, setBootstraps] = useState<string[]>([])
   const [trust, setTrust] = useState(false)
   const { statusQuery, refresh } = useNetwork({ bootstraps, trust })
-  const {
-    query: savedPeersQuery,
-    untrust,
-    remove,
-  } = useSavedPeers()
+  const { query: savedPeersQuery, untrust, remove } = useSavedPeers()
 
   const isLoading = statusQuery.isLoading
   const error = statusQuery.error
@@ -95,6 +93,10 @@ export function NetworkPage() {
             onUntrust={(peerID) => untrust.mutate(peerID)}
             onRemove={(peerID) => remove.mutate(peerID)}
           />
+
+          <TasksPanel peers={savedPeersQuery.data?.saved_peers ?? []} />
+
+          <AuditPanel />
         </div>
       </div>
     </div>

@@ -457,6 +457,214 @@ func TestNetworkSavedPeersUntrustMissingPeer(t *testing.T) {
 	}
 }
 
+// setupGatewayProxyTest wires the package-level gateway state so the launcher
+// treats the current process as a live gateway and proxies requests to the
+// mock server. It returns a handler/mux ready to serve requests. The cleanup
+// restores the original gateway state.
+func setupGatewayProxyTest(t *testing.T, handler http.HandlerFunc) (*Handler, *http.ServeMux) {
+	t.Helper()
+
+	// Override the gateway process matcher so the launcher treats the current
+	// process as a live gateway without requiring a real rhizome binary.
+	originalMatcher := gatewayProcessMatcher
+	t.Cleanup(func() { gatewayProcessMatcher = originalMatcher })
+	gatewayProcessMatcher = func(int) (bool, bool) { return true, true }
+
+	// Snapshot and isolate package-level gateway state.
+	originalPIDData := gateway.pidData
+	originalCmd := gateway.cmd
+	originalPicoToken := gateway.picoToken
+	originalRuntimeStatus := gateway.runtimeStatus
+	t.Cleanup(func() {
+		gateway.pidData = originalPIDData
+		gateway.cmd = originalCmd
+		gateway.picoToken = originalPicoToken
+		gateway.runtimeStatus = originalRuntimeStatus
+	})
+
+	token := "test-token"
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	host, portStr, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("parse server address: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	// Write a PID file so gatewayAvailableForProxy sees a valid gateway.
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+
+	pidData := ppid.PidFileData{
+		PID:     os.Getpid(),
+		Token:   token,
+		Version: "test",
+		Port:    1,
+		Host:    "127.0.0.1",
+	}
+	raw, err := json.Marshal(pidData)
+	if err != nil {
+		t.Fatalf("marshal pid data: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".rhizome.pid"), raw, 0o600); err != nil {
+		t.Fatalf("write pid file: %v", err)
+	}
+
+	// Configure the launcher with the mock gateway's host/port.
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.DefaultConfig()
+	cfg.Gateway.Host = host
+	cfg.Gateway.Port = port
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	return h, mux
+}
+
+// TestNetworkTasksSubmitGatewayFailureReturnsDaemonRequired verifies that a
+// POST submit whose gateway proxy fails returns 503 "daemon required" instead
+// of falling back to the CLI (which would read an already-consumed body and
+// return a misleading "invalid JSON body" error).
+func TestNetworkTasksSubmitGatewayFailureReturnsDaemonRequired(t *testing.T) {
+	// Mock gateway returns 503 for task submits, simulating a daemon that is
+	// up but whose mesh is not started.
+	_, mux := setupGatewayProxyTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/network/tasks" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "mesh not available"})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	body := `{"peer":"12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv","task":"do work"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/network/tasks", strings.NewReader(body))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "daemon") {
+		t.Fatalf("body should mention 'daemon', got: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "invalid JSON body") {
+		t.Fatalf("body should not contain 'invalid JSON body', got: %s", rec.Body.String())
+	}
+}
+
+// TestNetworkTasksSubmitBodyPeerValidation verifies that the peer field in the
+// POST submit JSON body is validated for emptiness and whitespace before any
+// proxying.
+func TestNetworkTasksSubmitBodyPeerValidation(t *testing.T) {
+	// The mock gateway should never be reached for these validation failures.
+	_, mux := setupGatewayProxyTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("gateway should not be reached for validation failures")
+	})
+
+	cases := []struct {
+		name string
+		body string
+		want int
+		msg  string
+	}{
+		{
+			name: "empty peer",
+			body: `{"peer":"","task":"x"}`,
+			want: http.StatusBadRequest,
+			msg:  "peer id is required",
+		},
+		{
+			name: "whitespace-only peer",
+			body: `{"peer":"   ","task":"x"}`,
+			want: http.StatusBadRequest,
+			msg:  "peer id is required",
+		},
+		{
+			name: "peer with internal whitespace",
+			body: `{"peer":"12D3 KooW","task":"x"}`,
+			want: http.StatusBadRequest,
+			msg:  "peer id contains whitespace",
+		},
+		{
+			name: "peer with tab",
+			body: `{"peer":"12D3\tKooW","task":"x"}`,
+			want: http.StatusBadRequest,
+			msg:  "peer id contains whitespace",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/network/tasks", strings.NewReader(tc.body))
+			mux.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tc.want, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.msg) {
+				t.Fatalf("body should contain %q, got: %s", tc.msg, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestNetworkTasksSubmitInvalidJSON verifies that a malformed JSON body is
+// rejected with 400 before any proxying.
+func TestNetworkTasksSubmitInvalidJSON(t *testing.T) {
+	_, mux := setupGatewayProxyTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("gateway should not be reached for invalid JSON")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/network/tasks", strings.NewReader(`{not json`))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid JSON body") {
+		t.Fatalf("body should mention 'invalid JSON body', got: %s", rec.Body.String())
+	}
+}
+
+// TestNetworkTasksSubmitNoGatewayReturnsDaemonRequired verifies that a submit
+// with no gateway detected returns 503 "daemon required" (submit cannot be
+// served by a temporary CLI node).
+func TestNetworkTasksSubmitNoGatewayReturnsDaemonRequired(t *testing.T) {
+	// No PID file, no gateway state — gatewayAvailableForProxy returns false.
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := config.SaveConfig(configPath, config.DefaultConfig()); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body := `{"peer":"12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv","task":"x"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/network/tasks", strings.NewReader(body))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "daemon") {
+		t.Fatalf("body should mention 'daemon', got: %s", rec.Body.String())
+	}
+}
+
 func TestNetworkSavedPeersRemoveMissingPeer(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")

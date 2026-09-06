@@ -241,6 +241,20 @@ func (s *TaskStore) Wait(ctx context.Context, id string, owner peer.ID, wait tim
 	return t, true
 }
 
+// ActiveCount returns the number of non-terminal tasks across all owners —
+// the node's current remote-task load, advertised in capability manifests.
+func (s *TaskStore) ActiveCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, t := range s.tasks {
+		if !t.Status.Terminal() {
+			n++
+		}
+	}
+	return n
+}
+
 // List returns info for every task owned by the given peer.
 func (s *TaskStore) List(owner peer.ID) []agenttask.TaskInfo {
 	s.mu.Lock()

@@ -1336,15 +1336,17 @@ interface TimeoutsSectionProps {
 export function TimeoutsSection({ form, onChange }: TimeoutsSectionProps) {
   const { t } = useTranslation()
 
-  const makeField = (key: keyof TimeoutsForm, labelKey: string, hintKey: string) => (
-    <Field
-      label={t(labelKey)}
-      hint={t(hintKey)}
-      layout="setting-row"
-    >
+  const makeField = (
+    key: keyof TimeoutsForm,
+    labelKey: string,
+    hintKey: string,
+  ) => (
+    <Field label={t(labelKey)} hint={t(hintKey)} layout="setting-row">
       <Input
         value={form[key]}
-        onChange={(e) => onChange({ [key]: e.target.value } as Partial<TimeoutsForm>)}
+        onChange={(e) =>
+          onChange({ [key]: e.target.value } as Partial<TimeoutsForm>)
+        }
       />
     </Field>
   )
@@ -1354,18 +1356,66 @@ export function TimeoutsSection({ form, onChange }: TimeoutsSectionProps) {
       title={t("pages.config.sections.timeouts")}
       description={t("pages.config.timeouts_section_hint")}
     >
-      {makeField("llmRequest", "pages.config.llm_request_timeout", "pages.config.llm_request_timeout_hint")}
-      {makeField("llmStreamingIdle", "pages.config.llm_streaming_idle_timeout", "pages.config.llm_streaming_idle_timeout_hint")}
-      {makeField("toolExecSeconds", "pages.config.tool_exec_timeout", "pages.config.tool_exec_timeout_hint")}
-      {makeField("toolCronExecMinutes", "pages.config.tool_cron_exec_timeout", "pages.config.tool_cron_exec_timeout_hint")}
-      {makeField("httpRequest", "pages.config.http_request_timeout", "pages.config.http_request_timeout_hint")}
-      {makeField("httpDial", "pages.config.http_dial_timeout", "pages.config.http_dial_timeout_hint")}
-      {makeField("mediaDownload", "pages.config.media_download_timeout", "pages.config.media_download_timeout_hint")}
-      {makeField("gatewayServiceShutdown", "pages.config.gateway_service_shutdown_timeout", "pages.config.gateway_service_shutdown_timeout_hint")}
-      {makeField("agentSubTurnDefault", "pages.config.agent_sub_turn_timeout", "pages.config.agent_sub_turn_timeout_hint")}
-      {makeField("meshRemoteCall", "pages.config.mesh_remote_call_timeout", "pages.config.mesh_remote_call_timeout_hint")}
-      {makeField("syncCommitInterval", "pages.config.sync_commit_interval", "pages.config.sync_commit_interval_hint")}
-      {makeField("dhtReprovideInterval", "pages.config.dht_reprovide_interval", "pages.config.dht_reprovide_interval_hint")}
+      {makeField(
+        "llmRequest",
+        "pages.config.llm_request_timeout",
+        "pages.config.llm_request_timeout_hint",
+      )}
+      {makeField(
+        "llmStreamingIdle",
+        "pages.config.llm_streaming_idle_timeout",
+        "pages.config.llm_streaming_idle_timeout_hint",
+      )}
+      {makeField(
+        "toolExecSeconds",
+        "pages.config.tool_exec_timeout",
+        "pages.config.tool_exec_timeout_hint",
+      )}
+      {makeField(
+        "toolCronExecMinutes",
+        "pages.config.tool_cron_exec_timeout",
+        "pages.config.tool_cron_exec_timeout_hint",
+      )}
+      {makeField(
+        "httpRequest",
+        "pages.config.http_request_timeout",
+        "pages.config.http_request_timeout_hint",
+      )}
+      {makeField(
+        "httpDial",
+        "pages.config.http_dial_timeout",
+        "pages.config.http_dial_timeout_hint",
+      )}
+      {makeField(
+        "mediaDownload",
+        "pages.config.media_download_timeout",
+        "pages.config.media_download_timeout_hint",
+      )}
+      {makeField(
+        "gatewayServiceShutdown",
+        "pages.config.gateway_service_shutdown_timeout",
+        "pages.config.gateway_service_shutdown_timeout_hint",
+      )}
+      {makeField(
+        "agentSubTurnDefault",
+        "pages.config.agent_sub_turn_timeout",
+        "pages.config.agent_sub_turn_timeout_hint",
+      )}
+      {makeField(
+        "meshRemoteCall",
+        "pages.config.mesh_remote_call_timeout",
+        "pages.config.mesh_remote_call_timeout_hint",
+      )}
+      {makeField(
+        "syncCommitInterval",
+        "pages.config.sync_commit_interval",
+        "pages.config.sync_commit_interval_hint",
+      )}
+      {makeField(
+        "dhtReprovideInterval",
+        "pages.config.dht_reprovide_interval",
+        "pages.config.dht_reprovide_interval_hint",
+      )}
     </ConfigSectionCard>
   )
 }
@@ -1498,9 +1548,7 @@ export function MeshSection({
               type="number"
               min={0}
               value={form.rateLimitPerPeer}
-              onChange={(e) =>
-                onChange({ rateLimitPerPeer: e.target.value })
-              }
+              onChange={(e) => onChange({ rateLimitPerPeer: e.target.value })}
             />
           </Field>
           <Field
@@ -1512,9 +1560,7 @@ export function MeshSection({
               type="number"
               min={0}
               value={form.rateLimitGlobal}
-              onChange={(e) =>
-                onChange({ rateLimitGlobal: e.target.value })
-              }
+              onChange={(e) => onChange({ rateLimitGlobal: e.target.value })}
             />
           </Field>
 
@@ -1524,27 +1570,21 @@ export function MeshSection({
             hint={t("pages.config.mesh_nat_traversal_hint")}
             layout="setting-row"
             checked={form.natTraversal}
-            onCheckedChange={(checked) =>
-              onChange({ natTraversal: checked })
-            }
+            onCheckedChange={(checked) => onChange({ natTraversal: checked })}
           />
           <SwitchCardField
             label={t("pages.config.mesh_relay_service")}
             hint={t("pages.config.mesh_relay_service_hint")}
             layout="setting-row"
             checked={form.relayService}
-            onCheckedChange={(checked) =>
-              onChange({ relayService: checked })
-            }
+            onCheckedChange={(checked) => onChange({ relayService: checked })}
           />
           <SwitchCardField
             label={t("pages.config.mesh_nat_service")}
             hint={t("pages.config.mesh_nat_service_hint")}
             layout="setting-row"
             checked={form.natService}
-            onCheckedChange={(checked) =>
-              onChange({ natService: checked })
-            }
+            onCheckedChange={(checked) => onChange({ natService: checked })}
           />
           <Field
             label={t("pages.config.mesh_force_reachability")}
@@ -1552,7 +1592,9 @@ export function MeshSection({
             layout="setting-row"
           >
             <Select
-              value={form.forceReachability === "" ? "auto" : form.forceReachability}
+              value={
+                form.forceReachability === "" ? "auto" : form.forceReachability
+              }
               onValueChange={(value) =>
                 onChange({ forceReachability: value === "auto" ? "" : value })
               }
@@ -1583,9 +1625,7 @@ export function MeshSection({
               value={form.staticRelaysText}
               placeholder={t("pages.config.mesh_static_relays_placeholder")}
               className="min-h-[60px]"
-              onChange={(e) =>
-                onChange({ staticRelaysText: e.target.value })
-              }
+              onChange={(e) => onChange({ staticRelaysText: e.target.value })}
             />
           </Field>
           <Field
@@ -1598,9 +1638,7 @@ export function MeshSection({
               value={form.publicAddrsText}
               placeholder={t("pages.config.mesh_public_addrs_placeholder")}
               className="min-h-[60px]"
-              onChange={(e) =>
-                onChange({ publicAddrsText: e.target.value })
-              }
+              onChange={(e) => onChange({ publicAddrsText: e.target.value })}
             />
           </Field>
 
@@ -1619,9 +1657,7 @@ export function MeshSection({
                 hint={t("pages.config.mesh_dht_server_hint")}
                 layout="setting-row"
                 checked={form.dhtServer}
-                onCheckedChange={(checked) =>
-                  onChange({ dhtServer: checked })
-                }
+                onCheckedChange={(checked) => onChange({ dhtServer: checked })}
               />
               <Field
                 label={t("pages.config.mesh_dht_rendezvous")}
@@ -1630,9 +1666,7 @@ export function MeshSection({
               >
                 <Input
                   value={form.dhtRendezvous}
-                  onChange={(e) =>
-                    onChange({ dhtRendezvous: e.target.value })
-                  }
+                  onChange={(e) => onChange({ dhtRendezvous: e.target.value })}
                 />
               </Field>
               <Field
@@ -1643,9 +1677,7 @@ export function MeshSection({
               >
                 <Textarea
                   value={form.dhtBootstrapText}
-                  placeholder={t(
-                    "pages.config.mesh_dht_bootstrap_placeholder",
-                  )}
+                  placeholder={t("pages.config.mesh_dht_bootstrap_placeholder")}
                   className="min-h-[60px]"
                   onChange={(e) =>
                     onChange({ dhtBootstrapText: e.target.value })
@@ -1681,9 +1713,7 @@ export function MeshSection({
               value={form.trustedPeersText}
               placeholder={t("pages.config.mesh_trusted_peers_placeholder")}
               className="min-h-[60px]"
-              onChange={(e) =>
-                onChange({ trustedPeersText: e.target.value })
-              }
+              onChange={(e) => onChange({ trustedPeersText: e.target.value })}
             />
           </Field>
           <Field
@@ -1696,9 +1726,7 @@ export function MeshSection({
               value={form.bootstrapPeersText}
               placeholder={t("pages.config.mesh_bootstrap_peers_placeholder")}
               className="min-h-[60px]"
-              onChange={(e) =>
-                onChange({ bootstrapPeersText: e.target.value })
-              }
+              onChange={(e) => onChange({ bootstrapPeersText: e.target.value })}
             />
           </Field>
 
@@ -1741,11 +1769,7 @@ export function MeshSection({
                         "pages.config.mesh_acl_peer_id_placeholder",
                       )}
                       onChange={(e) =>
-                        onACLRuleFieldChange(
-                          rule.id,
-                          "peerId",
-                          e.target.value,
-                        )
+                        onACLRuleFieldChange(rule.id, "peerId", e.target.value)
                       }
                     />
                     <Select
@@ -1833,11 +1857,7 @@ export function MeshSection({
                 </div>
               ))}
 
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onAddACLRule}
-              >
+              <Button type="button" variant="outline" onClick={onAddACLRule}>
                 <IconPlus className="size-4" />
                 {t("pages.config.mesh_acl_add_rule")}
               </Button>

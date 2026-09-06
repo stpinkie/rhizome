@@ -47,8 +47,10 @@ func TestMeshRemoteCall(t *testing.T) {
 	require.NoError(t, err)
 	defer nodeB.Close()
 
-	// Wait for nodes to connect.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the bootstrap connection to come up.
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 10*time.Second, 50*time.Millisecond, "nodeB should connect to nodeA")
 
 	runFunc := func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
 		return toolshared.NewToolResult("hello from remote"), nil
@@ -109,7 +111,10 @@ func TestMeshUntrustedPeer(t *testing.T) {
 	require.NoError(t, err)
 	defer nodeB.Close()
 
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the bootstrap connection to come up.
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 10*time.Second, 50*time.Millisecond, "nodeB should connect to nodeA")
 
 	cfg := config.MeshConfig{Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second}
 	meshA := NewMesh(nodeA, nil, idA, cfg, nil)
@@ -160,7 +165,10 @@ func TestMeshInvalidRequestSignature(t *testing.T) {
 	require.NoError(t, err)
 	defer nodeB.Close()
 
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the bootstrap connection to come up.
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 10*time.Second, 50*time.Millisecond, "nodeB should connect to nodeA")
 
 	cfg := config.MeshConfig{Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second}
 	meshA := NewMesh(nodeA, nil, idA, cfg, nil)
@@ -221,7 +229,10 @@ func TestMeshCapabilityExchange(t *testing.T) {
 	require.NoError(t, err)
 	defer nodeB.Close()
 
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the bootstrap connection to come up.
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 10*time.Second, 50*time.Millisecond, "nodeB should connect to nodeA")
 
 	cfg := config.MeshConfig{Enabled: true}
 	meshA := NewMesh(nodeA, nil, idA, cfg, nil)

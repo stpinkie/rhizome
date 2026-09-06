@@ -49,7 +49,10 @@ func newTaskTestMeshes(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })
 
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the bootstrap connection to come up.
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 10*time.Second, 50*time.Millisecond, "nodeB should connect to nodeA")
 
 	meshA := NewMesh(nodeA, nil, idA, cfg, runFunc)
 	require.NoError(t, meshA.Start(ctx))

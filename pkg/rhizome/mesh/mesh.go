@@ -43,6 +43,11 @@ type Capability struct {
 	Agents    []string        `json:"agents,omitempty"`
 	Timestamp int64           `json:"timestamp"`
 	Allows    map[string]bool `json:"allows,omitempty"`
+	// ActiveTasks is the number of non-terminal remote tasks the peer is
+	// currently executing, as of the manifest timestamp. Callers use it as a
+	// least-loaded hint when picking a peer; it goes stale within the
+	// manifest freshness window.
+	ActiveTasks int `json:"active_tasks,omitempty"`
 	// Signature covers the canonical encoding of all fields above, proving
 	// the manifest was issued by PeerID. Unsigned manifests are rejected
 	// unless mesh.require_signed_caps is disabled; a mesh.cap.unsigned
@@ -52,9 +57,10 @@ type Capability struct {
 
 // PeerCapability is a minimal view of a peer's capability for status output.
 type PeerCapability struct {
-	Models []string `json:"models,omitempty"`
-	Skills []string `json:"skills,omitempty"`
-	Agents []string `json:"agents,omitempty"`
+	Models      []string `json:"models,omitempty"`
+	Skills      []string `json:"skills,omitempty"`
+	Agents      []string `json:"agents,omitempty"`
+	ActiveTasks int      `json:"active_tasks,omitempty"`
 }
 
 // PeerStatus is the JSON-friendly status for one connected peer.
@@ -583,6 +589,9 @@ func (m *Mesh) localCapability() Capability {
 	c.Allows["delegate"] = m.cfg.AllowRemoteDelegate
 	c.Allows["spawn"] = m.cfg.AllowRemoteSpawn
 	c.Allows["sync"] = true
+	if m.tasks != nil {
+		c.ActiveTasks = m.tasks.ActiveCount()
+	}
 
 	if m.cfg.AdvertiseModels {
 		m.modelsMu.RLock()
@@ -837,6 +846,7 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 				if len(capability.Agents) > 0 {
 					pc.Agents = capability.Agents
 				}
+				pc.ActiveTasks = capability.ActiveTasks
 				ps.Capability = pc
 			}
 			out.Peers = append(out.Peers, ps)
@@ -873,6 +883,59 @@ func (m *Mesh) ConnectedTrustedPeers() []peer.ID {
 		}
 	}
 	return out
+}
+
+// PickPeer selects a connected, trusted peer able to run agentID for the
+// given op ("delegate" or "spawn"). Candidates must have advertised a
+// capability manifest listing the agent (or "*") and allowing the op. Peers
+// are ranked by connection quality — direct connections beat relayed ones —
+// then by fewest advertised active tasks, with the peer id as a
+// deterministic tiebreak. The returned capability is the manifest the
+// decision was based on.
+func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
+	var best peer.ID
+	var bestCap Capability
+	var bestScore int64
+	found := false
+
+	for _, pid := range m.ConnectedTrustedPeers() {
+		c, ok := m.PeerCapabilities(pid)
+		if !ok || !capabilityServes(c, agentID, op) {
+			continue
+		}
+		var score int64
+		if m.node.Connectedness(pid) == libnet.Connected {
+			score += 1 << 20
+		}
+		score -= int64(c.ActiveTasks)
+		if !found || score > bestScore || (score == bestScore && pid < best) {
+			best, bestCap, bestScore, found = pid, c, score, true
+		}
+	}
+	if !found {
+		return "", Capability{}, fmt.Errorf(
+			"no trusted, connected peer advertises agent %q for op %q", agentID, op)
+	}
+	return best, bestCap, nil
+}
+
+// capabilityServes reports whether a manifest allows the op and lists the
+// requested agent. An empty agentID matches any manifest.
+func capabilityServes(c Capability, agentID, op string) bool {
+	if op != "" {
+		if allowed, ok := c.Allows[op]; !ok || !allowed {
+			return false
+		}
+	}
+	if agentID == "" {
+		return true
+	}
+	for _, a := range c.Agents {
+		if a == agentID || a == "*" {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Mesh) verifyRequest(from peer.ID, req agentrpc.Request) error {
