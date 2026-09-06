@@ -150,6 +150,8 @@ make build-android-bundle
 
 The universal zip contains `librhizome.so` for each ABI. Rename/copy it to your app's `lib/<abi>/` directory or run it as a PIE binary from `adb shell`.
 
+> **Note:** Release binaries are built against NDK API 21 (Android 5.0+). API 19 toolchains were removed in NDK r26; Android 4.4 support is unverified — see the [Android 4.4 Compatibility Test Plan](android-44-testing.md) for how to test on real hardware.
+
 #### 32-bit x86 / i386
 
 ```bash
