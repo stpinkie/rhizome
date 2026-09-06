@@ -84,13 +84,14 @@ export function useNetworkTasks(peer: string | null) {
                 // Not enough data to patch; refresh from the server.
                 return old
               }
+              const tasks: MeshTaskInfo[] = [...old.tasks]
               const next: MeshTaskListResponse = {
                 ...old,
-                tasks: [...old.tasks],
+                tasks,
               }
-              const idx = next.tasks.findIndex((t) => t.task_id === taskID)
+              const idx = tasks.findIndex((t) => t.task_id === taskID)
               if (idx >= 0) {
-                const existing = next.tasks[idx]
+                const existing = tasks[idx]
                 const patch: MeshTaskInfo = {
                   ...existing,
                   status:
@@ -105,11 +106,11 @@ export function useNetworkTasks(peer: string | null) {
                 if (agentID) {
                   patch.agent_id = agentID
                 }
-                next.tasks[idx] = patch
+                tasks[idx] = patch
               } else if (agentID) {
                 // New task submitted by or routed to the remote peer; append a
                 // placeholder and refetch to get full metadata.
-                next.tasks.push({
+                tasks.push({
                   task_id: taskID,
                   agent_id: agentID,
                   status:

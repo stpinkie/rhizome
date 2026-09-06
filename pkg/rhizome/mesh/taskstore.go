@@ -212,11 +212,11 @@ func (s *TaskStore) save() error {
 		return fmt.Errorf("mkdir task store: %w", err)
 	}
 
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
 	if err != nil {
 		return fmt.Errorf("create task store temp: %w", err)
 	}
+	tmp := f.Name()
 	enc := json.NewEncoder(f)
 	for _, rec := range records {
 		if err := enc.Encode(rec); err != nil {

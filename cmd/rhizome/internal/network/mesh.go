@@ -252,8 +252,12 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 				fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("Task submitted to %s: %s\n", usedPeer, taskID)
-			fmt.Printf("Check progress: rhizome network task status %s %s\n", usedPeer, taskID)
+			if usedPeer == pid {
+				fmt.Printf("Check progress: rhizome network task status %s %s\n", maddrStr, taskID)
+			} else {
+				fmt.Printf("Task: %s routed to peer %s (failover).\n", taskID, usedPeer)
+				fmt.Printf("Check progress: rhizome network task status <peer-multiaddr> %s\n", taskID)
+			}
 			return
 		}
 	}

@@ -165,5 +165,5 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 		return
 	}
 
-	fmt.Printf("Check progress: rhizome mesh task status <peer-multiaddr> %s\n", taskID)
+	fmt.Printf("Peer: %s, task: %s. Check progress: rhizome mesh task status <peer-multiaddr> %s\n", usedPeer, taskID, taskID)
 }

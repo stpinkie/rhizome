@@ -303,7 +303,8 @@ func TestMeshSubmitRemoteTaskFailover(t *testing.T) {
 		Allows: map[string]bool{"spawn": true}, ActiveTasks: 0,
 	})
 
-	// Ask for B as preferred. B is overloaded by its runFunc? No, make B reject by disabling spawn on B.
+	// Ask for B as preferred. B rejects because we disabled spawn on it, so the
+	// request should failover to C.
 	meshB.cfg.AllowRemoteSpawn = false
 
 	usedPeer, taskID, err := meshA.SubmitRemoteTaskWithPeer(ctx, meshB.node.ID(), RemoteCall{

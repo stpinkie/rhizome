@@ -587,6 +587,12 @@ func (m *Mesh) CallRemote(
 		maxAttempts = 3
 	}
 	startKind, endKind := m.remoteAgentEventKinds(call.Async)
+	m.publishMeshEvent(startKind, map[string]any{
+		"peer_id":        candidates[0].PID.String(),
+		"agent_id":       call.TargetAgentID,
+		"correlation_id": req.CorrelationID,
+		"async":          call.Async,
+	})
 
 	var lastErr error
 	for i, c := range candidates {
@@ -594,13 +600,6 @@ func (m *Mesh) CallRemote(
 		if i > 0 && !m.cfg.TaskFailover {
 			break
 		}
-
-		m.publishMeshEvent(startKind, map[string]any{
-			"peer_id":        pid.String(),
-			"agent_id":       call.TargetAgentID,
-			"correlation_id": req.CorrelationID,
-			"async":          call.Async,
-		})
 
 		for attempt := 0; attempt < maxAttempts; attempt++ {
 			if attempt > 0 {
@@ -1126,9 +1125,7 @@ func (m *Mesh) PickPeerRanked(agentID, op string, exclude map[peer.ID]bool) []Ra
 
 // rankedCandidates builds the list of connected, trusted peers that can serve
 // the given agent/op. It filters by advertised capability and sorts by the
-// composite routing score. If bootstrapFallback is true and no connected peer
-// matches, it attempts to connect to saved bootstrap peers that can serve the
-// request and re-evaluates.
+// composite routing score.
 func (m *Mesh) rankedCandidates(agentID, op string, exclude map[peer.ID]bool) []RankedPeer {
 	var out []RankedPeer
 	for _, pid := range m.ConnectedTrustedPeers() {

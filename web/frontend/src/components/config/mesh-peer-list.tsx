@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -5,15 +6,40 @@ import { IconPlus, IconX } from "@tabler/icons-react"
 
 import { Input } from "@/components/ui/input"
 
-function splitLines(value: string): string[] {
-  return value.split(/\r?\n/).map((s) => s.trim())
+// Base58 alphabet (excludes 0, O, I, l).
+const base58 = "[A-HJ-NP-Za-km-z1-9]"
+
+// Peer IDs are multibase base58btc-encoded multihashes. The length varies
+// by key type (Ed25519 is 53 chars starting with 12D3KooW, secp256k1 is 54
+// chars starting with 16Uiu2HAm, RSA is 46+ chars starting with Qm). Allow
+// any base58 string of reasonable length rather than assuming Ed25519.
+const peerIDPattern = new RegExp(`^${base58}{40,70}$`)
+
+// A minimal multiaddr sanity check. We only parse strings; the backend will
+// run the real multiaddr.NewMultiaddr validation. This catches the most
+// common typos while accepting the protocols the backend supports.
+const bootstrapMultiaddrPattern = new RegExp(
+  `^(/[a-z0-9-]+(/[^\\s/]+)+)*/p2p/${base58}{40,70}$`,
+)
+
+interface PeerItem {
+  id: number
+  value: string
 }
 
-function joinLines(lines: string[]): string {
-  return lines.join("\n")
+function splitItems(value: string): PeerItem[] {
+  return value.split(/\r?\n/).map((v) => ({ id: nextId(), value: v }))
 }
 
-const peerIDPattern = /^12D3KooW[A-HJ-NP-Za-km-z1-9]{44}$/
+function joinItems(items: PeerItem[]): string {
+  return items.map((i) => i.value).join("\n")
+}
+
+let idCounter = 0
+function nextId(): number {
+  idCounter++
+  return idCounter
+}
 
 function isValidPeerID(value: string): boolean {
   return peerIDPattern.test(value.trim())
@@ -24,11 +50,7 @@ function isValidBootstrap(value: string): boolean {
   if (trimmed.length === 0) {
     return true
   }
-  const parts = trimmed.split("/p2p/")
-  if (parts.length !== 2 || parts[1].trim() === "") {
-    return false
-  }
-  return peerIDPattern.test(parts[1].trim())
+  return bootstrapMultiaddrPattern.test(trimmed)
 }
 
 interface MeshPeerListProps {
@@ -45,26 +67,41 @@ export function MeshPeerList({
   kind,
 }: MeshPeerListProps) {
   const { t } = useTranslation()
-  const items = splitLines(value).filter((s) => s.length > 0)
+  const [items, setItems] = useState<PeerItem[]>(() => splitItems(value))
 
-  const update = (next: string[]) => {
-    onChange(joinLines(next))
+  // Keep the component in sync when the parent changes the value externally
+  // (e.g. on first load or when a config update arrives). Avoid re-syncing
+  // every keystroke by comparing the current joined value to the new prop.
+  useEffect(() => {
+    if (value !== joinItems(items)) {
+      setItems(splitItems(value))
+    }
+  }, [value])
+
+  const update = (next: PeerItem[]) => {
+    setItems(next)
+    onChange(joinItems(next))
   }
 
   const addItem = () => {
-    update([...items, ""])
+    const next = [...items, { id: nextId(), value: "" }]
+    update(next)
+    // Focus the new input on the next tick.
+    requestAnimationFrame(() => {
+      const inputs = containerRef.current?.querySelectorAll("input")
+      const last = inputs?.[inputs.length - 1]
+      if (last) {
+        last.focus()
+      }
+    })
   }
 
-  const removeItem = (index: number) => {
-    const next = [...items]
-    next.splice(index, 1)
-    update(next)
+  const removeItem = (id: number) => {
+    update(items.filter((i) => i.id !== id))
   }
 
-  const changeItem = (index: number, raw: string) => {
-    const next = [...items]
-    next[index] = raw
-    update(next)
+  const changeItem = (id: number, raw: string) => {
+    update(items.map((i) => (i.id === id ? { ...i, value: raw } : i)))
   }
 
   const validate = (raw: string): string | null => {
@@ -82,23 +119,25 @@ export function MeshPeerList({
       : t("pages.config.mesh_bootstrap_invalid", "Invalid bootstrap multiaddr")
   }
 
+  const containerRef = useRef<HTMLDivElement>(null)
+
   return (
-    <div className="space-y-2">
-      {items.map((item, i) => {
-        const error = validate(item)
+    <div ref={containerRef} className="space-y-2">
+      {items.map((item) => {
+        const error = validate(item.value)
         return (
-          <div key={i} className="flex items-start gap-2">
+          <div key={item.id} className="flex items-start gap-2">
             <Input
-              value={item}
+              value={item.value}
               placeholder={placeholder}
-              onChange={(e) => changeItem(i, e.target.value)}
+              onChange={(e) => changeItem(item.id, e.target.value)}
               className={error ? "border-destructive" : undefined}
             />
             <Button
               type="button"
               variant="outline"
               size="icon"
-              onClick={() => removeItem(i)}
+              onClick={() => removeItem(item.id)}
               aria-label={t("pages.config.mesh_peer_remove", "Remove")}
             >
               <IconX className="size-4" />

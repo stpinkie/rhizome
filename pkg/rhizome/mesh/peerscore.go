@@ -186,11 +186,11 @@ func (s *PeerScoreStore) Save() error {
 		return fmt.Errorf("mkdir peer score store: %w", err)
 	}
 
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
 	if err != nil {
 		return fmt.Errorf("create peer score temp: %w", err)
 	}
+	tmp := f.Name()
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	for _, rec := range records {

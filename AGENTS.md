@@ -217,6 +217,13 @@ npx pnpm install
 npx pnpm build
 ```
 
+To type-check the frontend only (the root `tsconfig.json` only references
+projects, it does not itself type-check):
+
+```powershell
+npx tsc --noEmit -p tsconfig.app.json
+```
+
 ## Upstream
 
 - `sipeed/picoclaw` is the upstream remote for cherry-picking future fixes.

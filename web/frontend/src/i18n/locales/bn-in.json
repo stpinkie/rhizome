@@ -958,7 +958,15 @@
       "factory_reset_confirm_desc": "এটি সমস্ত কনফিগারেশন ফ্যাক্টরি ডিফল্টে রিসেট করবে। API কী এবং নিরাপত্তা ক্রেডেনশিয়াল সংরক্ষিত থাকবে। বর্তমান কনফিগারেশনের একটি ব্যাকআপ তৈরি করা হবে।",
       "factory_reset_confirm": "ডিফল্টে রিসেট করুন",
       "factory_reset_success": "কনফিগারেশন ফ্যাক্টরি ডিফল্টে রিসেট করা হয়েছে।",
-      "factory_reset_error": "কনফিগারেশন রিসেট করতে ব্যর্থ।"
+      "factory_reset_error": "কনফিগারেশন রিসেট করতে ব্যর্থ।",
+      "mesh_task_retries": "Task retries",
+      "mesh_task_retries_hint": "How many times to retry a remote task call on a single peer before giving up on that peer.",
+      "mesh_task_failover": "Task failover",
+      "mesh_task_failover_hint": "After a single peer's retries are exhausted, try the next-best capable peer.",
+      "mesh_peer_id_invalid": "Invalid peer ID",
+      "mesh_bootstrap_invalid": "Invalid bootstrap multiaddr",
+      "mesh_peer_add": "Add",
+      "mesh_peer_remove": "Remove"
     },
     "logs": {
       "log_level_error": "লগ লেভেল আপডেট করতে ব্যর্থ।",
