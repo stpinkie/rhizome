@@ -16,6 +16,7 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
@@ -238,6 +239,23 @@ func (m *Mesh) publishMeshEvent(kind runtimeevents.Kind, attrs map[string]any) {
 func (m *Mesh) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
+	// Recover any tasks persisted from a previous run. Running tasks cannot be
+	// resumed (their goroutine context is gone), so they are marked as errors.
+	restarted, err := m.tasks.Load()
+	if err != nil {
+		logger.Warnf("failed to load persisted tasks: %v", err)
+	} else {
+		for _, t := range restarted {
+			m.publishMeshEvent(runtimeevents.KindMeshTaskUpdate, map[string]any{
+				"peer_id":  t.Owner.String(),
+				"task_id":  t.ID,
+				"agent_id": t.AgentID,
+				"status":   string(agenttask.StatusError),
+				"error":    t.Err,
+			})
+		}
+	}
+
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -283,6 +301,55 @@ func (m *Mesh) Start(ctx context.Context) error {
 // It is typically called by the gateway after the AgentLoop is created.
 func (m *Mesh) SetRunFunc(fn func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)) {
 	m.runFunc = fn
+}
+
+// SetTaskStorePath enables persistence of the task store at the given path.
+// It must be called before Mesh.Start.
+func (m *Mesh) SetTaskStorePath(path string) {
+	if m.tasks == nil {
+		m.tasks = NewTaskStore()
+	}
+	m.tasks.SetPath(path)
+}
+
+// TaskEvents returns a channel of mesh task events (submit/update) and a
+// cleanup function. If peerID is non-empty, the stream only includes events
+// whose attrs contain that peer id.
+func (m *Mesh) TaskEvents(ctx context.Context, peerID string) (<-chan runtimeevents.Event, func(), error) {
+	if m.eventBus == nil {
+		return nil, nil, fmt.Errorf("event bus not configured")
+	}
+
+	filter := m.eventBus.Channel().OfKind(
+		runtimeevents.KindMeshTaskSubmit,
+		runtimeevents.KindMeshTaskUpdate,
+	)
+
+	if peerID != "" {
+		pid, err := peer.Decode(peerID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid peer id: %w", err)
+		}
+		want := pid.String()
+		filter = filter.Filter(func(evt runtimeevents.Event) bool {
+			s, _ := evt.Attrs["peer_id"].(string)
+			return s == want
+		})
+	}
+
+	sub, ch, err := filter.SubscribeChan(ctx, runtimeevents.SubscribeOptions{
+		Name:         "task-events",
+		Buffer:       64,
+		Backpressure: runtimeevents.DropOldest,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("subscribe to task events: %w", err)
+	}
+
+	cleanup := func() {
+		_ = sub.Close()
+	}
+	return ch, cleanup, nil
 }
 
 // Stop cleanly shuts down the mesh.

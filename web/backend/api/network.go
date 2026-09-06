@@ -49,6 +49,7 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/network/saved-peers", h.handleNetworkSavedPeers)
 	mux.HandleFunc("GET /api/network/tasks", h.handleNetworkTasks)
 	mux.HandleFunc("POST /api/network/tasks", h.handleNetworkTasks)
+	mux.HandleFunc("GET /api/network/tasks/events", h.handleNetworkTaskEvents)
 	mux.HandleFunc("GET /api/network/audit", h.handleNetworkAudit)
 }
 
@@ -938,4 +939,74 @@ func (h *Handler) networkAuditFromGateway(ctx context.Context, query url.Values)
 		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return body, nil
+}
+
+// handleNetworkTaskEvents proxies the daemon's /network/tasks/events SSE
+// stream. Without a running daemon it returns 503 because the launcher has no
+// mesh event source of its own.
+func (h *Handler) handleNetworkTaskEvents(w http.ResponseWriter, r *http.Request) {
+	if !h.gatewayAvailableForProxy() {
+		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+		return
+	}
+
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+		return
+	}
+
+	u := h.gatewayProxyURL()
+	u.Path = "/network/tasks/events"
+	u.RawQuery = r.URL.Query().Encode()
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+	if id := r.Header.Get("Last-Event-ID"); id != "" {
+		req.Header.Set("Last-Event-ID", id)
+	}
+
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Do(req)
+	if err != nil {
+		respondNetworkError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		respondNetworkError(w, resp.StatusCode, strings.TrimSpace(string(body)))
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	buf := make([]byte, 4096)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }

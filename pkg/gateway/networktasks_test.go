@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
@@ -405,6 +406,56 @@ func TestNetworkAuditHandlerMissingFile(t *testing.T) {
 	}
 	if resp.Count != 0 {
 		t.Fatalf("expected 0 entries, got %d", resp.Count)
+	}
+}
+
+func TestNetworkTaskEventsHandler(t *testing.T) {
+	bus := runtimeevents.NewBus()
+	m, cleanup := newTestNetworkStatusMesh(t)
+	defer cleanup()
+	m.SetEventBus(bus)
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("start mesh: %v", err)
+	}
+	defer m.Stop()
+
+	h := newNetworkTaskEventsHandler(m, testTasksToken)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/network/tasks/events", nil)
+	req.Header.Set("Authorization", "Bearer "+testTasksToken)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		h.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	// Give the subscription time to register, then publish a task event.
+	time.Sleep(50 * time.Millisecond)
+	bus.PublishNonBlocking(runtimeevents.Event{
+		Kind: runtimeevents.KindMeshTaskUpdate,
+		Attrs: map[string]any{
+			"peer_id":  "12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv",
+			"task_id":  "task-1",
+			"agent_id": "main",
+			"status":   "done",
+		},
+	})
+
+	<-done
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "task-1") {
+		t.Fatalf("SSE body missing task id: %s", body)
+	}
+	if !strings.HasPrefix(body, "data: {") {
+		t.Fatalf("SSE body not in event-stream format: %s", body)
+	}
+	if !strings.Contains(body, "\"status\":\"done\"") {
+		t.Fatalf("SSE body missing status: %s", body)
 	}
 }
 

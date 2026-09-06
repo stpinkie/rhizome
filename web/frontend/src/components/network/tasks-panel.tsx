@@ -74,7 +74,8 @@ export function TasksPanel({ peers }: TasksPanelProps) {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, TaskResultState>>({})
 
-  const { query, refresh, submit, cancel } = useNetworkTasks(selectedPeer)
+  const { query, refresh, submit, cancel, streamConnected } =
+    useNetworkTasks(selectedPeer)
 
   const peer = useMemo(
     () => peers.find((p) => p.peer_id === selectedPeer),
@@ -140,16 +141,28 @@ export function TasksPanel({ peers }: TasksPanelProps) {
             </CardDescription>
           </div>
           {selectedPeer && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refresh()}
-              disabled={query.isFetching}
-            >
-              <IconRefresh
-                className={`size-4 ${query.isFetching ? "animate-spin" : ""}`}
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-block size-2 rounded-full ${
+                  streamConnected ? "bg-green-500" : "bg-amber-500"
+                }`}
+                title={
+                  streamConnected
+                    ? t("pages.network.tasks_stream_connected", "Live events")
+                    : t("pages.network.tasks_stream_disconnected", "Polling")
+                }
               />
-            </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refresh()}
+                disabled={query.isFetching}
+              >
+                <IconRefresh
+                  className={`size-4 ${query.isFetching ? "animate-spin" : ""}`}
+                />
+              </Button>
+            </div>
           )}
         </div>
       </CardHeader>

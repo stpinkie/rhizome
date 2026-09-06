@@ -586,6 +586,13 @@ func setupAndStartServices(
 		return nil, fmt.Errorf("error registering network audit handler: %w", err)
 	}
 
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/tasks/events",
+		newNetworkTaskEventsHandler(rhizomeMesh, authToken),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network task events handler: %w", err)
+	}
+
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
 	}

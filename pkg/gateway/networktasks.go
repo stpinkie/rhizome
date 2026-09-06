@@ -384,3 +384,80 @@ func (h *networkAuditHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		"count":   len(entries),
 	})
 }
+
+// networkTaskEventsHandler streams mesh task events as a Server-Sent Event
+// endpoint. Clients subscribe with ?peer=<peer-id> to filter to one peer.
+type networkTaskEventsHandler struct {
+	mesh      *mesh.Mesh
+	authToken string
+}
+
+func newNetworkTaskEventsHandler(m *mesh.Mesh, authToken string) http.Handler {
+	return &networkTaskEventsHandler{mesh: m, authToken: authToken}
+}
+
+func (h *networkTaskEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+			"error": "method not allowed, use GET",
+		})
+		return
+	}
+	if h.authToken == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	given := extractBearerToken(r.Header.Get("Authorization"))
+	if subtle.ConstantTimeCompare([]byte(given), []byte(h.authToken)) != 1 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if h.mesh == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "mesh not available",
+		})
+		return
+	}
+
+	peerID := strings.TrimSpace(r.URL.Query().Get("peer"))
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	events, cleanup, err := h.mesh.TaskEvents(r.Context(), peerID)
+	if err != nil {
+		writeSSE(w, map[string]string{"error": err.Error()})
+		return
+	}
+	defer cleanup()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case evt, ok := <-events:
+			if !ok {
+				return
+			}
+			writeSSE(w, evt)
+		}
+	}
+}
+
+func writeSSE(w http.ResponseWriter, data any) {
+	if f, ok := w.(http.Flusher); ok {
+		defer f.Flush()
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+		return
+	}
+	fmt.Fprintf(w, "data: %s\n\n", string(raw))
+}

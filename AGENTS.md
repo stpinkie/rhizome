@@ -61,7 +61,10 @@ The web console (the launcher) exposes authenticated JSON endpoints that wrap `r
 - `GET /api/network/tasks?peer=<id>[&task=<id>][&wait=<dur>]` — list remote tasks on a peer, or fetch status/result of one task. Proxies the daemon's `GET /network/tasks`; falls back to `rhizome network task …` using the peer's saved bootstrap address.
 - `POST /api/network/tasks` — submit a remote task (`{"peer","agent_id","model","task","tools"}`); daemon required.
 - `POST /api/network/tasks?action=cancel&peer=<id>&task=<id>` — cancel a running remote task.
+- `GET /api/network/tasks/events?peer=<id>` — Server-Sent Event stream of `mesh.task.submit` and `mesh.task.update` events. Proxies the daemon's `GET /network/tasks/events`; requires a running daemon.
 - `GET /api/network/audit?tail=N` — tail of the daemon's mesh audit trail; falls back to reading `mesh-audit.jsonl` under `RHIZOME_HOME` directly.
+
+Remote task state is also persisted to `<RHIZOME_HOME>/mesh-tasks.jsonl` so in-flight tasks are cleanly marked as `error: daemon restarted` after an unclean daemon shutdown.
 
 The dashboard has a **Network** page (`/network`) that visualizes these endpoints: it shows connected peers with trust/capability badges, a DHT status snapshot, a Saved Peers panel with Untrust/Remove actions, optional bootstrap overrides, a Remote Tasks panel (peer picker, submit form, live status, cancel, result viewer), and a Mesh Audit Log panel. The status query auto-refreshes every 60 seconds.
 

@@ -127,6 +127,7 @@ func NewDaemonCommand() *cobra.Command {
 						"",
 					))
 				}
+				rhizomeMesh.SetTaskStorePath(filepath.Join(home, "mesh-tasks.jsonl"))
 				rhizomeMesh.SetEventBus(eventBus)
 				if err := rhizomeMesh.Start(ctx); err != nil {
 					return fmt.Errorf("failed to start mesh: %w", err)
