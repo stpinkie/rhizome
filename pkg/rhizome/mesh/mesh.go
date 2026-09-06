@@ -636,6 +636,14 @@ func (m *Mesh) signCapability(c *Capability) {
 // public key and the timestamp is fresh. Unsigned manifests are flagged
 // via the mesh.cap.unsigned event and rejected unless
 // mesh.require_signed_caps is disabled.
+//
+// Note on trust boundaries: this function runs for every incoming capability
+// announce, including from untrusted peers. A passing result means the
+// manifest is authentic — it does NOT mean the peer is authorized to run
+// remote tasks. Capability *storage* (m.caps) is separate from remote
+// *execution* authorization (trust + ACL + rate limits in HandleRequest).
+// An untrusted peer's valid capability may be stored for informational
+// purposes but cannot trigger any agent work on this node.
 func (m *Mesh) verifyCapability(from peer.ID, c *Capability) error {
 	if c.PeerID == "" {
 		c.PeerID = from.String()

@@ -61,9 +61,10 @@ func newReplayGuard(maxSkew time.Duration) *replayGuard {
 	}
 }
 
-// check validates a request's timestamp and nonce. Missing fields are the
-// caller's policy decision; this only validates what is present. Returns nil
-// when the request is fresh and the nonce is new.
+// check validates a request's timestamp and nonce. A zero timestamp skips
+// freshness checking (the caller decides whether to require one), but a
+// missing nonce is always rejected. Returns nil when the timestamp is
+// within the allowed skew and the nonce is new.
 func (g *replayGuard) check(from peer.ID, nonce string, ts int64) error {
 	if ts != 0 {
 		skew := g.now().Unix() - ts
