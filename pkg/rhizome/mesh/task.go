@@ -523,19 +523,28 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 	if err := m.signTaskRequest(&req); err != nil {
 		return "", err
 	}
+	start := time.Now()
 	resp, err := m.taskRPC.Call(ctx, pid, req)
+	latency := time.Since(start)
 	if err != nil {
+		m.recordPeerCall(pid, false, latency, err)
 		return "", err
 	}
 	if err := m.verifyTaskResponse(pid, &resp); err != nil {
+		m.recordPeerCall(pid, false, latency, err)
 		return "", fmt.Errorf("verify response: %w", err)
 	}
 	if resp.Status == agenttask.StatusRejected {
-		return "", fmt.Errorf("task rejected: %s", resp.Error)
+		err := fmt.Errorf("task rejected: %s", resp.Error)
+		m.recordPeerCall(pid, false, latency, err)
+		return "", err
 	}
 	if resp.TaskID == "" {
-		return "", fmt.Errorf("peer returned no task id")
+		err := fmt.Errorf("peer returned no task id")
+		m.recordPeerCall(pid, false, latency, err)
+		return "", err
 	}
+	m.recordPeerCall(pid, true, latency, nil)
 	return resp.TaskID, nil
 }
 
@@ -571,15 +580,22 @@ func (m *Mesh) taskCall(ctx context.Context, pid peer.ID, req agenttask.Request)
 	if err := m.signTaskRequest(&req); err != nil {
 		return agenttask.Response{}, err
 	}
+	start := time.Now()
 	resp, err := m.taskRPC.Call(ctx, pid, req)
+	latency := time.Since(start)
 	if err != nil {
+		m.recordPeerCall(pid, false, latency, err)
 		return agenttask.Response{}, err
 	}
 	if err := m.verifyTaskResponse(pid, &resp); err != nil {
+		m.recordPeerCall(pid, false, latency, err)
 		return agenttask.Response{}, fmt.Errorf("verify response: %w", err)
 	}
 	if resp.Status == agenttask.StatusRejected {
-		return resp, fmt.Errorf("task request rejected: %s", resp.Error)
+		err := fmt.Errorf("task request rejected: %s", resp.Error)
+		m.recordPeerCall(pid, false, latency, err)
+		return resp, err
 	}
+	m.recordPeerCall(pid, true, latency, nil)
 	return resp, nil
 }

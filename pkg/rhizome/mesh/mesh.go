@@ -99,11 +99,12 @@ type Mesh struct {
 	trust   map[peer.ID]bool
 	trustMu sync.RWMutex
 
-	rpc     *agentrpc.Transport
-	cap     *CapsTransport
-	taskRPC *agenttask.Transport
-	tasks   *TaskStore
-	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)
+	rpc        *agentrpc.Transport
+	cap        *CapsTransport
+	taskRPC    *agenttask.Transport
+	tasks      *TaskStore
+	scoreStore *PeerScoreStore
+	runFunc    func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)
 
 	models   []string
 	modelsMu sync.RWMutex
@@ -153,6 +154,7 @@ func NewMesh(
 	}
 	m.rpc = agentrpc.NewTransport(m.host, m)
 	m.tasks = NewTaskStore()
+	m.scoreStore = NewPeerScoreStore()
 	m.taskRPC = agenttask.NewTransport(m.host, m)
 	m.cap = NewCapsTransportWithPolicy(
 		m.host,
@@ -235,12 +237,22 @@ func (m *Mesh) publishMeshEvent(kind runtimeevents.Kind, attrs map[string]any) {
 	})
 }
 
+// recordPeerCall records the outcome and latency of a call to a peer.
+// It is used by CallRemote and taskCall to build a quality score for PickPeer.
+func (m *Mesh) recordPeerCall(pid peer.ID, success bool, latency time.Duration, err error) {
+	if m.scoreStore == nil {
+		return
+	}
+	m.scoreStore.Record(pid, success, latency, err)
+}
+
 // Start registers the agent and capability protocol handlers.
 func (m *Mesh) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
-	// Recover any tasks persisted from a previous run. Running tasks cannot be
-	// resumed (their goroutine context is gone), so they are marked as errors.
+	// Recover any tasks and peer scores persisted from a previous run. Running
+	// tasks cannot be resumed (their goroutine context is gone), so they are
+	// marked as errors.
 	restarted, err := m.tasks.Load()
 	if err != nil {
 		logger.Warnf("failed to load persisted tasks: %v", err)
@@ -253,6 +265,12 @@ func (m *Mesh) Start(ctx context.Context) error {
 				"status":   string(agenttask.StatusError),
 				"error":    t.Err,
 			})
+		}
+	}
+
+	if m.scoreStore != nil {
+		if err := m.scoreStore.Load(); err != nil {
+			logger.Warnf("failed to load peer scores: %v", err)
 		}
 	}
 
@@ -310,6 +328,15 @@ func (m *Mesh) SetTaskStorePath(path string) {
 		m.tasks = NewTaskStore()
 	}
 	m.tasks.SetPath(path)
+}
+
+// SetScoreStorePath enables persistence of the peer score store at the given
+// path. It must be called before Mesh.Start.
+func (m *Mesh) SetScoreStorePath(path string) {
+	if m.scoreStore == nil {
+		m.scoreStore = NewPeerScoreStore()
+	}
+	m.scoreStore.SetPath(path)
 }
 
 // TaskEvents returns a channel of mesh task events (submit/update) and a
@@ -549,22 +576,31 @@ func (m *Mesh) CallRemote(
 			}
 		}
 
+		start := time.Now()
 		resp, err := m.rpc.Call(ctx, pid, req)
-		if err == nil {
-			if err := m.verifyResponse(pid, &resp); err != nil {
-				return nil, fmt.Errorf("verify response: %w", err)
-			}
-			// The signed response must echo the request nonce so it is bound
-			// to this exact request and cannot be replayed for another.
-			if req.Nonce != "" && resp.Nonce != req.Nonce {
-				return nil, fmt.Errorf("response nonce does not match request")
-			}
-			if resp.Status != "ok" {
-				return nil, fmt.Errorf("remote agent failed: %s", resp.Error)
-			}
-			return resp.Result, nil
+		if err != nil {
+			m.recordPeerCall(pid, false, time.Since(start), err)
+			lastErr = err
+			continue
 		}
-		lastErr = err
+		if err := m.verifyResponse(pid, &resp); err != nil {
+			m.recordPeerCall(pid, false, time.Since(start), err)
+			return nil, fmt.Errorf("verify response: %w", err)
+		}
+		// The signed response must echo the request nonce so it is bound
+		// to this exact request and cannot be replayed for another.
+		if req.Nonce != "" && resp.Nonce != req.Nonce {
+			err := fmt.Errorf("response nonce does not match request")
+			m.recordPeerCall(pid, false, time.Since(start), err)
+			return nil, err
+		}
+		if resp.Status != "ok" {
+			err := fmt.Errorf("remote agent failed: %s", resp.Error)
+			m.recordPeerCall(pid, false, time.Since(start), err)
+			return nil, err
+		}
+		m.recordPeerCall(pid, true, time.Since(start), nil)
+		return resp.Result, nil
 	}
 	return nil, fmt.Errorf("call remote after %d attempts: %w", maxAttempts, lastErr)
 }
@@ -956,9 +992,9 @@ func (m *Mesh) ConnectedTrustedPeers() []peer.ID {
 // given op ("delegate" or "spawn"). Candidates must have advertised a
 // capability manifest listing the agent (or "*") and allowing the op. Peers
 // are ranked by connection quality — direct connections beat relayed ones —
-// then by fewest advertised active tasks, with the peer id as a
-// deterministic tiebreak. The returned capability is the manifest the
-// decision was based on.
+// then by fewest advertised active tasks, then by persisted call quality
+// scores, with the peer id as a deterministic tiebreak. The returned
+// capability is the manifest the decision was based on.
 func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
 	var best peer.ID
 	var bestCap Capability
@@ -975,6 +1011,13 @@ func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
 			score += 1 << 20
 		}
 		score -= int64(c.ActiveTasks)
+		if m.scoreStore != nil {
+			if sc, ok := m.scoreStore.Get(pid); ok {
+				// Score() is a positive quality metric. Scale it down so
+				// it does not outweigh the connection/active-tasks signals.
+				score += int64(sc.Score() / 10)
+			}
+		}
 		if !found || score > bestScore || (score == bestScore && pid < best) {
 			best, bestCap, bestScore, found = pid, c, score, true
 		}
