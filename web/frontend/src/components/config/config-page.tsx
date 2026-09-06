@@ -24,6 +24,7 @@ import {
   ExecSection,
   LauncherSection,
   MCPSection,
+  MeshSection,
   RuntimeSection,
   TimeoutsSection,
 } from "@/components/config/config-sections"
@@ -33,6 +34,8 @@ import {
   EMPTY_LAUNCHER_FORM,
   type LauncherForm,
   type MCPServerForm,
+  type MeshACLRuleForm,
+  type MeshForm,
   type TimeoutsForm,
   type TurnProfileForm,
   buildFormFromConfig,
@@ -218,6 +221,10 @@ export function ConfigPage() {
     setForm((prev) => ({ ...prev, timeouts: { ...prev.timeouts, ...patch } }))
   }
 
+  const updateMesh = (patch: Partial<MeshForm>) => {
+    setForm((prev) => ({ ...prev, mesh: { ...prev.mesh, ...patch } }))
+  }
+
   const updateLauncherField = <K extends keyof LauncherForm>(
     key: K,
     value: LauncherForm[K],
@@ -261,6 +268,36 @@ export function ConfigPage() {
         server.id === id ? { ...server, [key]: value } : server,
       ),
     )
+  }
+
+  const handleMeshACLRuleAdd = () => {
+    const rule: MeshACLRuleForm = {
+      id: `acl-${Date.now()}-${form.mesh.aclRules.length}`,
+      peerId: "",
+      allowDelegate: "inherit",
+      allowSpawn: "inherit",
+      agentsText: "",
+      rateLimit: "0",
+    }
+    updateMesh({ aclRules: [...form.mesh.aclRules, rule] })
+  }
+
+  const handleMeshACLRuleRemove = (id: string) => {
+    updateMesh({
+      aclRules: form.mesh.aclRules.filter((rule) => rule.id !== id),
+    })
+  }
+
+  const handleMeshACLRuleFieldChange = <K extends keyof MeshACLRuleForm>(
+    id: string,
+    key: K,
+    value: MeshACLRuleForm[K],
+  ) => {
+    updateMesh({
+      aclRules: form.mesh.aclRules.map((rule) =>
+        rule.id === id ? { ...rule, [key]: value } : rule,
+      ),
+    })
   }
 
   const handleTurnProfileFieldChange = <K extends keyof TurnProfileForm>(
@@ -582,6 +619,40 @@ export function ConfigPage() {
           }
         }
 
+        // Build the mesh config patch.
+        const meshRateLimitPerPeer = parseFloatField(
+          form.mesh.rateLimitPerPeer,
+          "Mesh rate limit per peer",
+          { min: 0 },
+        )
+        const meshRateLimitGlobal = parseFloatField(
+          form.mesh.rateLimitGlobal,
+          "Mesh rate limit global",
+          { min: 0 },
+        )
+        const meshACL = form.mesh.aclRules
+          .filter((rule) => rule.peerId.trim() !== "")
+          .map((rule) => {
+            const entry: Record<string, unknown> = {
+              peer_id: rule.peerId.trim(),
+            }
+            if (rule.allowDelegate !== "inherit") {
+              entry.allow_delegate = rule.allowDelegate === "allow"
+            }
+            if (rule.allowSpawn !== "inherit") {
+              entry.allow_spawn = rule.allowSpawn === "allow"
+            }
+            const agents = parseMultilineList(rule.agentsText)
+            if (agents.length > 0) {
+              entry.agents = agents
+            }
+            const rl = rule.rateLimit.trim()
+            if (rl !== "" && rl !== "0") {
+              entry.rate_limit = parseFloatField(rl, "ACL rate limit")
+            }
+            return entry
+          })
+
         await patchAppConfig({
           agents: {
             defaults: {
@@ -669,6 +740,33 @@ export function ConfigPage() {
             network: {
               dht_reprovide_interval: form.timeouts.dhtReprovideInterval,
             },
+          },
+          mesh: {
+            enabled: form.mesh.enabled,
+            trusted_peers: parseMultilineList(form.mesh.trustedPeersText),
+            bootstrap_peers: parseMultilineList(form.mesh.bootstrapPeersText),
+            advertise_models: form.mesh.advertiseModels,
+            advertise_skills: form.mesh.advertiseSkills,
+            dht_enabled: form.mesh.dhtEnabled,
+            dht_server: form.mesh.dhtServer,
+            dht_rendezvous: form.mesh.dhtRendezvous.trim(),
+            dht_bootstrap: parseMultilineList(form.mesh.dhtBootstrapText),
+            dht_reprovide_interval: form.mesh.dhtReprovideInterval.trim(),
+            allow_remote_delegate: form.mesh.allowRemoteDelegate,
+            allow_remote_spawn: form.mesh.allowRemoteSpawn,
+            remote_timeout: form.mesh.remoteTimeout,
+            nat_traversal: form.mesh.natTraversal,
+            relay_service: form.mesh.relayService,
+            nat_service: form.mesh.natService,
+            static_relays: parseMultilineList(form.mesh.staticRelaysText),
+            force_reachability: form.mesh.forceReachability,
+            public_addrs: parseMultilineList(form.mesh.publicAddrsText),
+            request_max_skew: form.mesh.requestMaxSkew,
+            rate_limit_per_peer: meshRateLimitPerPeer,
+            rate_limit_global: meshRateLimitGlobal,
+            audit_log: form.mesh.auditLog,
+            require_signed_caps: form.mesh.requireSignedCaps,
+            acl: meshACL,
           },
         })
 
@@ -866,6 +964,14 @@ export function ConfigPage() {
                 onAddServer={handleMCPServerAdd}
                 onRemoveServer={handleMCPServerRemove}
                 onServerFieldChange={handleMCPServerFieldChange}
+              />
+
+              <MeshSection
+                form={form.mesh}
+                onChange={updateMesh}
+                onAddACLRule={handleMeshACLRuleAdd}
+                onRemoveACLRule={handleMeshACLRuleRemove}
+                onACLRuleFieldChange={handleMeshACLRuleFieldChange}
               />
 
               <ExecSection form={form} onFieldChange={updateField} />

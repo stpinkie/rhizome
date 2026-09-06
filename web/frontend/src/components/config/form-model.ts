@@ -15,6 +15,45 @@ export interface TimeoutsForm {
   dhtReprovideInterval: string
 }
 
+export type ACLOverride = "inherit" | "allow" | "deny"
+
+export interface MeshACLRuleForm {
+  id: string
+  peerId: string
+  allowDelegate: ACLOverride
+  allowSpawn: ACLOverride
+  agentsText: string
+  rateLimit: string
+}
+
+export interface MeshForm {
+  enabled: boolean
+  trustedPeersText: string
+  bootstrapPeersText: string
+  advertiseModels: boolean
+  advertiseSkills: boolean
+  dhtEnabled: boolean
+  dhtServer: boolean
+  dhtRendezvous: string
+  dhtBootstrapText: string
+  dhtReprovideInterval: string
+  allowRemoteDelegate: boolean
+  allowRemoteSpawn: boolean
+  remoteTimeout: string
+  natTraversal: boolean
+  relayService: boolean
+  natService: boolean
+  staticRelaysText: string
+  forceReachability: string
+  publicAddrsText: string
+  requestMaxSkew: string
+  rateLimitPerPeer: string
+  rateLimitGlobal: string
+  auditLog: boolean
+  requireSignedCaps: boolean
+  aclRules: MeshACLRuleForm[]
+}
+
 export interface CoreConfigForm {
   workspace: string
   restrictToWorkspace: boolean
@@ -56,6 +95,7 @@ export interface CoreConfigForm {
   evolutionColdPathTrigger: string
   evolutionColdPathTimesText: string
   timeouts: TimeoutsForm
+  mesh: MeshForm
 }
 
 export type MCPServerType = "http" | "sse" | "stdio"
@@ -127,6 +167,34 @@ export const DM_SCOPE_OPTIONS = [
   },
 ] as const
 
+export const EMPTY_MESH_FORM: MeshForm = {
+  enabled: false,
+  trustedPeersText: "",
+  bootstrapPeersText: "",
+  advertiseModels: false,
+  advertiseSkills: false,
+  dhtEnabled: true,
+  dhtServer: false,
+  dhtRendezvous: "/rhizome/network/1.0.0",
+  dhtBootstrapText: "",
+  dhtReprovideInterval: "10m",
+  allowRemoteDelegate: false,
+  allowRemoteSpawn: false,
+  remoteTimeout: "5m",
+  natTraversal: true,
+  relayService: true,
+  natService: true,
+  staticRelaysText: "",
+  forceReachability: "",
+  publicAddrsText: "",
+  requestMaxSkew: "2m",
+  rateLimitPerPeer: "30",
+  rateLimitGlobal: "300",
+  auditLog: true,
+  requireSignedCaps: true,
+  aclRules: [],
+}
+
 export const EMPTY_TIMEOUTS_FORM: TimeoutsForm = {
   llmRequest: "120s",
   llmStreamingIdle: "120s",
@@ -191,6 +259,7 @@ export const EMPTY_FORM: CoreConfigForm = {
   evolutionColdPathTrigger: "after_turn",
   evolutionColdPathTimesText: "",
   timeouts: EMPTY_TIMEOUTS_FORM,
+  mesh: EMPTY_MESH_FORM,
 }
 
 export const EMPTY_LAUNCHER_FORM: LauncherForm = {
@@ -303,6 +372,92 @@ function toBasicTurnProfileMode(
   return value === "off" ? "off" : "default"
 }
 
+function toACLOverride(value: unknown): ACLOverride {
+  if (value === true) return "allow"
+  if (value === false) return "deny"
+  return "inherit"
+}
+
+function makeACLRuleID(index: number): string {
+  return `acl-${index}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function mapMeshACLRules(value: unknown): MeshACLRuleForm[] {
+  if (!Array.isArray(value)) return []
+  return value.map((raw, i) => {
+    const rule = asRecord(raw)
+    return {
+      id: makeACLRuleID(i),
+      peerId: asString(rule.peer_id),
+      allowDelegate: toACLOverride(rule.allow_delegate),
+      allowSpawn: toACLOverride(rule.allow_spawn),
+      agentsText: allowListText(rule.agents),
+      rateLimit: asNumberString(rule.rate_limit, "0"),
+    }
+  })
+}
+
+function mapMesh(value: unknown): MeshForm {
+  const mesh = asRecord(value)
+  return {
+    enabled: asBool(mesh.enabled),
+    trustedPeersText: allowListText(mesh.trusted_peers),
+    bootstrapPeersText: allowListText(mesh.bootstrap_peers),
+    advertiseModels: asBool(mesh.advertise_models),
+    advertiseSkills: asBool(mesh.advertise_skills),
+    dhtEnabled: asBool(mesh.dht_enabled),
+    dhtServer: asBool(mesh.dht_server),
+    dhtRendezvous: asString(mesh.dht_rendezvous),
+    dhtBootstrapText: allowListText(mesh.dht_bootstrap),
+    dhtReprovideInterval: asDurationString(
+      mesh.dht_reprovide_interval,
+      EMPTY_MESH_FORM.dhtReprovideInterval,
+    ),
+    allowRemoteDelegate: asBool(mesh.allow_remote_delegate),
+    allowRemoteSpawn: asBool(mesh.allow_remote_spawn),
+    remoteTimeout: asDurationString(
+      mesh.remote_timeout,
+      EMPTY_MESH_FORM.remoteTimeout,
+    ),
+    natTraversal:
+      mesh.nat_traversal === undefined
+        ? EMPTY_MESH_FORM.natTraversal
+        : asBool(mesh.nat_traversal),
+    relayService:
+      mesh.relay_service === undefined
+        ? EMPTY_MESH_FORM.relayService
+        : asBool(mesh.relay_service),
+    natService:
+      mesh.nat_service === undefined
+        ? EMPTY_MESH_FORM.natService
+        : asBool(mesh.nat_service),
+    staticRelaysText: allowListText(mesh.static_relays),
+    forceReachability: asString(mesh.force_reachability),
+    publicAddrsText: allowListText(mesh.public_addrs),
+    requestMaxSkew: asDurationString(
+      mesh.request_max_skew,
+      EMPTY_MESH_FORM.requestMaxSkew,
+    ),
+    rateLimitPerPeer: asNumberString(
+      mesh.rate_limit_per_peer,
+      EMPTY_MESH_FORM.rateLimitPerPeer,
+    ),
+    rateLimitGlobal: asNumberString(
+      mesh.rate_limit_global,
+      EMPTY_MESH_FORM.rateLimitGlobal,
+    ),
+    auditLog:
+      mesh.audit_log === undefined
+        ? EMPTY_MESH_FORM.auditLog
+        : asBool(mesh.audit_log),
+    requireSignedCaps:
+      mesh.require_signed_caps === undefined
+        ? EMPTY_MESH_FORM.requireSignedCaps
+        : asBool(mesh.require_signed_caps),
+    aclRules: mapMeshACLRules(mesh.acl),
+  }
+}
+
 function allowListText(value: unknown): string {
   if (!Array.isArray(value)) {
     return ""
@@ -354,6 +509,7 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
   const meshTimeouts = asRecord(timeouts.mesh)
   const syncTimeouts = asRecord(timeouts.sync)
   const networkTimeouts = asRecord(timeouts.network)
+  const mesh = asRecord(root.mesh)
 
   return {
     workspace: asString(defaults.workspace) || EMPTY_FORM.workspace,
@@ -542,6 +698,7 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
         EMPTY_FORM.timeouts.dhtReprovideInterval,
       ),
     },
+    mesh: mapMesh(mesh),
   }
 }
 

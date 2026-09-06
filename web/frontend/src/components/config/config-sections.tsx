@@ -4,11 +4,14 @@ import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
+  type ACLOverride,
   type CoreConfigForm,
   DM_SCOPE_OPTIONS,
   type LauncherForm,
   type MCPServerForm,
   type MCPServerType,
+  type MeshACLRuleForm,
+  type MeshForm,
   type TimeoutsForm,
   type TurnProfileForm,
   type TurnProfileMode,
@@ -1363,6 +1366,485 @@ export function TimeoutsSection({ form, onChange }: TimeoutsSectionProps) {
       {makeField("meshRemoteCall", "pages.config.mesh_remote_call_timeout", "pages.config.mesh_remote_call_timeout_hint")}
       {makeField("syncCommitInterval", "pages.config.sync_commit_interval", "pages.config.sync_commit_interval_hint")}
       {makeField("dhtReprovideInterval", "pages.config.dht_reprovide_interval", "pages.config.dht_reprovide_interval_hint")}
+    </ConfigSectionCard>
+  )
+}
+
+interface MeshSectionProps {
+  form: MeshForm
+  onChange: (patch: Partial<MeshForm>) => void
+  onAddACLRule: () => void
+  onRemoveACLRule: (id: string) => void
+  onACLRuleFieldChange: <K extends keyof MeshACLRuleForm>(
+    id: string,
+    key: K,
+    value: MeshACLRuleForm[K],
+  ) => void
+}
+
+export function MeshSection({
+  form,
+  onChange,
+  onAddACLRule,
+  onRemoveACLRule,
+  onACLRuleFieldChange,
+}: MeshSectionProps) {
+  const { t } = useTranslation()
+
+  const aclOverrideOptions: { value: ACLOverride; label: string }[] = [
+    { value: "inherit", label: t("pages.config.mesh_acl_inherit") },
+    { value: "allow", label: t("pages.config.mesh_acl_allow") },
+    { value: "deny", label: t("pages.config.mesh_acl_deny") },
+  ]
+
+  return (
+    <ConfigSectionCard
+      title={t("pages.config.sections.mesh")}
+      description={t("pages.config.mesh_section_hint")}
+    >
+      <SwitchCardField
+        label={t("pages.config.mesh_enabled")}
+        hint={t("pages.config.mesh_enabled_hint")}
+        layout="setting-row"
+        checked={form.enabled}
+        onCheckedChange={(checked) => onChange({ enabled: checked })}
+      />
+
+      {form.enabled && (
+        <>
+          {/* --- Advertise --- */}
+          <SwitchCardField
+            label={t("pages.config.mesh_advertise_models")}
+            hint={t("pages.config.mesh_advertise_models_hint")}
+            layout="setting-row"
+            checked={form.advertiseModels}
+            onCheckedChange={(checked) =>
+              onChange({ advertiseModels: checked })
+            }
+          />
+          <SwitchCardField
+            label={t("pages.config.mesh_advertise_skills")}
+            hint={t("pages.config.mesh_advertise_skills_hint")}
+            layout="setting-row"
+            checked={form.advertiseSkills}
+            onCheckedChange={(checked) =>
+              onChange({ advertiseSkills: checked })
+            }
+          />
+
+          {/* --- Remote Execution --- */}
+          <SwitchCardField
+            label={t("pages.config.mesh_allow_remote_delegate")}
+            hint={t("pages.config.mesh_allow_remote_delegate_hint")}
+            layout="setting-row"
+            checked={form.allowRemoteDelegate}
+            onCheckedChange={(checked) =>
+              onChange({ allowRemoteDelegate: checked })
+            }
+          />
+          <SwitchCardField
+            label={t("pages.config.mesh_allow_remote_spawn")}
+            hint={t("pages.config.mesh_allow_remote_spawn_hint")}
+            layout="setting-row"
+            checked={form.allowRemoteSpawn}
+            onCheckedChange={(checked) =>
+              onChange({ allowRemoteSpawn: checked })
+            }
+          />
+          <Field
+            label={t("pages.config.mesh_remote_timeout")}
+            hint={t("pages.config.mesh_remote_timeout_hint")}
+            layout="setting-row"
+          >
+            <Input
+              value={form.remoteTimeout}
+              onChange={(e) => onChange({ remoteTimeout: e.target.value })}
+            />
+          </Field>
+
+          {/* --- Security --- */}
+          <SwitchCardField
+            label={t("pages.config.mesh_require_signed_caps")}
+            hint={t("pages.config.mesh_require_signed_caps_hint")}
+            layout="setting-row"
+            checked={form.requireSignedCaps}
+            onCheckedChange={(checked) =>
+              onChange({ requireSignedCaps: checked })
+            }
+          />
+          <SwitchCardField
+            label={t("pages.config.mesh_audit_log")}
+            hint={t("pages.config.mesh_audit_log_hint")}
+            layout="setting-row"
+            checked={form.auditLog}
+            onCheckedChange={(checked) => onChange({ auditLog: checked })}
+          />
+          <Field
+            label={t("pages.config.mesh_request_max_skew")}
+            hint={t("pages.config.mesh_request_max_skew_hint")}
+            layout="setting-row"
+          >
+            <Input
+              value={form.requestMaxSkew}
+              onChange={(e) => onChange({ requestMaxSkew: e.target.value })}
+            />
+          </Field>
+          <Field
+            label={t("pages.config.mesh_rate_limit_per_peer")}
+            hint={t("pages.config.mesh_rate_limit_per_peer_hint")}
+            layout="setting-row"
+          >
+            <Input
+              type="number"
+              min={0}
+              value={form.rateLimitPerPeer}
+              onChange={(e) =>
+                onChange({ rateLimitPerPeer: e.target.value })
+              }
+            />
+          </Field>
+          <Field
+            label={t("pages.config.mesh_rate_limit_global")}
+            hint={t("pages.config.mesh_rate_limit_global_hint")}
+            layout="setting-row"
+          >
+            <Input
+              type="number"
+              min={0}
+              value={form.rateLimitGlobal}
+              onChange={(e) =>
+                onChange({ rateLimitGlobal: e.target.value })
+              }
+            />
+          </Field>
+
+          {/* --- NAT & Connectivity --- */}
+          <SwitchCardField
+            label={t("pages.config.mesh_nat_traversal")}
+            hint={t("pages.config.mesh_nat_traversal_hint")}
+            layout="setting-row"
+            checked={form.natTraversal}
+            onCheckedChange={(checked) =>
+              onChange({ natTraversal: checked })
+            }
+          />
+          <SwitchCardField
+            label={t("pages.config.mesh_relay_service")}
+            hint={t("pages.config.mesh_relay_service_hint")}
+            layout="setting-row"
+            checked={form.relayService}
+            onCheckedChange={(checked) =>
+              onChange({ relayService: checked })
+            }
+          />
+          <SwitchCardField
+            label={t("pages.config.mesh_nat_service")}
+            hint={t("pages.config.mesh_nat_service_hint")}
+            layout="setting-row"
+            checked={form.natService}
+            onCheckedChange={(checked) =>
+              onChange({ natService: checked })
+            }
+          />
+          <Field
+            label={t("pages.config.mesh_force_reachability")}
+            hint={t("pages.config.mesh_force_reachability_hint")}
+            layout="setting-row"
+          >
+            <Select
+              value={form.forceReachability === "" ? "auto" : form.forceReachability}
+              onValueChange={(value) =>
+                onChange({ forceReachability: value === "auto" ? "" : value })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">
+                  {t("pages.config.mesh_force_reachability_auto")}
+                </SelectItem>
+                <SelectItem value="public">
+                  {t("pages.config.mesh_force_reachability_public")}
+                </SelectItem>
+                <SelectItem value="private">
+                  {t("pages.config.mesh_force_reachability_private")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field
+            label={t("pages.config.mesh_static_relays")}
+            hint={t("pages.config.mesh_static_relays_hint")}
+            layout="setting-row"
+            controlClassName="md:max-w-md"
+          >
+            <Textarea
+              value={form.staticRelaysText}
+              placeholder={t("pages.config.mesh_static_relays_placeholder")}
+              className="min-h-[60px]"
+              onChange={(e) =>
+                onChange({ staticRelaysText: e.target.value })
+              }
+            />
+          </Field>
+          <Field
+            label={t("pages.config.mesh_public_addrs")}
+            hint={t("pages.config.mesh_public_addrs_hint")}
+            layout="setting-row"
+            controlClassName="md:max-w-md"
+          >
+            <Textarea
+              value={form.publicAddrsText}
+              placeholder={t("pages.config.mesh_public_addrs_placeholder")}
+              className="min-h-[60px]"
+              onChange={(e) =>
+                onChange({ publicAddrsText: e.target.value })
+              }
+            />
+          </Field>
+
+          {/* --- DHT --- */}
+          <SwitchCardField
+            label={t("pages.config.mesh_dht_enabled")}
+            hint={t("pages.config.mesh_dht_enabled_hint")}
+            layout="setting-row"
+            checked={form.dhtEnabled}
+            onCheckedChange={(checked) => onChange({ dhtEnabled: checked })}
+          />
+          {form.dhtEnabled && (
+            <>
+              <SwitchCardField
+                label={t("pages.config.mesh_dht_server")}
+                hint={t("pages.config.mesh_dht_server_hint")}
+                layout="setting-row"
+                checked={form.dhtServer}
+                onCheckedChange={(checked) =>
+                  onChange({ dhtServer: checked })
+                }
+              />
+              <Field
+                label={t("pages.config.mesh_dht_rendezvous")}
+                hint={t("pages.config.mesh_dht_rendezvous_hint")}
+                layout="setting-row"
+              >
+                <Input
+                  value={form.dhtRendezvous}
+                  onChange={(e) =>
+                    onChange({ dhtRendezvous: e.target.value })
+                  }
+                />
+              </Field>
+              <Field
+                label={t("pages.config.mesh_dht_bootstrap")}
+                hint={t("pages.config.mesh_dht_bootstrap_hint")}
+                layout="setting-row"
+                controlClassName="md:max-w-md"
+              >
+                <Textarea
+                  value={form.dhtBootstrapText}
+                  placeholder={t(
+                    "pages.config.mesh_dht_bootstrap_placeholder",
+                  )}
+                  className="min-h-[60px]"
+                  onChange={(e) =>
+                    onChange({ dhtBootstrapText: e.target.value })
+                  }
+                />
+              </Field>
+              <Field
+                label={t("pages.config.mesh_dht_reprovide_interval")}
+                hint={t("pages.config.mesh_dht_reprovide_interval_hint")}
+                layout="setting-row"
+              >
+                <Input
+                  value={form.dhtReprovideInterval}
+                  placeholder={t(
+                    "pages.config.mesh_dht_reprovide_interval_placeholder",
+                  )}
+                  onChange={(e) =>
+                    onChange({ dhtReprovideInterval: e.target.value })
+                  }
+                />
+              </Field>
+            </>
+          )}
+
+          {/* --- Peers --- */}
+          <Field
+            label={t("pages.config.mesh_trusted_peers")}
+            hint={t("pages.config.mesh_trusted_peers_hint")}
+            layout="setting-row"
+            controlClassName="md:max-w-md"
+          >
+            <Textarea
+              value={form.trustedPeersText}
+              placeholder={t("pages.config.mesh_trusted_peers_placeholder")}
+              className="min-h-[60px]"
+              onChange={(e) =>
+                onChange({ trustedPeersText: e.target.value })
+              }
+            />
+          </Field>
+          <Field
+            label={t("pages.config.mesh_bootstrap_peers")}
+            hint={t("pages.config.mesh_bootstrap_peers_hint")}
+            layout="setting-row"
+            controlClassName="md:max-w-md"
+          >
+            <Textarea
+              value={form.bootstrapPeersText}
+              placeholder={t("pages.config.mesh_bootstrap_peers_placeholder")}
+              className="min-h-[60px]"
+              onChange={(e) =>
+                onChange({ bootstrapPeersText: e.target.value })
+              }
+            />
+          </Field>
+
+          {/* --- ACL --- */}
+          <Field
+            label={t("pages.config.mesh_acl")}
+            hint={t("pages.config.mesh_acl_hint")}
+            layout="setting-row"
+            controlClassName="md:max-w-2xl"
+          >
+            <div className="flex flex-col gap-3">
+              {form.aclRules.map((rule) => (
+                <div
+                  key={rule.id}
+                  className="border-border rounded-md border p-3"
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="text-sm font-medium">
+                      {rule.peerId.trim() ||
+                        t("pages.config.mesh_acl_rule_new")}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onRemoveACLRule(rule.id)}
+                    >
+                      <IconTrash className="size-4" />
+                      {t("pages.config.mesh_acl_rule_remove")}
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Input
+                      value={rule.peerId}
+                      placeholder={t(
+                        "pages.config.mesh_acl_peer_id_placeholder",
+                      )}
+                      aria-label={t(
+                        "pages.config.mesh_acl_peer_id_placeholder",
+                      )}
+                      onChange={(e) =>
+                        onACLRuleFieldChange(
+                          rule.id,
+                          "peerId",
+                          e.target.value,
+                        )
+                      }
+                    />
+                    <Select
+                      value={rule.allowDelegate}
+                      onValueChange={(value) =>
+                        onACLRuleFieldChange(
+                          rule.id,
+                          "allowDelegate",
+                          value as ACLOverride,
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label={t("pages.config.mesh_acl_allow_delegate")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {aclOverrideOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={rule.allowSpawn}
+                      onValueChange={(value) =>
+                        onACLRuleFieldChange(
+                          rule.id,
+                          "allowSpawn",
+                          value as ACLOverride,
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label={t("pages.config.mesh_acl_allow_spawn")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {aclOverrideOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={rule.rateLimit}
+                      placeholder={t(
+                        "pages.config.mesh_acl_rate_limit_placeholder",
+                      )}
+                      aria-label={t(
+                        "pages.config.mesh_acl_rate_limit_placeholder",
+                      )}
+                      onChange={(e) =>
+                        onACLRuleFieldChange(
+                          rule.id,
+                          "rateLimit",
+                          e.target.value,
+                        )
+                      }
+                    />
+                  </div>
+                  <Field
+                    label={t("pages.config.mesh_acl_agents")}
+                    hint={t("pages.config.mesh_acl_agents_hint")}
+                  >
+                    <Textarea
+                      value={rule.agentsText}
+                      placeholder={t(
+                        "pages.config.mesh_acl_agents_placeholder",
+                      )}
+                      className="min-h-[40px]"
+                      onChange={(e) =>
+                        onACLRuleFieldChange(
+                          rule.id,
+                          "agentsText",
+                          e.target.value,
+                        )
+                      }
+                    />
+                  </Field>
+                </div>
+              ))}
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onAddACLRule}
+              >
+                <IconPlus className="size-4" />
+                {t("pages.config.mesh_acl_add_rule")}
+              </Button>
+            </div>
+          </Field>
+        </>
+      )}
     </ConfigSectionCard>
   )
 }
