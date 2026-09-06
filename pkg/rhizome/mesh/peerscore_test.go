@@ -22,6 +22,9 @@ func TestPeerScoreStoreRoundTrip(t *testing.T) {
 	s.Record(pid, true, 50*time.Millisecond, nil)
 	s.Record(pid, false, 200*time.Millisecond, errors.New("timeout"))
 
+	// Flush the coalesced write so the file exists on disk.
+	s.Close()
+
 	require.FileExists(t, path)
 
 	s2 := NewPeerScoreStoreWithPath(path)

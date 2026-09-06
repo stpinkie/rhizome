@@ -101,6 +101,14 @@ type MeshConfig struct {
 	AllowRemoteDelegate  bool          `json:"allow_remote_delegate,omitempty"`
 	RemoteTimeout        time.Duration `json:"remote_timeout,omitempty"`
 
+	// TaskRetries is the maximum number of times to attempt a remote task
+	// call on a single peer before giving up on that peer. If TaskFailover
+	// is true, the call may then move to the next capable peer.
+	TaskRetries int `json:"task_retries,omitempty"`
+	// TaskFailover enables automatic failover to the next-best capable peer
+	// after a single peer's TaskRetries are exhausted.
+	TaskFailover bool `json:"task_failover,omitempty"`
+
 	// NATTraversal enables the relay client transport, DCUtR hole punching,
 	// AutoNATv2 reachability detection, and AutoRelay reservations. It defaults
 	// to true; set false to opt out (e.g. constrained embedded builds).
@@ -210,6 +218,9 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 
 // Validate checks the mesh configuration for common errors.
 func (m *MeshConfig) Validate() error {
+	if m.TaskRetries < 0 {
+		return fmt.Errorf("mesh.task_retries must not be negative")
+	}
 	if m.RemoteTimeout < 0 {
 		return fmt.Errorf("mesh.remote_timeout must not be negative")
 	}

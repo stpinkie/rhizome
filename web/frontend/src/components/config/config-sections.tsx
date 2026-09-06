@@ -16,7 +16,7 @@ import {
   type TurnProfileForm,
   type TurnProfileMode,
 } from "@/components/config/form-model"
-import { Field, SwitchCardField } from "@/components/shared-form"
+import { MeshPeerList } from "@/components/config/mesh-peer-list"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -1502,6 +1502,27 @@ export function MeshSection({
             }
           />
           <Field
+            label={t("pages.config.mesh_task_retries")}
+            hint={t("pages.config.mesh_task_retries_hint")}
+            layout="setting-row"
+          >
+            <Input
+              type="number"
+              min={0}
+              value={form.taskRetries}
+              onChange={(e) => onChange({ taskRetries: e.target.value })}
+            />
+          </Field>
+          <SwitchCardField
+            label={t("pages.config.mesh_task_failover")}
+            hint={t("pages.config.mesh_task_failover_hint")}
+            layout="setting-row"
+            checked={form.taskFailover}
+            onCheckedChange={(checked) =>
+              onChange({ taskFailover: checked })
+            }
+          />
+          <Field
             label={t("pages.config.mesh_remote_timeout")}
             hint={t("pages.config.mesh_remote_timeout_hint")}
             layout="setting-row"
@@ -1709,11 +1730,11 @@ export function MeshSection({
             layout="setting-row"
             controlClassName="md:max-w-md"
           >
-            <Textarea
+            <MeshPeerList
               value={form.trustedPeersText}
+              onChange={(value) => onChange({ trustedPeersText: value })}
               placeholder={t("pages.config.mesh_trusted_peers_placeholder")}
-              className="min-h-[60px]"
-              onChange={(e) => onChange({ trustedPeersText: e.target.value })}
+              kind="peer"
             />
           </Field>
           <Field
@@ -1722,11 +1743,11 @@ export function MeshSection({
             layout="setting-row"
             controlClassName="md:max-w-md"
           >
-            <Textarea
+            <MeshPeerList
               value={form.bootstrapPeersText}
+              onChange={(value) => onChange({ bootstrapPeersText: value })}
               placeholder={t("pages.config.mesh_bootstrap_peers_placeholder")}
-              className="min-h-[60px]"
-              onChange={(e) => onChange({ bootstrapPeersText: e.target.value })}
+              kind="bootstrap"
             />
           </Field>
 

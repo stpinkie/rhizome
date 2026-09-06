@@ -755,6 +755,8 @@ export function ConfigPage() {
             allow_remote_delegate: form.mesh.allowRemoteDelegate,
             allow_remote_spawn: form.mesh.allowRemoteSpawn,
             remote_timeout: form.mesh.remoteTimeout,
+            task_retries: Number.parseInt(form.mesh.taskRetries, 10) || 3,
+            task_failover: form.mesh.taskFailover,
             nat_traversal: form.mesh.natTraversal,
             relay_service: form.mesh.relayService,
             nat_service: form.mesh.natService,

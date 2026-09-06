@@ -43,6 +43,8 @@
 
 ## 📢 News
 
+2026-09-08 🌐 **v0.6.2 — Mesh resilient routing** adds peer performance scoring (`~/.rhizome/mesh-peer-scores.json`) to `Mesh.PickPeer`, remote task retry/failover across capable peers, and a validated inline peer-list editor in the web console Mesh config. See the [v0.6.2 release notes](docs/release-notes/v0.6.2.md).
+
 2026-09-07 🌐 **v0.6.1 — Mesh operations follow-through** adds a persisted task store (`~/.rhizome/mesh-tasks.jsonl`) so remote tasks survive daemon restarts, and a live `GET /api/network/tasks/events` Server-Sent Event stream that drives the Network page Remote Tasks panel with near-realtime status updates and completion toasts.
 
 2026-09-06 🌐 **v0.6.0 — Mesh operations** makes the v0.5 mesh stack operationally usable: remote tasks are now exposed over the daemon gateway, the launcher, the web console, and the CLI, with capability-driven routing (`active_tasks` load), `rhizome mesh route`, mesh audit log, and new protocol unit tests. See the [v0.6.0 release notes](docs/release-notes/v0.6.0.md).

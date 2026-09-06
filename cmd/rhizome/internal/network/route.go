@@ -133,7 +133,7 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 		return
 	}
 
-	taskID, err := m.SubmitRemoteTask(ctx, pid, mesh.RemoteCall{
+	usedPeer, taskID, err := m.SubmitRemoteTaskWithPeer(ctx, pid, mesh.RemoteCall{
 		TargetAgentID: agentID,
 		SystemPrompt:  task,
 	})
@@ -144,7 +144,7 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 	fmt.Printf("Task:  %s\n", taskID)
 
 	if wait > 0 {
-		resp, err := m.RemoteTaskResult(ctx, pid, taskID, wait)
+		resp, err := m.RemoteTaskResult(ctx, usedPeer, taskID, wait)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Result fetch failed: %v\n", err)
 			os.Exit(1)
@@ -165,5 +165,5 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 		return
 	}
 
-	fmt.Println("Check progress: rhizome mesh task status <peer-multiaddr> " + taskID)
+	fmt.Printf("Check progress: rhizome mesh task status <peer-multiaddr> %s\n", taskID)
 }

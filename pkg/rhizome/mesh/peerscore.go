@@ -14,13 +14,16 @@ import (
 )
 
 const (
-	peerScoreFile = "mesh-peer-scores.json"
 	// scoreLatencyAlpha is the exponential moving average weight for latency.
 	// Higher values make the average track recent measurements more closely.
 	scoreLatencyAlpha = 0.3
 	// maxScoreSamples is the cap on success/failure counts to prevent an
 	// unbounded history from dominating the score.
 	maxScoreSamples = 100
+	// scoreSaveCoalesce is how long to wait after a mutation before writing
+	// the score store to disk. Multiple rapid mutations are coalesced into
+	// one write, matching the TaskStore behaviour.
+	scoreSaveCoalesce = time.Second
 )
 
 // PeerScore tracks observed quality of a mesh peer over time.
@@ -72,6 +75,10 @@ type PeerScoreStore struct {
 	mu     sync.RWMutex
 	path   string
 	scores map[peer.ID]*PeerScore
+
+	saveMu    sync.Mutex
+	saveErr   error
+	saveTimer *time.Timer
 }
 
 // NewPeerScoreStore creates an in-memory peer score store.
@@ -91,16 +98,16 @@ func NewPeerScoreStoreWithPath(path string) *PeerScoreStore {
 // SetPath enables persistence at the given path. It is safe to call before
 // any records have been added.
 func (s *PeerScoreStore) SetPath(path string) {
-	s.mu.Lock()
+	s.saveMu.Lock()
 	s.path = path
-	s.mu.Unlock()
+	s.saveMu.Unlock()
 }
 
 // Load reads the persisted score file. Missing files are treated as empty.
 func (s *PeerScoreStore) Load() error {
-	s.mu.Lock()
+	s.saveMu.Lock()
 	path := s.path
-	s.mu.Unlock()
+	s.saveMu.Unlock()
 	if path == "" {
 		return nil
 	}
@@ -144,19 +151,19 @@ func (s *PeerScoreStore) Load() error {
 
 // Save writes the current scores to disk atomically.
 func (s *PeerScoreStore) Save() error {
-	s.mu.RLock()
+	s.saveMu.Lock()
 	path := s.path
-	scores := make([]peer.ID, 0, len(s.scores))
-	for pid := range s.scores {
-		scores = append(scores, pid)
-	}
-	s.mu.RUnlock()
-
+	s.saveMu.Unlock()
 	if path == "" {
 		return nil
 	}
 
+	// Snapshot the current scores under a single read lock.
 	s.mu.RLock()
+	scores := make([]peer.ID, 0, len(s.scores))
+	for pid := range s.scores {
+		scores = append(scores, pid)
+	}
 	sort.Slice(scores, func(i, j int) bool {
 		return scores[i].String() < scores[j].String()
 	})
@@ -209,6 +216,58 @@ func (s *PeerScoreStore) Save() error {
 	return nil
 }
 
+// scheduleSave coalesces writes; multiple rapid mutations result in one disk
+// write about a second after activity stops.
+func (s *PeerScoreStore) scheduleSave() {
+	s.saveMu.Lock()
+	if s.path == "" {
+		s.saveMu.Unlock()
+		return
+	}
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+	}
+	s.saveTimer = time.AfterFunc(scoreSaveCoalesce, func() {
+		s.saveMu.Lock()
+		s.saveTimer = nil
+		s.saveMu.Unlock()
+		if err := s.Save(); err != nil {
+			s.saveMu.Lock()
+			s.saveErr = err
+			s.saveMu.Unlock()
+		}
+	})
+	s.saveMu.Unlock()
+}
+
+// flushSave cancels any pending coalesced write and runs save synchronously.
+// It is used during shutdown.
+func (s *PeerScoreStore) flushSave() {
+	s.saveMu.Lock()
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+		s.saveTimer = nil
+	}
+	s.saveMu.Unlock()
+	if err := s.Save(); err != nil {
+		s.saveMu.Lock()
+		s.saveErr = err
+		s.saveMu.Unlock()
+	}
+}
+
+// SaveError returns the most recent persistence error, if any.
+func (s *PeerScoreStore) SaveError() error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	return s.saveErr
+}
+
+// Close flushes any pending coalesced write. It is safe to call multiple times.
+func (s *PeerScoreStore) Close() {
+	s.flushSave()
+}
+
 // Record updates the score for a peer after a call. Latency and outcome are
 // used to maintain a rolling success rate and exponential moving average.
 func (s *PeerScoreStore) Record(pid peer.ID, success bool, latency time.Duration, callErr error) {
@@ -222,7 +281,12 @@ func (s *PeerScoreStore) Record(pid peer.ID, success bool, latency time.Duration
 
 	now := time.Now().UTC()
 	sc.LastSeen = now
-	sc.LastLatency = latency
+	// A zero latency means "record outcome only" — used for long-poll ops
+	// (e.g. OpResult) where the round-trip time is dominated by task execution
+	// and would distort the latency moving average.
+	if latency != 0 {
+		sc.LastLatency = latency
+	}
 
 	if success {
 		sc.Successes++
@@ -246,15 +310,17 @@ func (s *PeerScoreStore) Record(pid peer.ID, success bool, latency time.Duration
 		}
 	}
 
-	if sc.AvgLatency == 0 {
-		sc.AvgLatency = latency
-	} else {
-		alpha := scoreLatencyAlpha
-		sc.AvgLatency = time.Duration(float64(sc.AvgLatency)*(1-alpha) + float64(latency)*alpha)
+	if latency != 0 {
+		if sc.AvgLatency == 0 {
+			sc.AvgLatency = latency
+		} else {
+			alpha := scoreLatencyAlpha
+			sc.AvgLatency = time.Duration(float64(sc.AvgLatency)*(1-alpha) + float64(latency)*alpha)
+		}
 	}
 
 	s.mu.Unlock()
-	_ = s.Save()
+	s.scheduleSave()
 }
 
 // Get returns the current score for a peer. The second value is false if the

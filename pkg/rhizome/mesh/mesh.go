@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,6 +86,13 @@ type NetworkStatus struct {
 	RelayedAddrs []string        `json:"relayed_addrs,omitempty"`
 	Peers        []PeerStatus    `json:"peers,omitempty"`
 	DHT          *rnet.DHTStatus `json:"dht,omitempty"`
+}
+
+// RankedPeer is a capable peer with its capability and routing score.
+type RankedPeer struct {
+	PID   peer.ID
+	Cap   Capability
+	Score int64
 }
 
 // Mesh is the decentralized agent runtime layer over a Rhizome node.
@@ -250,6 +260,18 @@ func (m *Mesh) recordPeerCall(pid peer.ID, success bool, latency time.Duration, 
 func (m *Mesh) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
+	// Publish a terminal event when a running task is evicted to make room,
+	// so the owner sees a coherent error state instead of a silent drop.
+	m.tasks.SetOnEvict(func(t *MeshTask) {
+		m.publishMeshEvent(runtimeevents.KindMeshTaskUpdate, map[string]any{
+			"peer_id":  t.Owner.String(),
+			"task_id":  t.ID,
+			"agent_id": t.AgentID,
+			"status":   string(agenttask.StatusError),
+			"error":    t.Err,
+		})
+	})
+
 	// Recover any tasks and peer scores persisted from a previous run. Running
 	// tasks cannot be resumed (their goroutine context is gone), so they are
 	// marked as errors.
@@ -388,6 +410,9 @@ func (m *Mesh) Stop() error {
 	if m.tasks != nil {
 		m.tasks.Close()
 	}
+	if m.scoreStore != nil {
+		m.scoreStore.Close()
+	}
 	m.wg.Wait()
 	return nil
 }
@@ -508,21 +533,23 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 }
 
 // CallRemote sends an agent task to a trusted peer and waits for the result.
-// It retries on transient failures and attempts to reconnect to the peer
-// between attempts. Async calls go through the task protocol
-// (/rhizome/agent-task/1.0.0) and poll for completion; peers without task
-// support fall back to the synchronous agent protocol.
+// If preferred is empty, the best connected, capable peer is selected
+// automatically. If mesh.task_failover is enabled and the first peer fails,
+// the call is retried on the next-best capable peer. Async calls go through
+// the task protocol (/rhizome/agent-task/1.0.0) and poll for completion;
+// peers without task protocol support fall back to the synchronous agent
+// protocol.
 func (m *Mesh) CallRemote(
 	ctx context.Context,
-	pid peer.ID,
+	preferred peer.ID,
 	call RemoteCall,
 ) (*toolshared.ToolResult, error) {
-	if !m.isTrusted(pid) {
-		return nil, fmt.Errorf("peer %s is not trusted", pid)
+	if preferred != "" && !m.isTrusted(preferred) {
+		return nil, fmt.Errorf("peer %s is not trusted", preferred)
 	}
 
 	if call.Async {
-		if result, err, ok := m.callRemoteTask(ctx, pid, call); ok {
+		if result, err, ok := m.callRemoteTask(ctx, preferred, call); ok {
 			return result, err
 		}
 		// Peer does not support the task protocol; fall through to the
@@ -541,22 +568,6 @@ func (m *Mesh) CallRemote(
 		Timestamp:     time.Now().Unix(),
 	}
 
-	startKind, endKind := m.remoteAgentEventKinds(call.Async)
-	m.publishMeshEvent(startKind, map[string]any{
-		"peer_id":        pid.String(),
-		"agent_id":       call.TargetAgentID,
-		"correlation_id": req.CorrelationID,
-		"async":          call.Async,
-	})
-	defer func() {
-		m.publishMeshEvent(endKind, map[string]any{
-			"peer_id":        pid.String(),
-			"agent_id":       call.TargetAgentID,
-			"correlation_id": req.CorrelationID,
-			"async":          call.Async,
-		})
-	}()
-
 	// Sign the request payload with the local node key.
 	payload, err := json.Marshal(req)
 	if err != nil {
@@ -564,45 +575,147 @@ func (m *Mesh) CallRemote(
 	}
 	req.Signature = identity.Sign(m.id.PrivateKey, payload)
 
-	const maxAttempts = 3
+	candidates := m.syncCandidates(preferred, call.TargetAgentID)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf(
+			"no trusted, connected peer advertises agent %q for op delegate",
+			call.TargetAgentID)
+	}
+
+	maxAttempts := m.cfg.TaskRetries
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	startKind, endKind := m.remoteAgentEventKinds(call.Async)
+
 	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			m.node.ForceReconnect(ctx, pid)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(250 * time.Millisecond):
-			}
+	for i, c := range candidates {
+		pid := c.PID
+		if i > 0 && !m.cfg.TaskFailover {
+			break
 		}
 
-		start := time.Now()
-		resp, err := m.rpc.Call(ctx, pid, req)
-		if err != nil {
-			m.recordPeerCall(pid, false, time.Since(start), err)
-			lastErr = err
-			continue
+		m.publishMeshEvent(startKind, map[string]any{
+			"peer_id":        pid.String(),
+			"agent_id":       call.TargetAgentID,
+			"correlation_id": req.CorrelationID,
+			"async":          call.Async,
+		})
+
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			if attempt > 0 {
+				m.node.ForceReconnect(ctx, pid)
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+
+			start := time.Now()
+			resp, err := m.rpc.Call(ctx, pid, req)
+			latency := time.Since(start)
+			if err != nil {
+				m.recordPeerCall(pid, false, latency, err)
+				lastErr = err
+				if !m.isSyncRetryable(err) {
+					break
+				}
+				continue
+			}
+			if err := m.verifyResponse(pid, &resp); err != nil {
+				m.recordPeerCall(pid, false, latency, err)
+				lastErr = err
+				if !m.isSyncRetryable(err) {
+					break
+				}
+				continue
+			}
+			// The signed response must echo the request nonce so it is bound
+			// to this exact request and cannot be replayed for another.
+			if req.Nonce != "" && resp.Nonce != req.Nonce {
+				err := fmt.Errorf("response nonce does not match request")
+				m.recordPeerCall(pid, false, latency, err)
+				lastErr = err
+				if !m.isSyncRetryable(err) {
+					break
+				}
+				continue
+			}
+			if resp.Status != "ok" {
+				err := fmt.Errorf("remote agent failed: %s", resp.Error)
+				m.recordPeerCall(pid, false, latency, err)
+				// A remote agent failure is a task execution error; do not
+				// failover to another peer and risk duplicate execution.
+				m.publishMeshEvent(endKind, map[string]any{
+					"peer_id":        pid.String(),
+					"agent_id":       call.TargetAgentID,
+					"correlation_id": req.CorrelationID,
+					"async":          call.Async,
+					"error":          err.Error(),
+				})
+				return nil, err
+			}
+			m.recordPeerCall(pid, true, latency, nil)
+			m.publishMeshEvent(endKind, map[string]any{
+				"peer_id":        pid.String(),
+				"agent_id":       call.TargetAgentID,
+				"correlation_id": req.CorrelationID,
+				"async":          call.Async,
+			})
+			return resp.Result, nil
 		}
-		if err := m.verifyResponse(pid, &resp); err != nil {
-			m.recordPeerCall(pid, false, time.Since(start), err)
-			return nil, fmt.Errorf("verify response: %w", err)
+
+		if lastErr != nil {
+			m.publishMeshEvent(endKind, map[string]any{
+				"peer_id":        pid.String(),
+				"agent_id":       call.TargetAgentID,
+				"correlation_id": req.CorrelationID,
+				"async":          call.Async,
+				"error":          lastErr.Error(),
+			})
 		}
-		// The signed response must echo the request nonce so it is bound
-		// to this exact request and cannot be replayed for another.
-		if req.Nonce != "" && resp.Nonce != req.Nonce {
-			err := fmt.Errorf("response nonce does not match request")
-			m.recordPeerCall(pid, false, time.Since(start), err)
-			return nil, err
-		}
-		if resp.Status != "ok" {
-			err := fmt.Errorf("remote agent failed: %s", resp.Error)
-			m.recordPeerCall(pid, false, time.Since(start), err)
-			return nil, err
-		}
-		m.recordPeerCall(pid, true, time.Since(start), nil)
-		return resp.Result, nil
 	}
-	return nil, fmt.Errorf("call remote after %d attempts: %w", maxAttempts, lastErr)
+	return nil, fmt.Errorf("call remote failed: %w", lastErr)
+}
+
+// syncCandidates returns connected, trusted peers able to delegate the given
+// agent. The preferred peer, if given, is tried first.
+func (m *Mesh) syncCandidates(preferred peer.ID, agentID string) []RankedPeer {
+	exclude := make(map[peer.ID]bool)
+	if preferred != "" {
+		exclude[preferred] = true
+	}
+	candidates := m.PickPeerRanked(agentID, "delegate", exclude)
+	if preferred != "" {
+		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
+	}
+	return candidates
+}
+
+// isSyncRetryable reports whether a synchronous call failure is worth retrying
+// on the same or another peer. Task execution failures are not retried to
+// avoid duplicate execution; local signing errors and context cancellation are
+// also not retried.
+func (m *Mesh) isSyncRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	msg := err.Error()
+	nonRetryable := []string{
+		"encode request",
+		"remote agent failed",
+		"is not trusted",
+	}
+	for _, s := range nonRetryable {
+		if strings.Contains(msg, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // Advertise sends the local capability manifest to all connected peers.
@@ -996,12 +1109,32 @@ func (m *Mesh) ConnectedTrustedPeers() []peer.ID {
 // scores, with the peer id as a deterministic tiebreak. The returned
 // capability is the manifest the decision was based on.
 func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
-	var best peer.ID
-	var bestCap Capability
-	var bestScore int64
-	found := false
+	candidates := m.rankedCandidates(agentID, op, nil)
+	if len(candidates) == 0 {
+		return "", Capability{}, fmt.Errorf(
+			"no trusted, connected peer advertises agent %q for op %q", agentID, op)
+	}
+	return candidates[0].PID, candidates[0].Cap, nil
+}
 
+// PickPeerRanked returns all connected, trusted, capable peers for the given
+// agent and op, sorted from best to worst by the same scoring logic used in
+// PickPeer. Peers in exclude are omitted.
+func (m *Mesh) PickPeerRanked(agentID, op string, exclude map[peer.ID]bool) []RankedPeer {
+	return m.rankedCandidates(agentID, op, exclude)
+}
+
+// rankedCandidates builds the list of connected, trusted peers that can serve
+// the given agent/op. It filters by advertised capability and sorts by the
+// composite routing score. If bootstrapFallback is true and no connected peer
+// matches, it attempts to connect to saved bootstrap peers that can serve the
+// request and re-evaluates.
+func (m *Mesh) rankedCandidates(agentID, op string, exclude map[peer.ID]bool) []RankedPeer {
+	var out []RankedPeer
 	for _, pid := range m.ConnectedTrustedPeers() {
+		if exclude[pid] {
+			continue
+		}
 		c, ok := m.PeerCapabilities(pid)
 		if !ok || !capabilityServes(c, agentID, op) {
 			continue
@@ -1018,15 +1151,15 @@ func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
 				score += int64(sc.Score() / 10)
 			}
 		}
-		if !found || score > bestScore || (score == bestScore && pid < best) {
-			best, bestCap, bestScore, found = pid, c, score, true
+		out = append(out, RankedPeer{PID: pid, Cap: c, Score: score})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
 		}
-	}
-	if !found {
-		return "", Capability{}, fmt.Errorf(
-			"no trusted, connected peer advertises agent %q for op %q", agentID, op)
-	}
-	return best, bestCap, nil
+		return out[i].PID.String() < out[j].PID.String()
+	})
+	return out
 }
 
 // capabilityServes reports whether a manifest allows the op and lists the

@@ -639,6 +639,8 @@ func DefaultMeshConfig() MeshConfig {
 		AllowRemoteSpawn:     false,
 		AllowRemoteDelegate:  false,
 		RemoteTimeout:        5 * time.Minute,
+		TaskRetries:          3,
+		TaskFailover:         true,
 		NATTraversal:         true,
 		RelayService:         true,
 		NATService:           true,

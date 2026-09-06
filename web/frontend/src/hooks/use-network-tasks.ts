@@ -60,19 +60,21 @@ export function useNetworkTasks(peer: string | null) {
         if (taskID) {
           const status =
             typeof payload.status === "string" ? payload.status : undefined
-          if (status === "done" || status === "error" || status === "cancelled") {
-            const agentID =
-              typeof payload.agent_id === "string" ? payload.agent_id : peer
+          const isTerminal =
+            status === "done" || status === "error" || status === "cancelled"
+          if (isTerminal) {
+            // Use a separate name so we don't shadow the outer agentID.
+            const toastAgentID = agentID ?? peer
             const taskErr =
               typeof payload.error === "string" ? payload.error : undefined
             if (status === "done") {
-              toast.success(`Task ${taskID.slice(-8)} on ${agentID} completed`)
+              toast.success(`Task ${taskID.slice(-8)} on ${toastAgentID} completed`)
             } else if (status === "error") {
               toast.error(
-                `Task ${taskID.slice(-8)} on ${agentID} failed${taskErr ? `: ${taskErr}` : ""}`,
+                `Task ${taskID.slice(-8)} on ${toastAgentID} failed${taskErr ? `: ${taskErr}` : ""}`,
               )
             } else {
-              toast.warning(`Task ${taskID.slice(-8)} on ${agentID} cancelled`)
+              toast.warning(`Task ${taskID.slice(-8)} on ${toastAgentID} cancelled`)
             }
           }
           queryClient.setQueryData(
@@ -119,12 +121,16 @@ export function useNetworkTasks(peer: string | null) {
               return next
             },
           )
-          // Always background-refetch to reconcile full state and timing fields.
-          void queryClient.invalidateQueries({
-            queryKey: tasksQueryKey(peer),
-            exact: true,
-            refetchType: "active",
-          })
+          // Only refetch on terminal transitions, where the full result and
+          // timing fields need reconciliation. Intermediate accepted/running
+          // patches are served from the optimistic update above.
+          if (isTerminal) {
+            void queryClient.invalidateQueries({
+              queryKey: tasksQueryKey(peer),
+              exact: true,
+              refetchType: "active",
+            })
+          }
         }
       } catch {
         // Ignore malformed SSE payloads.

@@ -244,7 +244,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 
 	if spawn {
 		if noWait, _ := flags.GetBool("no-wait"); noWait {
-			taskID, err := m.SubmitRemoteTask(ctx, pid, mesh.RemoteCall{
+			usedPeer, taskID, err := m.SubmitRemoteTaskWithPeer(ctx, pid, mesh.RemoteCall{
 				TargetAgentID: agentID,
 				SystemPrompt:  task,
 			})
@@ -252,8 +252,8 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 				fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("Task submitted: %s\n", taskID)
-			fmt.Println("Check progress: rhizome network task status <peer-multiaddr> " + taskID)
+			fmt.Printf("Task submitted to %s: %s\n", usedPeer, taskID)
+			fmt.Printf("Check progress: rhizome network task status %s %s\n", usedPeer, taskID)
 			return
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -359,18 +360,14 @@ func (m *Mesh) verifyTaskResponse(pid peer.ID, resp *agenttask.Response) error {
 }
 
 // callRemoteTask runs an async remote call over the task protocol: submit the
-// task, then long-poll for its result. It returns ok=false when the peer does
-// not advertise the task protocol so the caller can fall back to the
-// synchronous agent protocol.
+// task, then long-poll for its result. It returns ok=false when no peer
+// advertises the task protocol so the caller can fall back to the synchronous
+// agent protocol.
 func (m *Mesh) callRemoteTask(
 	ctx context.Context,
 	pid peer.ID,
 	call RemoteCall,
 ) (*toolshared.ToolResult, error, bool) {
-	if !m.taskRPC.Supported(ctx, pid, 3*time.Second) {
-		return nil, nil, false
-	}
-
 	startKind, endKind := m.remoteAgentEventKinds(true)
 	m.publishMeshEvent(startKind, map[string]any{
 		"peer_id":  pid.String(),
@@ -379,46 +376,32 @@ func (m *Mesh) callRemoteTask(
 		"protocol": string(agenttask.ProtocolID),
 	})
 
-	var taskID string
-	var lastErr error
-	// All retries share one correlation id so a resubmission after a lost
-	// response is deduplicated by the callee's task store instead of
-	// spawning a duplicate task.
-	corrID := newCorrelationID()
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			m.node.ForceReconnect(ctx, pid)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err(), true
-			case <-time.After(250 * time.Millisecond):
-			}
-		}
-		taskID, lastErr = m.submitRemoteTask(ctx, pid, call, corrID)
-		if lastErr == nil {
-			break
-		}
-	}
-	if lastErr != nil {
+	usedPeer, taskID, err := m.SubmitRemoteTaskWithPeer(ctx, pid, call)
+	if err != nil {
 		m.publishMeshEvent(endKind, map[string]any{
 			"peer_id":  pid.String(),
 			"agent_id": call.TargetAgentID,
 			"async":    true,
-			"error":    lastErr.Error(),
+			"error":    err.Error(),
 		})
-		return nil, fmt.Errorf("submit task: %w", lastErr), true
+		// If no peer advertises the requested agent/op for async, fall back
+		// to the synchronous agent protocol.
+		if strings.Contains(err.Error(), "no trusted, connected peer") {
+			return nil, nil, false
+		}
+		return nil, err, true
 	}
 
 	m.publishMeshEvent(runtimeevents.KindMeshTaskSubmit, map[string]any{
-		"peer_id":  pid.String(),
+		"peer_id":  usedPeer.String(),
 		"agent_id": call.TargetAgentID,
 		"task_id":  taskID,
 		"outgoing": true,
 	})
 
-	result, err := m.pollRemoteTask(ctx, pid, taskID)
+	result, err := m.pollRemoteTask(ctx, usedPeer, taskID)
 	m.publishMeshEvent(endKind, map[string]any{
-		"peer_id":  pid.String(),
+		"peer_id":  usedPeer.String(),
 		"agent_id": call.TargetAgentID,
 		"task_id":  taskID,
 		"async":    true,
@@ -500,9 +483,120 @@ func toolNamesToRefs(names []string) []agentrpc.ToolRef {
 // --- Caller side ---
 
 // SubmitRemoteTask submits an asynchronous task to a trusted peer and returns
-// the server-assigned task id.
-func (m *Mesh) SubmitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCall) (string, error) {
-	return m.submitRemoteTask(ctx, pid, call, newCorrelationID())
+// the server-assigned task id. The preferred peer is tried first; if
+// mesh.task_failover is enabled, failures fall back to the next-best capable
+// peer.
+func (m *Mesh) SubmitRemoteTask(ctx context.Context, preferred peer.ID, call RemoteCall) (string, error) {
+	_, taskID, err := m.SubmitRemoteTaskWithPeer(ctx, preferred, call)
+	return taskID, err
+}
+
+// SubmitRemoteTaskWithPeer is like SubmitRemoteTask but also returns the peer
+// that accepted the task. It is useful when the caller needs to poll or cancel
+// the task and failover may have routed it to a different peer.
+func (m *Mesh) SubmitRemoteTaskWithPeer(ctx context.Context, preferred peer.ID, call RemoteCall) (peer.ID, string, error) {
+	op := remoteCallOp(call)
+
+	candidates := m.submitCandidates(preferred, call.TargetAgentID, op)
+	if len(candidates) == 0 {
+		return "", "", fmt.Errorf(
+			"no trusted, connected peer advertises agent %q for op %q",
+			call.TargetAgentID, op)
+	}
+
+	maxAttempts := m.cfg.TaskRetries
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	corrID := newCorrelationID()
+
+	var lastErr error
+	for i, c := range candidates {
+		pid := c.PID
+		// If failover is disabled, stop after the preferred peer (which is
+		// always first in the list).
+		if i > 0 && !m.cfg.TaskFailover {
+			break
+		}
+
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			if attempt > 0 {
+				m.node.ForceReconnect(ctx, pid)
+				select {
+				case <-ctx.Done():
+					return "", "", ctx.Err()
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+
+			taskID, err := m.submitRemoteTask(ctx, pid, call, corrID)
+			lastErr = err
+			if err == nil {
+				return pid, taskID, nil
+			}
+			if !m.isFailoverRetryable(err) {
+				break
+			}
+		}
+	}
+
+	if lastErr != nil {
+		return "", "", fmt.Errorf("all capable peers failed for agent %q: %w", call.TargetAgentID, lastErr)
+	}
+	return "", "", fmt.Errorf("all capable peers failed for agent %q", call.TargetAgentID)
+}
+
+// remoteCallOp returns the mesh op name for the call ("delegate" or "spawn").
+func remoteCallOp(call RemoteCall) string {
+	op := "delegate"
+	if call.Async {
+		op = "spawn"
+	}
+	return op
+}
+
+// submitCandidates returns the ranked list of peers able to run the given
+// agent/op. If a preferred peer is provided, it is placed at the front of the
+// list and excluded from the ranked candidates to avoid duplicates.
+func (m *Mesh) submitCandidates(preferred peer.ID, agentID, op string) []RankedPeer {
+	exclude := make(map[peer.ID]bool)
+	if preferred != "" {
+		exclude[preferred] = true
+	}
+	candidates := m.PickPeerRanked(agentID, op, exclude)
+	if preferred != "" {
+		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
+	}
+	return candidates
+}
+
+// isFailoverRetryable reports whether a failed submit/result/cancel is worth
+// attempting on another peer. Context cancellation and local signing/caller
+// errors are not retryable; transport, verification, and most rejections are.
+func (m *Mesh) isFailoverRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	msg := err.Error()
+	nonRetryable := []string{
+		"encode task request",
+		"sign task request",
+		"is not trusted",
+		"system_prompt is required",
+		"missing nonce/timestamp",
+		"invalid request signature",
+		"invalid request from peer",
+		"replay check failed",
+	}
+	for _, s := range nonRetryable {
+		if strings.Contains(msg, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // submitRemoteTask submits with an explicit correlation id so that retries of
@@ -580,9 +674,16 @@ func (m *Mesh) taskCall(ctx context.Context, pid peer.ID, req agenttask.Request)
 	if err := m.signTaskRequest(&req); err != nil {
 		return agenttask.Response{}, err
 	}
+	// OpResult long-polls block for up to taskPollWait while the task runs.
+	// That wait is task execution time, not peer responsiveness, so it is
+	// not a useful latency sample. Pass zero to record outcome only.
+	trackLatency := req.Op != agenttask.OpResult
 	start := time.Now()
 	resp, err := m.taskRPC.Call(ctx, pid, req)
 	latency := time.Since(start)
+	if !trackLatency {
+		latency = 0
+	}
 	if err != nil {
 		m.recordPeerCall(pid, false, latency, err)
 		return agenttask.Response{}, err

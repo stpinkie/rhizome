@@ -40,6 +40,8 @@ export interface MeshForm {
   allowRemoteDelegate: boolean
   allowRemoteSpawn: boolean
   remoteTimeout: string
+  taskRetries: string
+  taskFailover: boolean
   natTraversal: boolean
   relayService: boolean
   natService: boolean
@@ -181,6 +183,8 @@ export const EMPTY_MESH_FORM: MeshForm = {
   allowRemoteDelegate: false,
   allowRemoteSpawn: false,
   remoteTimeout: "5m",
+  taskRetries: "3",
+  taskFailover: true,
   natTraversal: true,
   relayService: true,
   natService: true,
@@ -419,6 +423,11 @@ function mapMesh(value: unknown): MeshForm {
       mesh.remote_timeout,
       EMPTY_MESH_FORM.remoteTimeout,
     ),
+    taskRetries: asNumberString(mesh.task_retries, EMPTY_MESH_FORM.taskRetries),
+    taskFailover:
+      mesh.task_failover === undefined
+        ? EMPTY_MESH_FORM.taskFailover
+        : asBool(mesh.task_failover),
     natTraversal:
       mesh.nat_traversal === undefined
         ? EMPTY_MESH_FORM.natTraversal

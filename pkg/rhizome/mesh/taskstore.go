@@ -74,8 +74,12 @@ type TaskStore struct {
 	path      string
 	saveMu    sync.Mutex
 	saveErr   error
-	dirty     bool
 	saveTimer *time.Timer
+
+	// onEvict is invoked when a non-terminal task is evicted to make room.
+	// It is called with s.mu held, so the callback must not re-enter the
+	// store.
+	onEvict func(*MeshTask)
 }
 
 // NewTaskStore creates an empty in-memory task store.
@@ -237,6 +241,14 @@ func (s *TaskStore) save() error {
 	return nil
 }
 
+// SetOnEvict registers a callback invoked when a non-terminal task is
+// evicted to make room. It must be called before the store accepts submissions.
+func (s *TaskStore) SetOnEvict(fn func(*MeshTask)) {
+	s.mu.Lock()
+	s.onEvict = fn
+	s.mu.Unlock()
+}
+
 // scheduleSave coalesces writes; multiple rapid mutations result in one disk
 // write about a second after activity stops.
 func (s *TaskStore) scheduleSave() {
@@ -245,7 +257,6 @@ func (s *TaskStore) scheduleSave() {
 		s.saveMu.Unlock()
 		return
 	}
-	s.dirty = true
 	if s.saveTimer != nil {
 		s.saveTimer.Stop()
 	}
@@ -368,8 +379,26 @@ func (s *TaskStore) evictLocked() {
 		if victim == nil {
 			return
 		}
-		if !victim.Status.Terminal() && victim.cancelFunc != nil {
-			victim.cancelFunc()
+		if !victim.Status.Terminal() {
+			// The victim is still running. Mark it as errored and close its
+			// done channel so any waiter returns immediately, then notify the
+			// mesh layer so it can publish a terminal event. The task goroutine
+			// will eventually call Finish, which is a no-op once the task is
+			// gone from the store.
+			if victim.cancelFunc != nil {
+				victim.cancelFunc()
+			}
+			victim.Status = agenttask.StatusError
+			victim.Err = "evicted to make room for new tasks"
+			victim.UpdatedAt = time.Now().UTC()
+			select {
+			case <-victim.done:
+			default:
+				close(victim.done)
+			}
+			if s.onEvict != nil {
+				s.onEvict(victim)
+			}
 		}
 		s.deleteLocked(victim.ID)
 	}

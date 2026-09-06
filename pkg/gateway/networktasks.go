@@ -191,7 +191,7 @@ func (h *networkTasksHandler) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	taskID, err := h.mesh.SubmitRemoteTask(ctx, pid, mesh.RemoteCall{
+	usedPeer, taskID, err := h.mesh.SubmitRemoteTaskWithPeer(ctx, pid, mesh.RemoteCall{
 		TargetAgentID: body.AgentID,
 		Model:         body.Model,
 		SystemPrompt:  body.Task,
@@ -203,7 +203,7 @@ func (h *networkTasksHandler) submit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"task_id": taskID,
-		"peer_id": pid.String(),
+		"peer_id": usedPeer.String(),
 	})
 }
 
@@ -421,6 +421,22 @@ func (h *networkTaskEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 
 	peerID := strings.TrimSpace(r.URL.Query().Get("peer"))
 
+	// Subscribe to the event stream before committing to a 200 response so
+	// setup errors (invalid peer id, missing event bus) surface as proper
+	// HTTP status codes instead of an SSE error event on an already-200 stream.
+	events, cleanup, err := h.mesh.TaskEvents(r.Context(), peerID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "invalid peer id") {
+			status = http.StatusBadRequest
+		} else if strings.Contains(err.Error(), "event bus not configured") {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	defer cleanup()
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -429,13 +445,6 @@ func (h *networkTaskEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-
-	events, cleanup, err := h.mesh.TaskEvents(r.Context(), peerID)
-	if err != nil {
-		writeSSE(w, map[string]string{"error": err.Error()})
-		return
-	}
-	defer cleanup()
 
 	for {
 		select {

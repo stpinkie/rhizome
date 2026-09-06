@@ -256,3 +256,62 @@ func TestMeshTaskOwnershipIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, agenttask.StatusNotFound, resp.Status)
 }
+
+func TestMeshSubmitRemoteTaskFailover(t *testing.T) {
+	ctx := context.Background()
+
+	runFunc := func(_ context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
+		return toolshared.NewToolResult("ok from " + string(req.CorrelationID)), nil
+	}
+	cfg := config.MeshConfig{
+		Enabled:          true,
+		AllowRemoteSpawn: true,
+		RemoteTimeout:    30 * time.Second,
+		TaskFailover:     true,
+		TaskRetries:      1,
+	}
+	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+
+	// Bring up a third node C connected to A.
+	idC, _, err := identity.FromMnemonic(testMnemonic, 7)
+	require.NoError(t, err)
+	nodeC, err := network.NewNode(ctx, idC.Libp2pPrivKey, network.Config{
+		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = nodeC.Close() })
+	meshC := NewMesh(nodeC, nil, idC, cfg, runFunc)
+	require.NoError(t, meshC.Start(ctx))
+	t.Cleanup(func() { _ = meshC.Stop() })
+
+	addrsC := nodeC.BootstrapAddrs()
+	require.NotEmpty(t, addrsC)
+	require.NoError(t, meshA.Connect(ctx, addrsC[0]))
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(meshA.node.Connectedness(nodeC.ID()))
+	}, 10*time.Second, 50*time.Millisecond)
+	meshA.TrustPeer(nodeC.ID())
+	meshC.TrustPeer(meshA.node.ID())
+
+	// Advertise B and C as capable.
+	meshA.SetCapability(meshB.node.ID(), Capability{
+		PeerID: meshB.node.PeerID(), Agents: []string{"main"},
+		Allows: map[string]bool{"spawn": true}, ActiveTasks: 0,
+	})
+	meshA.SetCapability(nodeC.ID(), Capability{
+		PeerID: nodeC.PeerID(), Agents: []string{"main"},
+		Allows: map[string]bool{"spawn": true}, ActiveTasks: 0,
+	})
+
+	// Ask for B as preferred. B is overloaded by its runFunc? No, make B reject by disabling spawn on B.
+	meshB.cfg.AllowRemoteSpawn = false
+
+	usedPeer, taskID, err := meshA.SubmitRemoteTaskWithPeer(ctx, meshB.node.ID(), RemoteCall{
+		TargetAgentID: "main",
+		SystemPrompt:  "failover task",
+		Async:         true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, nodeC.ID(), usedPeer)
+	assert.NotEmpty(t, taskID)
+}
