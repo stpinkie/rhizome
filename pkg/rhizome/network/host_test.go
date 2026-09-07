@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 )
 
@@ -52,12 +54,17 @@ func TestTwoNodesPing(t *testing.T) {
 	// Wait for the connection to be established.
 	time.Sleep(500 * time.Millisecond)
 
-	peers := nodeB.Peers()
-	if len(peers) == 0 {
-		t.Fatalf("node B did not discover node A")
-	}
+	var peerA string
+	require.Eventually(t, func() bool {
+		for _, p := range nodeB.Peers() {
+			if p.ID.String() == nodeA.PeerID() {
+				peerA = p.ID.String()
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 100*time.Millisecond, "node B did not discover node A")
 
-	peerA := peers[0].ID.String()
 	if !strings.Contains(peerA, nodeA.PeerID()) {
 		t.Fatalf("expected peer %s, got %s", nodeA.PeerID(), peerA)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 )
 
@@ -111,12 +112,30 @@ func (t *Transport) writeError(rc *stream.ReliableConn, msg string) error {
 	return rc.WriteFrame(frameError, []byte(msg))
 }
 
+// Supported reports whether the peer supports the sync protocol by attempting
+// to open a stream. This is more reliable than waiting for the peerstore to be
+// updated by an identify push.
+func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, timeout)
+	if err != nil {
+		return false
+	}
+	_ = s.Close()
+	return true
+}
+
 // Fetch requests a packfile from a peer.
 func (t *Transport) Fetch(
 	ctx context.Context,
 	pid peer.ID,
 	haves, wants []plumbing.Hash,
 ) ([]byte, plumbing.Hash, error) {
+	if !t.Supported(ctx, pid, 5*time.Second) {
+		return nil, plumbing.ZeroHash, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
+	}
+
 	s, err := t.host.NewStream(ctx, pid, ProtocolID)
 	if err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("open stream: %w", err)
@@ -164,6 +183,11 @@ func (t *Transport) AnnounceHead(ctx context.Context, pid peer.ID, head plumbing
 				return ctx.Err()
 			case <-time.After(backoff):
 			}
+		}
+
+		if !t.Supported(ctx, pid, 2*time.Second) {
+			lastErr = fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
+			continue
 		}
 
 		s, err := t.host.NewStream(ctx, pid, ProtocolID)

@@ -10,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 )
 
@@ -65,37 +66,23 @@ func (t *Transport) Stop() {
 	t.host.RemoveStreamHandler(ProtocolID)
 }
 
-// Supported reports whether the peer advertises the swarm protocol.
+// Supported reports whether the peer supports the swarm protocol by attempting
+// to open a stream. This is more reliable than waiting for the peerstore to be
+// updated by an identify push, which can race with stream handler registration.
 func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
-	return t.waitForPeerProtocol(ctx, pid, timeout)
-}
-
-// waitForPeerProtocol polls until the given peer advertises support for the
-// swarm protocol. It returns false if the context is canceled or the timeout
-// expires.
-func (t *Transport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		for _, p := range t.host.Network().Peers() {
-			if p == pid {
-				protos, err := t.host.Peerstore().SupportsProtocols(pid, ProtocolID)
-				if err == nil && len(protos) > 0 {
-					return true
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(50 * time.Millisecond):
-		}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, timeout)
+	if err != nil {
+		return false
 	}
-	return false
+	_ = s.Close()
+	return true
 }
 
 // Call sends an envelope to a peer and waits for its response envelope.
 func (t *Transport) Call(ctx context.Context, pid peer.ID, env Envelope) (Envelope, error) {
-	if !t.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+	if !t.Supported(ctx, pid, 5*time.Second) {
 		return Envelope{}, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
 	}
 
@@ -138,23 +125,24 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, env Envelope) (Envelo
 // can race the ACK delivery and surface as "reliable conn closed" on the
 // writer side.
 func (t *Transport) Push(ctx context.Context, pid peer.ID, env Envelope) error {
-	if !t.waitForPeerProtocol(ctx, pid, 5*time.Second) {
-		return fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
-	}
-
 	payload, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("encode envelope: %w", err)
 	}
 
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	backoffs := []time.Duration{0, 100 * time.Millisecond, 300 * time.Millisecond}
+	for attempt := 0; attempt < len(backoffs); attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(backoffs[attempt]):
 			}
+		}
+		if !t.Supported(ctx, pid, 5*time.Second) {
+			lastErr = fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
+			continue
 		}
 		s, err := t.host.NewStream(ctx, pid, ProtocolID)
 		if err != nil {

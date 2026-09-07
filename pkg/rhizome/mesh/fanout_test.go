@@ -45,32 +45,30 @@ func newFanoutTestMeshes(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeA.Close() })
 
+	// Start the caller mesh first so its protocol handlers are registered
+	// before worker nodes connect; this avoids identify races where workers
+	// do not see the caller's capability/task protocols.
+	meshA := NewMesh(nodeA, nil, idA, cfg, nil)
+	require.NoError(t, meshA.Start(ctx))
+	t.Cleanup(func() { _ = meshA.Stop() })
+
 	addrsA := nodeA.BootstrapAddrs()
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })
 
 	nodeC, err := network.NewNode(ctx, idC.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeC.Close() })
 
-	require.Eventually(t, func() bool {
-		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID())) &&
-			network.IsConnectednessUp(nodeA.Connectedness(nodeC.ID()))
-	}, 10*time.Second, 50*time.Millisecond, "workers should connect to nodeA")
-
-	meshA := NewMesh(nodeA, nil, idA, cfg, nil)
-	require.NoError(t, meshA.Start(ctx))
-	t.Cleanup(func() { _ = meshA.Stop() })
-
+	// Start worker meshes before connecting them so their protocol handlers
+	// are registered before the libp2p identify exchange with the caller.
 	meshB := NewMesh(nodeB, nil, idB, cfg, runFuncB)
 	require.NoError(t, meshB.Start(ctx))
 	t.Cleanup(func() { _ = meshB.Stop() })
@@ -78,6 +76,14 @@ func newFanoutTestMeshes(
 	meshC := NewMesh(nodeC, nil, idC, cfg, runFuncC)
 	require.NoError(t, meshC.Start(ctx))
 	t.Cleanup(func() { _ = meshC.Stop() })
+
+	require.NoError(t, nodeB.Connect(ctx, addrsA[0]))
+	require.NoError(t, nodeC.Connect(ctx, addrsA[0]))
+
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID())) &&
+			network.IsConnectednessUp(nodeA.Connectedness(nodeC.ID()))
+	}, 10*time.Second, 50*time.Millisecond, "workers should connect to nodeA")
 
 	meshA.TrustPeer(nodeB.ID())
 	meshA.TrustPeer(nodeC.ID())
@@ -100,9 +106,10 @@ func newFanoutTestMeshes(
 			!capabilityServes(capC, "main", "spawn") {
 			return false
 		}
-		protosB, _ := meshA.host.Peerstore().SupportsProtocols(nodeB.ID(), agenttask.ProtocolID)
-		protosC, _ := meshA.host.Peerstore().SupportsProtocols(nodeC.ID(), agenttask.ProtocolID)
-		return len(protosB) > 0 && len(protosC) > 0
+		// Probe the task protocol with a short timeout rather than relying on
+		// the peerstore being updated by an identify push.
+		return meshA.taskRPC.Supported(ctx, nodeB.ID(), 100*time.Millisecond) &&
+			meshA.taskRPC.Supported(ctx, nodeC.ID(), 100*time.Millisecond)
 	}, 60*time.Second, 100*time.Millisecond, "worker capabilities and task protocol should reach A")
 
 	return meshA, meshB, meshC

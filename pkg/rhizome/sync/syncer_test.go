@@ -100,16 +100,15 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 	}
 	defer syncerB.Stop()
 
-	// Wait for the two libp2p nodes to connect and exchange protocols.
+	// Wait for the two libp2p nodes to connect.
 	require.Eventually(t, func() bool {
 		for _, p := range nodeB.ConnectedPeers() {
 			if p == nodeA.ID() {
-				protos, protoErr := nodeB.Host().Peerstore().SupportsProtocols(p, ProtocolID)
-				return protoErr == nil && len(protos) > 0
+				return true
 			}
 		}
 		return false
-	}, 10*time.Second, 50*time.Millisecond, "node B did not see sync protocol on node A")
+	}, 10*time.Second, 50*time.Millisecond, "node B did not connect to node A")
 
 	if err = syncerB.PullFrom(ctx, nodeA.ID()); err != nil {
 		t.Fatalf("pull from A: %v", err)

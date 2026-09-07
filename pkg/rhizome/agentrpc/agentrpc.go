@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
@@ -105,6 +106,20 @@ func (t *Transport) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// Supported reports whether the peer supports the agent RPC protocol by
+// attempting to open a stream. This is more reliable than waiting for the
+// peerstore to be updated by an identify push.
+func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, timeout)
+	if err != nil {
+		return false
+	}
+	_ = s.Close()
+	return true
+}
+
 // waitForPeerProtocol polls until the given peer advertises support for the
 // agent RPC protocol. It returns false if the context is canceled or the
 // timeout expires.
@@ -130,9 +145,7 @@ func (t *Transport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeou
 
 // Call opens a stream to a peer, sends a request, and returns the response.
 func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Response, error) {
-	// Wait until the peer has identified and advertised support for the agent
-	// protocol before opening a stream. This avoids races during mesh startup.
-	if !t.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+	if !t.Supported(ctx, pid, 5*time.Second) {
 		return Response{}, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
 	}
 

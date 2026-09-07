@@ -346,12 +346,7 @@ func (s *Syncer) waitForPeerConnection(ctx context.Context, pid peer.ID, timeout
 	for time.Now().Before(deadline) {
 		for _, p := range s.node.ConnectedPeers() {
 			if p == pid {
-				// Connection may be established before identify has advertised
-				// the sync protocol, so wait until the peer supports it.
-				protos, err := s.node.Host().Peerstore().SupportsProtocols(pid, ProtocolID)
-				if err == nil && len(protos) > 0 {
-					return true
-				}
+				return true
 			}
 		}
 		select {

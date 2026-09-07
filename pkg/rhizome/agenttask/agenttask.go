@@ -16,6 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
@@ -149,9 +150,18 @@ func (t *Transport) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// Supported reports whether the peer advertises the task protocol.
+// Supported reports whether the peer supports the task protocol by attempting
+// to open a stream. This is more reliable than waiting for the peerstore to be
+// updated by an identify push, which can race with stream handler registration.
 func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
-	return t.waitForPeerProtocol(ctx, pid, timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, timeout)
+	if err != nil {
+		return false
+	}
+	_ = s.Close()
+	return true
 }
 
 // waitForPeerProtocol polls until the given peer advertises support for the
@@ -179,7 +189,7 @@ func (t *Transport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeou
 
 // Call sends one task-protocol request to a peer and returns the response.
 func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Response, error) {
-	if !t.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+	if !t.Supported(ctx, pid, 5*time.Second) {
 		return Response{}, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
 	}
 

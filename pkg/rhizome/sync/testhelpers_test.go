@@ -37,8 +37,11 @@ func newTestNode(t *testing.T, ctx context.Context, index uint32, bootstrap ...s
 // own temp dir so the persisted sync-status.json never collides between peers.
 func newTestWorkspace(t *testing.T) string {
 	t.Helper()
-	ws := filepath.Join(t.TempDir(), "workspace")
+	dir, err := os.MkdirTemp("", "rhizome-sync-test-")
+	require.NoError(t, err)
+	ws := filepath.Join(dir, "workspace")
 	require.NoError(t, os.MkdirAll(ws, 0o755))
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return ws
 }
 

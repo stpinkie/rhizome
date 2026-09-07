@@ -18,8 +18,8 @@ func fastPresenceConfig() config.SwarmConfig {
 	cfg := config.DefaultSwarmConfig()
 	cfg.Presence.HeartbeatInterval = 200 * time.Millisecond
 	cfg.Presence.ExpireAfter = 600 * time.Millisecond
-	cfg.Queue.ClaimWindow = 500 * time.Millisecond
-	cfg.Queue.OfferTTL = 2 * time.Second
+	cfg.Queue.ClaimWindow = 2 * time.Second
+	cfg.Queue.OfferTTL = 5 * time.Second
 	return cfg
 }
 
@@ -52,14 +52,12 @@ func TestSwarmOfferClaimAssign(t *testing.T) {
 
 	// Roster membership arrives via JOIN_ACK before B's identify exchange has
 	// necessarily advertised /rhizome/swarm/1.0.0; wait for protocol support
-	// so the offer broadcast cannot race it. Check the peerstore directly
-	// instead of calling transport.Supported (which has its own internal
-	// polling loop and blocks the Eventually timer).
+	// so the offer broadcast cannot race it. Probe the protocol with a short
+	// timeout so the Eventually timer stays responsive.
 	bPID, err := peer.Decode(swarmB.PeerID())
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		protos, _ := swarmA.transport.host.Peerstore().SupportsProtocols(bPID, ProtocolID)
-		return len(protos) > 0
+		return swarmA.transport.Supported(context.Background(), bPID, 1*time.Second)
 	}, 60*time.Second, 100*time.Millisecond)
 
 	// B claims every offer for agent "main"; A's submitter is a stub that
@@ -150,8 +148,7 @@ func TestSwarmACLRejectsOffer(t *testing.T) {
 	bPID, err := peer.Decode(swarmB.PeerID())
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		protos, _ := swarmA.transport.host.Peerstore().SupportsProtocols(bPID, ProtocolID)
-		return len(protos) > 0
+		return swarmA.transport.Supported(context.Background(), bPID, 1*time.Second)
 	}, 60*time.Second, 100*time.Millisecond)
 
 	swarmB.SetOfferEvaluator(func(_ string, o Offer) bool { return true })

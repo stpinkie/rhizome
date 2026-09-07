@@ -24,6 +24,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 	rsync "github.com/stpinkie/rhizome/pkg/rhizome/sync"
 	"github.com/stpinkie/rhizome/pkg/skills"
@@ -1291,32 +1292,23 @@ func (c *CapsTransport) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// waitForPeerProtocol polls until the given peer advertises support for the
-// capability protocol. It returns false if the context is canceled or the
-// timeout expires.
-func (c *CapsTransport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		for _, p := range c.host.Network().Peers() {
-			if p == pid {
-				protos, err := c.host.Peerstore().SupportsProtocols(pid, CapsProtocolID)
-				if err == nil && len(protos) > 0 {
-					return true
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(50 * time.Millisecond):
-		}
+// Supported reports whether the peer supports the capability protocol by
+// attempting to open a stream. This is more reliable than waiting for the
+// peerstore to be updated by an identify push.
+func (c *CapsTransport) Supported(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	s, err := p2putil.OpenProtocolStream(ctx, c.host, pid, CapsProtocolID, timeout)
+	if err != nil {
+		return false
 	}
-	return false
+	_ = s.Close()
+	return true
 }
 
 // Send pushes a capability manifest to a peer.
 func (c *CapsTransport) Send(ctx context.Context, pid peer.ID, capability Capability) error {
-	if !c.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+	if !c.Supported(ctx, pid, 5*time.Second) {
 		return fmt.Errorf("peer %s does not support %s", pid, CapsProtocolID)
 	}
 
@@ -1397,7 +1389,7 @@ func (c *CapsTransport) handleQuery(s libnet.Stream, r *bufio.Reader) {
 // Query requests a capability from a peer. It blocks until the peer responds
 // or the context is canceled. The trust check is the caller's responsibility.
 func (c *CapsTransport) Query(ctx context.Context, pid peer.ID) (Capability, error) {
-	if !c.waitForPeerProtocol(ctx, pid, 5*time.Second) {
+	if !c.Supported(ctx, pid, 5*time.Second) {
 		return Capability{}, fmt.Errorf("peer %s does not support %s", pid, CapsProtocolID)
 	}
 
