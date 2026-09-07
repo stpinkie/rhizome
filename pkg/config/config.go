@@ -71,6 +71,7 @@ type Config struct {
 	ModelList SecureModelList `json:"model_list"          yaml:"model_list"` // New model-centric provider configuration
 	Gateway   GatewayConfig   `json:"gateway"             yaml:"-"`
 	Mesh      MeshConfig      `json:"mesh,omitempty"      yaml:"-"`
+	Swarm     SwarmConfig     `json:"swarm,omitempty"     yaml:"-"`
 	Events    EventsConfig    `json:"events,omitempty"    yaml:"-"`
 	Hooks     HooksConfig     `json:"hooks,omitempty"     yaml:"-"`
 	Tools     ToolsConfig     `json:"tools"               yaml:",inline"`

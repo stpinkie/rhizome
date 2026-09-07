@@ -51,6 +51,7 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/network/tasks", h.handleNetworkTasks)
 	mux.HandleFunc("GET /api/network/tasks/events", h.handleNetworkTaskEvents)
 	mux.HandleFunc("GET /api/network/audit", h.handleNetworkAudit)
+	h.registerNetworkSwarmRoutes(mux)
 }
 
 func (h *Handler) handleNetworkPeers(w http.ResponseWriter, r *http.Request) {

@@ -41,6 +41,11 @@ $env:TMP='D:\tmp'
 - `rhizome network task submit|status|result|cancel|list <peer-multiaddr> …` — manage asynchronous remote tasks over `/rhizome/agent-task/1.0.0`. The same commands are mirrored under `rhizome mesh task`.
 - `rhizome network route <agent-id> <task>` / `rhizome mesh route` — pick the best connected, trusted peer for an agent id (capability + load aware, via `Mesh.PickPeer`) and dispatch the task. `--sync` delegates synchronously; `--wait <dur>` long-polls the result after submitting.
 - `rhizome network audit` / `rhizome mesh audit` — print the tail of the local mesh audit trail (`~/.rhizome/mesh-audit.jsonl`); `--tail N`, `--json`.
+- `rhizome network scatter <agent-id> <task>` / `rhizome mesh scatter` — fan a task out to up to `--n` capable trusted peers and aggregate results (`--strategy first|quorum|all`, `--k`, `--wait`).
+- `rhizome swarm join|leave <id>` — persist a swarm membership in `swarm.memberships` (effective on next daemon start).
+- `rhizome swarm list|status|members <id>` — inspect configured memberships and the saved roster (`~/.rhizome/swarms.json`).
+- `rhizome swarm offer <swarm> <agent-id> <task>` / `rhizome swarm offers <swarm>` — publish/track work-queue offers on the running daemon.
+- `rhizome swarm run <swarm> <goal>` — decompose a goal, dispatch subtasks over the work queue, and aggregate results (daemon required).
 - `rhizome sync status|log|commit|pull|push` — manage the workspace git repo. `sync status` shows HEAD, branch, workspace state, conflicts, last error, and per-peer heads (`--json` for machine-readable).
 - `rhizome daemon` — start a long-running P2P node, workspace syncer, agent gateway, and (when enabled) the decentralised mesh.
   - `--no-dht` disables public DHT discovery.
@@ -78,8 +83,9 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 - `pkg/rhizome/merge` — diff3-based file and tree merging.
 - `pkg/rhizome/agentrpc` — libp2p request/response framing for remote agent tasks (`/rhizome/agent/1.0.0`), with signed nonce+timestamp replay fields and a bounded idempotency cache.
 - `pkg/rhizome/agenttask` — asynchronous task protocol (`/rhizome/agent-task/1.0.0`): submit/status/result(long-poll)/cancel/list.
-- `pkg/rhizome/mesh` — peer capability exchange (signed manifests), trust, remote `delegate`/`spawn`, per-peer ACL + rate limits, replay protection, and the audit trail (`~/.rhizome/mesh-audit.jsonl`).
-- `cmd/rhizome/internal/network`, `cmd/rhizome/internal/daemon`, and `cmd/rhizome/internal/sync` — CLI commands.
+- `pkg/rhizome/mesh` — peer capability exchange (signed manifests), trust, remote `delegate`/`spawn`, scatter-gather fan-out (`FanoutTask`), per-peer ACL + rate limits, replay protection, and the audit trail (`~/.rhizome/mesh-audit.jsonl`).
+- `pkg/rhizome/swarm` — swarm layer over the mesh: signed envelopes on `/rhizome/swarm/1.0.0`, join/leave + roster gossip, presence heartbeats, offer/claim work queue, deterministic coordinator election (lowest peer id) with shared state written to `swarm/<id>/state.json` in the synced workspace, goal orchestration (`RunGoal`), and pluggable broadcast transport (`direct` fan-out or `gossipsub`).
+- `cmd/rhizome/internal/network`, `cmd/rhizome/internal/daemon`, `cmd/rhizome/internal/swarm`, and `cmd/rhizome/internal/sync` — CLI commands.
 
 ## Mesh Configuration
 
@@ -128,6 +134,40 @@ Add a `mesh` section to `config.json`:
 - `network status` reports `reachability`, `addrs`, and `relayed_addrs`; relayed (`Limited`) connections count as usable.
 
 When `mesh.enabled` is true, `rhizome daemon` advertises local capabilities over `/rhizome/caps/1.0.0`, accepts remote agent requests over `/rhizome/agent/1.0.0` from trusted peers, and publishes mesh/DHT runtime events to the shared event bus.
+
+## Swarm Mode (v0.7.0, Tracks 21–30)
+
+Swarms are named groups of trusted mesh peers. Membership is always a subset
+of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
+
+```json
+{
+  "swarm": {
+    "enabled": true,
+    "memberships": ["ops"],
+    "max_members": 32,
+    "max_message_bytes": 262144,
+    "request_max_skew": "2m",
+    "transport": "direct",
+    "presence": { "heartbeat_interval": "15s", "expire_after": "45s" },
+    "queue": { "offer_ttl": "2m", "claim_window": "5s", "max_offers": 100 },
+    "coordination": { "enabled": true, "state_interval": "30s" },
+    "rate_limit_per_peer": 60,
+    "rate_limit_global": 600,
+    "audit_log": true,
+    "acl": [
+      { "swarm_id": "ops", "peer_id": "*", "allow_offer": true, "allow_claim": true, "agents": ["*"] }
+    ]
+  }
+}
+```
+
+- `transport` — `direct` (default, per-member stream fan-out) or `gossipsub` (one pub/sub topic per swarm, `rhizome/swarm/<id>`; join/leave/ping stay on direct streams).
+- `acl` — per-(swarm, peer) rules; missing rules default to "trusted peers may offer and claim". `rate_limit` overrides the per-peer cap (negative = unlimited).
+- Swarm ops audit into the shared `mesh-audit.jsonl` with `swarm.`-prefixed ops.
+- Daemon API: `GET /network/swarms`, `GET /network/swarms/<id>[/{members,offers}]`, `POST /network/swarms` (`{"swarm","action":"join|leave"}`), `POST /network/swarms/<id>/offers`, `POST /network/swarms/<id>/run`, `GET /network/swarms/events` (SSE). The launcher proxies them under `/api/network/swarms*` with file/config fallbacks for reads and join/leave.
+- The gateway wires swarm seams (`SetTaskSubmitter`, `SetOfferEvaluator`, `SetCapProbe`, `SetStateWriter`, `SetDecomposer`, `SetSynthesizer`, `SetResultFetcher`) in `pkg/gateway/swarm.go`; the daemon registers the instance via `gateway.SetSwarm`.
+- The Network dashboard has a **Swarms** panel (roster, coordinator, offers, goal runs) fed by `/api/network/swarms*` and the swarm SSE stream.
 
 ## DHT Configuration
 
@@ -190,6 +230,12 @@ On Windows the equivalent is:
 ```
 
 This script is also run in CI on `ubuntu-latest` as the `mesh-integration` job.
+
+The swarm integration test builds `rhizome`, starts two daemons joined to a shared `ops` swarm, and verifies mutual roster exchange and restart persistence:
+
+```powershell
+.\scripts\integration-swarm.ps1
+```
 
 ## Configuration / Environment
 

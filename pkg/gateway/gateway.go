@@ -260,6 +260,10 @@ func RunWithMesh(
 			return ok
 		})
 		agentLoop.SetSubTurnSpawner(remoteSpawner)
+
+		if sw := currentSwarm(); sw != nil {
+			wireSwarm(sw, rhizomeMesh, agentLoop, cfg)
+		}
 	}
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayStart, startedAt, nil)
 
@@ -591,6 +595,28 @@ func setupAndStartServices(
 		newNetworkTaskEventsHandler(rhizomeMesh, authToken),
 	); err != nil {
 		return nil, fmt.Errorf("error registering network task events handler: %w", err)
+	}
+
+	swarmsHandler := newNetworkSwarmsHandler(authToken, configPath)
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/swarms",
+		swarmsHandler,
+	); err != nil {
+		return nil, fmt.Errorf("error registering network swarms handler: %w", err)
+	}
+
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/swarms/",
+		swarmsHandler,
+	); err != nil {
+		return nil, fmt.Errorf("error registering network swarm sub-resource handler: %w", err)
+	}
+
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/swarms/events",
+		newNetworkSwarmEventsHandler(authToken),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network swarm events handler: %w", err)
 	}
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {

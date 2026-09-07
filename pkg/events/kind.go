@@ -148,6 +148,40 @@ const (
 	KindMeshCapabilityUnsigned Kind = "mesh.cap.unsigned"
 	// KindMeshError is emitted when a mesh operation fails.
 	KindMeshError Kind = "mesh.error"
+	// KindMeshFanoutStart is emitted when a scatter-gather fan-out begins.
+	KindMeshFanoutStart Kind = "mesh.fanout.start"
+	// KindMeshFanoutEnd is emitted when a scatter-gather fan-out completes.
+	KindMeshFanoutEnd Kind = "mesh.fanout.end"
+
+	// Swarm events
+
+	// KindSwarmJoined is emitted when the local node joins a swarm.
+	KindSwarmJoined Kind = "swarm.joined"
+	// KindSwarmLeft is emitted when the local node leaves a swarm.
+	KindSwarmLeft Kind = "swarm.left"
+	// KindSwarmMemberJoined is emitted when a peer is added to a swarm roster.
+	KindSwarmMemberJoined Kind = "swarm.member.joined"
+	// KindSwarmMemberLeft is emitted when a peer leaves a swarm roster.
+	KindSwarmMemberLeft Kind = "swarm.member.left"
+	// KindSwarmMemberExpired is emitted when a silent member is evicted from a
+	// swarm roster after the presence expiry window.
+	KindSwarmMemberExpired Kind = "swarm.member.expired"
+	// KindSwarmOfferPublished is emitted when a task offer is broadcast to a swarm.
+	KindSwarmOfferPublished Kind = "swarm.offer.published"
+	// KindSwarmOfferAssigned is emitted when an offer is assigned to a claimer.
+	KindSwarmOfferAssigned Kind = "swarm.offer.assigned"
+	// KindSwarmOfferExpired is emitted when an offer closes without claims.
+	KindSwarmOfferExpired Kind = "swarm.offer.expired"
+	// KindSwarmCoordinatorElected is emitted when a swarm coordinator changes.
+	KindSwarmCoordinatorElected Kind = "swarm.coordinator.elected"
+	// KindSwarmStateWritten is emitted when the coordinator writes shared state.
+	KindSwarmStateWritten Kind = "swarm.state.written"
+	// KindSwarmRunStart is emitted when a swarm goal orchestration starts.
+	KindSwarmRunStart Kind = "swarm.run.start"
+	// KindSwarmRunEnd is emitted when a swarm goal orchestration finishes.
+	KindSwarmRunEnd Kind = "swarm.run.end"
+	// KindSwarmError is emitted when a swarm operation fails.
+	KindSwarmError Kind = "swarm.error"
 )
 
 var knownKinds = []Kind{
@@ -215,6 +249,21 @@ var knownKinds = []Kind{
 	KindMeshRemoteAudit,
 	KindMeshCapabilityUnsigned,
 	KindMeshError,
+	KindMeshFanoutStart,
+	KindMeshFanoutEnd,
+	KindSwarmJoined,
+	KindSwarmLeft,
+	KindSwarmMemberJoined,
+	KindSwarmMemberLeft,
+	KindSwarmMemberExpired,
+	KindSwarmOfferPublished,
+	KindSwarmOfferAssigned,
+	KindSwarmOfferExpired,
+	KindSwarmCoordinatorElected,
+	KindSwarmStateWritten,
+	KindSwarmRunStart,
+	KindSwarmRunEnd,
+	KindSwarmError,
 }
 
 // KnownKinds returns the runtime event kinds declared by this package.

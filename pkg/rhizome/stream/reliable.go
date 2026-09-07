@@ -163,6 +163,13 @@ func WithReadTimeout(d time.Duration) ReliableOption {
 	return func(r *ReliableConn) { r.readTimeout = d }
 }
 
+// SetReadTimeout changes the read deadline applied while waiting for frames.
+// Safe to call after the connection is created; the next ReadFrame uses the
+// new value.
+func (r *ReliableConn) SetReadTimeout(d time.Duration) {
+	r.readTimeout = d
+}
+
 // WithMaxRetries sets the number of retransmission attempts before giving up.
 func WithMaxRetries(n int) ReliableOption {
 	return func(r *ReliableConn) { r.maxRetries = n }

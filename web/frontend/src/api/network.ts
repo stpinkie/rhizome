@@ -205,6 +205,115 @@ export async function cancelNetworkTask(
   })
 }
 
+// --- Swarms (/api/network/swarms) ---
+
+export interface SwarmMember {
+  peer_id: string
+  last_seen?: string
+  source?: string
+  cap_digest?: string
+  active_tasks?: number
+}
+
+export interface SwarmInfo {
+  id: string
+  joined: boolean
+  joined_at?: string
+  coordinator?: string
+  epoch?: number
+  members?: SwarmMember[]
+}
+
+export interface SwarmStatusResponse {
+  peer_id?: string
+  swarms?: SwarmInfo[]
+}
+
+export interface SwarmOffer {
+  offer_id: string
+  swarm_id?: string
+  agent_id?: string
+  task?: string
+  offerer?: string
+  created_at?: string
+  status: string
+  task_id?: string
+  assignee?: string
+  error?: string
+}
+
+export interface SwarmOffersResponse {
+  swarm_id: string
+  offers?: SwarmOffer[]
+}
+
+export interface SwarmRunSubtask {
+  agent_id?: string
+  task: string
+  status: string
+  peer_id?: string
+  task_id?: string
+  result?: string
+  error?: string
+}
+
+export interface SwarmRunResult {
+  swarm_id: string
+  goal: string
+  subtasks: SwarmRunSubtask[]
+  summary: string
+  duration_ms?: number
+}
+
+export async function getSwarms(): Promise<SwarmStatusResponse> {
+  return request<SwarmStatusResponse>(`/api/network/swarms`)
+}
+
+export async function swarmAction(
+  swarm: string,
+  action: "join" | "leave",
+): Promise<{ warning?: string }> {
+  return request(`/api/network/swarms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ swarm, action }),
+  })
+}
+
+export async function getSwarmOffers(
+  swarm: string,
+): Promise<SwarmOffersResponse> {
+  return request<SwarmOffersResponse>(
+    `/api/network/swarms/${encodeURIComponent(swarm)}/offers`,
+  )
+}
+
+export async function submitSwarmOffer(
+  swarm: string,
+  body: { agent_id: string; model?: string; task: string; tools?: string[] },
+): Promise<{ offer_id: string }> {
+  return request(`/api/network/swarms/${encodeURIComponent(swarm)}/offers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function runSwarmGoal(
+  swarm: string,
+  goal: string,
+  agentID?: string,
+): Promise<SwarmRunResult> {
+  return request<SwarmRunResult>(
+    `/api/network/swarms/${encodeURIComponent(swarm)}/run`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, agent_id: agentID }),
+    },
+  )
+}
+
 // --- Mesh audit trail (/api/network/audit) ---
 
 export interface MeshAuditEntry {

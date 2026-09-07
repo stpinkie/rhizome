@@ -31,6 +31,7 @@ import (
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/onboard"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/skills"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/status"
+	swarmcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/swarm"
 	synccmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/sync"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/version"
 	"github.com/stpinkie/rhizome/pkg/config"
@@ -145,6 +146,7 @@ rhizome --no-color status`,
 		migrate.NewMigrateCommand(),
 		networkcmd.NewNetworkCommand(),
 		meshcmd.NewMeshCommand(),
+		swarmcmd.NewSwarmCommand(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
 		updater.NewUpdateCommand("rhizome"),

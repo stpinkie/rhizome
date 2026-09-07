@@ -500,6 +500,14 @@ else
 	@bash ./scripts/integration-mesh.sh
 endif
 
+## integration-swarm: Run two-node swarm roster integration test
+integration-swarm:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -File ./scripts/integration-swarm.ps1
+else
+	@bash ./scripts/integration-swarm.sh
+endif
+
 ## fmt: Format Go code
 fmt:
 	@$(GOLANGCI_LINT) fmt

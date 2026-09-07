@@ -17,6 +17,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/gateway"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/swarm"
 	"github.com/stpinkie/rhizome/pkg/rhizome/sync"
 	"github.com/stpinkie/rhizome/pkg/skills"
 )
@@ -134,6 +135,20 @@ func NewDaemonCommand() *cobra.Command {
 					return fmt.Errorf("failed to start mesh: %w", err)
 				}
 				defer rhizomeMesh.Stop()
+			}
+
+			// Swarm layer: named groups of trusted peers. Requires the mesh
+			// (trust gate) to be running.
+			var rhizomeSwarm *swarm.Swarm
+			if cfg.Swarm.Enabled && rhizomeMesh != nil {
+				rhizomeSwarm = swarm.New(node, derived, cfg.Swarm, rhizomeMesh.IsTrusted, eventBus, home)
+				if err := rhizomeSwarm.Start(ctx); err != nil {
+					return fmt.Errorf("failed to start swarm: %w", err)
+				}
+				defer rhizomeSwarm.Stop()
+				gateway.SetSwarm(rhizomeSwarm)
+			} else if cfg.Swarm.Enabled {
+				fmt.Fprintln(os.Stderr, "swarm.enabled is set but mesh.enabled is off; swarm requires the mesh trust layer")
 			}
 
 			fmt.Printf("%s Rhizome daemon online\n", internal.Logo)

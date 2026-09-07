@@ -68,6 +68,18 @@ func newTaskTestMeshes(
 	return meshA, meshB
 }
 
+// waitForTaskProtocol waits for both peers to advertise the async task
+// protocol via libp2p identify. Tests that issue CallRemote or FanoutTask
+// should call this to avoid racing the identify exchange.
+func waitForTaskProtocol(t *testing.T, meshA, meshB *Mesh) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		protosB, _ := meshA.host.Peerstore().SupportsProtocols(meshB.node.ID(), agenttask.ProtocolID)
+		protosA, _ := meshB.host.Peerstore().SupportsProtocols(meshA.node.ID(), agenttask.ProtocolID)
+		return len(protosB) > 0 && len(protosA) > 0
+	}, 60*time.Second, 100*time.Millisecond, "task protocol should be advertised by both peers")
+}
+
 func TestMeshRemoteTaskAsync(t *testing.T) {
 	ctx := context.Background()
 
@@ -82,6 +94,7 @@ func TestMeshRemoteTaskAsync(t *testing.T) {
 		RemoteTimeout:    30 * time.Second,
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	waitForTaskProtocol(t, meshA, meshB)
 
 	result, err := meshA.CallRemote(ctx, meshB.node.ID(), RemoteCall{
 		TargetAgentID: "main",
@@ -117,6 +130,7 @@ func TestMeshTaskLifecycle(t *testing.T) {
 		RemoteTimeout:    30 * time.Second,
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	waitForTaskProtocol(t, meshA, meshB)
 
 	taskID, err := meshA.SubmitRemoteTask(ctx, meshB.node.ID(), RemoteCall{
 		TargetAgentID: "main",
@@ -162,6 +176,7 @@ func TestMeshTaskCancel(t *testing.T) {
 		RemoteTimeout:    30 * time.Second,
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	waitForTaskProtocol(t, meshA, meshB)
 
 	taskID, err := meshA.SubmitRemoteTask(ctx, meshB.node.ID(), RemoteCall{
 		TargetAgentID: "main",
@@ -192,6 +207,7 @@ func TestMeshTaskUntrusted(t *testing.T) {
 		RemoteTimeout:    30 * time.Second,
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	waitForTaskProtocol(t, meshA, meshB)
 
 	// B stops trusting A, so A's submission is rejected callee-side. (A still
 	// trusts B, so the caller-side trust check does not fire first.)
@@ -217,6 +233,7 @@ func TestMeshTaskSpawnDisabled(t *testing.T) {
 		// AllowRemoteSpawn intentionally false.
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	waitForTaskProtocol(t, meshA, meshB)
 
 	_, err := meshA.SubmitRemoteTask(ctx, meshB.node.ID(), RemoteCall{
 		TargetAgentID: "main",
@@ -238,6 +255,7 @@ func TestMeshTaskOwnershipIsolation(t *testing.T) {
 		RemoteTimeout:    30 * time.Second,
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	waitForTaskProtocol(t, meshA, meshB)
 
 	taskID, err := meshA.SubmitRemoteTask(ctx, meshB.node.ID(), RemoteCall{
 		TargetAgentID: "main",
@@ -271,6 +289,7 @@ func TestMeshSubmitRemoteTaskFailover(t *testing.T) {
 		TaskRetries:      1,
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	waitForTaskProtocol(t, meshA, meshB)
 
 	// Bring up a third node C connected to A.
 	idC, _, err := identity.FromMnemonic(testMnemonic, 7)
@@ -292,6 +311,12 @@ func TestMeshSubmitRemoteTaskFailover(t *testing.T) {
 	}, 10*time.Second, 50*time.Millisecond)
 	meshA.TrustPeer(nodeC.ID())
 	meshC.TrustPeer(meshA.node.ID())
+
+	// Wait for the task protocol to be advertised between A and C.
+	require.Eventually(t, func() bool {
+		protos, _ := meshA.host.Peerstore().SupportsProtocols(nodeC.ID(), agenttask.ProtocolID)
+		return len(protos) > 0
+	}, 60*time.Second, 100*time.Millisecond, "task protocol should be advertised by C")
 
 	// Advertise B and C as capable.
 	meshA.SetCapability(meshB.node.ID(), Capability{

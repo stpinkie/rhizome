@@ -71,7 +71,7 @@
 * **Multi-Agent Collaboration**
   * [**Basic Multi-Agent**](https://github.com/stpinkie/rhizome/issues/294) implement
   * [**Model Routing**](https://github.com/stpinkie/rhizome/issues/295): "Smart Routing" — dispatch simple tasks to small/local models (fast/cheap) and complex tasks to SOTA models (smart).
-  * [**Swarm Mode**](https://github.com/stpinkie/rhizome/issues/284): Collaboration between multiple Rhizome instances on the same network.
+  * [**Swarm Mode**](https://github.com/stpinkie/rhizome/issues/284): Collaboration between multiple Rhizome instances on the same network. ✅ **Shipped in v0.7.0** — trusted-peer swarms with presence, a distributed offer/claim work queue, deterministic coordinator election, goal orchestration (`swarm run`), and an optional GossipSub transport.
   * [**AIEOS**](https://github.com/stpinkie/rhizome/issues/296): Exploring AI-Native Operating System interaction paradigms.
 
 

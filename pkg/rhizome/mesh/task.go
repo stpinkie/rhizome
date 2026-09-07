@@ -666,6 +666,15 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 	return resp.TaskID, nil
 }
 
+// ActiveTaskCount returns the number of non-terminal remote tasks this node
+// is executing. Used by swarm presence and claim load hints.
+func (m *Mesh) ActiveTaskCount() int {
+	if m.tasks == nil {
+		return 0
+	}
+	return m.tasks.ActiveCount()
+}
+
 // RemoteTaskStatus fetches the current status of a task on a trusted peer.
 func (m *Mesh) RemoteTaskStatus(ctx context.Context, pid peer.ID, taskID string) (agenttask.Response, error) {
 	return m.taskCall(ctx, pid, agenttask.Request{Op: agenttask.OpStatus, TaskID: taskID})

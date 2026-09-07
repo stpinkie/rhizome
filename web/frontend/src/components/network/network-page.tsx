@@ -14,6 +14,7 @@ import { DhtPanel } from "./dht-panel"
 import { NodePanel } from "./node-panel"
 import { PeersPanel } from "./peers-panel"
 import { SavedPeersPanel } from "./saved-peers-panel"
+import { SwarmsPanel } from "./swarms-panel"
 import { TasksPanel } from "./tasks-panel"
 
 export function NetworkPage() {
@@ -95,6 +96,8 @@ export function NetworkPage() {
           />
 
           <TasksPanel peers={savedPeersQuery.data?.saved_peers ?? []} />
+
+          <SwarmsPanel />
 
           <AuditPanel />
         </div>

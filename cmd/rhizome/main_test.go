@@ -51,6 +51,7 @@ func TestNewRhizomeCommand(t *testing.T) {
 		"onboard",
 		"skills",
 		"status",
+		"swarm",
 		"sync",
 		"update",
 		"version",

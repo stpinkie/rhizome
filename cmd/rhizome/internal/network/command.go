@@ -24,6 +24,7 @@ func NewNetworkCommand() *cobra.Command {
 		NewSpawnCommand(),
 		NewTaskCommand(),
 		NewRouteCommand(),
+		NewScatterCommand(),
 		NewAuditCommand(),
 	)
 
