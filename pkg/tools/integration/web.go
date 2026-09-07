@@ -1495,6 +1495,11 @@ type WebSearchToolOptions struct {
 	BaiduSearchMaxResults int
 	BaiduSearchEnabled    bool
 	Proxy                 string
+	// PrivateHostWhitelist is a list of IPs, CIDRs, or hostnames that are
+	// allowed as web search provider base URLs even when they resolve to
+	// private or local network addresses. This lets users run their own
+	// SearXNG or other search backends inside a private network.
+	PrivateHostWhitelist []string
 }
 
 func WebSearchToolOptionsFromConfig(cfg *config.Config) WebSearchToolOptions {
@@ -1535,6 +1540,7 @@ func WebSearchToolOptionsFromConfig(cfg *config.Config) WebSearchToolOptions {
 		BaiduSearchMaxResults: cfg.Tools.Web.BaiduSearch.MaxResults,
 		BaiduSearchEnabled:    cfg.Tools.Web.BaiduSearch.Enabled,
 		Proxy:                 cfg.Tools.Web.Proxy,
+		PrivateHostWhitelist:  []string(cfg.Tools.Web.PrivateHostWhitelist),
 	}
 }
 
@@ -1647,6 +1653,29 @@ func (opts WebSearchToolOptions) resolveProviderName(query string) (string, erro
 	return "", nil
 }
 
+// validateSearchProviderBaseURL checks that a provider's base URL is a safe
+// http/https URL and does not resolve to a private, local, link-local, or
+// cloud-metadata endpoint unless the host is in PrivateHostWhitelist or
+// allowPrivateWebSearchHosts is set.
+func (opts WebSearchToolOptions) validateSearchProviderBaseURL(baseURL string) error {
+	if baseURL == "" {
+		return nil
+	}
+
+	whitelist, err := utils.NewPrivateHostWhitelist(opts.PrivateHostWhitelist)
+	if err != nil {
+		return fmt.Errorf("invalid private host whitelist: %w", err)
+	}
+
+	if err := utils.ValidateSafeHTTPURL(baseURL, whitelist, func() bool {
+		return allowPrivateWebSearchHosts.Load()
+	}); err != nil {
+		return fmt.Errorf("search provider base URL %q is not safe: %w", baseURL, err)
+	}
+
+	return nil
+}
+
 func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, int, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "auto":
@@ -1654,6 +1683,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 	case "sogou":
 		if !opts.providerReady("sogou") {
 			return nil, 0, nil
+		}
+		if err := opts.validateSearchProviderBaseURL("https://wap.sogou.com/web/searchList.jsp"); err != nil {
+			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
@@ -1670,6 +1702,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 	case "perplexity":
 		if !opts.providerReady("perplexity") {
 			return nil, 0, nil
+		}
+		if err := opts.validateSearchProviderBaseURL("https://api.perplexity.ai/chat/completions"); err != nil {
+			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebPerplexityTimeout())
 		if err != nil {
@@ -1688,6 +1723,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("brave") {
 			return nil, 0, nil
 		}
+		if err := opts.validateSearchProviderBaseURL("https://api.search.brave.com/res/v1/web/search?q=x&count=1"); err != nil {
+			return nil, 0, err
+		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Brave: %w", err)
@@ -1704,6 +1742,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 	case "gemini":
 		if !opts.providerReady("gemini") {
 			return nil, 0, nil
+		}
+		if err := opts.validateSearchProviderBaseURL("https://generativelanguage.googleapis.com/v1beta/models/x:generateContent"); err != nil {
+			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
@@ -1723,6 +1764,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("searxng") {
 			return nil, 0, nil
 		}
+		if err := opts.validateSearchProviderBaseURL(opts.SearXNGBaseURL); err != nil {
+			return nil, 0, err
+		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for SearXNG: %w", err)
@@ -1739,6 +1783,13 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 	case "tavily":
 		if !opts.providerReady("tavily") {
 			return nil, 0, nil
+		}
+		baseURL := opts.TavilyBaseURL
+		if baseURL == "" {
+			baseURL = "https://api.tavily.com/search"
+		}
+		if err := opts.validateSearchProviderBaseURL(baseURL); err != nil {
+			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
@@ -1758,6 +1809,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("kagi") {
 			return nil, 0, nil
 		}
+		if err := opts.validateSearchProviderBaseURL(kagiServerURL(opts.KagiBaseURL)); err != nil {
+			return nil, 0, err
+		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for Kagi: %w", err)
@@ -1776,6 +1830,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("duckduckgo") {
 			return nil, 0, nil
 		}
+		if err := opts.validateSearchProviderBaseURL("https://html.duckduckgo.com/html/?q=x"); err != nil {
+			return nil, 0, err
+		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to create HTTP client for DuckDuckGo: %w", err)
@@ -1791,6 +1848,13 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 	case "baidu_search":
 		if !opts.providerReady("baidu_search") {
 			return nil, 0, nil
+		}
+		baseURL := opts.BaiduSearchBaseURL
+		if baseURL == "" {
+			baseURL = "https://qianfan.baidubce.com/v2/ai_search/web_search"
+		}
+		if err := opts.validateSearchProviderBaseURL(baseURL); err != nil {
+			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebPerplexityTimeout())
 		if err != nil {
@@ -1809,6 +1873,13 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 	case "glm_search":
 		if !opts.providerReady("glm_search") {
 			return nil, 0, nil
+		}
+		baseURL := opts.GLMSearchBaseURL
+		if baseURL == "" {
+			baseURL = "https://open.bigmodel.cn/api/paas/v4/web_search"
+		}
+		if err := opts.validateSearchProviderBaseURL(baseURL); err != nil {
+			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
 		if err != nil {
@@ -2015,6 +2086,11 @@ func NewWebFetchTool(maxChars int, format string, fetchLimitBytes int64) (*WebFe
 // allowPrivateWebFetchHosts controls whether loopback/private hosts are allowed.
 // This is false in normal runtime to reduce SSRF exposure, and tests can override it temporarily.
 var allowPrivateWebFetchHosts atomic.Bool
+
+// allowPrivateWebSearchHosts is the same toggle for web search providers.
+// It is false in normal runtime and true during integration tests that start
+// local httptest servers.
+var allowPrivateWebSearchHosts atomic.Bool
 
 func NewWebFetchToolWithProxy(
 	maxChars int,

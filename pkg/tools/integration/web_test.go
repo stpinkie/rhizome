@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,13 @@ const (
 	testFetchLimit = int64(10 * 1024 * 1024)
 	format         = "plaintext"
 )
+
+func TestMain(m *testing.M) {
+	// web_search integration tests start httptest servers on 127.0.0.1 and
+	// need to be able to use them as provider base URLs.
+	allowPrivateWebSearchHosts.Store(true)
+	os.Exit(m.Run())
+}
 
 // TestWebTool_WebFetch_Success verifies successful URL fetching
 func TestWebTool_WebFetch_Success(t *testing.T) {
@@ -2407,6 +2415,68 @@ func TestWebTool_AutoProviderRoutesQueryLanguageBetweenSogouAndDuckDuckGo(t *tes
 	}
 	if len(sogouProvider.calls) != 1 || sogouProvider.calls[0] != "今天上海天气" {
 		t.Fatalf("chinese query should use Sogou provider, calls=%v", sogouProvider.calls)
+	}
+}
+
+func TestWebTool_WebSearch_BlocksPrivateBaseURL(t *testing.T) {
+	old := allowPrivateWebSearchHosts.Swap(false)
+	t.Cleanup(func() { allowPrivateWebSearchHosts.Store(old) })
+
+	_, err := NewWebSearchTool(WebSearchToolOptions{
+		SearXNGEnabled:    true,
+		SearXNGBaseURL:    "http://169.254.169.254/latest/meta-data/",
+		SearXNGMaxResults: 5,
+	})
+	if err == nil {
+		t.Fatal("expected error for private SearXNG base URL, got nil")
+	}
+	if !strings.Contains(err.Error(), "not safe") {
+		t.Fatalf("expected 'not safe' error, got: %v", err)
+	}
+}
+
+func TestWebTool_WebSearch_AllowsWhitelistedPrivateBaseURL(t *testing.T) {
+	old := allowPrivateWebSearchHosts.Swap(false)
+	t.Cleanup(func() { allowPrivateWebSearchHosts.Store(old) })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[{"title":"ok","url":"http://example.com","content":"ok"}]}`))
+	}))
+	defer server.Close()
+
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.Split(host, ":")[0]
+
+	tool, err := NewWebSearchTool(WebSearchToolOptions{
+		SearXNGEnabled:    true,
+		SearXNGBaseURL:    server.URL,
+		SearXNGMaxResults: 5,
+		PrivateHostWhitelist: []string{host},
+	})
+	if err != nil {
+		t.Fatalf("expected tool to be created with whitelisted private host, got error: %v", err)
+	}
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+}
+
+func TestWebTool_WebSearch_BlocksLoopbackWithoutWhitelist(t *testing.T) {
+	old := allowPrivateWebSearchHosts.Swap(false)
+	t.Cleanup(func() { allowPrivateWebSearchHosts.Store(old) })
+
+	_, err := NewWebSearchTool(WebSearchToolOptions{
+		SearXNGEnabled:    true,
+		SearXNGBaseURL:    "http://127.0.0.1:8080",
+		SearXNGMaxResults: 5,
+	})
+	if err == nil {
+		t.Fatal("expected error for loopback SearXNG base URL without whitelist, got nil")
+	}
+	if !strings.Contains(err.Error(), "not safe") {
+		t.Fatalf("expected 'not safe' error, got: %v", err)
 	}
 }
 
