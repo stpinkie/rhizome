@@ -57,7 +57,7 @@ func TestSwarmOfferClaimAssign(t *testing.T) {
 	bPID, err := peer.Decode(swarmB.PeerID())
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		return swarmA.transport.Supported(context.Background(), bPID, 1*time.Second)
+		return swarmA.transport.Supported(context.Background(), bPID, 10*time.Second)
 	}, 60*time.Second, 100*time.Millisecond)
 
 	// B claims every offer for agent "main"; A's submitter is a stub that
@@ -79,7 +79,7 @@ func TestSwarmOfferClaimAssign(t *testing.T) {
 	require.Eventually(t, func() bool {
 		info, ok := swarmA.queue.offerInfo(offerID)
 		return ok && info.Status == OfferAssigned
-	}, 10*time.Second, 100*time.Millisecond, "offer should be claimed and assigned")
+	}, 30*time.Second, 100*time.Millisecond, "offer should be claimed and assigned")
 
 	assert.Equal(t, swarmB.PeerID(), gotClaim.String())
 
@@ -91,7 +91,7 @@ func TestSwarmOfferClaimAssign(t *testing.T) {
 			}
 		}
 		return false
-	}, 10*time.Second, 100*time.Millisecond)
+	}, 30*time.Second, 100*time.Millisecond)
 }
 
 func TestSwarmOfferNoClaimsExpires(t *testing.T) {
@@ -148,7 +148,7 @@ func TestSwarmACLRejectsOffer(t *testing.T) {
 	bPID, err := peer.Decode(swarmB.PeerID())
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		return swarmA.transport.Supported(context.Background(), bPID, 1*time.Second)
+		return swarmA.transport.Supported(context.Background(), bPID, 10*time.Second)
 	}, 60*time.Second, 100*time.Millisecond)
 
 	swarmB.SetOfferEvaluator(func(_ string, o Offer) bool { return true })

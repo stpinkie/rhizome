@@ -43,7 +43,8 @@ func NewRouteCommand() *cobra.Command {
 	}
 	cmd.Flags().Bool("sync", false, "Delegate synchronously instead of submitting an async task")
 	cmd.Flags().DurationVar(&wait, "wait", 0, "After submitting, long-poll for the result up to this duration")
-	cmd.Flags().DurationVar(&pickTimeout, "pick-timeout", 15*time.Second, "How long to wait for a suitable peer to appear")
+	cmd.Flags().
+		DurationVar(&pickTimeout, "pick-timeout", 15*time.Second, "How long to wait for a suitable peer to appear")
 	return cmd
 }
 
@@ -169,5 +170,10 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 		return
 	}
 
-	fmt.Printf("Peer: %s, task: %s. Check progress: rhizome mesh task status <peer-multiaddr> %s\n", usedPeer, taskID, taskID)
+	fmt.Printf(
+		"Peer: %s, task: %s. Check progress: rhizome mesh task status <peer-multiaddr> %s\n",
+		usedPeer,
+		taskID,
+		taskID,
+	)
 }

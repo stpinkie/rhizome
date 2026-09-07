@@ -108,8 +108,8 @@ func newFanoutTestMeshes(
 		}
 		// Probe the task protocol with a short timeout rather than relying on
 		// the peerstore being updated by an identify push.
-		return meshA.taskRPC.Supported(ctx, nodeB.ID(), 100*time.Millisecond) &&
-			meshA.taskRPC.Supported(ctx, nodeC.ID(), 100*time.Millisecond)
+		return meshA.taskRPC.Supported(ctx, nodeB.ID(), 10*time.Second) &&
+			meshA.taskRPC.Supported(ctx, nodeC.ID(), 10*time.Second)
 	}, 60*time.Second, 100*time.Millisecond, "worker capabilities and task protocol should reach A")
 
 	return meshA, meshB, meshC

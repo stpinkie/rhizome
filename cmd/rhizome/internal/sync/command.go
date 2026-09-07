@@ -134,7 +134,11 @@ func newSyncStatusCommand() *cobra.Command {
 			}
 
 			if syncStatus.LastSyncError != "" {
-				fmt.Printf("Last sync error: %s (%s)\n", syncStatus.LastSyncError, syncStatus.LastErrorTime.Format(time.RFC3339))
+				fmt.Printf(
+					"Last sync error: %s (%s)\n",
+					syncStatus.LastSyncError,
+					syncStatus.LastErrorTime.Format(time.RFC3339),
+				)
 			} else {
 				fmt.Println("Last sync error: none")
 			}

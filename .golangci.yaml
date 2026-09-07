@@ -10,7 +10,9 @@ linters:
     - dupword
     - err113
     - exhaustruct
+    - exhaustruct_v5
     - funcorder
+    - gomodguard
     - gochecknoglobals
     - gosmopolitan  # Project legitimately uses CJK text in tests (FTS5, token counting)
     - godot
@@ -20,6 +22,7 @@ linters:
     - noctx
     - noinlineerr
     - nonamedreturns
+    - recvcheck
     - tagliatelle
     - testpackage
     - varnamelen
@@ -48,6 +51,7 @@ linters:
     - lll
     - maintidx
     - mnd
+    - misspell
     - modernize
     - nestif
     - nilnil
@@ -81,6 +85,8 @@ linters:
       enable-all: true
       disable:
         - fieldalignment
+        - shadow
+        - inline
     lll:
       line-length: 120
       tab-width: 4

@@ -15,16 +15,24 @@ var (
 
 	// bearerTokenRe matches a "Bearer <token>" style credential, either as a header
 	// value or a bare token.
-	bearerTokenRe = regexp.MustCompile(`(?i)(\bbearer\s+|Authorization:\s*Bearer\s+)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+	bearerTokenRe = regexp.MustCompile(
+		`(?i)(\bbearer\s+|Authorization:\s*Bearer\s+)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`,
+	)
 
 	// apiKeyRe matches key=value or key: value style API keys.
-	apiKeyRe = regexp.MustCompile(`(?i)(\bapi[_-]?key\s*[:=]\s*)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+	apiKeyRe = regexp.MustCompile(
+		`(?i)(\bapi[_-]?key\s*[:=]\s*)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`,
+	)
 
 	// genericTokenRe matches generic "token" or "auth" key-value pairs.
-	genericTokenRe = regexp.MustCompile(`(?i)(\b(?:token|auth[_-]?token)\s*[:=]\s*)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+	genericTokenRe = regexp.MustCompile(
+		`(?i)(\b(?:token|auth[_-]?token)\s*[:=]\s*)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`,
+	)
 
 	// secretPrefixRe matches common secret prefixes (sk-, sk-or-v1-, rk-, etc).
-	secretPrefixRe = regexp.MustCompile(`(?i)(\b(?:sk|rk|pk|ek)-(?:or-[a-zA-Z0-9]+-)?)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`)
+	secretPrefixRe = regexp.MustCompile(
+		`(?i)(\b(?:sk|rk|pk|ek)-(?:or-[a-zA-Z0-9]+-)?)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`,
+	)
 )
 
 // maskSecrets replaces any embedded credentials in s with a redacted placeholder

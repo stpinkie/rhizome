@@ -279,7 +279,7 @@ func TestMeshSubmitRemoteTaskFailover(t *testing.T) {
 	ctx := context.Background()
 
 	runFunc := func(_ context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
-		return toolshared.NewToolResult("ok from " + string(req.CorrelationID)), nil
+		return toolshared.NewToolResult("ok from " + req.CorrelationID), nil
 	}
 	cfg := config.MeshConfig{
 		Enabled:          true,

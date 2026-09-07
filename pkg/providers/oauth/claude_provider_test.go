@@ -13,7 +13,7 @@ func TestClaudeProvider_ChatRoundTrip(t *testing.T) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		if r.Header.Get("X-API-Key") != "test-token" {
+		if r.Header.Get("X-Api-Key") != "test-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

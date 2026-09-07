@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -102,14 +101,6 @@ func waitFileContent(t *testing.T, path, want string) {
 		data, err := os.ReadFile(path)
 		return err == nil && string(data) == want
 	}, 30*time.Second, 100*time.Millisecond, "file %s never contained %q", path, want)
-}
-
-func waitFileContains(t *testing.T, path, substr string) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		data, err := os.ReadFile(path)
-		return err == nil && strings.Contains(string(data), substr)
-	}, 30*time.Second, 100*time.Millisecond, "file %s never contained %q", path, substr)
 }
 
 // waitSyncIdle waits until the syncer has no in-flight pulls, then double

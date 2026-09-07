@@ -148,7 +148,10 @@ func NewDaemonCommand() *cobra.Command {
 				defer rhizomeSwarm.Stop()
 				gateway.SetSwarm(rhizomeSwarm)
 			} else if cfg.Swarm.Enabled {
-				fmt.Fprintln(os.Stderr, "swarm.enabled is set but mesh.enabled is off; swarm requires the mesh trust layer")
+				fmt.Fprintln(
+					os.Stderr,
+					"swarm.enabled is set but mesh.enabled is off; swarm requires the mesh trust layer",
+				)
 			}
 
 			fmt.Printf("%s Rhizome daemon online\n", internal.Logo)

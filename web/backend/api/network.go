@@ -126,7 +126,11 @@ func (h *Handler) handleNetworkStatus(w http.ResponseWriter, r *http.Request) {
 	w.Write(output)
 }
 
-func (h *Handler) networkStatusFromGateway(ctx context.Context, query url.Values, timeout time.Duration) ([]byte, error) {
+func (h *Handler) networkStatusFromGateway(
+	ctx context.Context,
+	query url.Values,
+	timeout time.Duration,
+) ([]byte, error) {
 	if !h.gatewayAvailableForProxy() {
 		return nil, errors.New("gateway not available for proxy")
 	}
@@ -179,7 +183,11 @@ func (h *Handler) networkStatusFromGateway(ctx context.Context, query url.Values
 	return body, nil
 }
 
-func (h *Handler) networkStatusFromCLI(ctx context.Context, query map[string][]string, timeout time.Duration) ([]byte, error) {
+func (h *Handler) networkStatusFromCLI(
+	ctx context.Context,
+	query map[string][]string,
+	timeout time.Duration,
+) ([]byte, error) {
 	execPath := findRhizomeBinaryForNetwork()
 	if execPath == "" {
 		return nil, errors.New("rhizome binary not found")
@@ -530,7 +538,12 @@ func (h *Handler) removeSavedPeerFromConfig(peerID string) error {
 	return nil
 }
 
-func (h *Handler) savedPeersFromGateway(ctx context.Context, method string, query url.Values, timeout time.Duration) ([]byte, error) {
+func (h *Handler) savedPeersFromGateway(
+	ctx context.Context,
+	method string,
+	query url.Values,
+	timeout time.Duration,
+) ([]byte, error) {
 	if !h.gatewayAvailableForProxy() {
 		return nil, errors.New("gateway not available for proxy")
 	}
@@ -750,7 +763,13 @@ func (h *Handler) handleNetworkTasks(w http.ResponseWriter, r *http.Request) {
 
 var errDaemonRequired = errors.New("operation requires a running rhizome daemon")
 
-func (h *Handler) networkTasksFromGateway(ctx context.Context, method string, query url.Values, body io.Reader, timeout time.Duration) ([]byte, error) {
+func (h *Handler) networkTasksFromGateway(
+	ctx context.Context,
+	method string,
+	query url.Values,
+	body io.Reader,
+	timeout time.Duration,
+) ([]byte, error) {
 	gateway.mu.Lock()
 	pidData := gateway.pidData
 	gateway.mu.Unlock()

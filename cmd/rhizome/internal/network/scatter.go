@@ -64,8 +64,10 @@ func NewScatterCommand() *cobra.Command {
 	cmd.Flags().StringVar(&strategy, "strategy", "all", "Aggregation strategy: first, quorum, all")
 	cmd.Flags().IntVar(&k, "k", 0, "Quorum size for --strategy quorum (default: all submitted branches)")
 	cmd.Flags().StringVar(&model, "model", "", "Model override forwarded to the remote agent")
-	cmd.Flags().DurationVar(&wait, "wait", 60*time.Second, "Per-poll long-poll duration while waiting for branch results")
-	cmd.Flags().DurationVar(&pickTimeout, "pick-timeout", 15*time.Second, "How long to wait for capable peers to appear")
+	cmd.Flags().
+		DurationVar(&wait, "wait", 60*time.Second, "Per-poll long-poll duration while waiting for branch results")
+	cmd.Flags().
+		DurationVar(&pickTimeout, "pick-timeout", 15*time.Second, "How long to wait for capable peers to appear")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the fan-out result as JSON")
 	return cmd
 }

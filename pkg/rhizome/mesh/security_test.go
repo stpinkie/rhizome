@@ -65,7 +65,13 @@ func newSecurityMeshFixture(t *testing.T, cfgB config.MeshConfig) *securityMeshF
 		return toolshared.NewToolResult("ok"), nil
 	}
 
-	meshA := NewMesh(nodeA, nil, idA, config.MeshConfig{Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second}, runFunc)
+	meshA := NewMesh(
+		nodeA,
+		nil,
+		idA,
+		config.MeshConfig{Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second},
+		runFunc,
+	)
 	require.NoError(t, meshA.Start(ctx))
 	t.Cleanup(func() { meshA.Stop() })
 

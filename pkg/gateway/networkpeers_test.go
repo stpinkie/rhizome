@@ -204,7 +204,11 @@ func TestNetworkSavedPeersHandlerUntrustMissingPeer(t *testing.T) {
 	h := newNetworkSavedPeersHandler(nil, "secret-token", configPath)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/network/saved-peers?action=untrust&peer=12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv", nil)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/network/saved-peers?action=untrust&peer=12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv",
+		nil,
+	)
 	req.Header.Set("Authorization", "Bearer secret-token")
 	h.ServeHTTP(rec, req)
 
@@ -223,7 +227,11 @@ func TestNetworkSavedPeersHandlerRemoveMissingPeer(t *testing.T) {
 	h := newNetworkSavedPeersHandler(nil, "secret-token", configPath)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/network/saved-peers?peer=12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv", nil)
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/network/saved-peers?peer=12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv",
+		nil,
+	)
 	req.Header.Set("Authorization", "Bearer secret-token")
 	h.ServeHTTP(rec, req)
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stpinkie/rhizome/pkg/config"
@@ -103,5 +104,5 @@ func TestNewRemoveCommandReportsMissingPeer(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return bytes.Contains([]byte(s), []byte(substr))
+	return strings.Contains(s, substr)
 }

@@ -74,7 +74,13 @@ func NewProviderWithTokenSource(
 	return newProvider(apiKey, tokenSource, apiBase, userAgent, timeoutSeconds, opts...)
 }
 
-func newProvider(apiKey string, tokenSource func() (string, error), apiBase, userAgent string, timeoutSeconds int, opts ...Option) *Provider {
+func newProvider(
+	apiKey string,
+	tokenSource func() (string, error),
+	apiBase, userAgent string,
+	timeoutSeconds int,
+	opts ...Option,
+) *Provider {
 	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, true)
 	timeout := config.Global().HTTPRequestTimeout()
 	if timeoutSeconds > 0 {

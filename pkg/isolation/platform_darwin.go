@@ -14,9 +14,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
-var (
-	darwinPendingResources sync.Map
-)
+var darwinPendingResources sync.Map
 
 type darwinProcessResources struct {
 	profilePath string
@@ -194,13 +192,22 @@ func buildDarwinSandboxProfile(rules []AccessRule, root string, userEnv UserEnv)
 		b.WriteString(fmt.Sprintf("(allow file-read* file-write* file-read-metadata (subpath %q))\n", userEnv.Library))
 	}
 	if userEnv.LibraryApplicationSupport != "" {
-		b.WriteString(fmt.Sprintf("(allow file-read* file-write* file-read-metadata (subpath %q))\n", userEnv.LibraryApplicationSupport))
+		b.WriteString(
+			fmt.Sprintf(
+				"(allow file-read* file-write* file-read-metadata (subpath %q))\n",
+				userEnv.LibraryApplicationSupport,
+			),
+		)
 	}
 	if userEnv.LibraryCaches != "" {
-		b.WriteString(fmt.Sprintf("(allow file-read* file-write* file-read-metadata (subpath %q))\n", userEnv.LibraryCaches))
+		b.WriteString(
+			fmt.Sprintf("(allow file-read* file-write* file-read-metadata (subpath %q))\n", userEnv.LibraryCaches),
+		)
 	}
 	if userEnv.LibraryLogs != "" {
-		b.WriteString(fmt.Sprintf("(allow file-read* file-write* file-read-metadata (subpath %q))\n", userEnv.LibraryLogs))
+		b.WriteString(
+			fmt.Sprintf("(allow file-read* file-write* file-read-metadata (subpath %q))\n", userEnv.LibraryLogs),
+		)
 	}
 
 	b.WriteString("\n; configured and implicit access rules\n")

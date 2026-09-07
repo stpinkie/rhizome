@@ -435,6 +435,7 @@ func (p *Pipeline) CallLLM(
 			}
 			originalHistoryCount := len(exec.history)
 			var fit bool
+			//nolint:prealloc // trimHistoryToFitContextWindow returns a fresh slice.
 			var trimmedStableHistory []providers.Message
 			trimmedStableHistory, exec.callMessages, fit = trimHistoryToFitContextWindow(
 				stableHistory,

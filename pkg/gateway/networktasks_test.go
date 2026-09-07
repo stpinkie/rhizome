@@ -84,11 +84,29 @@ func TestNetworkTasksHandlerBadRequests(t *testing.T) {
 	}{
 		{"missing peer", http.MethodGet, "/network/tasks", nil, http.StatusBadRequest},
 		{"invalid peer", http.MethodGet, "/network/tasks?peer=not-a-peer", nil, http.StatusBadRequest},
-		{"bad wait", http.MethodGet, "/network/tasks?peer=12D3KooWGRcjvRUBXU3bJvCKkQvR5ME7zByZNddT5d5nhCFoHVDx&task=t&wait=nope", nil, http.StatusBadRequest},
+		{
+			"bad wait",
+			http.MethodGet,
+			"/network/tasks?peer=12D3KooWGRcjvRUBXU3bJvCKkQvR5ME7zByZNddT5d5nhCFoHVDx&task=t&wait=nope",
+			nil,
+			http.StatusBadRequest,
+		},
 		{"bad action", http.MethodPost, "/network/tasks?action=explode", nil, http.StatusBadRequest},
-		{"empty submit", http.MethodPost, "/network/tasks", strings.NewReader(`{"peer":"x","task":""}`), http.StatusBadRequest},
+		{
+			"empty submit",
+			http.MethodPost,
+			"/network/tasks",
+			strings.NewReader(`{"peer":"x","task":""}`),
+			http.StatusBadRequest,
+		},
 		{"bad submit json", http.MethodPost, "/network/tasks", strings.NewReader(`{`), http.StatusBadRequest},
-		{"cancel missing task", http.MethodPost, "/network/tasks?action=cancel&peer=12D3KooWGRcjvRUBXU3bJvCKkQvR5ME7zByZNddT5d5nhCFoHVDx", nil, http.StatusBadRequest},
+		{
+			"cancel missing task",
+			http.MethodPost,
+			"/network/tasks?action=cancel&peer=12D3KooWGRcjvRUBXU3bJvCKkQvR5ME7zByZNddT5d5nhCFoHVDx",
+			nil,
+			http.StatusBadRequest,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -103,7 +121,10 @@ func TestNetworkTasksHandlerBadRequests(t *testing.T) {
 
 // newTaskPeerFixture builds two started meshes: a daemon mesh (no runFunc) and
 // a peer mesh that accepts spawn and runs runFunc.
-func newTaskPeerFixture(t *testing.T, runFunc func(context.Context, agentrpc.Request) (*toolshared.ToolResult, error)) (*mesh.Mesh, *rnet.Node, func()) {
+func newTaskPeerFixture(
+	t *testing.T,
+	runFunc func(context.Context, agentrpc.Request) (*toolshared.ToolResult, error),
+) (*mesh.Mesh, *rnet.Node, func()) {
 	t.Helper()
 	ctx := context.Background()
 

@@ -274,7 +274,16 @@ func RunWithMesh(
 
 	logger.InfoCF("agent", "Agent initialized", startupStatus.logFields)
 
-	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, homePath, configPath, rhizomeMesh, listenResult)
+	runningServices, err := setupAndStartServices(
+		cfg,
+		agentLoop,
+		msgBus,
+		pidData.Token,
+		homePath,
+		configPath,
+		rhizomeMesh,
+		listenResult,
+	)
 	if err != nil {
 		return err
 	}

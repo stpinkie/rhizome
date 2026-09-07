@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -95,9 +94,4 @@ func commandContainsPromptInjection(command string) (string, bool) {
 	}
 
 	return "", false
-}
-
-// ssrferrorf formats a guard error message for a blocked SSRF target.
-func ssrferrorf(target string) string {
-	return fmt.Sprintf("Command blocked by safety guard (SSRF target: %s)", target)
 }

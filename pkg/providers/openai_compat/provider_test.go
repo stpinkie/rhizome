@@ -1258,7 +1258,12 @@ func TestNormalizeModel_UsesAPIBase(t *testing.T) {
 		{"openrouter", "openrouter/auto", "https://openrouter.ai/api/v1", "openrouter/auto"},
 		{"vivgrid", "vivgrid/managed", "https://api.vivgrid.com/v1", "managed"},
 		{"vivgrid", "vivgrid/auto", "https://api.vivgrid.com/v1", "auto"},
-		{"siliconflow", "siliconflow/deepseek-ai/DeepSeek-V3", "https://api.siliconflow.cn/v1", "deepseek-ai/DeepSeek-V3"},
+		{
+			"siliconflow",
+			"siliconflow/deepseek-ai/DeepSeek-V3",
+			"https://api.siliconflow.cn/v1",
+			"deepseek-ai/DeepSeek-V3",
+		},
 		{"novita", "novita/deepseek/deepseek-v3.2", "https://api.novita.ai/openai", "deepseek/deepseek-v3.2"},
 		// Embedded upstream prefix on OpenRouter must not be stripped even
 		// though the provider is configured with strip=true.
@@ -1270,7 +1275,14 @@ func TestNormalizeModel_UsesAPIBase(t *testing.T) {
 	for _, tc := range cases {
 		p := NewProvider("", tc.apiBase, "", WithStripModelPrefix(true), WithProviderName(tc.providerName))
 		if got := p.normalizeModel(tc.model); got != tc.want {
-			t.Fatalf("normalizeModel(%q, %q, provider=%q) = %q, want %q", tc.model, tc.apiBase, tc.providerName, got, tc.want)
+			t.Fatalf(
+				"normalizeModel(%q, %q, provider=%q) = %q, want %q",
+				tc.model,
+				tc.apiBase,
+				tc.providerName,
+				got,
+				tc.want,
+			)
 		}
 	}
 

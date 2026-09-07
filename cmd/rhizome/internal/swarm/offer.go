@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,7 +29,7 @@ func daemonBaseURL() (base, token string) {
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
 	}
-	return fmt.Sprintf("http://%s:%d", host, data.Port), data.Token
+	return fmt.Sprintf("http://%s", net.JoinHostPort(host, strconv.Itoa(data.Port))), data.Token
 }
 
 // daemonRequest performs an authenticated request against the daemon's
@@ -91,7 +93,11 @@ func newOfferCommand() *cobra.Command {
 			data, code, err := daemonRequest(http.MethodPost,
 				"/network/swarms/"+swarmID+"/offers", payload, 15*time.Second)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v — the swarm offer queue requires a running daemon (rhizome daemon)\n", err)
+				fmt.Fprintf(
+					os.Stderr,
+					"Error: %v — the swarm offer queue requires a running daemon (rhizome daemon)\n",
+					err,
+				)
 				os.Exit(1)
 			}
 			if code != http.StatusOK {

@@ -2450,9 +2450,9 @@ func TestWebTool_WebSearch_AllowsWhitelistedPrivateBaseURL(t *testing.T) {
 	host = strings.Split(host, ":")[0]
 
 	tool, err := NewWebSearchTool(WebSearchToolOptions{
-		SearXNGEnabled:    true,
-		SearXNGBaseURL:    server.URL,
-		SearXNGMaxResults: 5,
+		SearXNGEnabled:       true,
+		SearXNGBaseURL:       server.URL,
+		SearXNGMaxResults:    5,
 		PrivateHostWhitelist: []string{host},
 	})
 	if err != nil {

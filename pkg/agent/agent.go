@@ -319,7 +319,6 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			}(msg, placeholder)
 
 			// Inbound media is released by the worker goroutine after the turn completes.
-
 		}
 	}
 }

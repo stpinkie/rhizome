@@ -496,7 +496,11 @@ func (m *Mesh) SubmitRemoteTask(ctx context.Context, preferred peer.ID, call Rem
 // SubmitRemoteTaskWithPeer is like SubmitRemoteTask but also returns the peer
 // that accepted the task. It is useful when the caller needs to poll or cancel
 // the task and failover may have routed it to a different peer.
-func (m *Mesh) SubmitRemoteTaskWithPeer(ctx context.Context, preferred peer.ID, call RemoteCall) (peer.ID, string, error) {
+func (m *Mesh) SubmitRemoteTaskWithPeer(
+	ctx context.Context,
+	preferred peer.ID,
+	call RemoteCall,
+) (peer.ID, string, error) {
 	op := remoteCallOp(call)
 
 	candidates := m.submitCandidates(preferred, call.TargetAgentID, op)
@@ -681,7 +685,12 @@ func (m *Mesh) RemoteTaskStatus(ctx context.Context, pid peer.ID, taskID string)
 }
 
 // RemoteTaskResult fetches a task result, long-polling up to wait.
-func (m *Mesh) RemoteTaskResult(ctx context.Context, pid peer.ID, taskID string, wait time.Duration) (agenttask.Response, error) {
+func (m *Mesh) RemoteTaskResult(
+	ctx context.Context,
+	pid peer.ID,
+	taskID string,
+	wait time.Duration,
+) (agenttask.Response, error) {
 	return m.taskCall(ctx, pid, agenttask.Request{Op: agenttask.OpResult, TaskID: taskID, Wait: wait})
 }
 

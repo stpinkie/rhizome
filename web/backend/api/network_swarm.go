@@ -91,7 +91,12 @@ func (h *Handler) handleNetworkSwarms(w http.ResponseWriter, r *http.Request) {
 
 // networkSwarmsFromGateway forwards the request to the daemon's
 // /network/swarms endpoint, preserving the sub-path (/<id>/members etc.).
-func (h *Handler) networkSwarmsFromGateway(ctx context.Context, r *http.Request, body io.Reader, timeout time.Duration) ([]byte, error) {
+func (h *Handler) networkSwarmsFromGateway(
+	ctx context.Context,
+	r *http.Request,
+	body io.Reader,
+	timeout time.Duration,
+) ([]byte, error) {
 	gateway.mu.Lock()
 	pidData := gateway.pidData
 	gateway.mu.Unlock()

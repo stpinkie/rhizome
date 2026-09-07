@@ -190,7 +190,11 @@ func TestShellTool_SSRF_AllowsPublicDomainsOnWindows(t *testing.T) {
 
 		if result.IsError && (strings.Contains(result.ForLLM, "path outside working dir") ||
 			strings.Contains(result.ForLLM, "SSRF target")) {
-			t.Errorf("public URL command should not be blocked by workspace or SSRF guard: %s\n  error: %s", cmd, result.ForLLM)
+			t.Errorf(
+				"public URL command should not be blocked by workspace or SSRF guard: %s\n  error: %s",
+				cmd,
+				result.ForLLM,
+			)
 		}
 	}
 }

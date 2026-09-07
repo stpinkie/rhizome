@@ -467,7 +467,8 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	pw.written += int64(n)
 	now := time.Now()
-	if pw.last.IsZero() || now.Sub(pw.last) >= config.Global().UpdaterProgressTick() || (pw.total > 0 && pw.written == pw.total) {
+	if pw.last.IsZero() || now.Sub(pw.last) >= config.Global().UpdaterProgressTick() ||
+		(pw.total > 0 && pw.written == pw.total) {
 		pw.print()
 		pw.last = now
 	}

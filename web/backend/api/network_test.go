@@ -263,7 +263,11 @@ func TestNetworkStatusTrustAppendsCLIArg(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/network/status?bootstrap=/ip4/127.0.0.1/tcp/4001/p2p/12D3&trust=true", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/network/status?bootstrap=/ip4/127.0.0.1/tcp/4001/p2p/12D3&trust=true",
+		nil,
+	)
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {

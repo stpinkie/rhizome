@@ -564,7 +564,12 @@ func (s *Syncer) runAntiEntropy(ctx context.Context) {
 
 // applyPackfileAndMergeLocked decodes a packfile and fast-forwards or merges.
 // It must be called with s.mu held.
-func (s *Syncer) applyPackfileAndMergeLocked(ctx context.Context, pack []byte, remoteHead plumbing.Hash, pid peer.ID) error {
+func (s *Syncer) applyPackfileAndMergeLocked(
+	ctx context.Context,
+	pack []byte,
+	remoteHead plumbing.Hash,
+	pid peer.ID,
+) error {
 	if _, err := s.commitAndAnnounceLocked(ctx); err != nil {
 		s.setLastSyncError(fmt.Errorf("commit local work: %w", err), pid)
 		logger.WarnCF("sync", "skipping merge: failed to commit local changes", map[string]any{

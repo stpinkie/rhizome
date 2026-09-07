@@ -44,11 +44,11 @@ func BuildSavedPeersResponse(m *Mesh, cfg *config.Config, includeStatus bool) Sa
 				continue
 			}
 			p.Connected = m.IsConnected(pid)
-			if cap, ok := m.PeerCapabilities(pid); ok {
+			if capability, ok := m.PeerCapabilities(pid); ok {
 				p.Capability = PeerCapability{
-					Models: cap.Models,
-					Skills: cap.Skills,
-					Agents: cap.Agents,
+					Models: capability.Models,
+					Skills: capability.Skills,
+					Agents: capability.Agents,
 				}
 			}
 		}
@@ -67,11 +67,11 @@ func BuildSavedPeerForPID(m *Mesh, cfg *config.Config, pid peer.ID, includeStatu
 		if p.PeerID == id {
 			if includeStatus && m != nil {
 				p.Connected = m.IsConnected(pid)
-				if cap, ok := m.PeerCapabilities(pid); ok {
+				if capability, ok := m.PeerCapabilities(pid); ok {
 					p.Capability = PeerCapability{
-						Models: cap.Models,
-						Skills: cap.Skills,
-						Agents: cap.Agents,
+						Models: capability.Models,
+						Skills: capability.Skills,
+						Agents: capability.Agents,
 					}
 				}
 			}

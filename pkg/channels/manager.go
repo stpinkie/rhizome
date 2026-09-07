@@ -1610,7 +1610,10 @@ func (m *Manager) sendWithRetry(
 		}
 
 		// ErrTemporary or unknown error — exponential backoff
-		backoff := min(time.Duration(float64(config.Global().ChannelStreamMinInterval())*math.Pow(2, float64(attempt))), config.Global().ChannelMaxBackoff())
+		backoff := min(
+			time.Duration(float64(config.Global().ChannelStreamMinInterval())*math.Pow(2, float64(attempt))),
+			config.Global().ChannelMaxBackoff(),
+		)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -1805,7 +1808,10 @@ func (m *Manager) sendMediaWithRetry(
 		}
 
 		// ErrTemporary or unknown error — exponential backoff
-		backoff := min(time.Duration(float64(config.Global().ChannelStreamMinInterval())*math.Pow(2, float64(attempt))), config.Global().ChannelMaxBackoff())
+		backoff := min(
+			time.Duration(float64(config.Global().ChannelStreamMinInterval())*math.Pow(2, float64(attempt))),
+			config.Global().ChannelMaxBackoff(),
+		)
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -1865,7 +1871,8 @@ func (m *Manager) runTTLJanitor(ctx context.Context) {
 				return true
 			})
 			m.streamAuxiliaryTombstones.Range(func(key, value any) bool {
-				if createdAt, ok := value.(time.Time); !ok || now.Sub(createdAt) > config.Global().ChannelMessageCacheTTL() {
+				if createdAt, ok := value.(time.Time); !ok ||
+					now.Sub(createdAt) > config.Global().ChannelMessageCacheTTL() {
 					m.streamAuxiliaryTombstones.Delete(key)
 				}
 				return true

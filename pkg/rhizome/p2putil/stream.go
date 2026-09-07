@@ -19,7 +19,13 @@ import (
 // has not finished registering during startup), it retries until the timeout
 // expires. This avoids the identify/peerstore race where the local peerstore is
 // not yet updated with the remote's protocol set.
-func OpenProtocolStream(ctx context.Context, h host.Host, pid peer.ID, proto protocol.ID, timeout time.Duration) (network.Stream, error) {
+func OpenProtocolStream(
+	ctx context.Context,
+	h host.Host,
+	pid peer.ID,
+	proto protocol.ID,
+	timeout time.Duration,
+) (network.Stream, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {

@@ -1723,7 +1723,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("brave") {
 			return nil, 0, nil
 		}
-		if err := opts.validateSearchProviderBaseURL("https://api.search.brave.com/res/v1/web/search?q=x&count=1"); err != nil {
+		if err := opts.validateSearchProviderBaseURL(
+			"https://api.search.brave.com/res/v1/web/search?q=x&count=1",
+		); err != nil {
 			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())
@@ -1743,7 +1745,9 @@ func (opts WebSearchToolOptions) providerByName(name string) (SearchProvider, in
 		if !opts.providerReady("gemini") {
 			return nil, 0, nil
 		}
-		if err := opts.validateSearchProviderBaseURL("https://generativelanguage.googleapis.com/v1beta/models/x:generateContent"); err != nil {
+		if err := opts.validateSearchProviderBaseURL(
+			"https://generativelanguage.googleapis.com/v1beta/models/x:generateContent",
+		); err != nil {
 			return nil, 0, err
 		}
 		client, err := utils.CreateHTTPClient(opts.Proxy, config.Global().ToolWebSearchTimeout())

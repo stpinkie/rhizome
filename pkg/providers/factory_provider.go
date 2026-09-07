@@ -160,7 +160,11 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 	}
 }
 
-func createOpenAICompatibleProvider(cfg *config.ModelConfig, option ModelProviderOption, modelID, userAgent string) (LLMProvider, string, error) {
+func createOpenAICompatibleProvider(
+	cfg *config.ModelConfig,
+	option ModelProviderOption,
+	modelID, userAgent string,
+) (LLMProvider, string, error) {
 	if cfg.APIKey() == "" && cfg.APIBase == "" && !option.EmptyAPIKeyAllowed {
 		return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", option.ID)
 	}
@@ -190,7 +194,11 @@ func createOpenAICompatibleProvider(cfg *config.ModelConfig, option ModelProvide
 	return finalizeProviderFromConfig(provider, modelID, cfg)
 }
 
-func createAnthropicMessagesProvider(cfg *config.ModelConfig, option ModelProviderOption, modelID, userAgent string) (LLMProvider, string, error) {
+func createAnthropicMessagesProvider(
+	cfg *config.ModelConfig,
+	option ModelProviderOption,
+	modelID, userAgent string,
+) (LLMProvider, string, error) {
 	if cfg.APIKey() == "" {
 		return nil, "", fmt.Errorf("api_key is required for %q protocol (model: %s)", option.ID, cfg.Model)
 	}
@@ -215,7 +223,11 @@ func createAnthropicMessagesProvider(cfg *config.ModelConfig, option ModelProvid
 	return finalizeProviderFromConfig(provider, modelID, cfg)
 }
 
-func createGeminiProvider(cfg *config.ModelConfig, option ModelProviderOption, modelID, userAgent string) (LLMProvider, string, error) {
+func createGeminiProvider(
+	cfg *config.ModelConfig,
+	option ModelProviderOption,
+	modelID, userAgent string,
+) (LLMProvider, string, error) {
 	if cfg.APIKey() == "" && cfg.APIBase == "" {
 		return nil, "", fmt.Errorf("api_key or api_base is required for gemini protocol (model: %s)", cfg.Model)
 	}

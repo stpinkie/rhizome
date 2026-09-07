@@ -1369,12 +1369,12 @@ func (c *CapsTransport) handleQuery(s libnet.Stream, r *bufio.Reader) {
 		c.onQueried(remote, true)
 	}
 
-	var cap Capability
+	var capability Capability
 	if c.getCapability != nil {
-		cap = c.getCapability()
+		capability = c.getCapability()
 	}
 
-	data, err := json.Marshal(cap)
+	data, err := json.Marshal(capability)
 	if err != nil {
 		return
 	}
