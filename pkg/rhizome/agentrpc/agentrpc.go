@@ -120,29 +120,6 @@ func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Dur
 	return true
 }
 
-// waitForPeerProtocol polls until the given peer advertises support for the
-// agent RPC protocol. It returns false if the context is canceled or the
-// timeout expires.
-func (t *Transport) waitForPeerProtocol(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		for _, p := range t.host.Network().Peers() {
-			if p == pid {
-				protos, err := t.host.Peerstore().SupportsProtocols(pid, ProtocolID)
-				if err == nil && len(protos) > 0 {
-					return true
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
-	return false
-}
-
 // Call opens a stream to a peer, sends a request, and returns the response.
 func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Response, error) {
 	if !t.Supported(ctx, pid, 5*time.Second) {

@@ -225,7 +225,7 @@ func TestWaitForPeerProtocolUnsupported(t *testing.T) {
 
 	// hB never registered the protocol, so detection fails fast with a short
 	// timeout instead of hanging for the Call default.
-	assert.False(t, tr.waitForPeerProtocol(ctx, hB.ID(), 300*time.Millisecond))
+	assert.False(t, tr.Supported(ctx, hB.ID(), 300*time.Millisecond))
 }
 
 func TestHandleStreamIgnoresUnknownFrameType(t *testing.T) {
@@ -239,7 +239,7 @@ func TestHandleStreamIgnoresUnknownFrameType(t *testing.T) {
 	// Wait until B advertises the protocol, then open a stream and send a
 	// frame with a type the server does not handle.
 	tr := NewTransport(hA, handler)
-	require.True(t, tr.waitForPeerProtocol(ctx, hB.ID(), 5*time.Second))
+	require.True(t, tr.Supported(ctx, hB.ID(), 5*time.Second))
 
 	s, err := hA.NewStream(ctx, hB.ID(), ProtocolID)
 	require.NoError(t, err)
@@ -262,7 +262,7 @@ func TestHandleStreamIgnoresMalformedJSON(t *testing.T) {
 	startServer(t, ctx, hB, handler)
 
 	tr := NewTransport(hA, handler)
-	require.True(t, tr.waitForPeerProtocol(ctx, hB.ID(), 5*time.Second))
+	require.True(t, tr.Supported(ctx, hB.ID(), 5*time.Second))
 
 	s, err := hA.NewStream(ctx, hB.ID(), ProtocolID)
 	require.NoError(t, err)

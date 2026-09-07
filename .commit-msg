@@ -1,0 +1,9 @@
+p2p: remove obsolete waitForPeerProtocol helpers
+
+The peerstore-polling waitForPeerProtocol methods are no longer used by
+production code; the transports now use p2putil.OpenProtocolStream probes
+and host.NewStream. Remove the unused methods from agentrpc and agenttask
+and switch agentrpc tests to the Supported probe.
+
+Generated with [Devin](https://devin.ai)
+Co-Authored-By: Devin <158243242+devin-ai-integration[bot]@users.noreply.github.com>
