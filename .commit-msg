@@ -1,0 +1,7 @@
+docs: update todo and v0.7.1 release notes for CI/test hardening
+
+- Mark the mesh/swarm/sync test flakiness fix complete in .todo.md.
+- Record the p2putil protocol-probe approach in v0.7.1 release notes.
+
+Generated with [Devin](https://devin.ai)
+Co-Authored-By: Devin <158243242+devin-ai-integration[bot]@users.noreply.github.com>
