@@ -51,6 +51,10 @@ func NewTrustCommand() *cobra.Command {
 		Short: "Add a peer to the trusted list",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			if err := internal.ValidatePeerID(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			mutateTrustedPeers(args[0], true)
 		},
 	}
@@ -62,6 +66,10 @@ func NewUntrustCommand() *cobra.Command {
 		Short: "Remove a peer from the trusted list",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			if err := internal.ValidatePeerID(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			mutateTrustedPeers(args[0], false)
 		},
 	}
@@ -113,7 +121,15 @@ func NewDelegateCommand() *cobra.Command {
 		Args:  cobra.MinimumNArgs(3),
 		Run: func(cmd *cobra.Command, args []string) {
 			maddr := args[0]
-			agentID := args[1]
+			if err := internal.ValidateMultiaddrWithPeerID(maddr); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			agentID, err := internal.ValidateAgentID(args[1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := ""
 			if len(args) > 2 {
 				for i, a := range args[2:] {
@@ -137,7 +153,15 @@ func NewSpawnCommand() *cobra.Command {
 		Args:  cobra.MinimumNArgs(3),
 		Run: func(cmd *cobra.Command, args []string) {
 			maddr := args[0]
-			agentID := args[1]
+			if err := internal.ValidateMultiaddrWithPeerID(maddr); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			agentID, err := internal.ValidateAgentID(args[1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := ""
 			if len(args) > 2 {
 				for i, a := range args[2:] {

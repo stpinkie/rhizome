@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 )
 
 func newRunCommand() *cobra.Command {
@@ -24,10 +26,20 @@ func newRunCommand() *cobra.Command {
 			"winning claimants' results, and returns a synthesized summary.",
 		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			swarmID, goal := args[0], args[1]
+			swarmID := args[0]
+			if err := internal.ValidateSwarmID(swarmID); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			validatedAgentID, err := internal.ValidateAgentID(agentID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			goal := args[1]
 			payload, _ := json.Marshal(map[string]any{
 				"goal":     goal,
-				"agent_id": agentID,
+				"agent_id": validatedAgentID,
 			})
 			data, code, err := daemonRequest(http.MethodPost,
 				"/network/swarms/"+swarmID+"/run", payload, timeout+30*time.Second)

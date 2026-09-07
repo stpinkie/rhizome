@@ -32,7 +32,11 @@ func NewRouteCommand() *cobra.Command {
 			"direct connections and least-loaded peers, then dispatch the task.",
 		Args: cobra.MinimumNArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			agentID := args[0]
+			agentID, err := internal.ValidateAgentID(args[0])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := strings.Join(args[1:], " ")
 			runRoute(cmd, agentID, task, syncCall, wait, pickTimeout)
 		},

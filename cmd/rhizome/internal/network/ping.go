@@ -20,6 +20,10 @@ func NewPingCommand() *cobra.Command {
 		Short: "Ping a Rhizome peer by multiaddr",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			if err := internal.ValidateMultiaddrWithPeerID(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			home := config.GetHome()
 			identityDir := filepath.Join(home, "identity")
 

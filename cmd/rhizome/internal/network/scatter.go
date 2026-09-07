@@ -38,7 +38,24 @@ func NewScatterCommand() *cobra.Command {
 			"waits for every branch.",
 		Args: cobra.MinimumNArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			agentID := args[0]
+			agentID, err := internal.ValidateAgentID(args[0])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if n < 0 {
+				fmt.Fprintf(os.Stderr, "Error: --n must be >= 0\n")
+				os.Exit(1)
+			}
+			if k < 0 {
+				fmt.Fprintf(os.Stderr, "Error: --k must be >= 0\n")
+				os.Exit(1)
+			}
+			strategy, err = internal.ValidateScatterStrategy(strategy)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := strings.Join(args[1:], " ")
 			runScatter(cmd, agentID, task, model, strategy, n, k, wait, pickTimeout, asJSON)
 		},

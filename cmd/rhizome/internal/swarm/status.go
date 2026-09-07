@@ -88,6 +88,10 @@ func newMembersCommand() *cobra.Command {
 		Short: "Show the saved member roster for a swarm",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			if err := internal.ValidateSwarmID(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			view := loadPersisted()
 			sw, ok := view.Swarms[args[0]]
 			if !ok {

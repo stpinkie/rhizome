@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 )
 
@@ -27,6 +28,7 @@ func NewTaskCommand() *cobra.Command {
 		Short: "Show the status of a remote task",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
+			mustValidateTaskPeerArgs(args[0], args[1])
 			runTaskOp(cmd, args[0], args[1], "status", 0)
 		},
 	}
@@ -36,6 +38,7 @@ func NewTaskCommand() *cobra.Command {
 		Short: "Fetch the result of a remote task (long-polls with --wait)",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
+			mustValidateTaskPeerArgs(args[0], args[1])
 			wait, _ := cmd.Flags().GetDuration("wait")
 			runTaskOp(cmd, args[0], args[1], "result", wait)
 		},
@@ -47,6 +50,7 @@ func NewTaskCommand() *cobra.Command {
 		Short: "Cancel a running remote task",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
+			mustValidateTaskPeerArgs(args[0], args[1])
 			runTaskOp(cmd, args[0], args[1], "cancel", 0)
 		},
 	}
@@ -56,6 +60,10 @@ func NewTaskCommand() *cobra.Command {
 		Short: "List tasks this node has submitted to a peer",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			if err := internal.ValidateMultiaddrWithPeerID(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			runTaskOp(cmd, args[0], "", "list", 0)
 		},
 	}
@@ -66,6 +74,17 @@ func NewTaskCommand() *cobra.Command {
 		cmd.AddCommand(sub)
 	}
 	return cmd
+}
+
+func mustValidateTaskPeerArgs(maddrStr, taskID string) {
+	if err := internal.ValidateMultiaddrWithPeerID(maddrStr); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := internal.ValidateTaskID(taskID); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runTaskOp(cmd *cobra.Command, maddrStr, taskID, op string, wait time.Duration) {

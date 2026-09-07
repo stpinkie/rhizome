@@ -70,7 +70,17 @@ func newOfferCommand() *cobra.Command {
 		Short: "Offer a task to a swarm's work queue (daemon required)",
 		Args:  cobra.ExactArgs(3),
 		Run: func(cmd *cobra.Command, args []string) {
-			swarmID, agentID, task := args[0], args[1], args[2]
+			swarmID := args[0]
+			if err := internal.ValidateSwarmID(swarmID); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			agentID, err := internal.ValidateAgentID(args[1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			task := args[2]
 
 			payload, _ := json.Marshal(map[string]any{
 				"agent_id": agentID,
@@ -165,6 +175,10 @@ func newOffersCommand() *cobra.Command {
 		Short: "List tracked offers for a swarm (daemon required)",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			if err := internal.ValidateSwarmID(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			data, code, err := daemonRequest(http.MethodGet,
 				"/network/swarms/"+args[0]+"/offers", nil, 10*time.Second)
 			if err != nil {

@@ -221,6 +221,9 @@ func newSyncPullCommand() *cobra.Command {
 		Short: "Pull and merge from a peer",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if err := internal.ValidateMultiaddrWithPeerID(args[0]); err != nil {
+				return err
+			}
 			return withTemporaryNode(func(ctx context.Context, node *network.Node, syncer *rsync.Syncer) error {
 				if err := node.Connect(ctx, args[0]); err != nil {
 					return fmt.Errorf("connect: %w", err)
@@ -243,6 +246,9 @@ func newSyncPushCommand() *cobra.Command {
 		Short: "Commit and push to a peer",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if err := internal.ValidateMultiaddrWithPeerID(args[0]); err != nil {
+				return err
+			}
 			return withTemporaryNode(func(ctx context.Context, node *network.Node, syncer *rsync.Syncer) error {
 				if err := node.Connect(ctx, args[0]); err != nil {
 					return fmt.Errorf("connect: %w", err)
