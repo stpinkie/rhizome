@@ -1172,6 +1172,14 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		}
 	}
 
+	if rawURL, blocked := commandContainsBlockedSSRF(command); blocked {
+		return fmt.Sprintf("Command blocked by safety guard (SSRF target: %s)", rawURL)
+	}
+
+	if match, blocked := commandContainsPromptInjection(command); blocked {
+		return fmt.Sprintf("Command blocked by safety guard (prompt-injection pattern: %s)", match)
+	}
+
 	if t.restrictToWorkspace {
 		// Block path traversal patterns including .../.../ variants
 		if regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`).MatchString(cmd) {
