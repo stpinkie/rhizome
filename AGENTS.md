@@ -13,6 +13,13 @@ go test -tags goolm,stdjson ./...
 ```
 
 - Some packages (e.g. `maunium.net/go/mautrix/crypto/libolm`) require CGO unless the `goolm` build tag is set. The `stdjson` tag selects the standard `encoding/json` fallback.
+- Lint with `make lint` (golangci-lint with the build tags + `scripts/lint-docs.sh`), or directly:
+
+```powershell
+golangci-lint run --build-tags goolm,stdjson ./...
+```
+
+Use golangci-lint v2.13.2 (the version pinned in `.github/workflows/pr.yml`); older releases do not know linters such as `exhaustruct_v5` referenced in `.golangci.yaml`.
 - Windows-specific: `CGO_ENABLED=0` avoids MinGW linker issues when the user home path contains spaces.
 - Cache / scratch locations on Windows: the CI and local build commands use `D:\tmp` to avoid filling `C:\tmp`:
 

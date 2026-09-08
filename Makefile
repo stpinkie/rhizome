@@ -1,4 +1,15 @@
-.PHONY: all build build-feishu install uninstall clean help test integration-test build-all lint-docs
+.PHONY: all generate build build-launcher build-launcher-frontend \
+	build-whatsapp-native build-feishu \
+	build-linux-arm build-linux-arm64 build-linux-mipsle build-linux-386 \
+	build-windows-386 \
+	build-android-arm build-android-386 build-android-amd64 build-android-arm64 \
+	build-launcher-android-arm64 build-android-bundle \
+	build-pi-zero build-all build-macos-app \
+	install uninstall uninstall-all clean \
+	vet test integration-test integration-mesh integration-swarm \
+	fmt lint lint-docs fix deps update-deps check run help mem \
+	docker-build docker-build-full docker-test \
+	docker-run docker-run-full docker-run-agent docker-run-agent-full docker-clean
 
 # Build variables
 BINARY_NAME=rhizome
@@ -276,7 +287,7 @@ build-launcher-frontend:
 
 ## build-whatsapp-native: Build with WhatsApp native (whatsmeow) support; larger binary
 build-whatsapp-native: generate
-## @echo "Building $(BINARY_NAME) with WhatsApp native for $(PLATFORM)/$(ARCH)..."
+	# @echo "Building $(BINARY_NAME) with WhatsApp native for $(PLATFORM)/$(ARCH)..."
 	@echo "Building for multiple platforms..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=amd64 $(GO) build -tags $(GO_BUILD_TAGS),whatsapp_native -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./$(CMD_DIR)
@@ -288,9 +299,9 @@ build-whatsapp-native: generate
 	$(call PATCH_MIPS_FLAGS,$(BUILD_DIR)/$(BINARY_NAME)-linux-mipsle)
 	GOOS=darwin GOARCH=arm64 $(GO) build -tags $(GO_BUILD_TAGS),whatsapp_native -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./$(CMD_DIR)
 	GOOS=windows GOARCH=amd64 $(GO) build -tags $(GO_BUILD_TAGS),whatsapp_native -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./$(CMD_DIR)
-## @$(GO) build $(GOFLAGS) -tags whatsapp_native -ldflags "$(LDFLAGS)" -o $(BINARY_PATH) ./$(CMD_DIR)
+	# @$(GO) build $(GOFLAGS) -tags whatsapp_native -ldflags "$(LDFLAGS)" -o $(BINARY_PATH) ./$(CMD_DIR)
 	@echo "Build complete"
-##	@ln -sf $(BINARY_NAME)-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/$(BINARY_NAME)
+	# @ln -sf $(BINARY_NAME)-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/$(BINARY_NAME)
 
 ## build-feishu: Build the rhizome binary with Feishu (Lark) channel support; larger binary
 build-feishu: generate
@@ -516,14 +527,19 @@ fmt:
 lint-docs:
 	@./scripts/lint-docs.sh
 
-## lint: Run linters
+## lint: Run linters (golangci-lint + docs layout checks)
 lint:
-	@$(GOLANGCI_LINT) run --build-tags $(GO_BUILD_TAGS)
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || \
+		{ echo "Error: '$(GOLANGCI_LINT)' not found."; \
+		  echo "Install a version matching .github/workflows/pr.yml (currently v2.13.2):"; \
+		  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2"; \
+		  echo "or set GOLANGCI_LINT=/path/to/golangci-lint"; exit 1; }
+	@$(GOLANGCI_LINT) run --build-tags $(GO_BUILD_TAGS) ./...
 	@./scripts/lint-docs.sh
 
 ## fix: Fix linting issues
 fix:
-	@$(GOLANGCI_LINT) run --fix --build-tags $(GO_BUILD_TAGS)
+	@$(GOLANGCI_LINT) run --fix --build-tags $(GO_BUILD_TAGS) ./...
 
 ## deps: Download dependencies
 deps:
@@ -624,7 +640,7 @@ help:
 	@echo "  make build              # Build for current platform"
 	@echo "  make install            # Install to ~/.local/bin"
 	@echo "  make uninstall          # Remove from /usr/local/bin"
-	@echo "  make install-skills     # Install skills to workspace"
+	@echo "  make lint               # Run golangci-lint and docs checks"
 	@echo "  make docker-build       # Build minimal Docker image"
 	@echo "  make docker-test        # Test MCP tools in Docker"
 	@echo ""
