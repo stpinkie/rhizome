@@ -39,9 +39,15 @@
 > * **CANONICAL SOURCE:** 공식 소스 및 릴리스 위치는 **<https://github.com/stpinkie/rhizome>**이며, 릴리스는 GitHub Releases에 게시됩니다. 공식을 자처하는 제3자 도메인에 주의하세요.
 > * **주의:** 많은 `.ai/.org/.com/.net/...` 도메인이 제3자에 의해 선점되었습니다. 믿지 마세요.
 > * **참고:** Rhizome는 초기 고속 기능 개발 단계에 있습니다. 아직 해결되지 않은 보안 문제가 있을 수 있습니다. v1.0 정식 릴리스 전까지 프로덕션에 배포하지 마세요.
-> * **참고:** 완전한 `rhizome` 바이너리는 약 98MB이며, 데몬은 약 60MB의 사설 메모리를 사용합니다. 초소형 보드의 사용량을 더 줄이기 위해 `nonetwork` 빌드를 계획 중입니다. 리소스 최적화는 기능 안정화 후 진행될 예정입니다.
+> * **참고:** 완전한 `rhizome` 바이너리는 약 98MB이며, 데몬은 약 60MB의 사설 메모리를 사용합니다. 리소스 최적화는 기능 안정화 후 진행될 예정입니다.
 
 ## 📢 뉴스
+
+2026-09-07 🌐 **v0.7.0 — Swarm 모드**: 신뢰 피어의 이름 지정 그룹 추가 — 서명된 엔벨로프 기반 협업(`/rhizome/swarm/1.0.0`), presence 및 roster gossip, offer/claim 분산 작업 큐, 워크스페이스를 통해 공유 상태를 동기화하는 결정적 코디네이터 선출, 목표 오케스트레이션(`rhizome swarm run`), Network 대시보드의 Swarms 패널, 선택적 GossipSub 트랜스포트. [v0.7.0 릴리스 노트](../release-notes/v0.7.0.md)(영문) 참조.
+
+2026-09-05–08 🌐 **v0.5.0–v0.6.2 — Mesh**: NAT 트래버설, 비동기 원격 작업, 메시 보안 강화(서명된 매니페스트, ACL, 감사 로그), Network 대시보드, 피어 스코어링, 작업 페일오버. 릴리스 노트: [v0.5.0](../release-notes/v0.5.0.md)–[v0.6.2](../release-notes/v0.6.2.md).
+
+2026-09-01–04 🚀 **v0.4.x — 이식성**: `linux/386`, `windows/386`, `linux/armv7`, 네이티브 Android(`arm64`/`arm`/`386`/`amd64`) 빌드, Linux 3.4 / Android 4.4용으로 강화된 P2P 트랜스포트, 네트워크 상태 API, 로컬 프로바이더(Ollama, vLLM, LM Studio).
 
 2026-05-28 🚀 **v0.2.9 출시!** Web UI에서 MCP 서버 관리, 구성 가능한 Sogou 웹 검색, 채널 도구 피드백 애니메이션, `pretty_print` 및 `disable_escape_html` 기본값, 그리고 프로바이더와 채널의 다양한 버그 수정.
 
@@ -94,7 +100,7 @@
 
 🧠 **스마트 라우팅**: 규칙 기반 모델 라우팅 — 간단한 쿼리를 경량 모델로 전송하여 API 비용을 절약합니다.
 
-_*Windows에서 `CGO_ENABLED=0`, 태그 `goolm,stdjson`, `-ldflags "-s -w"`로 측정; 스트립된 바이너리는 약 98MB입니다. 초소형 보드의 사용량을 더 줄이기 위해 `nonetwork` 빌드를 계획 중입니다._
+_*Windows에서 `CGO_ENABLED=0`, 태그 `goolm,stdjson`, `-ldflags "-s -w"`로 측정; 스트립된 바이너리는 약 98MB입니다._
 
 <div align="center">
 

@@ -15,11 +15,13 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
+	"gopkg.in/yaml.v3"
 
 	"github.com/stpinkie/rhizome/pkg"
 	"github.com/stpinkie/rhizome/pkg/fileutil"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	providercommon "github.com/stpinkie/rhizome/pkg/providers/common"
+	"github.com/stpinkie/rhizome/pkg/redact"
 )
 
 // rrCounter is a global counter for round-robin load balancing across models.
@@ -38,6 +40,15 @@ func SetGlobal(cfg *Config) {
 	globalConfig.mu.Lock()
 	defer globalConfig.mu.Unlock()
 	globalConfig.cfg = cfg
+
+	// Register the configured-secrets replacer as an extra masker so the
+	// logger and other redact.Mask call sites also cover SecureString values,
+	// not just generic secret patterns.
+	if cfg != nil {
+		redact.SetExtraMasker(cfg.SensitiveDataReplacer().Replace)
+	} else {
+		redact.SetExtraMasker(nil)
+	}
 }
 
 // Global returns the process-wide config, or DefaultConfig() if none has been
@@ -445,7 +456,12 @@ func (c *Config) FilterSensitiveData(content string) string {
 	if len(content) < c.Tools.GetFilterMinLength() {
 		return content
 	}
-	return c.SensitiveDataReplacer().Replace(content)
+	// Replace configured secrets and apply generic secret-pattern masking
+	// (Bearer tokens, api_key=..., sk-* prefixes, ...) so unconfigured
+	// credentials appearing in tool output are also filtered before the LLM.
+	// MaskWith takes the replacer explicitly so it is not applied a second
+	// time via the global extra masker registered by SetGlobal.
+	return redact.MaskWith(content, c.SensitiveDataReplacer().Replace)
 }
 
 type HooksConfig struct {
@@ -1339,6 +1355,98 @@ type ReadFileToolConfig struct {
 	MaxReadFileSize int    `json:"max_read_file_size"`
 }
 
+// BrowserBackendConfig holds per-backend settings for browser automation.
+// APIKey is a SecureString so values migrate to .security.yml automatically;
+// non-secret fields stay out of .security.yml via yaml:"-" (matching the
+// pattern used by the web-search backend configs).
+type BrowserBackendConfig struct {
+	APIKey         SecureString      `json:"api_key,omitempty"         yaml:"api_key,omitempty"`
+	AccountID      string            `json:"account_id,omitempty"      yaml:"-"`
+	ProjectID      string            `json:"project_id,omitempty"      yaml:"-"`
+	BaseURL        string            `json:"base_url,omitempty"        yaml:"-"`
+	EndpointURL    string            `json:"endpoint_url,omitempty"    yaml:"-"`
+	ExecutablePath string            `json:"executable_path,omitempty" yaml:"-"`
+	SessionName    string            `json:"session_name,omitempty"    yaml:"-"`
+	Provider       string            `json:"provider,omitempty"        yaml:"-"`
+	Env            map[string]string `json:"env,omitempty"             yaml:"-"`
+}
+
+// BrowserBackendsConfig maps browser backend ids to their settings.
+// UnmarshalYAML merges .security.yml secrets into the entries already loaded
+// from config.json instead of replacing them — a plain map unmarshal would
+// replace each entry wholesale, wiping the non-secret fields that live only
+// in config.json.
+type BrowserBackendsConfig map[string]BrowserBackendConfig
+
+// UnmarshalYAML overlays secrets from .security.yml onto the existing
+// entries. Entries absent from config.json are ignored: a secret-only entry
+// is unconfigurable and usually means the user removed the backend.
+func (m *BrowserBackendsConfig) UnmarshalYAML(value *yaml.Node) error {
+	var incoming map[string]BrowserBackendConfig
+	if err := value.Decode(&incoming); err != nil {
+		return err
+	}
+	if *m == nil {
+		*m = BrowserBackendsConfig{}
+	}
+	// Entries absent from config.json are ignored regardless of the current
+	// map size: a secret-only entry is unconfigurable (all non-secret fields
+	// are yaml:"-") and usually means the user removed the backend.
+	for id, bc := range incoming {
+		old, ok := (*m)[id]
+		if !ok {
+			continue
+		}
+		if bc.APIKey.String() != "" {
+			old.APIKey = bc.APIKey
+		}
+		(*m)[id] = old
+	}
+	return nil
+}
+
+// MarshalYAML writes only backends that carry a secret; everything else lives
+// in config.json, so .security.yml stays a secrets-only overlay.
+func (m BrowserBackendsConfig) MarshalYAML() (any, error) {
+	out := make(map[string]BrowserBackendConfig, len(m))
+	for id, bc := range m {
+		if bc.APIKey.String() != "" {
+			out[id] = bc
+		}
+	}
+	return out, nil
+}
+
+// BrowserToolsConfig configures the browser automation tools. The browser
+// backend is selected by DefaultBackend; per-backend credentials and options
+// live in Backends keyed by catalog backend id.
+type BrowserToolsConfig struct {
+	ToolConfig           `                   yaml:"-"                   envPrefix:"RHIZOME_TOOLS_BROWSER_"`
+	DefaultBackend       string                `yaml:"-"                   json:"default_backend"                  env:"RHIZOME_TOOLS_BROWSER_DEFAULT_BACKEND"`
+	SessionTimeout       string                `yaml:"-"                   json:"session_timeout"                  env:"RHIZOME_TOOLS_BROWSER_SESSION_TIMEOUT"`
+	PrivateHostWhitelist FlexibleStringSlice   `yaml:"-"                   json:"private_host_whitelist,omitempty" env:"RHIZOME_TOOLS_BROWSER_PRIVATE_HOST_WHITELIST"`
+	Backends             BrowserBackendsConfig `yaml:"backends,omitempty"  json:"backends,omitempty"`
+}
+
+// GetSessionTimeout returns the parsed session timeout (default 10m).
+func (c *BrowserToolsConfig) GetSessionTimeout() time.Duration {
+	if d, err := time.ParseDuration(strings.TrimSpace(c.SessionTimeout)); err == nil && d > 0 {
+		return d
+	}
+	return 10 * time.Minute
+}
+
+// IsZero lets yaml omitempty drop the `browser:` section from .security.yml
+// when no backend holds a secret — Backends is the only yaml-visible field.
+func (c BrowserToolsConfig) IsZero() bool {
+	for _, bc := range c.Backends {
+		if bc.APIKey.String() != "" {
+			return false
+		}
+	}
+	return true
+}
+
 const (
 	ReadFileModeBytes = "bytes"
 	ReadFileModeLines = "lines"
@@ -1367,6 +1475,7 @@ type ToolsConfig struct {
 	// Default: 8
 	FilterMinLength int                `json:"filter_min_length" yaml:"-"                env:"RHIZOME_TOOLS_FILTER_MIN_LENGTH"`
 	Web             WebToolsConfig     `json:"web"               yaml:"web,omitempty"`
+	Browser         BrowserToolsConfig `json:"browser"           yaml:"browser,omitempty"`
 	Cron            CronToolsConfig    `json:"cron"              yaml:"-"`
 	Exec            ExecConfig         `json:"exec"              yaml:"-"`
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
@@ -2155,6 +2264,10 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.Subagent.Enabled
 	case "web_fetch":
 		return t.WebFetch.Enabled
+	case "browser", "browser_open", "browser_snapshot", "browser_click",
+		"browser_fill", "browser_screenshot", "browser_eval",
+		"browser_wait", "browser_close":
+		return t.Browser.Enabled
 	case "send_file":
 		return t.SendFile.Enabled
 	case "send_tts":

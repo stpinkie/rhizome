@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/stpinkie/rhizome/pkg/guard"
 	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
@@ -69,29 +70,10 @@ func isBlockedSSRFHost(host string) bool {
 	return false
 }
 
-// promptInjectionPatterns matches common instruction-injection phrases that may
-// appear in an LLM-generated tool argument. These are conservative whole-phrase
-// patterns; the goal is to catch obvious attempts, not to enumerate every
-// possible adversarial encoding.
-var promptInjectionPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\bignore\s+(?:all\s+)?(?:previous|the|your)\s+instructions\b`),
-	regexp.MustCompile(`(?i)\bdisregard\s+(?:all\s+)?(?:previous|the|your)\s+instructions\b`),
-	regexp.MustCompile(`(?i)\bnew\s+instructions?\s*:?`),
-	regexp.MustCompile(`(?i)\byou\s+are\s+now\b`),
-	regexp.MustCompile(`(?i)\bdeveloper\s+mode\b`),
-	regexp.MustCompile(`(?i)\bignore\s+your\s+safety\b`),
-	regexp.MustCompile(`(?i)\bdo\s+not\s+follow\s+(?:the|your)\s+instructions\b`),
-}
-
 // commandContainsPromptInjection checks a shell command for obvious
 // prompt-injection substrings. It returns the matched pattern and true when
-// one is found.
+// one is found. The shared patterns live in pkg/guard so the tool-call JSON
+// extraction path and the registry arg scan can reuse them.
 func commandContainsPromptInjection(command string) (string, bool) {
-	for _, re := range promptInjectionPatterns {
-		if match := re.FindString(command); match != "" {
-			return match, true
-		}
-	}
-
-	return "", false
+	return guard.ContainsPromptInjection(command)
 }

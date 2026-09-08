@@ -383,6 +383,54 @@
       "fetch_limit_bytes": 10485760,
       "private_host_whitelist": []
     },
+    "browser": {
+      "enabled": false,
+      "default_backend": "agent-browser",
+      "session_timeout": "10m",
+      "private_host_whitelist": [],
+      "backends": {
+        "browserbase": {
+          "api_key": "",
+          "project_id": "YOUR_BROWSERBASE_PROJECT_ID"
+        },
+        "browserless": {
+          "api_key": "",
+          "base_url": ""
+        },
+        "kernel": {
+          "api_key": ""
+        },
+        "steel": {
+          "api_key": "",
+          "base_url": ""
+        },
+        "hyperbrowser": {
+          "api_key": ""
+        },
+        "tinyfish": {
+          "api_key": ""
+        },
+        "clawbrowser": {
+          "api_key": "",
+          "session_name": "rhizome"
+        },
+        "custom-cdp": {
+          "endpoint_url": "ws://127.0.0.1:9222"
+        },
+        "provider": {
+          "provider": "browseruse",
+          "api_key": "",
+          "env": {}
+        },
+        "cloudflare": {
+          "account_id": "YOUR_CF_ACCOUNT_ID",
+          "api_key": ""
+        },
+        "system-chrome": {
+          "executable_path": ""
+        }
+      }
+    },
     "cron": {
       "enabled": true,
       "exec_timeout_minutes": 5,

@@ -39,9 +39,15 @@
 > * **SUMBER KANONIKAL (CANONICAL SOURCE):** Sumber dan lokasi keluaran rasmi adalah **<https://github.com/stpinkie/rhizome>**; keluaran diterbitkan di GitHub Releases. Berhati-hati dengan domain pihak ketiga yang mendakwa rasmi.
 > * **AMARAN:** Banyak domain `.ai/.org/.com/.net/...` telah didaftarkan oleh pihak ketiga. Jangan percayai mereka.
 > * **NOTA:** Rhizome sedang dalam pembangunan awal yang pantas. Mungkin terdapat isu keselamatan yang belum diselesaikan. Jangan laksanakan dalam persekitaran pengeluaran sebelum v1.0.
-> * **NOTA:** Binari `rhizome` lengkap kira-kira 98 MB dan daemon menggunakan kira-kira 60 MB memori peribadi. Kami bercadang membina versi `nonetwork` untuk mengurangkan lagi jejak untuk papan ultra-kecil. Pengoptimuman sumber dirancang selepas fungsi menjadi stabil.
+> * **NOTA:** Binari `rhizome` lengkap kira-kira 98 MB dan daemon menggunakan kira-kira 60 MB memori peribadi. Pengoptimuman sumber dirancang selepas fungsi menjadi stabil.
 
 ## 📢 Berita
+
+2026-09-07 🌐 **v0.7.0 — Mod Swarm** menambah kumpulan peer dipercayai bernama: presence dan gossip roster, giliran kerja offer/claim, pemilihan penyelaras berketentuan dengan keadaan dikongsi disegerak melalui workspace, orkestrasi matlamat (`rhizome swarm run`), panel Swarms pada papan pemuka Network, dan pengangkutan GossipSub pilihan. Lihat [nota keluaran v0.7.0](../release-notes/v0.7.0.md) (Bahasa Inggeris).
+
+2026-09-05–08 🌐 **v0.5.0–v0.6.2 — Mesh**: NAT traversal, tugas remote tak segerak, keselamatan mesh diperkukuh (manifest bertandatangan, ACL, jejak audit), papan pemuka Network, pemarkahan peer, dan failover tugas. Nota keluaran: [v0.5.0](../release-notes/v0.5.0.md)–[v0.6.2](../release-notes/v0.6.2.md).
+
+2026-09-01–04 🚀 **v0.4.x — Kebolehangkuan**: binaan `linux/386`, `windows/386`, `linux/armv7`, Android asli (`arm64`/`arm`/`386`/`amd64`), pengangkutan P2P diperkukuh untuk Linux 3.4 / Android 4.4, API status rangkaian, dan penyedia tempatan (Ollama, vLLM, LM Studio).
 
 2026-05-28 🚀 **v0.2.9 dikeluarkan!** Pengurusan pelayan MCP dalam Web UI, carian web Sogou yang boleh konfigur, animasi maklum balas alat saluran, nilai lalai `pretty_print` dan `disable_escape_html`, dan pelbagai pembetulan pepijat untuk pembekal dan saluran.
 
@@ -94,7 +100,7 @@
 
 🧠 **Penghalaan pintar**: Penghalaan model berasaskan peraturan — pertanyaan mudah ke model ringan, menjimatkan kos API.
 
-_*Pengukuran jejak dibuat pada Windows dengan `CGO_ENABLED=0`, tag `goolm,stdjson` dan `-ldflags "-s -w"`; binari yang dijalankan kira-kira 98 MB. Kami bercadang membina versi `nonetwork` untuk mengurangkan lagi untuk papan ultra-kecil._
+_*Pengukuran jejak dibuat pada Windows dengan `CGO_ENABLED=0`, tag `goolm,stdjson` dan `-ldflags "-s -w"`; binari yang dijalankan kira-kira 98 MB._
 
 <div align="center">
 

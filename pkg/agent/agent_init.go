@@ -10,6 +10,7 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/agent/interfaces"
 	"github.com/stpinkie/rhizome/pkg/audio/tts"
+	"github.com/stpinkie/rhizome/pkg/browser"
 	"github.com/stpinkie/rhizome/pkg/bus"
 	"github.com/stpinkie/rhizome/pkg/channels"
 	"github.com/stpinkie/rhizome/pkg/commands"
@@ -20,6 +21,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/skills"
 	"github.com/stpinkie/rhizome/pkg/state"
 	"github.com/stpinkie/rhizome/pkg/tools"
+	browsertools "github.com/stpinkie/rhizome/pkg/tools/browser"
 )
 
 func NewAgentLoop(
@@ -236,6 +238,15 @@ func registerSharedTools(
 				return err
 			})
 			agent.Tools.Register(reactionTool)
+		}
+
+		// Browser automation tools share one session Manager per agent; the
+		// manager is released on AgentInstance.Close.
+		if cfg.Tools.IsToolEnabled("browser") {
+			if agent.BrowserMgr == nil {
+				agent.BrowserMgr = browser.NewManager(&cfg.Tools.Browser, agent.Workspace)
+			}
+			browsertools.Register(agent.Tools, agent.BrowserMgr, &cfg.Tools.Browser)
 		}
 
 		// Send file tool (outbound media via MediaStore — store injected later by SetMediaStore)

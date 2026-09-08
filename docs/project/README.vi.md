@@ -39,9 +39,15 @@
 > * **NGUỒN CHÍNH THỨC (CANONICAL SOURCE):** Nguồn và địa điểm phát hành chính thức là **<https://github.com/stpinkie/rhizome>**; các bản phát hành đăng tải trên GitHub Releases. Hãy cẩn thận với các domain bên thứ ba tự nhận là chính thức.
 > * **CẢNH BÁO:** Nhiều domain `.ai/.org/.com/.net/...` đã bị bên thứ ba đăng ký. Đừng tin tưởng chúng.
 > * **LƯU Ý:** Rhizome đang trong giai đoạn phát triển nhanh. Có thể còn các vấn đề bảo mật chưa được giải quyết. Không triển khai lên môi trường production trước v1.0.
-> * **LƯU Ý:** Binary `rhizome` đầy đủ khoảng 98 MB và daemon sử dụng khoảng 60 MB bộ nhớ riêng. Chúng tôi dự định xây dựng phiên bản `nonetwork` để giảm hơn nữa cho các board cực nhỏ. Tối ưu hóa tài nguyên được lên kế hoạch sau khi tính năng ổn định.
+> * **LƯU Ý:** Binary `rhizome` đầy đủ khoảng 98 MB và daemon sử dụng khoảng 60 MB bộ nhớ riêng. Tối ưu hóa tài nguyên được lên kế hoạch sau khi tính năng ổn định.
 
 ## 📢 Tin tức
+
+2026-09-07 🌐 **v0.7.0 — Chế độ Swarm** thêm các nhóm peer tin cậy có tên với điều phối bằng envelope có chữ ký (`/rhizome/swarm/1.0.0`): presence và gossip roster, hàng đợi công việc offer/claim, bầu điều phối viên xác định với trạng thái chia sẻ đồng bộ qua workspace, điều phối mục tiêu (`rhizome swarm run`), bảng Swarms trên dashboard Network và transport GossipSub tùy chọn. Xem [ghi chú phát hành v0.7.0](../release-notes/v0.7.0.md) (tiếng Anh).
+
+2026-09-05–08 🌐 **v0.5.0–v0.6.2 — Mesh**: NAT traversal, tác vụ remote bất đồng bộ, bảo mật mesh tăng cường (manifest có chữ ký, ACL, nhật ký audit), dashboard Network, chấm điểm peer và failover tác vụ. Ghi chú phát hành: [v0.5.0](../release-notes/v0.5.0.md)–[v0.6.2](../release-notes/v0.6.2.md).
+
+2026-09-01–04 🚀 **v0.4.x — Tính di động**: build `linux/386`, `windows/386`, `linux/armv7`, Android native (`arm64`/`arm`/`386`/`amd64`), transport P2P được gia cố cho Linux 3.4 / Android 4.4, API trạng thái mạng và provider cục bộ (Ollama, vLLM, LM Studio).
 
 2026-05-28 🚀 **v0.2.9 đã phát hành!** Quản lý MCP server trong Web UI, tìm kiếm web dựa trên Sogou có thể cấu hình, hiệu ứng phản hồi công cụ trong channel, giá trị mặc định `pretty_print` và `disable_escape_html`, và nhiều bản sửa lỗi trên provider và channel.
 
@@ -94,7 +100,7 @@
 
 🧠 **Định tuyến thông minh**: Định tuyến mô hình dựa trên quy tắc — các truy vấn đơn giản đến mô hình nhẹ, tiết kiệm chi phí API.
 
-_*Số đo dấu chân được thực hiện trên Windows với `CGO_ENABLED=0`, tags `goolm,stdjson` và `-ldflags "-s -w"`; binary đã strip khoảng 98 MB. Chúng tôi dự định xây dựng phiên bản `nonetwork` để giảm hơn nữa cho các board cực nhỏ._
+_*Số đo dấu chân được thực hiện trên Windows với `CGO_ENABLED=0`, tags `goolm,stdjson` và `-ldflags "-s -w"`; binary đã strip khoảng 98 MB._
 
 <div align="center">
 

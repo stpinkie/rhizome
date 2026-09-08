@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/guard"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/media"
 	"github.com/stpinkie/rhizome/pkg/providers"
@@ -278,6 +279,15 @@ func (r *ToolRegistry) ExecuteWithContext(
 			map[string]any{"tool": name, "error": err.Error()})
 		return ErrorResult(fmt.Sprintf("invalid arguments for tool %q: %s", name, err)).
 			WithError(fmt.Errorf("argument validation failed: %w", err))
+	}
+
+	// Advisory prompt-injection scan: log suspicious phrases found in tool
+	// arguments. We warn rather than block here because content-bearing args
+	// (write_file, message, ...) can legitimately contain such text; tools whose
+	// args are executed (exec, browser_eval, ...) enforce their own blocking.
+	if path, match, found := guard.ScanArgsForInjection(args); found {
+		logger.WarnCF("tool", "Possible prompt injection in tool arguments",
+			map[string]any{"tool": name, "arg": path, "match": match})
 	}
 
 	// Inject channel/chatID into ctx so tools read them via ToolChannel(ctx)/ToolChatID(ctx).

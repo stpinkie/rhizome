@@ -490,6 +490,14 @@ func DefaultConfig() *Config {
 			WebFetch: ToolConfig{
 				Enabled: true,
 			},
+			Browser: BrowserToolsConfig{
+				ToolConfig: ToolConfig{
+					Enabled: false, // Opt-in: requires a browser backend install
+				},
+				DefaultBackend: "agent-browser",
+				SessionTimeout: "10m",
+				Backends:       BrowserBackendsConfig{},
+			},
 			WriteFile: ToolConfig{
 				Enabled: true,
 			},

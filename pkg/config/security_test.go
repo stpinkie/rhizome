@@ -273,3 +273,116 @@ skills:
 		assert.Equal(t, "abc", envCfg.Tools.Web.Brave.APIKeys[1].raw)
 	})
 }
+
+// TestBrowserBackendsSecurityRoundTrip verifies that browser backend API keys
+// persist to .security.yml (masked as [NOT_HERE] in config.json) and merge
+// back on load without clobbering the non-secret fields that live only in
+// config.json.
+func TestBrowserBackendsSecurityRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	secPath := securityPath(configPath)
+
+	original := &Config{}
+	original.Tools.Browser.Backends = BrowserBackendsConfig{
+		"steel": {
+			APIKey:  *NewSecureString("steel_secret"),
+			BaseURL: "https://self.example.com",
+		},
+		"custom-cdp": {EndpointURL: "ws://127.0.0.1:9222"},
+	}
+
+	require.NoError(t, SaveConfig(configPath, original))
+
+	// config.json must not contain the plaintext secret.
+	rawJSON, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(rawJSON), "steel_secret")
+	assert.Contains(t, string(rawJSON), "self.example.com")
+
+	// .security.yml must carry the api_key under browser.backends.steel.
+	rawYAML, err := os.ReadFile(secPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(rawYAML), "steel_secret")
+	var saved struct {
+		Browser struct {
+			Backends map[string]map[string]any `yaml:"backends"`
+		} `yaml:"browser"`
+	}
+	require.NoError(t, yaml.Unmarshal(rawYAML, &saved))
+	require.Contains(t, saved.Browser.Backends, "steel")
+	assert.Equal(t, "steel_secret", saved.Browser.Backends["steel"]["api_key"])
+	// Secret-less backends are omitted from .security.yml.
+	assert.NotContains(t, saved.Browser.Backends, "custom-cdp")
+
+	// Simulate LoadConfig: JSON first (api_key masked away), then
+	// .security.yml merges secrets back — without wiping non-secret fields.
+	loaded := &Config{}
+	require.NoError(t, json.Unmarshal(rawJSON, loaded))
+	steelJSON := loaded.Tools.Browser.Backends["steel"]
+	assert.Equal(t, "", steelJSON.APIKey.String())
+	assert.Equal(t, "https://self.example.com", steelJSON.BaseURL)
+
+	// A stale backend id present only in .security.yml must not resurrect.
+	require.NoError(t, os.WriteFile(secPath, []byte(`browser:
+  backends:
+    steel:
+      api_key: steel_secret
+    ghost:
+      api_key: ghost_key
+`), 0o600))
+	require.NoError(t, loadSecurityConfig(loaded, secPath))
+
+	steel := loaded.Tools.Browser.Backends["steel"]
+	assert.Equal(t, "steel_secret", steel.APIKey.String())
+	assert.Equal(t, "https://self.example.com", steel.BaseURL)
+	_, ghostPresent := loaded.Tools.Browser.Backends["ghost"]
+	assert.False(t, ghostPresent)
+
+	// When config.json defines no browser backends at all, .security.yml
+	// entries must still not resurrect them — every non-secret field lives
+	// only in config.json, so a secret-only entry is unconfigurable anyway.
+	empty := &Config{}
+	require.NoError(t, loadSecurityConfig(empty, secPath))
+	assert.Empty(t, empty.Tools.Browser.Backends)
+}
+
+// TestBrowserSectionOmittedWhenSecretless verifies .security.yml does not
+// gain a stray `browser:` key when no backend api_key is configured —
+// Backends is the only yaml-visible field, so the section should drop out.
+func TestBrowserSectionOmittedWhenSecretless(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	secPath := securityPath(configPath)
+
+	cfg := &Config{}
+	cfg.Tools.Browser.DefaultBackend = "agent-browser"
+	cfg.Tools.Browser.Backends = BrowserBackendsConfig{
+		"custom-cdp": {EndpointURL: "ws://127.0.0.1:9222"},
+	}
+	require.NoError(t, SaveConfig(configPath, cfg))
+
+	rawYAML, err := os.ReadFile(secPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(rawYAML), "browser:")
+}
+
+// TestBrowserBackendEnvSecretCollection verifies that env values stored under
+// secret-looking keys are picked up by the sensitive-data replacer so they
+// are masked in logs and tool output.
+func TestBrowserBackendEnvSecretCollection(t *testing.T) {
+	cfg := &Config{}
+	cfg.Tools.Browser.Backends = BrowserBackendsConfig{
+		"provider": {
+			Env: map[string]string{
+				"BROWSERUSE_API_KEY": "provider-secret-123",
+				"KERNEL_STEALTH":     "true",
+			},
+		},
+	}
+	replacer := cfg.SensitiveDataReplacer()
+	got := replacer.Replace("leaked: provider-secret-123 flag: true")
+	assert.NotContains(t, got, "provider-secret-123")
+	// Non-secret env values are not collected.
+	assert.Contains(t, got, "flag: true")
+}

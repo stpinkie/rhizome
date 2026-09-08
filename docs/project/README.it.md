@@ -39,9 +39,15 @@
 > * **CANONICAL SOURCE:** La fonte canonica e la sede di rilascio sono **<https://github.com/stpinkie/rhizome>**; i rilasci sono pubblicati su GitHub Releases. Attenzione ai domini di terze parti che affermano di essere ufficiali.
 > * **Attenzione:** Molti domini `.ai/.org/.com/.net/...` sono stati registrati da terze parti. Non fidatevi.
 > * **Nota:** Rhizome è in una fase iniziale di sviluppo rapido. Potrebbero esserci problemi di sicurezza non risolti. Non distribuire in produzione prima della v1.0.
-> * **Nota:** Il binario `rhizome` completo è di circa 98 MB e il daemon usa circa 60 MB di memoria privata. Abbiamo in programma una build `nonetwork` per ridurre ulteriormente l'impronta su schede ultra-piccole. L'ottimizzazione delle risorse è pianificata dopo la stabilizzazione delle funzionalità.
+> * **Nota:** Il binario `rhizome` completo è di circa 98 MB e il daemon usa circa 60 MB di memoria privata. L'ottimizzazione delle risorse è pianificata dopo la stabilizzazione delle funzionalità.
 
 ## 📢 Novità
+
+2026-09-07 🌐 **v0.7.0 — Modalità Swarm** aggiunge gruppi di peer fidati con coordinamento a buste firmate: presenza e gossip del roster, coda di lavoro offer/claim, elezione deterministica del coordinatore con stato condiviso sincronizzato nel workspace, orchestrazione di obiettivi (`rhizome swarm run`), pannello Swarms nella dashboard Network e trasporto GossipSub opzionale. Vedi le [note di rilascio v0.7.0](../release-notes/v0.7.0.md) (in inglese).
+
+2026-09-05–08 🌐 **v0.5.0–v0.6.2 — Mesh**: NAT traversal, task remoti asincroni, sicurezza mesh rafforzata (manifest firmati, ACL, audit trail), dashboard Network, scoring dei peer e failover dei task. Note di rilascio: [v0.5.0](../release-notes/v0.5.0.md)–[v0.6.2](../release-notes/v0.6.2.md).
+
+2026-09-01–04 🚀 **v0.4.x — Portabilità**: build `linux/386`, `windows/386`, `linux/armv7`, Android nativo (`arm64`/`arm`/`386`/`amd64`), trasporti P2P rafforzati per Linux 3.4 / Android 4.4, API di stato di rete e provider locali (Ollama, vLLM, LM Studio).
 
 2026-05-28 🚀 **Rilasciata v0.2.9!** Gestione dei server MCP nella Web UI, ricerca web Sogou configurabile, animazione di feedback degli strumenti del canale, valori predefiniti `pretty_print` e `disable_escape_html`, e varie correzioni di bug per provider e canali.
 
@@ -94,7 +100,7 @@
 
 🧠 **Routing intelligente**: Routing dei modelli basato su regole — le query semplici vanno a modelli leggeri, risparmiando costi API.
 
-_*La misurazione dell'impronta è stata effettuata su Windows con `CGO_ENABLED=0`, tag `goolm,stdjson` e `-ldflags "-s -w"`; il binario strip è di circa 98 MB. Una build `nonetwork` è pianificata per ridurre ulteriormente su schede ultra-piccole._
+_*La misurazione dell'impronta è stata effettuata su Windows con `CGO_ENABLED=0`, tag `goolm,stdjson` e `-ldflags "-s -w"`; il binario strip è di circa 98 MB._
 
 <div align="center">
 

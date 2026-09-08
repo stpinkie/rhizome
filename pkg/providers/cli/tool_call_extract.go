@@ -3,6 +3,9 @@ package cliprovider
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/stpinkie/rhizome/pkg/guard"
+	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
 // extractToolCallsFromText parses tool call JSON from response text.
@@ -40,6 +43,16 @@ func extractToolCallsFromText(text string) []ToolCall {
 	for _, tc := range wrapper.ToolCalls {
 		var args map[string]any
 		json.Unmarshal([]byte(tc.Function.Arguments), &args)
+
+		// Tool calls extracted from free-text model output are the riskiest
+		// path for prompt injection — a hostile page or message can smuggle a
+		// tool_calls blob into the response. Drop calls whose arguments carry
+		// known injection phrases.
+		if path, match, found := guard.ScanArgsForInjection(args); found {
+			logger.WarnCF("provider", "Dropped text-extracted tool call with injected argument",
+				map[string]any{"tool": tc.Function.Name, "arg": path, "match": match})
+			continue
+		}
 
 		result = append(result, ToolCall{
 			ID:        tc.ID,

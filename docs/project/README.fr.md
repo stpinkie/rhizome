@@ -39,9 +39,15 @@
 > * **SOURCE CANONIQUE (CANONICAL SOURCE) :** La source et le lieu de publication officiels sont **<https://github.com/stpinkie/rhizome>** ; les publications sont sur GitHub Releases. Méfiez-vous des domaines tiers prétendant être officiels.
 > * **Attention :** De nombreux domaines `.ai/.org/.com/.net/...` ont été enregistrés par des tiers. Ne leur faites pas confiance.
 > * **Remarque :** Rhizome est en phase de développement rapide initial. Il peut rester des problèmes de sécurité non résolus. Ne le déployez pas en production avant la v1.0.
-> * **Remarque :** Le binaire `rhizome` complet est d'environ 98 Mo et le daemon utilise environ 60 Mo de mémoire privée. Nous prévoyons un build `nonetwork` pour réduire encore l'empreinte sur les cartes ultra-petites. L'optimisation des ressources est prévue après la stabilisation des fonctionnalités.
+> * **Remarque :** Le binaire `rhizome` complet est d'environ 98 Mo et le daemon utilise environ 60 Mo de mémoire privée. L'optimisation des ressources est prévue après la stabilisation des fonctionnalités.
 
 ## 📢 Actualités
+
+2026-09-07 🌐 **v0.7.0 — Mode Swarm** ajoute des groupes nommés de pairs de confiance : présence et roster par gossip, file de tâches offer/claim, élection déterministe du coordinateur avec état partagé synchronisé via le workspace, orchestration d'objectifs (`rhizome swarm run`), panneau Swarms sur le tableau de bord Network et transport GossipSub optionnel. Voir les [notes de version v0.7.0](../release-notes/v0.7.0.md) (en anglais).
+
+2026-09-05–08 🌐 **v0.5.0–v0.6.2 — Mesh** : traversée NAT, tâches distantes asynchrones, sécurité mesh renforcée (manifestes signés, ACL, journal d'audit), tableau de bord Network, scoring des pairs et bascule de tâches distantes. Notes de version : [v0.5.0](../release-notes/v0.5.0.md)–[v0.6.2](../release-notes/v0.6.2.md).
+
+2026-09-01–04 🚀 **v0.4.x — Portabilité** : builds `linux/386`, `windows/386`, `linux/armv7`, Android natif (`arm64`/`arm`/`386`/`amd64`), transports P2P durcis pour Linux 3.4 / Android 4.4, API de statut réseau et providers locaux (Ollama, vLLM, LM Studio).
 
 2026-05-28 🚀 **v0.2.9 publié !** Gestion des serveurs MCP dans la Web UI, recherche Web Sogou configurable, animation de retour d'outil sur les channels, valeurs par défaut `pretty_print` et `disable_escape_html`, et diverses corrections de bugs pour les providers et les channels.
 
@@ -94,7 +100,7 @@
 
 🧠 **Routage intelligent** : Routage de modèles basé sur des règles — les requêtes simples sont envoyées vers des modèles légers, réduisant les coûts API.
 
-_*La mesure d'empreinte a été effectuée sous Windows avec `CGO_ENABLED=0`, les tags `goolm,stdjson` et `-ldflags "-s -w"` ; le binaire strip est d'environ 98 Mo. Un build `nonetwork` est prévu pour réduire encore sur les cartes ultra-petites._
+_*La mesure d'empreinte a été effectuée sous Windows avec `CGO_ENABLED=0`, les tags `goolm,stdjson` et `-ldflags "-s -w"` ; le binaire strip est d'environ 98 Mo._
 
 <div align="center">
 

@@ -39,9 +39,15 @@
 > * **CANONICAL SOURCE:** Sumber dan lokasi rilis resmi adalah **<https://github.com/stpinkie/rhizome>**; rilis dipublikasikan di GitHub Releases. Waspadai domain pihak ketiga yang mengklaim resmi.
 > * **Peringatan:** Banyak domain `.ai/.org/.com/.net/...` telah didaftarkan oleh pihak ketiga. Jangan percaya.
 > * **Catatan:** Rhizome sedang dalam tahap pengembangan awal yang cepat. Mungkin ada masalah keamanan yang belum terselesaikan. Jangan deploy ke produksi sebelum v1.0.
-> * **Catatan:** Binary `rhizome` lengkap sekitar 98 MB dan daemon menggunakan sekitar 60 MB memori pribadi. Kami berencana membangun versi `nonetwork` untuk lebih mengurangi jejak di papan ultra-kecil. Optimasi sumber daya direncanakan setelah fitur stabil.
+> * **Catatan:** Binary `rhizome` lengkap sekitar 98 MB dan daemon menggunakan sekitar 60 MB memori pribadi. Optimasi sumber daya direncanakan setelah fitur stabil.
 
 ## 📢 Berita
+
+2026-09-07 🌐 **v0.7.0 — Mode Swarm** menambahkan grup peer tepercaya bernama: presence dan roster gossip, antrian kerja offer/claim, pemilihan koordinator deterministik dengan state bersama tersinkron lewat workspace, orkestrasi goal (`rhizome swarm run`), panel Swarms di dashboard Network, dan transport GossipSub opsional. Lihat [catatan rilis v0.7.0](../release-notes/v0.7.0.md) (bahasa Inggris).
+
+2026-09-05–08 🌐 **v0.5.0–v0.6.2 — Mesh**: NAT traversal, tugas remote asinkron, keamanan mesh yang diperkuat (manifes bertanda tangan, ACL, jejak audit), dashboard Network, penilaian peer, dan failover tugas. Catatan rilis: [v0.5.0](../release-notes/v0.5.0.md)–[v0.6.2](../release-notes/v0.6.2.md).
+
+2026-09-01–04 🚀 **v0.4.x — Portabilitas**: build `linux/386`, `windows/386`, `linux/armv7`, Android native (`arm64`/`arm`/`386`/`amd64`), transport P2P diperkeras untuk Linux 3.4 / Android 4.4, API status jaringan, dan provider lokal (Ollama, vLLM, LM Studio).
 
 2026-05-28 🚀 **v0.2.9 dirilis!** Manajemen server MCP di Web UI, pencarian web Sogou yang dapat dikonfigurasi, animasi umpan balik alat saluran, nilai default `pretty_print` dan `disable_escape_html`, serta berbagai perbaikan bug pada provider dan saluran.
 
@@ -94,7 +100,7 @@
 
 🧠 **Perutean Cerdas**: Perutean model berbasis aturan — kueri sederhana dialihkan ke model ringan, menghemat biaya API.
 
-_*Pengukuran jejak dilakukan di Windows dengan `CGO_ENABLED=0`, tag `goolm,stdjson`, dan `-ldflags "-s -w"`; binary yang di-strip sekitar 98 MB. Kami berencana membangun versi `nonetwork` untuk lebih mengurangi di papan ultra-kecil._
+_*Pengukuran jejak dilakukan di Windows dengan `CGO_ENABLED=0`, tag `goolm,stdjson`, dan `-ldflags "-s -w"`; binary yang di-strip sekitar 98 MB._
 
 <div align="center">
 

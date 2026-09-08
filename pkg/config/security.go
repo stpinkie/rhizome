@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/stpinkie/rhizome/pkg/fileutil"
+	"github.com/stpinkie/rhizome/pkg/redact"
 )
 
 const (
@@ -286,6 +287,22 @@ func collectSensitive(v reflect.Value, values *[]string) {
 			}
 		}
 		return
+	}
+
+	// BrowserBackendConfig: additionally collect env values stored under
+	// secret-looking keys — env is a plaintext map (credentials belong in
+	// api_key), but a provider key placed there should still be masked in
+	// logs and tool output. Values shorter than 8 chars are skipped so
+	// flags like "true" don't get masked everywhere. The SecureString
+	// fields are collected by the generic struct walk below.
+	if t == reflect.TypeOf(BrowserBackendConfig{}) {
+		if bc, ok := v.Interface().(BrowserBackendConfig); ok {
+			for k, val := range bc.Env {
+				if redact.IsSecretishKey(k) && len(val) >= 8 {
+					*values = append(*values, val)
+				}
+			}
+		}
 	}
 
 	// SecureStrings ([]*SecureString): iterate and collect each element

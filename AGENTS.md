@@ -84,6 +84,9 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 
 ## Key Packages
 
+- `pkg/browser` — pluggable browser-automation backends (catalog, `AgentBrowserDriver` CLI wrapper, endpoint resolvers, session manager, Cloudflare REST); `pkg/tools/browser` exposes the eight `browser_*` agent tools.
+- `pkg/redact` — leaf package for secret masking (generic patterns + configured `SecureString` values); used by `pkg/logger` and `Config.FilterSensitiveData`.
+- `pkg/guard` — leaf package for prompt-injection phrase detection; used by shell-command screening, the tool-argument scan, and CLI tool-call extraction.
 - `pkg/rhizome/identity` — BIP39/SLIP-0010 Ed25519 node identity, persistence, and Ed25519 signing; now supports OS keyring and passphrase encryption.
 - `pkg/rhizome/network` — libp2p host, mDNS discovery, bootstrap, ping, and public DHT discovery.
 - `pkg/rhizome/sync` — workspace Git sync, packfile transport, file watcher, and three-way merge.
@@ -243,6 +246,15 @@ The swarm integration test builds `rhizome`, starts two daemons joined to a shar
 ```powershell
 .\scripts\integration-swarm.ps1
 ```
+
+## Browser Automation (v0.7.1)
+
+- `tools.browser.enabled` (default `false`) turns on the eight `browser_*` agent tools.
+- `tools.browser.default_backend` selects the backend (default `agent-browser`); `tools.browser.backends.<id>` holds per-backend settings — `api_key` is a `SecureString` (can live in `.security.yml`); `env` is plaintext — prefer `api_key` for credentials (secret-looking env values are still masked in logs/tool output).
+- `tools.browser.session_timeout` (default `10m`) bounds sessions — idle sessions are reaped in the background; `tools.browser.private_host_whitelist` relaxes the SSRF guard on browser tool URLs (literal hosts and DNS-resolved addresses).
+- Web console: `/browser` page + `GET/PUT /api/browser`, `GET /api/browser/backends`, `POST /api/browser/install|uninstall?backend=<id>`, `GET /api/browser/diskspace`.
+- Cloudflare is REST-only (snapshot/screenshot); interactive ops return a clear unsupported-backend error.
+- Stealth path: `workspace/skills/stealth-browser` (Patchright MCP server); see `docs/guides/browser-automation.md`.
 
 ## Configuration / Environment
 

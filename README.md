@@ -39,9 +39,11 @@
 > * **CANONICAL SOURCE:** The canonical source and release location is **<https://github.com/stpinkie/rhizome>**; releases are published under GitHub Releases. Beware of third-party domains claiming to be official.
 > * **BEWARE:** Many `.ai/.org/.com/.net/...` domains have been registered by third parties. Do not trust them.
 > * **NOTE:** Rhizome is in early rapid development. There may be unresolved security issues. Do not deploy to production before v1.0.
-> * **NOTE:** The full `rhizome` binary is ~98 MB and the daemon uses ~60 MB private memory. A `nonetwork` build is planned to reduce the footprint for very small boards. Resource optimization is planned after feature stabilization.
+> * **NOTE:** The full `rhizome` binary is ~98 MB and the daemon uses ~60 MB private memory. Resource optimization is planned after feature stabilization.
 
 ## 📢 News
+
+2026-09-08 🌐 **v0.7.1 — Stabilization, Security & Browser Automation** hardens the build (CI/test fixes, lint at zero issues), adds shared secret redaction in logs and tool output, prompt-injection screening for tool calls, and ships opt-in browser automation: eight `browser_*` agent tools across 12 pluggable backends (local agent-browser/system Chrome, custom CDP, Browserbase/Browserless/Kernel/Steel/Hyperbrowser/TinyFish clouds, Cloudflare REST), plus a `/browser` admin page and a Patchright-based stealth path via MCP. See the [v0.7.1 release notes](docs/release-notes/v0.7.1.md).
 
 2026-09-07 🌐 **v0.7.0 — Swarm Mode** adds named groups of trusted mesh peers with signed-envelope coordination over `/rhizome/swarm/1.0.0`: presence and roster gossip, an offer/claim distributed work queue, deterministic coordinator election with shared state synced through the workspace, goal orchestration (`rhizome swarm run`), a Swarms panel on the Network dashboard, and an optional GossipSub transport. See the [v0.7.0 release notes](docs/release-notes/v0.7.0.md).
 
@@ -108,7 +110,7 @@
 
 🧠 **Smart routing**: Rule-based model routing — simple queries go to lightweight models, saving API costs.
 
-_*Measured on Windows with `CGO_ENABLED=0`, tags `goolm,stdjson`, and `-ldflags "-s -w"`; the stripped binary is ~98 MB. A `nonetwork` build is planned to reduce the footprint for very small boards._
+_*Measured on Windows with `CGO_ENABLED=0`, tags `goolm,stdjson`, and `-ldflags "-s -w"`; the stripped binary is ~98 MB._
 
 <div align="center">
 

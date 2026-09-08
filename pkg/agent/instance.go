@@ -8,7 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/stpinkie/rhizome/pkg/browser"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/isolation"
 	"github.com/stpinkie/rhizome/pkg/logger"
@@ -62,6 +64,10 @@ type AgentInstance struct {
 	// instances. Config-index keys preserve duplicate model_list entries while
 	// provider/model keys remain available for callers without a config identity.
 	CandidateProviders map[string]providers.LLMProvider
+
+	// BrowserMgr owns this agent's browser sessions when tools.browser is
+	// enabled; nil otherwise. Close releases any live sessions.
+	BrowserMgr *browser.Manager
 }
 
 var fallbackAgentModelMu sync.RWMutex
@@ -681,6 +687,13 @@ func mediaTempDirPattern() string {
 
 // Close releases resources held by the agent's providers and session store.
 func (a *AgentInstance) Close() error {
+	// Tear down browser sessions first — it does not depend on model state
+	// and should not stall behind the model mutex.
+	if a.BrowserMgr != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		a.BrowserMgr.CloseAll(ctx)
+		cancel()
+	}
 	modelMu := a.modelStateMutex()
 	modelMu.Lock()
 	defer modelMu.Unlock()

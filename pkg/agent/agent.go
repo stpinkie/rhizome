@@ -490,6 +490,23 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	al.mu.Unlock()
 	al.refreshRuntimeEventLogger(cfg)
 
+	// Release browser session managers from the replaced registry. Old
+	// agents are not fully Closed here (their session stores may still serve
+	// in-flight turns), but each browser.Manager runs a reaper goroutine and
+	// can hold live sessions — spawned browsers, billed cloud sessions —
+	// that would otherwise leak on every reload.
+	if oldRegistry != nil {
+		for _, agentID := range oldRegistry.ListAgentIDs() {
+			oldAgent, ok := oldRegistry.GetAgent(agentID)
+			if !ok || oldAgent.BrowserMgr == nil {
+				continue
+			}
+			closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			oldAgent.BrowserMgr.CloseAll(closeCtx)
+			cancel()
+		}
+	}
+
 	oldMCPManager := al.mcp.reset()
 	al.hookRuntime.reset(al)
 	configureHookManagerFromConfig(al.hooks, cfg)

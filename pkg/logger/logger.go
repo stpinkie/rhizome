@@ -12,6 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
+
+	"github.com/stpinkie/rhizome/pkg/redact"
 )
 
 type LogLevel = zerolog.Level
@@ -319,7 +321,7 @@ func logMessage(level LogLevel, component string, message string, fields map[str
 
 	appendFields(event, fields)
 
-	event.CallerSkipFrame(skip).Msg(message)
+	event.CallerSkipFrame(skip).Msg(redact.Mask(message))
 }
 
 func appendFields(event *zerolog.Event, fields map[string]any) {
@@ -327,9 +329,9 @@ func appendFields(event *zerolog.Event, fields map[string]any) {
 		// Type switch to avoid double JSON serialization of strings
 		switch val := v.(type) {
 		case error:
-			event.Str(k, val.Error())
+			event.Str(k, redact.Mask(val.Error()))
 		case string:
-			event.Str(k, val)
+			event.Str(k, redact.Mask(val))
 		case int:
 			event.Int(k, val)
 		case int64:
@@ -339,7 +341,10 @@ func appendFields(event *zerolog.Event, fields map[string]any) {
 		case bool:
 			event.Bool(k, val)
 		default:
-			event.Interface(k, v) // Fallback for struct, slice and maps
+			// MaskAny walks maps/slices so secrets inside composite values
+			// (e.g. tool-call args) are redacted too; other types are masked
+			// through their JSON encoding.
+			event.Interface(k, redact.MaskAny(v))
 		}
 	}
 }

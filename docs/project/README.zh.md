@@ -39,9 +39,15 @@
 > - **官方来源 (CANONICAL SOURCE):** 权威源码和发布地址是 **<https://github.com/stpinkie/rhizome>**；版本发布在 GitHub Releases。请警惕声称是官方的第三方域名。
 > - **警惕:** 许多 `.ai/.org/.com/.net/...` 后缀的域名被第三方抢注，请勿轻信。
 > - **注意:** Rhizome 正在初期的快速功能开发阶段，可能有尚未修复的网络安全问题，在 1.0 正式版发布前，请不要将其部署到生产环境中。
-> - **注意:** 完整的 `rhizome` 二进制文件约 98 MB，守护进程使用约 60 MB 私有内存。我们计划构建 `nonetwork` 版本以进一步降低超小板的占用。资源优化将在功能稳定后进行。
+> - **注意:** 完整的 `rhizome` 二进制文件约 98 MB，守护进程使用约 60 MB 私有内存。资源优化将在功能稳定后进行。
 
 ## 📢 新闻
+
+2026-09-07 🌐 **v0.7.0 — Swarm 模式**：新增受信任节点的命名分组，通过签名信封在 `/rhizome/swarm/1.0.0` 上协作：presence 与 roster gossip、offer/claim 分布式工作队列、基于工作区同步共享状态的确定性协调者选举、目标编排（`rhizome swarm run`）、Network 仪表盘的 Swarms 面板，以及可选的 GossipSub 传输。详见 [v0.7.0 发布说明](../release-notes/v0.7.0.md)（英文）。
+
+2026-09-05–08 🌐 **v0.5.0–v0.6.2 — Mesh**：NAT 穿透、异步远程任务、网格安全加固（签名清单、ACL、审计日志）、Network 仪表盘、节点评分与任务故障转移。发布说明：[v0.5.0](../release-notes/v0.5.0.md)–[v0.6.2](../release-notes/v0.6.2.md)。
+
+2026-09-01–04 🚀 **v0.4.x — 可移植性**：新增 `linux/386`、`windows/386`、`linux/armv7` 与原生 Android（`arm64`/`arm`/`386`/`amd64`）构建，针对 Linux 3.4 / Android 4.4 内核加固 P2P 传输，网络状态 API 与本地模型供应商（Ollama、vLLM、LM Studio）。
 
 2026-05-28 🚀 **v0.2.9 发布！** Web UI 中的 MCP 服务器管理、可配置的搜狗联网搜索、Channel 工具反馈动画、`pretty_print` 和 `disable_escape_html` 默认值，以及 Provider 和 Channel 的多项 Bug 修复。
 
@@ -94,7 +100,7 @@
 
 🧠 **智能路由**：基于规则的模型路由 — 简单查询路由到轻量模型，节省 API 成本。
 
-_*在 Windows 上使用 `CGO_ENABLED=0`、tags `goolm,stdjson` 和 `-ldflags "-s -w"` 测量；剥离后二进制文件约 98 MB。我们计划构建 `nonetwork` 版本以进一步降低超小板的占用。_
+_*在 Windows 上使用 `CGO_ENABLED=0`、tags `goolm,stdjson` 和 `-ldflags "-s -w"` 测量；剥离后二进制文件约 98 MB。_
 
 <div align="center">
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -367,6 +368,40 @@ func TestAppendFields_ErrorUsesErrorString(t *testing.T) {
 
 	if got["error"] != "transcription request failed" {
 		t.Fatalf("error field = %#v, want %q", got["error"], "transcription request failed")
+	}
+}
+
+// Composite field values (maps, slices) carry the most secret-bearing
+// content in the codebase — tool args are logged this way on every call —
+// so appendFields must mask them, not pass them to event.Interface raw.
+func TestAppendFields_MasksCompositeValues(t *testing.T) {
+	var buf bytes.Buffer
+	l := zerolog.New(&buf)
+
+	event := l.Info()
+	appendFields(event, map[string]any{
+		"tool": "exec",
+		"args": map[string]any{
+			"command": `curl -H "Authorization: Bearer abcdef1234567890XYZW" https://x`,
+			"api_key": "hunter2-not-a-known-pattern",
+		},
+	})
+	event.Msg("tool start")
+
+	var got map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &got); err != nil {
+		t.Fatalf("unmarshal log line: %v", err)
+	}
+	raw := buf.String()
+	if strings.Contains(raw, "abcdef1234567890") || strings.Contains(raw, "hunter2") {
+		t.Fatalf("secret leaked in composite field: %s", raw)
+	}
+	args, ok := got["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("args field lost its object shape: %#v", got["args"])
+	}
+	if args["api_key"] != "[FILTERED]" {
+		t.Fatalf("secretish map key not fully redacted: %v", args["api_key"])
 	}
 }
 

@@ -15,7 +15,8 @@
     "config": "Config",
     "logs": "Logs",
     "network_group": "Network",
-    "network": "Network"
+    "network": "Network",
+    "browser": "Browser"
   },
   "launcherLogin": {
     "title": "Sign in",

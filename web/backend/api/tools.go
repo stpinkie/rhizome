@@ -125,6 +125,12 @@ var toolCatalog = []toolCatalogEntry{
 		ConfigKey:   "web_fetch",
 	},
 	{
+		Name:        "browser",
+		Description: "Browser automation (open/snapshot/click/fill/screenshot/eval/wait/close) via the configured backend.",
+		Category:    "web",
+		ConfigKey:   "browser",
+	},
+	{
 		Name:        "message",
 		Description: "Send a follow-up message back to the active user or chat.",
 		Category:    "communication",
@@ -354,6 +360,8 @@ func applyToolState(cfg *config.Config, toolName string, enabled bool) error {
 		cfg.Tools.Web.Enabled = enabled
 	case "web_fetch":
 		cfg.Tools.WebFetch.Enabled = enabled
+	case "browser":
+		cfg.Tools.Browser.Enabled = enabled
 	case "message":
 		cfg.Tools.Message.Enabled = enabled
 	case "send_file":
