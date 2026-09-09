@@ -93,6 +93,11 @@ type Request struct {
 	Tools         []string      `json:"tools,omitempty"`
 	Timeout       time.Duration `json:"timeout,omitempty"`
 
+	// Media carries blob://<peer>/<sha256> references for task attachments
+	// on submit. The callee resolves each ref through the blob protocol
+	// (/rhizome/blob) into local media refs before running the task.
+	Media []string `json:"media,omitempty"`
+
 	// Wait bounds how long a result request may long-poll for completion.
 	Wait time.Duration `json:"wait,omitempty"`
 

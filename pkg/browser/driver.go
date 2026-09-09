@@ -8,10 +8,13 @@ package browser
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/browser/cdp"
 )
 
 // Runner executes an external command. Injectable for tests.
@@ -46,7 +49,11 @@ type Endpoint struct {
 	CDPURL   string
 	Provider string
 	Env      []string
-	Cleanup  func(context.Context) error
+	// Headers are extra headers sent on the WebSocket handshake (native CDP
+	// driver only) — e.g. Authorization: Bearer for authenticated endpoints
+	// like Cloudflare Browser Rendering.
+	Headers map[string]string
+	Cleanup func(context.Context) error
 }
 
 // Driver executes browser actions against a session endpoint.
@@ -205,4 +212,101 @@ func (d *AgentBrowserDriver) Wait(
 func (d *AgentBrowserDriver) Close(ctx context.Context, ep *Endpoint, session string) error {
 	_, err := d.run(ctx, ep, session, "close")
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// native-cdp: the built-in Go CDP driver (pkg/browser/cdp)
+// ---------------------------------------------------------------------------
+
+// NativeCDPDriver adapts the in-process CDP client to the Driver interface.
+// It speaks the DevTools protocol directly — no agent-browser CLI needed —
+// so endpoints can be ws/wss (optionally with auth headers, e.g. Cloudflare)
+// or an http(s) debug base resolved via /json/version.
+type NativeCDPDriver struct {
+	D *cdp.Driver
+}
+
+func (d *NativeCDPDriver) inner() *cdp.Driver {
+	if d.D != nil {
+		return d.D
+	}
+	d.D = &cdp.Driver{}
+	return d.D
+}
+
+func epParts(ep *Endpoint) (string, http.Header) {
+	var h http.Header
+	if ep != nil && len(ep.Headers) > 0 {
+		h = make(http.Header, len(ep.Headers))
+		for k, v := range ep.Headers {
+			h.Set(k, v)
+		}
+	}
+	url := ""
+	if ep != nil {
+		url = ep.CDPURL
+	}
+	return url, h
+}
+
+// Open navigates the session tab to url.
+func (d *NativeCDPDriver) Open(
+	ctx context.Context, ep *Endpoint, session, url string,
+) (string, error) {
+	epURL, h := epParts(ep)
+	return d.inner().Open(ctx, epURL, h, session, url)
+}
+
+// Snapshot returns the page outline; interactive lists @eN refs only.
+func (d *NativeCDPDriver) Snapshot(
+	ctx context.Context, ep *Endpoint, session string, interactive bool,
+) (string, error) {
+	epURL, h := epParts(ep)
+	return d.inner().Snapshot(ctx, epURL, h, session, interactive)
+}
+
+// Click clicks the element identified by ref (@eN or css=...).
+func (d *NativeCDPDriver) Click(
+	ctx context.Context, ep *Endpoint, session, ref string,
+) (string, error) {
+	epURL, h := epParts(ep)
+	return d.inner().Click(ctx, epURL, h, session, ref)
+}
+
+// Fill types text into the element identified by ref.
+func (d *NativeCDPDriver) Fill(
+	ctx context.Context, ep *Endpoint, session, ref, text string,
+) (string, error) {
+	epURL, h := epParts(ep)
+	return d.inner().Fill(ctx, epURL, h, session, ref, text)
+}
+
+// Screenshot captures the page to outPath.
+func (d *NativeCDPDriver) Screenshot(
+	ctx context.Context, ep *Endpoint, session, outPath string,
+) (string, error) {
+	epURL, h := epParts(ep)
+	return d.inner().Screenshot(ctx, epURL, h, session, outPath)
+}
+
+// Eval evaluates a JavaScript expression in the page.
+func (d *NativeCDPDriver) Eval(
+	ctx context.Context, ep *Endpoint, session, js string,
+) (string, error) {
+	epURL, h := epParts(ep)
+	return d.inner().Eval(ctx, epURL, h, session, js)
+}
+
+// Wait waits for a selector, ref, or time duration.
+func (d *NativeCDPDriver) Wait(
+	ctx context.Context, ep *Endpoint, session, target string,
+) (string, error) {
+	epURL, h := epParts(ep)
+	return d.inner().Wait(ctx, epURL, h, session, target)
+}
+
+// Close closes the session's tab and drops the connection.
+func (d *NativeCDPDriver) Close(ctx context.Context, ep *Endpoint, session string) error {
+	epURL, _ := epParts(ep)
+	return d.inner().Close(ctx, epURL, session)
 }

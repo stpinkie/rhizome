@@ -3,6 +3,7 @@ package media
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -208,15 +209,36 @@ func (s *FileMediaStore) ReleaseAll(scope string) error {
 
 	// Phase 2: delete files without holding the lock
 	for _, p := range paths {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			logger.WarnCF("media", "release: failed to remove file", map[string]any{
-				"path":  p,
-				"error": err.Error(),
-			})
-		}
+		removeFileAndEmptyDir(p)
 	}
 
 	return nil
+}
+
+// removeFileAndEmptyDir removes the file at path and, if its parent directory
+// is now empty, removes the directory too. This lets tools that extract media
+// into a per-call subdirectory under media.TempDir() have both the files and
+// the directory cleaned up by the store's normal lifecycle, without the tool
+// needing to track the directory separately. Non-empty directories and the
+// shared media.TempDir() root are left in place.
+func removeFileAndEmptyDir(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		logger.WarnCF("media", "cleanup: failed to remove file", map[string]any{
+			"path":  path,
+			"error": err.Error(),
+		})
+		return
+	}
+	dir := filepath.Dir(path)
+	// Never remove the shared media temp root or the OS temp root.
+	if dir == filepath.Clean(TempDir()) || dir == filepath.Clean(os.TempDir()) {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) > 0 {
+		return
+	}
+	_ = os.Remove(dir)
 }
 
 // CleanExpired removes all entries older than MaxAge.
@@ -262,12 +284,7 @@ func (s *FileMediaStore) CleanExpired() int {
 		if e.deletePath == "" {
 			continue
 		}
-		if err := os.Remove(e.deletePath); err != nil && !os.IsNotExist(err) {
-			logger.WarnCF("media", "cleanup: failed to remove file", map[string]any{
-				"path":  e.deletePath,
-				"error": err.Error(),
-			})
-		}
+		removeFileAndEmptyDir(e.deletePath)
 	}
 
 	return len(expired)

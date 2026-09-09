@@ -4951,6 +4951,11 @@ func TestAgentLoop_UserAttachmentRoutesToImageModelAfterMediaResolution(t *testi
 				MaxToolIterations: 3,
 			},
 		},
+		// These tests assert the path-tag-only contract; pin vision_mode to
+		// "tool" so the auto-inline path doesn't attach raw media refs.
+		Tools: config.ToolsConfig{
+			Media: config.MediaToolsConfig{VisionMode: "tool"},
+		},
 		ModelList: []*config.ModelConfig{
 			{ModelName: "text-model", Model: "openai/text-model"},
 			{ModelName: "vision-model", Model: "openai/vision-model"},
@@ -5040,6 +5045,11 @@ func TestAgentLoop_TextFollowUpAfterUserAttachmentStaysOnTextModel(t *testing.T)
 				MaxToolIterations: 3,
 			},
 		},
+		// These tests assert the path-tag-only contract; pin vision_mode to
+		// "tool" so the auto-inline path doesn't attach raw media refs.
+		Tools: config.ToolsConfig{
+			Media: config.MediaToolsConfig{VisionMode: "tool"},
+		},
 		ModelList: []*config.ModelConfig{
 			{ModelName: "text-model", Model: "openai/text-model"},
 			{ModelName: "vision-model", Model: "openai/vision-model"},
@@ -5128,6 +5138,11 @@ func TestAgentLoop_GenericImagePlaceholderDoesNotRouteToImageModel(t *testing.T)
 				MaxTokens:         4096,
 				MaxToolIterations: 3,
 			},
+		},
+		// These tests assert the path-tag-only contract; pin vision_mode to
+		// "tool" so the auto-inline path doesn't attach raw media refs.
+		Tools: config.ToolsConfig{
+			Media: config.MediaToolsConfig{VisionMode: "tool"},
 		},
 		ModelList: []*config.ModelConfig{
 			{ModelName: "text-model", Model: "openai/text-model"},

@@ -48,11 +48,13 @@ $env:TMP='D:\tmp'
 - `rhizome network task submit|status|result|cancel|list <peer-multiaddr> …` — manage asynchronous remote tasks over `/rhizome/agent-task/1.0.0`. The same commands are mirrored under `rhizome mesh task`.
 - `rhizome network route <agent-id> <task>` / `rhizome mesh route` — pick the best connected, trusted peer for an agent id (capability + load aware, via `Mesh.PickPeer`) and dispatch the task. `--sync` delegates synchronously; `--wait <dur>` long-polls the result after submitting.
 - `rhizome network audit` / `rhizome mesh audit` — print the tail of the local mesh audit trail (`~/.rhizome/mesh-audit.jsonl`); `--tail N`, `--json`.
+ - `rhizome mesh skill list <peer-id>` / `rhizome mesh skill pull <peer-id> <name>` - mesh skill distribution over `/rhizome/skill/1.0.0`: peers advertise skills from the `mesh.skill_share` allowlist (default deny-all); `pull` fetches a zip bundle over the blob protocol, guard-scans it (`pkg/guard`), and installs to `~/.rhizome/skills/<name>` with `.skill-origin.json` `origin_kind: "mesh"` + `mesh:<peer-id>` provenance (web UI shows a violet Mesh badge). Daemon endpoints `GET /network/skills?peer=<id>` and `POST /network/skills/pull`; `mesh.skill.pull/push` events + audit.
+ - `rhizome network pair --create [--ttl 15m]` / `--accept <bundle>` - trust pairing over `/rhizome/pair/1.0.0`: mints a single-use, signed bundle (peer id + addrs + code + expiry) to share out of band; accepting verifies signatures, connects, and both sides persist `mesh.trusted_peers` + `mesh.bootstrap_peers`. Daemon endpoints `POST /network/pair` and `POST /network/pair/accept`; launcher proxies `/api/network/pair*`; Network page has a Pair panel. `mesh.pair.*` events; codes persist at `<RHIZOME_HOME>/pair-codes.json`.
 - `rhizome network scatter <agent-id> <task>` / `rhizome mesh scatter` — fan a task out to up to `--n` capable trusted peers and aggregate results (`--strategy first|quorum|all`, `--k`, `--wait`).
 - `rhizome swarm join|leave <id>` — persist a swarm membership in `swarm.memberships` (effective on next daemon start).
 - `rhizome swarm list|status|members <id>` — inspect configured memberships and the saved roster (`~/.rhizome/swarms.json`).
-- `rhizome swarm offer <swarm> <agent-id> <task>` / `rhizome swarm offers <swarm>` — publish/track work-queue offers on the running daemon.
-- `rhizome swarm run <swarm> <goal>` — decompose a goal, dispatch subtasks over the work queue, and aggregate results (daemon required).
+- `rhizome swarm offer <swarm> <agent-id> <task>` / `rhizome swarm offers <swarm>` — publish/track/cancel work-queue offers on the running daemon (`--cancel <offer-id>`, `--require-agent/--require-model/--require-skill` for capability-aware claims).
+- `rhizome swarm run <swarm> <goal>` — decompose a goal into dependency-aware subtasks (DAG waves, `depends_on`), dispatch them over the work queue with retries, aggregate results, and persist run records to `<RHIZOME_HOME>/swarm-runs.jsonl` (bounded). `rhizome swarm runs <swarm>` / `rhizome swarm run-status <swarm> <run-id>` inspect recorded runs; `swarm.run.subtask` events stream per-subtask lifecycle (daemon required).
 - `rhizome sync status|log|commit|pull|push` — manage the workspace git repo. `sync status` shows HEAD, branch, workspace state, conflicts, last error, and per-peer heads (`--json` for machine-readable).
 - `rhizome daemon` — start a long-running P2P node, workspace syncer, agent gateway, and (when enabled) the decentralised mesh.
   - `--no-dht` disables public DHT discovery.
@@ -93,6 +95,7 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 - `pkg/rhizome/merge` — diff3-based file and tree merging.
 - `pkg/rhizome/agentrpc` — libp2p request/response framing for remote agent tasks (`/rhizome/agent/1.0.0`), with signed nonce+timestamp replay fields and a bounded idempotency cache.
 - `pkg/rhizome/agenttask` — asynchronous task protocol (`/rhizome/agent-task/1.0.0`): submit/status/result(long-poll)/cancel/list.
+- `pkg/rhizome/blob` — content-addressed file transfer between trusted peers (`/rhizome/blob/1.0.0`) over `stream.ReliableConn`: signed put/get/stat ops, SHA-256-verified chunked streaming, per-blob size cap, TTL reaper.
 - `pkg/rhizome/mesh` — peer capability exchange (signed manifests), trust, remote `delegate`/`spawn`, scatter-gather fan-out (`FanoutTask`), per-peer ACL + rate limits, replay protection, and the audit trail (`~/.rhizome/mesh-audit.jsonl`).
 - `pkg/rhizome/swarm` — swarm layer over the mesh: signed envelopes on `/rhizome/swarm/1.0.0`, join/leave + roster gossip, presence heartbeats, offer/claim work queue, deterministic coordinator election (lowest peer id) with shared state written to `swarm/<id>/state.json` in the synced workspace, goal orchestration (`RunGoal`), and pluggable broadcast transport (`direct` fan-out or `gossipsub`).
 - `cmd/rhizome/internal/network`, `cmd/rhizome/internal/daemon`, `cmd/rhizome/internal/swarm`, and `cmd/rhizome/internal/sync` — CLI commands.
@@ -114,11 +117,15 @@ Add a `mesh` section to `config.json`:
     "rate_limit_global": 300,
     "audit_log": true,
     "require_signed_caps": true,
+    "blob_enabled": true,
+    "blob_max_bytes": 67108864,
+    "blob_ttl": "24h",
     "acl": [
       {
         "peer_id": "12D3KooW...",
         "allow_delegate": true,
         "allow_spawn": false,
+        "allow_blob": true,
         "agents": ["main"],
         "rate_limit": 10
       }
@@ -131,7 +138,8 @@ Add a `mesh` section to `config.json`:
 - `rate_limit_per_peer` / `rate_limit_global` — remote request caps in requests per minute (0 = unlimited).
 - `audit_log` — append-only `~/.rhizome/mesh-audit.jsonl` trail (10 MB × 3 rotation); a `mesh.remote.audit` runtime event is always emitted.
 - `require_signed_caps` — reject unsigned capability manifests (default `true`); set `false` to accept unsigned manifests from trusted peers. A `mesh.cap.unsigned` event is emitted either way.
-- `acl` — per-peer overrides: `allow_delegate`/`allow_spawn` fall back to the global flags when omitted; `agents` restricts which agent ids the peer may run (`"*"` for all); `rate_limit` overrides the per-peer cap (negative = unlimited).
+- `acl` — per-peer overrides: `allow_delegate`/`allow_spawn` fall back to the global flags when omitted; `allow_blob` gates `/rhizome/blob/1.0.0` transfers (default: trusted peers allowed); `agents` restricts which agent ids the peer may run (`"*"` for all); `rate_limit` overrides the per-peer cap (negative = unlimited).
+- `blob_enabled` / `blob_max_bytes` / `blob_ttl` — content-addressed file transfer between trusted peers (`/rhizome/blob/1.0.0`), used by remote task attachments and mesh skill distribution. Blobs are stored under `~/.rhizome/blobs/` by SHA-256 hash, hash-verified on receipt, and reaped after `blob_ttl` (default 24h; `0` = keep forever). `blob_enabled` defaults to `true` when the mesh is enabled.
 - Rejected remote calls carry machine-readable prefixes: `forbidden:` (ACL) and `rate_limited:`.
 
 ### NAT traversal (v0.5.0)
@@ -160,7 +168,7 @@ of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
     "request_max_skew": "2m",
     "transport": "direct",
     "presence": { "heartbeat_interval": "15s", "expire_after": "45s" },
-    "queue": { "offer_ttl": "2m", "claim_window": "5s", "max_offers": 100 },
+    "queue": { "offer_ttl": "2m", "claim_window": "5s", "max_offers": 100, "assign_timeout": "10m", "max_retries": 1 },
     "coordination": { "enabled": true, "state_interval": "30s" },
     "rate_limit_per_peer": 60,
     "rate_limit_global": 600,
@@ -175,8 +183,8 @@ of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
 - `transport` — `direct` (default, per-member stream fan-out) or `gossipsub` (one pub/sub topic per swarm, `rhizome/swarm/<id>`; join/leave/ping stay on direct streams).
 - `acl` — per-(swarm, peer) rules; missing rules default to "trusted peers may offer and claim". `rate_limit` overrides the per-peer cap (negative = unlimited).
 - Swarm ops audit into the shared `mesh-audit.jsonl` with `swarm.`-prefixed ops.
-- Daemon API: `GET /network/swarms`, `GET /network/swarms/<id>[/{members,offers}]`, `POST /network/swarms` (`{"swarm","action":"join|leave"}`), `POST /network/swarms/<id>/offers`, `POST /network/swarms/<id>/run`, `GET /network/swarms/events` (SSE). The launcher proxies them under `/api/network/swarms*` with file/config fallbacks for reads and join/leave.
-- The gateway wires swarm seams (`SetTaskSubmitter`, `SetOfferEvaluator`, `SetCapProbe`, `SetStateWriter`, `SetDecomposer`, `SetSynthesizer`, `SetResultFetcher`) in `pkg/gateway/swarm.go`; the daemon registers the instance via `gateway.SetSwarm`.
+- Daemon API: `GET /network/swarms`, `GET /network/swarms/<id>[/{members,offers}]`, `POST /network/swarms` (`{"swarm","action":"join|leave"}`), `POST /network/swarms/<id>/offers`, `POST /network/swarms/<id>/offers/cancel`, `POST /network/swarms/<id>/run`, `GET /network/swarms/<id>/runs` (`?run=<id>` for one), `GET /network/swarms/events` (SSE). The launcher proxies them under `/api/network/swarms*` with file/config fallbacks for reads and join/leave.
+- The gateway wires swarm seams (`SetTaskSubmitter`, `SetTaskCanceller`, `SetOfferEvaluator`, `SetCapMatcher`, `SetCapProbe`, `SetStateWriter`, `SetDecomposer`, `SetSynthesizer`, `SetResultFetcher`) in `pkg/gateway/swarm.go`; the daemon registers the instance via `gateway.SetSwarm`.
 - The Network dashboard has a **Swarms** panel (roster, coordinator, offers, goal runs) fed by `/api/network/swarms*` and the swarm SSE stream.
 
 ## DHT Configuration
@@ -254,7 +262,23 @@ The swarm integration test builds `rhizome`, starts two daemons joined to a shar
 - `tools.browser.session_timeout` (default `10m`) bounds sessions — idle sessions are reaped in the background; `tools.browser.private_host_whitelist` relaxes the SSRF guard on browser tool URLs (literal hosts and DNS-resolved addresses).
 - Web console: `/browser` page + `GET/PUT /api/browser`, `GET /api/browser/backends`, `POST /api/browser/install|uninstall?backend=<id>`, `GET /api/browser/diskspace`.
 - Cloudflare is REST-only (snapshot/screenshot); interactive ops return a clear unsupported-backend error.
+- `rhizome-cdp` backend (v0.8.0, Track 41): `pkg/browser/cdp` is a built-in Go CDP client (gorilla WebSocket, Target/Page/Runtime/DOM/Input domains) — no Node.js/agent-browser needed. `endpoint_url` accepts `ws(s)://` or an `http(s)://` debug base (`/json/version`); `api_key` is sent as `Authorization: Bearer` on the WS handshake, covering authenticated endpoints such as Cloudflare Browser Rendering connect.
 - Stealth path: `workspace/skills/stealth-browser` (Patchright MCP server); see `docs/guides/browser-automation.md`.
+
+## MCP Presets (v0.8.0, Track 40)
+
+- `tools.mcp.presets.<name>` wires first-class hosted MCP servers. Currently `context7` (`{enabled, api_key}`) expands to an `http` server at `https://mcp.context7.com/mcp` with a `CONTEXT7_API_KEY` header; `api_key` is a `SecureString` (persists via `config.security.yml`, supports `file://`/`enc://` refs) and falls back to the `CONTEXT7_API_KEY` env var.
+- `MCPConfig.EffectiveServers()` merges `servers` + expanded presets — explicit `servers.<name>` always wins.
+- CLI: `rhizome mcp preset context7 --key <k> --enable`; `mcp list` shows preset-expanded servers.
+- Web: `GET /api/tools/mcp-presets`, `PUT /api/tools/mcp-presets/<name>`; a presets card on the Tools page handles enable + key entry (keys never echoed back).
+
+## Media & Attachments (v0.8.0, Tracks 34-35)
+
+- `tools.media.vision_mode` — `auto` (default) attaches user-sent images inline to the provider request when the model is vision-capable (or an `agents.defaults.image_model` fallback is configured); `tool` keeps path tags only (agent calls `load_image`); `off` disables inline images entirely.
+- `tools.media.max_video_frames` (default 8) bounds keyframes extracted by `load_video`; `tools.media.ffmpeg_path` overrides the ffmpeg binary (ffmpeg is an optional external dependency, like `agent-browser`).
+- New tools: `load_video` (ffmpeg keyframes → media:// image refs) and `transcribe_audio` (on-demand ASR via the configured voice transcriber); both are `tools.load_video` / `tools.transcribe_audio` enabled by default.
+- Telegram inbound now downloads video: the API-provided thumbnail is attached as an image (vision works without ffmpeg) plus the video file for `load_video`.
+- Remote task attachments: `network delegate|spawn|route`, `mesh route`, and `swarm offer` accept repeatable `--attach <path>`; local files are pushed over `/rhizome/blob/1.0.0` to the callee and localized into its media store; result artifacts return as blob refs and are localized on the caller. `tools.media` also governs audio attachments — audio refs on remote tasks are transcribed to `[voice: ...]` annotations when a transcriber is configured.
 
 ## Configuration / Environment
 

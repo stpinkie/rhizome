@@ -41,6 +41,10 @@ type Request struct {
 	// Async hints that the caller will use the result in the background (spawn)
 	// rather than waiting for it in-line (delegate). Defaults to false.
 	Async bool `json:"async,omitempty"`
+	// Media carries blob://<peer>/<sha256> references for task attachments.
+	// The callee resolves each ref through the blob protocol (/rhizome/blob)
+	// into local media refs before running the request.
+	Media []string `json:"media,omitempty"`
 }
 
 // ToolRef is a lightweight reference to a tool capability advertised by a peer.

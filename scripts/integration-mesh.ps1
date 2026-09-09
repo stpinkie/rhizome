@@ -70,8 +70,15 @@ try {
 
     Write-Host "Pinging A from C..."
     $env:RHIZOME_HOME = $cHome
-    & $rhizomeBin network ping $aAddr
-    if ($LASTEXITCODE -ne 0) { throw "ping from C to A failed" }
+    # stderr holds benign mdns shutdown warnings; PS 5.1 promotes native
+    # stderr writes to NativeCommandError under $ErrorActionPreference=Stop,
+    # so relax the preference around this call and check the exit code.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & $rhizomeBin network ping $aAddr 2>$null
+    $pingExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    if ($pingExit -ne 0) { throw "ping from C to A failed" }
 
     Write-Host "Starting daemon B..."
     $bOut = Join-Path $bHome "daemon.out.log"

@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/bus"
+	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers"
+	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
 // RemoteDispatchRequest describes a task submitted by a trusted mesh peer.
@@ -24,6 +26,9 @@ type RemoteDispatchRequest struct {
 	Tools []string
 	// Prompt is the user message for the remote turn.
 	Prompt string
+	// Media carries local media:// refs for task attachments, already
+	// resolved by the mesh layer from the wire's blob:// refs.
+	Media []string
 	// SessionKey scopes the (ephemeral) session; defaults to a generated key.
 	SessionKey string
 	// SenderID identifies the requesting peer for events and audit logging.
@@ -34,16 +39,18 @@ type RemoteDispatchRequest struct {
 // agent. Unlike ProcessDirect it does not go through channel routing: the
 // caller (a trusted mesh peer) names the agent explicitly. The turn runs on a
 // shallow copy of the agent with an ephemeral session so remote tasks never
-// write into local session history.
+// write into local session history. It returns the final text plus any
+// media:// refs produced during the turn (send_file outputs, tool
+// attachments) so the caller can ship them back over the wire.
 func (al *AgentLoop) ProcessRemoteDispatch(
 	ctx context.Context,
 	req RemoteDispatchRequest,
-) (string, error) {
+) (string, []string, error) {
 	if err := al.ensureHooksInitialized(ctx); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := al.ensureMCPInitialized(ctx); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	registry := al.GetRegistry()
@@ -52,13 +59,13 @@ func (al *AgentLoop) ProcessRemoteDispatch(
 		var ok bool
 		base, ok = registry.GetAgent(id)
 		if !ok {
-			return "", fmt.Errorf("agent %q not found on this node", id)
+			return "", nil, fmt.Errorf("agent %q not found on this node", id)
 		}
 	} else {
 		base = registry.GetDefaultAgent()
 	}
 	if base == nil {
-		return "", fmt.Errorf("no agent available for remote dispatch")
+		return "", nil, fmt.Errorf("no agent available for remote dispatch")
 	}
 
 	// Shallow copy like subturn execution: remote tasks get an ephemeral
@@ -67,10 +74,10 @@ func (al *AgentLoop) ProcessRemoteDispatch(
 	agentCopy.Sessions = newEphemeralSession(nil)
 
 	if err := al.applyRemoteModelOverride(base, &agentCopy, req.Model); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := applyRemoteToolOverride(base, &agentCopy, req.Tools); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	sessionKey := strings.TrimSpace(req.SessionKey)
@@ -82,10 +89,20 @@ func (al *AgentLoop) ProcessRemoteDispatch(
 		senderID = "mesh"
 	}
 
-	return al.runAgentLoop(ctx, &agentCopy, processOptions{
+	// Transcribe audio attachments so speech reaches the model as text even
+	// when the provider cannot consume audio media directly.
+	prompt := req.Prompt
+	if al.transcriber != nil && al.mediaStore != nil {
+		prompt = al.appendRemoteTranscriptions(ctx, prompt, req.Media)
+	}
+
+	var producedMedia []string
+	text, err := al.runAgentLoop(ctx, &agentCopy, processOptions{
 		Dispatch: DispatchRequest{
 			SessionKey:  sessionKey,
-			UserMessage: req.Prompt,
+			UserMessage: prompt,
+			Media:       append([]string(nil), req.Media...),
+			MediaSink:   &producedMedia,
 			InboundContext: &bus.InboundContext{
 				Channel:  "mesh",
 				ChatID:   sessionKey,
@@ -100,6 +117,34 @@ func (al *AgentLoop) ProcessRemoteDispatch(
 		SuppressToolFeedback: true,
 		NoHistory:            true,
 	})
+	return text, producedMedia, err
+}
+
+// appendRemoteTranscriptions transcribes audio media refs attached to a
+// remote task and appends [voice: ...] annotations to the prompt. Media refs
+// are kept so the agent can still operate on the raw files.
+func (al *AgentLoop) appendRemoteTranscriptions(ctx context.Context, prompt string, refs []string) string {
+	for _, ref := range refs {
+		path, meta, err := al.mediaStore.ResolveWithMeta(ref)
+		if err != nil {
+			continue
+		}
+		if !utils.IsAudioFile(meta.Filename, meta.ContentType) {
+			continue
+		}
+		resp, err := al.transcriber.Transcribe(ctx, path)
+		if err != nil {
+			logger.WarnCF("voice", "Remote attachment transcription failed", map[string]any{
+				"ref":   ref,
+				"error": err.Error(),
+			})
+			continue
+		}
+		if text := strings.TrimSpace(resp.Text); text != "" {
+			prompt += "\n[voice: " + text + "]"
+		}
+	}
+	return prompt
 }
 
 // applyRemoteModelOverride validates and applies a remote-requested model.

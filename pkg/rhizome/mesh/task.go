@@ -35,6 +35,25 @@ type RemoteCall struct {
 	// peer does not support the task protocol, the call falls back to the
 	// synchronous agent protocol.
 	Async bool
+	// Media attaches files to the remote task. Path entries are pushed to
+	// the chosen callee over the blob protocol at submit time; Ref entries
+	// (blob://<peer>/<sha256>) are passed through for the callee to pull
+	// from the hosting peer.
+	Media []MediaAttachment
+}
+
+// MediaAttachment names one file carried to a remote callee.
+type MediaAttachment struct {
+	// Path is a local file pushed to the callee over /rhizome/blob/1.0.0.
+	Path string `json:"path,omitempty"`
+	// Ref is an existing blob://<peer>/<sha256> reference passed through
+	// unchanged; the callee pulls the content from the hosting peer.
+	Ref string `json:"ref,omitempty"`
+	// Name is the filename hint for Path attachments (defaults to the file
+	// basename).
+	Name string `json:"name,omitempty"`
+	// ContentType is an optional MIME hint for Path attachments.
+	ContentType string `json:"content_type,omitempty"`
 }
 
 func newTaskNonce() string {
@@ -194,19 +213,34 @@ func (m *Mesh) runMeshTask(task *MeshTask, req agenttask.Request) {
 
 	var result *toolshared.ToolResult
 	var runErr error
+	scope := "mesh:" + task.ID
 	if m.runFunc == nil {
 		runErr = fmt.Errorf("remote agent execution is not configured")
 	} else {
-		result, runErr = m.runFunc(ctx, agentrpc.Request{
-			CorrelationID: task.ID,
-			TargetAgentID: req.TargetAgentID,
-			Model:         req.Model,
-			SystemPrompt:  req.SystemPrompt,
-			Timeout:       timeout,
-			Tools:         toolNamesToRefs(req.Tools),
-			Async:         true,
-		})
+		// Resolve blob:// attachment refs into local media:// refs.
+		var mediaRefs []string
+		if len(req.Media) > 0 {
+			mediaRefs, runErr = m.fetchInboundMedia(ctx, req.Media, scope)
+		}
+		if runErr == nil {
+			result, runErr = m.runFunc(ctx, agentrpc.Request{
+				CorrelationID: task.ID,
+				TargetAgentID: req.TargetAgentID,
+				Model:         req.Model,
+				SystemPrompt:  req.SystemPrompt,
+				Timeout:       timeout,
+				Tools:         toolNamesToRefs(req.Tools),
+				Async:         true,
+				Media:         mediaRefs,
+			})
+		}
 	}
+	// Publish result artifacts as blob refs the caller can pull back, then
+	// release the inbound media scope (blob files persist under their TTL).
+	if runErr == nil {
+		m.publishOutboundMedia(result)
+	}
+	m.releaseMediaScope(scope)
 
 	status := agenttask.StatusDone
 	errMsg := ""
@@ -642,6 +676,15 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 		Tools:         call.Tools,
 		Timeout:       m.cfg.RemoteTimeout,
 	}
+	// Push local attachments to this peer; the signed request carries the
+	// resulting blob refs bound to it.
+	if len(call.Media) > 0 {
+		refs, err := m.remoteMediaRefs(ctx, pid, call.Media)
+		if err != nil {
+			return "", err
+		}
+		req.Media = refs
+	}
 	if err := m.signTaskRequest(&req); err != nil {
 		return "", err
 	}
@@ -738,6 +781,10 @@ func (m *Mesh) taskCall(ctx context.Context, pid peer.ID, req agenttask.Request)
 		err := fmt.Errorf("task request rejected: %s", resp.Error)
 		m.recordPeerCall(pid, false, latency, err)
 		return resp, err
+	}
+	// Pull blob:// result artifacts into local media refs.
+	if resp.Status == agenttask.StatusDone {
+		m.localizeResultMedia(ctx, resp.Result, "mesh-result:"+req.TaskID)
 	}
 	m.recordPeerCall(pid, true, latency, nil)
 	return resp, nil

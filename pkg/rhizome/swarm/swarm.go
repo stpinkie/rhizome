@@ -132,6 +132,8 @@ func New(
 	}
 	if homeDir != "" {
 		s.path = filepath.Join(homeDir, "swarms.json")
+		s.orch.runs = newRunStore(filepath.Join(homeDir, "swarm-runs.jsonl"))
+		_ = s.orch.runs.Load()
 	}
 	if cfg.AuditLog {
 		s.auditLog = newAuditLogger(defaultSwarmAuditPath(homeDir))

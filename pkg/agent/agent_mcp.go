@@ -80,7 +80,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 		return nil
 	}
 
-	if al.cfg.Tools.MCP.Servers == nil || len(al.cfg.Tools.MCP.Servers) == 0 {
+	if len(al.cfg.Tools.MCP.EffectiveServers()) == 0 {
 		logger.WarnCF("agent", "MCP is enabled but no servers are configured, skipping MCP initialization", nil)
 		return nil
 	}
@@ -319,6 +319,9 @@ func filterMCPConfigServers(
 	}
 
 	filtered := mcpCfg
+	// Expand presets first so an agent-level mcpServers allowlist can match
+	// preset server names too.
+	mcpCfg.Servers = mcpCfg.EffectiveServers()
 	filtered.Servers = make(map[string]config.MCPServerConfig)
 	normalizedAllowed := make(map[string]struct{}, len(allowed))
 	for serverName := range allowed {

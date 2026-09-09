@@ -46,9 +46,10 @@ func BuildSavedPeersResponse(m *Mesh, cfg *config.Config, includeStatus bool) Sa
 			p.Connected = m.IsConnected(pid)
 			if capability, ok := m.PeerCapabilities(pid); ok {
 				p.Capability = PeerCapability{
-					Models: capability.Models,
-					Skills: capability.Skills,
-					Agents: capability.Agents,
+					Models:          capability.Models,
+					Skills:          capability.Skills,
+					Agents:          capability.Agents,
+					ShareableSkills: capability.ShareableSkills,
 				}
 			}
 		}

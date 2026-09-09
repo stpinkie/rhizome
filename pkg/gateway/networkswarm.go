@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	rswarm "github.com/stpinkie/rhizome/pkg/rhizome/swarm"
 )
 
@@ -107,6 +108,21 @@ func (h *networkSwarmsHandler) read(w http.ResponseWriter, r *http.Request, sw *
 			"swarm_id": swarmID,
 			"offers":   sw.OffersFor(swarmID),
 		})
+	case "runs":
+		// ?run=<id> narrows to a single run record.
+		if runID := strings.TrimSpace(r.URL.Query().Get("run")); runID != "" {
+			rec, ok := sw.RunRecord(runID)
+			if !ok || rec.SwarmID != swarmID {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown run"})
+				return
+			}
+			writeJSON(w, http.StatusOK, rec)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"swarm_id": swarmID,
+			"runs":     sw.Runs(swarmID),
+		})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown sub-resource"})
 	}
@@ -127,6 +143,9 @@ func (h *networkSwarmsHandler) write(w http.ResponseWriter, r *http.Request, sw 
 		switch parts[1] {
 		case "offers":
 			h.submitOffer(w, r, sw, parts[0])
+			return
+		case "offers/cancel":
+			h.cancelOffer(w, r, sw, parts[0])
 			return
 		case "run":
 			h.runGoal(w, r, sw, parts[0])
@@ -186,6 +205,11 @@ type offerRequest struct {
 	Model   string   `json:"model,omitempty"`
 	Task    string   `json:"task"`
 	Tools   []string `json:"tools,omitempty"`
+	// Media carries attachment paths (daemon-local) pushed to the claimant
+	// over the blob protocol at assignment time.
+	Media []mesh.MediaAttachment `json:"media,omitempty"`
+	// Requires constrains which members may claim (capability-aware).
+	Requires *rswarm.OfferRequirements `json:"requires,omitempty"`
 }
 
 // submitOffer publishes a task offer to a swarm and returns the offer id.
@@ -207,11 +231,17 @@ func (h *networkSwarmsHandler) submitOffer(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent_id and task are required"})
 		return
 	}
+	var requires rswarm.OfferRequirements
+	if body.Requires != nil {
+		requires = *body.Requires
+	}
 	offerID, err := sw.Offer(r.Context(), swarmID, rswarm.OfferRequest{
-		AgentID: body.AgentID,
-		Model:   body.Model,
-		Task:    body.Task,
-		Tools:   body.Tools,
+		AgentID:  body.AgentID,
+		Model:    body.Model,
+		Task:     body.Task,
+		Tools:    body.Tools,
+		Media:    body.Media,
+		Requires: requires,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -221,6 +251,45 @@ func (h *networkSwarmsHandler) submitOffer(w http.ResponseWriter, r *http.Reques
 		"offer_id": offerID,
 		"swarm_id": swarmID,
 		"status":   "open",
+	})
+}
+
+// cancelOfferRequest is the JSON body accepted by
+// POST /network/swarms/<id>/offers/cancel.
+type cancelOfferRequest struct {
+	OfferID string `json:"offer_id"`
+}
+
+// cancelOffer withdraws an open or assigned offer published by this node.
+func (h *networkSwarmsHandler) cancelOffer(
+	w http.ResponseWriter,
+	r *http.Request,
+	sw *rswarm.Swarm,
+	swarmID string,
+) {
+	if !rswarm.ValidSwarmID(swarmID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid swarm id"})
+		return
+	}
+	var body cancelOfferRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid JSON body: " + err.Error(),
+		})
+		return
+	}
+	if strings.TrimSpace(body.OfferID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "offer_id is required"})
+		return
+	}
+	if err := sw.CancelOffer(r.Context(), swarmID, body.OfferID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"offer_id": body.OfferID,
+		"swarm_id": swarmID,
+		"status":   string(rswarm.OfferCancelled),
 	})
 }
 

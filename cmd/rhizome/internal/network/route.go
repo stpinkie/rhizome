@@ -23,6 +23,7 @@ func NewRouteCommand() *cobra.Command {
 	var syncCall bool
 	var wait time.Duration
 	var pickTimeout time.Duration
+	var attaches []string
 
 	cmd := &cobra.Command{
 		Use:   "route <agent-id> <task>",
@@ -38,17 +39,25 @@ func NewRouteCommand() *cobra.Command {
 				os.Exit(1)
 			}
 			task := strings.Join(args[1:], " ")
-			runRoute(cmd, agentID, task, syncCall, wait, pickTimeout)
+			runRoute(cmd, agentID, task, syncCall, wait, pickTimeout, attaches)
 		},
 	}
 	cmd.Flags().Bool("sync", false, "Delegate synchronously instead of submitting an async task")
 	cmd.Flags().DurationVar(&wait, "wait", 0, "After submitting, long-poll for the result up to this duration")
 	cmd.Flags().
 		DurationVar(&pickTimeout, "pick-timeout", 15*time.Second, "How long to wait for a suitable peer to appear")
+	cmd.Flags().
+		StringArrayVar(&attaches, "attach", nil, "Attach a local file to the remote task (repeatable)")
 	return cmd
 }
 
-func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pickTimeout time.Duration) {
+func runRoute(
+	cmd *cobra.Command,
+	agentID, task string,
+	syncCall bool,
+	wait, pickTimeout time.Duration,
+	attaches []string,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), pickTimeout+wait+2*time.Minute)
 	defer cancel()
 
@@ -80,6 +89,7 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 	defer func() { _ = node.Close() }()
 
 	m := mesh.NewMesh(node, nil, derived, cfg.Mesh, nil)
+	m.SetBlobDir(filepath.Join(home, "blobs"))
 	if err = m.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting mesh: %v\n", err)
 		os.Exit(1)
@@ -121,10 +131,18 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 
 	fmt.Printf("Peer:  %s (active tasks: %d)\n", pid.String(), pickedCap.ActiveTasks)
 
+	media := make([]mesh.MediaAttachment, 0, len(attaches))
+	for _, p := range attaches {
+		if strings.TrimSpace(p) != "" {
+			media = append(media, mesh.MediaAttachment{Path: p})
+		}
+	}
+
 	if syncCall {
 		result, err := m.CallRemote(ctx, pid, mesh.RemoteCall{
 			TargetAgentID: agentID,
 			SystemPrompt:  task,
+			Media:         media,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
@@ -141,6 +159,7 @@ func runRoute(cmd *cobra.Command, agentID, task string, syncCall bool, wait, pic
 	usedPeer, taskID, err := m.SubmitRemoteTaskWithPeer(ctx, pid, mesh.RemoteCall{
 		TargetAgentID: agentID,
 		SystemPrompt:  task,
+		Media:         media,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)

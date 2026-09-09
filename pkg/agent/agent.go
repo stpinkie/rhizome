@@ -120,6 +120,7 @@ type processOptions struct {
 	TurnProfile             config.EffectiveTurnProfile
 	SystemPromptOverride    string                 // Override the default system prompt (Used by SubTurns)
 	Media                   []string               // media:// refs from inbound message
+	MediaSink               *[]string              // collects produced media:// refs (remote dispatch)
 	InitialSteeringMessages []providers.Message    // Steering messages from refactor/agent
 	DefaultResponse         string                 // Response when LLM returns empty
 	EnableSummary           bool                   // Whether to trigger summarization

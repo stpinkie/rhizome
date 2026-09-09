@@ -760,3 +760,63 @@ func modelProviderOptionForName(provider string) (ModelProviderOption, bool) {
 	option, ok := modelProviderOptionsByName[normalized]
 	return option, ok
 }
+
+// ModelSupportsVision reports whether a model name is known (or strongly
+// believed) to accept image input. It is a name-based heuristic over
+// provider-prefixed and bare model ids: non-generative families (embedding,
+// audio, image-generation, moderation) return false, then known multimodal
+// families return true. Unknown names return false so callers fall back to
+// tool-based image loading instead of sending image parts a text-only model
+// would reject.
+func ModelSupportsVision(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	// Strip a provider/ or org/ prefix for matching.
+	if i := strings.LastIndex(m, "/"); i >= 0 && i < len(m)-1 {
+		m = m[i+1:]
+	}
+	for _, bad := range nonVisionModelMarkers {
+		if strings.Contains(m, bad) {
+			return false
+		}
+	}
+	for _, good := range visionModelMarkers {
+		if strings.Contains(m, good) {
+			return true
+		}
+	}
+	return false
+}
+
+// nonVisionModelMarkers are name fragments that are never vision-capable.
+var nonVisionModelMarkers = []string{
+	"whisper", "tts", "transcribe", "audio",
+	"embed", "bge-", "rerank", "moderation",
+	"dall-e", "flux", "stable-diffusion", "sdxl", "image-",
+	"search", "guard",
+}
+
+// visionModelMarkers are name fragments for known multimodal families.
+var visionModelMarkers = []string{
+	// OpenAI
+	"gpt-4o", "chatgpt-4o", "gpt-4.1", "gpt-4-turbo", "gpt-4-vision",
+	"gpt-5", "gpt-6", "o1", "o3", "o4",
+	// Anthropic (Claude 3+ is multimodal)
+	"claude-3", "claude-4", "claude-opus", "claude-sonnet", "claude-haiku-4",
+	// Google
+	"gemini-", "gemma-3",
+	// Qwen vision variants
+	"-vl", "qvq", "vision",
+	// Zhipu
+	"glm-4v", "glm-4.5v",
+	// Mistral vision
+	"pixtral", "mistral-medium", "mistral-small-3",
+	// Meta/community multimodal
+	"llava", "llama-3.2-11b", "llama-3.2-90b", "llama-4", "moondream",
+	"minicpm-v", "minicpm-vl", "internvl", "granite",
+	// xAI / others
+	"grok-4", "grok-vision", "nova-", "step-", "phi-4-multimodal",
+	"kimi-vl", "doubao-vision", "seed-1.6-vision",
+}

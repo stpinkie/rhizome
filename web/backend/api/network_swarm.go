@@ -212,6 +212,8 @@ func (h *Handler) swarmsFromLocal(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"swarm_id": parts[0], "members": info.Members})
 		case "offers":
 			writeJSON(w, http.StatusOK, map[string]any{"swarm_id": parts[0], "offers": []any{}})
+		case "runs":
+			h.runsFromLocal(w, r, parts[0])
 		default:
 			respondNetworkError(w, http.StatusNotFound, "unknown sub-resource")
 		}
@@ -223,6 +225,51 @@ func (h *Handler) swarmsFromLocal(w http.ResponseWriter, r *http.Request) {
 		resp.Swarms = append(resp.Swarms, *info)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// runsFromLocal reads <RHIZOME_HOME>/swarm-runs.jsonl for the runs
+// sub-resource when the daemon is not running.
+func (h *Handler) runsFromLocal(w http.ResponseWriter, r *http.Request, swarmID string) {
+	f, err := os.Open(filepath.Join(utils.GetRhizomeHome(), "swarm-runs.jsonl"))
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"swarm_id": swarmID, "runs": []any{}})
+		return
+	}
+	defer f.Close()
+
+	wantRun := strings.TrimSpace(r.URL.Query().Get("run"))
+	var runs []json.RawMessage
+	dec := json.NewDecoder(f)
+	for {
+		var rec struct {
+			RunID   string `json:"run_id"`
+			SwarmID string `json:"swarm_id"`
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			break
+		}
+		if json.Unmarshal(raw, &rec) != nil || rec.SwarmID != swarmID {
+			continue
+		}
+		if wantRun != "" {
+			if rec.RunID == wantRun {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(raw)
+				return
+			}
+			continue
+		}
+		runs = append(runs, raw)
+	}
+	if wantRun != "" {
+		respondNetworkError(w, http.StatusNotFound, "unknown run")
+		return
+	}
+	if runs == nil {
+		runs = []json.RawMessage{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"swarm_id": swarmID, "runs": runs})
 }
 
 // swarmActionFromConfig applies join/leave to swarm.memberships when the

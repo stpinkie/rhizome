@@ -111,7 +111,7 @@ func unknownAgentMCPServerNames(cfg *config.Config, definition AgentContextDefin
 		return nil
 	}
 
-	knownServers := normalizedMCPServerNameSet(cfg.Tools.MCP.Servers)
+	knownServers := normalizedMCPServerNameSet(cfg.Tools.MCP.EffectiveServers())
 	unknown := make(map[string]struct{})
 	for _, raw := range definition.Agent.Frontmatter.MCPServers {
 		name := normalizeMCPServerName(raw)

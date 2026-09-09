@@ -8,14 +8,16 @@ import (
 )
 
 type (
-	ReadFileTool      = fstools.ReadFileTool
-	ReadFileLinesTool = fstools.ReadFileLinesTool
-	WriteFileTool     = fstools.WriteFileTool
-	ListDirTool       = fstools.ListDirTool
-	EditFileTool      = fstools.EditFileTool
-	AppendFileTool    = fstools.AppendFileTool
-	LoadImageTool     = fstools.LoadImageTool
-	SendFileTool      = fstools.SendFileTool
+	ReadFileTool        = fstools.ReadFileTool
+	ReadFileLinesTool   = fstools.ReadFileLinesTool
+	WriteFileTool       = fstools.WriteFileTool
+	ListDirTool         = fstools.ListDirTool
+	EditFileTool        = fstools.EditFileTool
+	AppendFileTool      = fstools.AppendFileTool
+	LoadImageTool       = fstools.LoadImageTool
+	LoadVideoTool       = fstools.LoadVideoTool
+	TranscribeAudioTool = fstools.TranscribeAudioTool
+	SendFileTool        = fstools.SendFileTool
 )
 
 const MaxReadFileSize = fstools.MaxReadFileSize
@@ -87,6 +89,27 @@ func NewLoadImageTool(
 	allowPaths ...[]*regexp.Regexp,
 ) *LoadImageTool {
 	return fstools.NewLoadImageTool(workspace, restrict, maxFileSize, store, allowPaths...)
+}
+
+func NewLoadVideoTool(
+	workspace string,
+	restrict bool,
+	maxFileSize, maxFrames int,
+	ffmpegPath string,
+	store media.MediaStore,
+	allowPaths ...[]*regexp.Regexp,
+) *LoadVideoTool {
+	return fstools.NewLoadVideoTool(
+		workspace, restrict, maxFileSize, maxFrames, ffmpegPath, store, allowPaths...)
+}
+
+func NewTranscribeAudioTool(
+	workspace string,
+	restrict bool,
+	maxFileSize int,
+	allowPaths ...[]*regexp.Regexp,
+) *TranscribeAudioTool {
+	return fstools.NewTranscribeAudioTool(workspace, restrict, maxFileSize, allowPaths...)
 }
 
 func NewSendFileTool(

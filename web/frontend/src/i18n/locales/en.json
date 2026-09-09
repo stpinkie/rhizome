@@ -682,8 +682,7 @@
         "origin": {
           "all": "All Types",
           "builtin": "Builtin",
-          "third_party": "Third-Party",
-          "manual": "Manual"
+          "third_party": "Third-Party",           "mesh": "Mesh",           "manual": "Manual"
         },
         "summary": {
           "total": "Total Skills"

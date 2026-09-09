@@ -26,14 +26,15 @@ func newListCommand() *cobra.Command {
 				return err
 			}
 
-			if len(cfg.Tools.MCP.Servers) == 0 {
+			servers := cfg.Tools.MCP.EffectiveServers()
+			if len(servers) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No MCP servers configured.")
 				return nil
 			}
 
-			rows := make([]cliui.MCPListRow, 0, len(cfg.Tools.MCP.Servers))
-			for _, name := range sortedServerNames(cfg.Tools.MCP.Servers) {
-				server := cfg.Tools.MCP.Servers[name]
+			rows := make([]cliui.MCPListRow, 0, len(servers))
+			for _, name := range sortedServerNames(servers) {
+				server := servers[name]
 				status := "disabled"
 				if server.Enabled {
 					status = "enabled"

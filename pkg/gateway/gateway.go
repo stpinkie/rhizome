@@ -219,11 +219,12 @@ func RunWithMesh(
 		agentLoopOpts = append(agentLoopOpts, agent.WithRuntimeEvents(eventBus))
 	}
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider, agentLoopOpts...)
-	agentLoop.SetMediaStore(media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
+	mediaStore := media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  true,
 		MaxAge:   config.Global().MediaMaxAge(),
 		Interval: config.Global().MediaCleanupInterval(),
-	}))
+	})
+	agentLoop.SetMediaStore(mediaStore)
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 
 	if rhizomeMesh != nil {
@@ -234,6 +235,9 @@ func RunWithMesh(
 		rhizomeMesh.SetAgentLister(func() []string {
 			return agentLoop.GetRegistry().ListAgentIDs()
 		})
+		// The media store lets the mesh register fetched attachments and
+		// resolve result artifacts for remote tasks.
+		rhizomeMesh.SetMediaStore(mediaStore)
 		rhizomeMesh.SetRunFunc(func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
 			var toolNames []string
 			for _, t := range req.Tools {
@@ -241,18 +245,21 @@ func RunWithMesh(
 					toolNames = append(toolNames, t.Name)
 				}
 			}
-			resp, pErr := agentLoop.ProcessRemoteDispatch(ctx, agent.RemoteDispatchRequest{
+			resp, mediaRefs, pErr := agentLoop.ProcessRemoteDispatch(ctx, agent.RemoteDispatchRequest{
 				AgentID:    req.TargetAgentID,
 				Model:      req.Model,
 				Tools:      toolNames,
 				Prompt:     req.SystemPrompt,
+				Media:      req.Media,
 				SessionKey: "mesh-" + req.CorrelationID,
 				SenderID:   "mesh",
 			})
 			if pErr != nil {
 				return nil, pErr
 			}
-			return toolshared.NewToolResult(resp), nil
+			result := toolshared.NewToolResult(resp)
+			result.Media = mediaRefs
+			return result, nil
 		})
 		remoteSpawner := mesh.NewRemoteSpawner(rhizomeMesh, local)
 		remoteSpawner.SetLocalAgentChecker(func(id string) bool {
@@ -626,6 +633,20 @@ func setupAndStartServices(
 		newNetworkSwarmEventsHandler(authToken),
 	); err != nil {
 		return nil, fmt.Errorf("error registering network swarm events handler: %w", err)
+	}
+
+	pairHandler := newNetworkPairHandler(authToken)
+	for _, path := range []string{"/network/pair", "/network/pair/"} {
+		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, pairHandler); err != nil {
+			return nil, fmt.Errorf("error registering network pair handler %s: %w", path, err)
+		}
+	}
+
+	skillsHandler := newNetworkSkillsHandler(rhizomeMesh, authToken)
+	for _, path := range []string{"/network/skills", "/network/skills/"} {
+		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, skillsHandler); err != nil {
+			return nil, fmt.Errorf("error registering network skills handler %s: %w", path, err)
+		}
 	}
 
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {

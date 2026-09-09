@@ -67,6 +67,17 @@ func (al *AgentLoop) SetMediaStore(s media.MediaStore) {
 
 func (al *AgentLoop) SetTranscriber(t asr.Transcriber) {
 	al.transcriber = t
+
+	// Propagate to the transcribe_audio tool on every agent.
+	registry := al.GetRegistry()
+	if registry == nil {
+		return
+	}
+	registry.ForEachTool("transcribe_audio", func(tool tools.Tool) {
+		if tt, ok := tool.(interface{ SetTranscriber(tr asr.Transcriber) }); ok {
+			tt.SetTranscriber(t)
+		}
+	})
 }
 
 func (al *AgentLoop) SetReloadFunc(fn func() error) {

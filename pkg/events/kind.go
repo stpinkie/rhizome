@@ -152,6 +152,24 @@ const (
 	KindMeshFanoutStart Kind = "mesh.fanout.start"
 	// KindMeshFanoutEnd is emitted when a scatter-gather fan-out completes.
 	KindMeshFanoutEnd Kind = "mesh.fanout.end"
+	// KindMeshBlobPut is emitted when a blob is pushed to or received from a
+	// peer over /rhizome/blob/1.0.0.
+	KindMeshBlobPut Kind = "mesh.blob.put"
+	// KindMeshBlobGet is emitted when a blob is fetched from or served to a
+	// peer over /rhizome/blob/1.0.0.
+	KindMeshBlobGet Kind = "mesh.blob.get"
+	// KindMeshPairCreated is emitted when a pairing code/bundle is minted.
+	KindMeshPairCreated Kind = "mesh.pair.created"
+	// KindMeshPairAccepted is emitted when a pairing completes on either side.
+	KindMeshPairAccepted Kind = "mesh.pair.accepted"
+	// KindMeshPairFailed is emitted when a pairing attempt is rejected.
+	KindMeshPairFailed Kind = "mesh.pair.failed"
+	// KindMeshSkillPull is emitted when this node pulls a skill bundle from a
+	// trusted peer over /rhizome/skill/1.0.0.
+	KindMeshSkillPull Kind = "mesh.skill.pull"
+	// KindMeshSkillPush is emitted when this node serves a skill bundle to a
+	// trusted peer.
+	KindMeshSkillPush Kind = "mesh.skill.push"
 
 	// Swarm events
 
@@ -172,6 +190,14 @@ const (
 	KindSwarmOfferAssigned Kind = "swarm.offer.assigned"
 	// KindSwarmOfferExpired is emitted when an offer closes without claims.
 	KindSwarmOfferExpired Kind = "swarm.offer.expired"
+	// KindSwarmOfferCancelled is emitted when an offer is cancelled.
+	KindSwarmOfferCancelled Kind = "swarm.offer.cancelled"
+	// KindSwarmOfferRetry is emitted when a failed/stalled offer re-opens.
+	KindSwarmOfferRetry Kind = "swarm.offer.retry"
+	// KindSwarmOfferDeadLetter is emitted when an offer exhausts retries.
+	KindSwarmOfferDeadLetter Kind = "swarm.offer.dead_letter"
+	// KindSwarmOfferDone is emitted when an assigned task completes.
+	KindSwarmOfferDone Kind = "swarm.offer.done"
 	// KindSwarmCoordinatorElected is emitted when a swarm coordinator changes.
 	KindSwarmCoordinatorElected Kind = "swarm.coordinator.elected"
 	// KindSwarmStateWritten is emitted when the coordinator writes shared state.
@@ -180,6 +206,9 @@ const (
 	KindSwarmRunStart Kind = "swarm.run.start"
 	// KindSwarmRunEnd is emitted when a swarm goal orchestration finishes.
 	KindSwarmRunEnd Kind = "swarm.run.end"
+	// KindSwarmRunSubtask is emitted on each subtask lifecycle transition
+	// (offered/assigned/done/failed/skipped) during a swarm run.
+	KindSwarmRunSubtask Kind = "swarm.run.subtask"
 	// KindSwarmError is emitted when a swarm operation fails.
 	KindSwarmError Kind = "swarm.error"
 )
@@ -251,6 +280,13 @@ var knownKinds = []Kind{
 	KindMeshError,
 	KindMeshFanoutStart,
 	KindMeshFanoutEnd,
+	KindMeshBlobPut,
+	KindMeshBlobGet,
+	KindMeshPairCreated,
+	KindMeshPairAccepted,
+	KindMeshPairFailed,
+	KindMeshSkillPull,
+	KindMeshSkillPush,
 	KindSwarmJoined,
 	KindSwarmLeft,
 	KindSwarmMemberJoined,
@@ -259,10 +295,15 @@ var knownKinds = []Kind{
 	KindSwarmOfferPublished,
 	KindSwarmOfferAssigned,
 	KindSwarmOfferExpired,
+	KindSwarmOfferCancelled,
+	KindSwarmOfferRetry,
+	KindSwarmOfferDeadLetter,
+	KindSwarmOfferDone,
 	KindSwarmCoordinatorElected,
 	KindSwarmStateWritten,
 	KindSwarmRunStart,
 	KindSwarmRunEnd,
+	KindSwarmRunSubtask,
 	KindSwarmError,
 }
 

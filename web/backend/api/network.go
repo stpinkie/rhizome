@@ -51,7 +51,73 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/network/tasks", h.handleNetworkTasks)
 	mux.HandleFunc("GET /api/network/tasks/events", h.handleNetworkTaskEvents)
 	mux.HandleFunc("GET /api/network/audit", h.handleNetworkAudit)
+	mux.HandleFunc("POST /api/network/pair", h.handleNetworkPair)
+	mux.HandleFunc("POST /api/network/pair/accept", h.handleNetworkPair)
 	h.registerNetworkSwarmRoutes(mux)
+}
+
+// handleNetworkPair proxies pairing to the daemon's /network/pair endpoint;
+// there is no offline fallback — pairing requires a running daemon.
+func (h *Handler) handleNetworkPair(w http.ResponseWriter, r *http.Request) {
+	if !h.gatewayAvailableForProxy() {
+		respondNetworkError(w, http.StatusServiceUnavailable, "daemon required for pairing")
+		return
+	}
+	var bodyReader io.Reader
+	if r.Body != nil {
+		raw, rerr := io.ReadAll(r.Body)
+		if rerr != nil {
+			respondNetworkError(w, http.StatusBadRequest, "read request body: "+rerr.Error())
+			return
+		}
+		bodyReader = bytes.NewReader(raw)
+	}
+	out, err := h.networkPairFromGateway(r.Context(), r, bodyReader)
+	if err != nil {
+		respondNetworkError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	h.invalidateNetworkCache()
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(out)
+}
+
+// networkPairFromGateway forwards the pair request to the daemon,
+// preserving /network/pair vs /network/pair/accept.
+func (h *Handler) networkPairFromGateway(
+	ctx context.Context,
+	r *http.Request,
+	body io.Reader,
+) ([]byte, error) {
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		return nil, errors.New("gateway pid data unavailable")
+	}
+	u := h.gatewayProxyURL()
+	u.Path = strings.Replace(r.URL.Path, "/api/network/pair", "/network/pair", 1)
+
+	req, err := http.NewRequestWithContext(ctx, r.Method, u.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("gateway returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return data, nil
 }
 
 func (h *Handler) handleNetworkPeers(w http.ResponseWriter, r *http.Request) {

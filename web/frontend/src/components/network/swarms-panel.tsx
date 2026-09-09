@@ -41,11 +41,14 @@ function offerVariant(
   switch (status) {
     case "assigned":
       return "default"
+    case "done":
+      return "default"
     case "open":
     case "observed":
       return "secondary"
     case "failed":
     case "expired":
+    case "dead_letter":
       return "destructive"
     default:
       return "outline"
@@ -61,13 +64,16 @@ interface SwarmCardProps {
 
 function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
   const { t } = useTranslation()
-  const { query: offersQuery, offer, run } = useSwarmOffers(swarm.id)
+  const { query: offersQuery, offer, cancel, run, runs } =
+    useSwarmOffers(swarm.id)
   const [taskText, setTaskText] = useState("")
   const [taskAgent, setTaskAgent] = useState("main")
   const [goalText, setGoalText] = useState("")
   const [showOffers, setShowOffers] = useState(false)
+  const [showRuns, setShowRuns] = useState(false)
 
   const offers = offersQuery.data?.offers ?? []
+  const runRecords = runs.data?.runs ?? []
 
   return (
     <div className="bg-muted/40 space-y-3 rounded-lg p-4">
@@ -254,6 +260,59 @@ function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
                     {o.error && (
                       <span className="text-destructive">{o.error}</span>
                     )}
+                    {(o.status === "open" || o.status === "assigned") && (
+                      <button
+                        type="button"
+                        className="text-destructive hover:underline disabled:opacity-50"
+                        disabled={cancel.isPending}
+                        onClick={() => cancel.mutate(o.offer_id)}
+                      >
+                        {t("pages.network.swarm_cancel_offer", "Cancel")}
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="text-muted-foreground text-xs underline"
+            onClick={() => setShowRuns((v) => !v)}
+          >
+            {showRuns
+              ? t("pages.network.swarm_hide_runs", "Hide runs")
+              : t("pages.network.swarm_show_runs", "Show runs")}{" "}
+            ({runRecords.length})
+          </button>
+          {showRuns && (
+            <div className="space-y-1">
+              {runRecords.length === 0 ? (
+                <p className="text-muted-foreground text-xs">
+                  {t("pages.network.swarm_no_runs", "No recorded runs.")}
+                </p>
+              ) : (
+                runRecords.map((r) => (
+                  <div
+                    key={r.run_id}
+                    className="flex flex-wrap items-center gap-2 text-xs"
+                  >
+                    <span className="font-mono">{shortID(r.run_id)}</span>
+                    <Badge variant={offerVariant(r.status)}>{r.status}</Badge>
+                    <span className="text-muted-foreground break-all">
+                      {r.goal}
+                    </span>
+                    {r.subtasks && (
+                      <span className="text-muted-foreground">
+                        ({r.subtasks.length} subtasks)
+                      </span>
+                    )}
+                    {r.duration_ms ? (
+                      <span className="text-muted-foreground">
+                        {r.duration_ms}ms
+                      </span>
+                    ) : null}
                   </div>
                 ))
               )}

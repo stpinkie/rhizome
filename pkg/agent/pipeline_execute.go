@@ -615,7 +615,11 @@ toolLoop:
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
 
-		if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
+		if len(toolResult.Media) > 0 && toolResult.ResponseHandled && ts.opts.Dispatch.MediaSink != nil {
+			// Remote dispatch: artifacts go back to the caller over the mesh
+			// instead of a chat channel.
+			*ts.opts.Dispatch.MediaSink = append(*ts.opts.Dispatch.MediaSink, toolResult.Media...)
+		} else if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
 			parts := make([]bus.MediaPart, 0, len(toolResult.Media))
 			for _, ref := range toolResult.Media {
 				part := bus.MediaPart{Ref: ref}
@@ -693,6 +697,9 @@ toolLoop:
 		var toolResultMedia []string
 		if len(toolResult.Media) > 0 && !toolResult.ResponseHandled {
 			toolResultMedia = append(toolResultMedia, toolResult.Media...)
+			if ts.opts.Dispatch.MediaSink != nil {
+				*ts.opts.Dispatch.MediaSink = append(*ts.opts.Dispatch.MediaSink, toolResult.Media...)
+			}
 		}
 		toolResultMsg := toolResultPromptMessage(contentForLLM, toolCallID, toolResultMedia)
 		al.emitEvent(

@@ -258,11 +258,58 @@ export interface SwarmRunSubtask {
 }
 
 export interface SwarmRunResult {
+  run_id?: string
   swarm_id: string
   goal: string
+  status?: string
   subtasks: SwarmRunSubtask[]
   summary: string
   duration_ms?: number
+}
+
+export interface SwarmRunRecord {
+  run_id: string
+  swarm_id: string
+  goal: string
+  status: string
+  subtasks?: SwarmRunSubtask[]
+  summary?: string
+  started_at?: string
+  finished_at?: string
+  duration_ms?: number
+}
+
+export interface SwarmRunsResponse {
+  swarm_id: string
+  runs?: SwarmRunRecord[]
+}
+
+export async function getSwarmRuns(
+  swarm: string,
+): Promise<SwarmRunsResponse> {
+  return request<SwarmRunsResponse>(
+    `/api/network/swarms/${encodeURIComponent(swarm)}/runs`,
+  )
+}
+
+export async function createPairBundle(
+  ttl?: string,
+): Promise<{ bundle: string; ttl: string }> {
+  return request(`/api/network/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ttl: ttl ?? "" }),
+  })
+}
+
+export async function acceptPairBundle(
+  bundle: string,
+): Promise<{ peer_id: string; paired: boolean }> {
+  return request(`/api/network/pair/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bundle }),
+  })
 }
 
 export async function getSwarms(): Promise<SwarmStatusResponse> {
@@ -297,6 +344,20 @@ export async function submitSwarmOffer(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
+}
+
+export async function cancelSwarmOffer(
+  swarm: string,
+  offerID: string,
+): Promise<{ offer_id: string; status: string }> {
+  return request(
+    `/api/network/swarms/${encodeURIComponent(swarm)}/offers/cancel`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ offer_id: offerID }),
+    },
+  )
 }
 
 export async function runSwarmGoal(

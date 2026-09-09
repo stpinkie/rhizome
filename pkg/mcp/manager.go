@@ -188,21 +188,22 @@ func (m *Manager) LoadFromMCPConfig(
 		return nil
 	}
 
-	if len(mcpCfg.Servers) == 0 {
+	servers := mcpCfg.EffectiveServers()
+	if len(servers) == 0 {
 		logger.InfoCF("mcp", "No MCP servers configured", nil)
 		return nil
 	}
 
 	logger.InfoCF("mcp", "Initializing MCP servers",
 		map[string]any{
-			"count": len(mcpCfg.Servers),
+			"count": len(servers),
 		})
 
 	var wg sync.WaitGroup
-	errs := make(chan error, len(mcpCfg.Servers))
+	errs := make(chan error, len(servers))
 	enabledCount := 0
 
-	for name, serverCfg := range mcpCfg.Servers {
+	for name, serverCfg := range servers {
 		if !serverCfg.Enabled {
 			logger.DebugCF("mcp", "Skipping disabled server",
 				map[string]any{

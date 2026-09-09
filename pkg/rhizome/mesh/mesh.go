@@ -20,8 +20,10 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/media"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/blob"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
@@ -53,6 +55,9 @@ type Capability struct {
 	// least-loaded hint when picking a peer; it goes stale within the
 	// manifest freshness window.
 	ActiveTasks int `json:"active_tasks,omitempty"`
+	// ShareableSkills lists installed skill names the peer will serve over
+	// /rhizome/skill/1.0.0 (the mesh.skill_share allowlist ∩ installed).
+	ShareableSkills []string `json:"shareable_skills,omitempty"`
 	// Signature covers the canonical encoding of all fields above, proving
 	// the manifest was issued by PeerID. Unsigned manifests are rejected
 	// unless mesh.require_signed_caps is disabled; a mesh.cap.unsigned
@@ -62,10 +67,11 @@ type Capability struct {
 
 // PeerCapability is a minimal view of a peer's capability for status output.
 type PeerCapability struct {
-	Models      []string `json:"models,omitempty"`
-	Skills      []string `json:"skills,omitempty"`
-	Agents      []string `json:"agents,omitempty"`
-	ActiveTasks int      `json:"active_tasks,omitempty"`
+	Models          []string `json:"models,omitempty"`
+	Skills          []string `json:"skills,omitempty"`
+	Agents          []string `json:"agents,omitempty"`
+	ActiveTasks     int      `json:"active_tasks,omitempty"`
+	ShareableSkills []string `json:"shareable_skills,omitempty"`
 }
 
 // PeerStatus is the JSON-friendly status for one connected peer.
@@ -113,6 +119,9 @@ type Mesh struct {
 	rpc        *agentrpc.Transport
 	cap        *CapsTransport
 	taskRPC    *agenttask.Transport
+	blob       *blob.Transport
+	blobStore  *blob.Store
+	mediaStore media.MediaStore
 	tasks      *TaskStore
 	scoreStore *PeerScoreStore
 	runFunc    func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)
@@ -315,6 +324,14 @@ func (m *Mesh) Start(ctx context.Context) error {
 		_ = m.taskRPC.Start(m.ctx)
 	}()
 
+	// The blob protocol serves trusted peers file transfer for remote task
+	// attachments and artifacts.
+	m.startBlob()
+
+	// The skill protocol serves shareable skills (mesh.skill_share) as blob
+	// bundles to trusted peers.
+	m.startSkill()
+
 	for _, p := range m.cfg.TrustedPeers {
 		pid, err := peer.Decode(p)
 		if err != nil {
@@ -342,6 +359,13 @@ func (m *Mesh) Start(ctx context.Context) error {
 // It is typically called by the gateway after the AgentLoop is created.
 func (m *Mesh) SetRunFunc(fn func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)) {
 	m.runFunc = fn
+}
+
+// SetMediaStore injects the agent media store used to register attachment
+// refs for inbound remote tasks and to resolve outbound result artifacts.
+// Without it, remote requests carrying media are rejected.
+func (m *Mesh) SetMediaStore(store media.MediaStore) {
+	m.mediaStore = store
 }
 
 // SetTaskStorePath enables persistence of the task store at the given path.
@@ -408,6 +432,9 @@ func (m *Mesh) Stop() error {
 		m.cancel()
 	}
 	close(m.stop)
+	if m.blobStore != nil {
+		m.blobStore.Stop()
+	}
 	if m.tasks != nil {
 		m.tasks.Close()
 	}
@@ -493,7 +520,22 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
+	// Resolve blob:// attachment refs into local media:// refs for the run.
+	if len(req.Media) > 0 {
+		scope := "mesh:" + req.CorrelationID
+		refs, mErr := m.fetchInboundMedia(ctx, req.Media, scope)
+		if mErr != nil {
+			return reject(fmt.Sprintf("attachments: %v", mErr))
+		}
+		req.Media = refs
+		defer m.releaseMediaScope(scope)
+	}
+
 	result, err := m.runFunc(ctx, req)
+	if err == nil {
+		// Publish result artifacts as blob refs the caller can pull.
+		m.publishOutboundMedia(result)
+	}
 
 	status := "ok"
 	if err != nil {
@@ -569,13 +611,6 @@ func (m *Mesh) CallRemote(
 		Timestamp:     time.Now().Unix(),
 	}
 
-	// Sign the request payload with the local node key.
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("encode request: %w", err)
-	}
-	req.Signature = identity.Sign(m.id.PrivateKey, payload)
-
 	candidates := m.syncCandidates(preferred, call.TargetAgentID)
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf(
@@ -602,6 +637,17 @@ func (m *Mesh) CallRemote(
 			break
 		}
 
+		// Push local attachments to this candidate once; the signed request
+		// carries the resulting blob refs bound to that peer.
+		if len(call.Media) > 0 {
+			refs, mErr := m.remoteMediaRefs(ctx, pid, call.Media)
+			if mErr != nil {
+				lastErr = mErr
+				continue
+			}
+			req.Media = refs
+		}
+
 		for attempt := 0; attempt < maxAttempts; attempt++ {
 			if attempt > 0 {
 				m.node.ForceReconnect(ctx, pid)
@@ -611,6 +657,15 @@ func (m *Mesh) CallRemote(
 				case <-time.After(250 * time.Millisecond):
 				}
 			}
+
+			// Sign the request payload with the local node key. Media refs
+			// are per-candidate, so signing happens inside the loop.
+			req.Signature = nil
+			payload, err := json.Marshal(req)
+			if err != nil {
+				return nil, fmt.Errorf("encode request: %w", err)
+			}
+			req.Signature = identity.Sign(m.id.PrivateKey, payload)
 
 			start := time.Now()
 			resp, err := m.rpc.Call(ctx, pid, req)
@@ -663,6 +718,8 @@ func (m *Mesh) CallRemote(
 				"correlation_id": req.CorrelationID,
 				"async":          call.Async,
 			})
+			// Pull blob:// result artifacts into local media refs.
+			m.localizeResultMedia(ctx, resp.Result, "mesh-result:"+req.CorrelationID)
 			return resp.Result, nil
 		}
 
@@ -829,6 +886,7 @@ func (m *Mesh) localCapability() Capability {
 			}
 		}
 	}
+	c.ShareableSkills = m.shareableSkills()
 
 	// Advertise the configured agent ids so remote spawn/delegate can target
 	// them. The gateway wires the registry's live agent list via SetAgentLister.
@@ -1061,6 +1119,9 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 				}
 				if len(capability.Agents) > 0 {
 					pc.Agents = capability.Agents
+				}
+				if len(capability.ShareableSkills) > 0 {
+					pc.ShareableSkills = capability.ShareableSkills
 				}
 				pc.ActiveTasks = capability.ActiveTasks
 				ps.Capability = pc

@@ -685,12 +685,17 @@ func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportIt
 	switch skill.Source {
 	case "builtin":
 		item.OriginKind = "builtin"
-	case "global":
-		item.OriginKind = "builtin"
-	case "workspace":
+	case "global", "workspace":
+		// Workspace and global skills may carry .skill-origin.json (registry,
+		// manual, or mesh-pulled provenance); when absent they behave as
+		// builtin/global skills.
 		meta, err := readInstalledSkillOriginMeta(skill.Path)
 		if err == nil && meta != nil {
 			switch meta.OriginKind {
+			case "mesh":
+				item.OriginKind = "mesh"
+				item.RegistryName = meta.Registry
+				item.InstalledAt = meta.InstalledAt
 			case "manual":
 				item.OriginKind = "manual"
 				item.InstalledAt = meta.InstalledAt

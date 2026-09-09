@@ -22,6 +22,8 @@ func NewSwarmCommand() *cobra.Command {
 		newOfferCommand(),
 		newOffersCommand(),
 		newRunCommand(),
+		newRunsCommand(),
+		newRunStatusCommand(),
 	)
 
 	return cmd

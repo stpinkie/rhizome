@@ -63,20 +63,50 @@ func daemonRequest(method, path string, body []byte, timeout time.Duration) ([]b
 func newOfferCommand() *cobra.Command {
 	var model string
 	var tools []string
+	var attaches []string
 	var asJSON bool
 	var wait bool
 	var waitDur time.Duration
+	var cancelOfferID string
+	var reqAgents, reqModels, reqSkills []string
 
 	cmd := &cobra.Command{
 		Use:   "offer <swarm-id> <agent-id> <task>",
 		Short: "Offer a task to a swarm's work queue (daemon required)",
-		Args:  cobra.ExactArgs(3),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if cancelOfferID != "" {
+				return cobra.ExactArgs(1)(cmd, args)
+			}
+			return cobra.ExactArgs(3)(cmd, args)
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			swarmID := args[0]
 			if err := internal.ValidateSwarmID(swarmID); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+
+			// Cancel mode: withdraw an open or assigned offer.
+			if cancelOfferID != "" {
+				payload, _ := json.Marshal(map[string]string{"offer_id": cancelOfferID})
+				data, code, err := daemonRequest(http.MethodPost,
+					"/network/swarms/"+swarmID+"/offers/cancel", payload, 15*time.Second)
+				if err != nil {
+					fmt.Fprintf(
+						os.Stderr,
+						"Error: %v — cancelling requires a running daemon (rhizome daemon)\n",
+						err,
+					)
+					os.Exit(1)
+				}
+				if code != http.StatusOK {
+					fmt.Fprintf(os.Stderr, "Error: %s\n", strings.TrimSpace(string(data)))
+					os.Exit(1)
+				}
+				fmt.Printf("Offer %s cancelled in swarm %q\n", cancelOfferID, swarmID)
+				return
+			}
+
 			agentID, err := internal.ValidateAgentID(args[1])
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -84,11 +114,29 @@ func newOfferCommand() *cobra.Command {
 			}
 			task := args[2]
 
+			// Attachment paths are resolved on the daemon host (the CLI talks
+			// to the local daemon, so they share a filesystem).
+			var media []map[string]string
+			for _, p := range attaches {
+				if strings.TrimSpace(p) != "" {
+					media = append(media, map[string]string{"path": p})
+				}
+			}
+			var requires map[string]any
+			if len(reqAgents) > 0 || len(reqModels) > 0 || len(reqSkills) > 0 {
+				requires = map[string]any{
+					"agents": reqAgents,
+					"models": reqModels,
+					"skills": reqSkills,
+				}
+			}
 			payload, _ := json.Marshal(map[string]any{
 				"agent_id": agentID,
 				"model":    model,
 				"task":     task,
 				"tools":    tools,
+				"media":    media,
+				"requires": requires,
 			})
 			data, code, err := daemonRequest(http.MethodPost,
 				"/network/swarms/"+swarmID+"/offers", payload, 15*time.Second)
@@ -168,9 +216,19 @@ func newOfferCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&model, "model", "", "Model override for the remote agent")
 	cmd.Flags().StringSliceVar(&tools, "tools", nil, "Allowed tool names for the remote agent")
+	cmd.Flags().
+		StringArrayVar(&attaches, "attach", nil, "Attach a file to the offered task (repeatable)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the offer to resolve")
 	cmd.Flags().DurationVar(&waitDur, "wait-timeout", 60*time.Second, "Max wait with --wait")
+	cmd.Flags().
+		StringVar(&cancelOfferID, "cancel", "", "Cancel the given offer id (usage: offer <swarm-id> --cancel <id>)")
+	cmd.Flags().
+		StringSliceVar(&reqAgents, "require-agent", nil, "Only members hosting one of these agent ids may claim")
+	cmd.Flags().
+		StringSliceVar(&reqModels, "require-model", nil, "Only members advertising one of these models may claim")
+	cmd.Flags().
+		StringSliceVar(&reqSkills, "require-skill", nil, "Only members with one of these skills may claim")
 	return cmd
 }
 

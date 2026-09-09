@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@/components/page-header"
 
+import { MCPPresetsCard } from "./mcp-presets-card"
 import { ToolLibraryTab } from "./tool-library-tab"
 import { ToolsTabs } from "./tools-tabs"
 import { useToolsPage } from "./use-tools-page"
@@ -80,6 +81,7 @@ export function ToolsPage() {
               onUpdateDraft={updateWebSearchDraft}
             />
           )}
+          {activeTab === "library" && <MCPPresetsCard />}
         </div>
       </div>
     </div>

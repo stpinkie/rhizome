@@ -50,6 +50,8 @@ func ResolverFor(spec BackendSpec, run Runner) (Resolver, error) {
 		}
 	case KindCustom:
 		return customResolver{}, nil
+	case KindNativeCDP:
+		return nativeCDPResolver{}, nil
 	case KindCloudSession:
 		return &cloudSessionResolver{spec: spec}, nil
 	case KindCloudREST:
@@ -83,6 +85,37 @@ func (customResolver) Resolve(
 		return nil, fmt.Errorf("endpoint_url scheme %q is not supported (want ws/wss/http/https)", u.Scheme)
 	}
 	return &Endpoint{CDPURL: raw, Env: envList(BackendSpec{}, cfg)}, nil
+}
+
+// ---------------------------------------------------------------------------
+// native-cdp: user-supplied CDP endpoint + optional bearer auth, driven by
+// the built-in Go client instead of the agent-browser CLI
+// ---------------------------------------------------------------------------
+
+type nativeCDPResolver struct{}
+
+func (nativeCDPResolver) Resolve(
+	_ context.Context,
+	cfg config.BrowserBackendConfig,
+) (*Endpoint, error) {
+	raw := strings.TrimSpace(cfg.EndpointURL)
+	if raw == "" {
+		return nil, fmt.Errorf("endpoint_url is required for the rhizome-cdp backend")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("endpoint_url %q is not a valid URL", raw)
+	}
+	switch u.Scheme {
+	case "ws", "wss", "http", "https":
+	default:
+		return nil, fmt.Errorf("endpoint_url scheme %q is not supported (want ws/wss/http/https)", u.Scheme)
+	}
+	ep := &Endpoint{CDPURL: raw, Env: envList(BackendSpec{}, cfg)}
+	if key := strings.TrimSpace(cfg.APIKey.String()); key != "" {
+		ep.Headers = map[string]string{"Authorization": "Bearer " + key}
+	}
+	return ep, nil
 }
 
 // ---------------------------------------------------------------------------

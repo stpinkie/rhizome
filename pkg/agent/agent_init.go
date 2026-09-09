@@ -276,6 +276,28 @@ func registerSharedTools(
 			agent.Tools.Register(loadImageTool)
 		}
 
+		if cfg.Tools.IsToolEnabled("load_video") {
+			agent.Tools.Register(tools.NewLoadVideoTool(
+				agent.Workspace,
+				cfg.Agents.Defaults.RestrictToWorkspace,
+				cfg.Agents.Defaults.GetMaxMediaSize(),
+				cfg.Tools.Media.GetMaxVideoFrames(),
+				cfg.Tools.Media.FFmpegPath,
+				nil,
+				allowReadPaths,
+			))
+		}
+
+		if cfg.Tools.IsToolEnabled("transcribe_audio") {
+			// The transcriber is injected later via AgentLoop.SetTranscriber.
+			agent.Tools.Register(tools.NewTranscribeAudioTool(
+				agent.Workspace,
+				cfg.Agents.Defaults.RestrictToWorkspace,
+				cfg.Agents.Defaults.GetMaxMediaSize(),
+				allowReadPaths,
+			))
+		}
+
 		// Skill discovery and installation tools
 		skills_enabled := cfg.Tools.IsToolEnabled("skills")
 		find_skills_enable := cfg.Tools.IsToolEnabled("find_skills")

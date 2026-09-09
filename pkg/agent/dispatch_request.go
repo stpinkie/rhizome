@@ -18,6 +18,10 @@ type DispatchRequest struct {
 	SessionScope   *session.SessionScope
 	UserMessage    string
 	Media          []string
+	// MediaSink, when non-nil, collects every media:// ref produced during
+	// the turn (tool attachments, send_file outputs). Used by remote mesh
+	// dispatch to return artifacts to the caller.
+	MediaSink *[]string
 }
 
 func (r DispatchRequest) Channel() string {
@@ -75,6 +79,9 @@ func normalizeProcessOptions(opts processOptions) processOptions {
 	if len(opts.Dispatch.Media) == 0 && len(opts.Media) > 0 {
 		opts.Dispatch.Media = append([]string(nil), opts.Media...)
 	}
+	if opts.Dispatch.MediaSink == nil && opts.MediaSink != nil {
+		opts.Dispatch.MediaSink = opts.MediaSink
+	}
 	if opts.Dispatch.RouteResult == nil {
 		opts.Dispatch.RouteResult = cloneResolvedRoute(opts.RouteResult)
 	}
@@ -107,6 +114,7 @@ func normalizeProcessOptions(opts processOptions) processOptions {
 	opts.SessionAliases = append([]string(nil), opts.Dispatch.SessionAliases...)
 	opts.UserMessage = opts.Dispatch.UserMessage
 	opts.Media = append([]string(nil), opts.Dispatch.Media...)
+	opts.MediaSink = opts.Dispatch.MediaSink
 	opts.InboundContext = cloneInboundContext(opts.Dispatch.InboundContext)
 	opts.RouteResult = cloneResolvedRoute(opts.Dispatch.RouteResult)
 	opts.SessionScope = session.CloneScope(opts.Dispatch.SessionScope)

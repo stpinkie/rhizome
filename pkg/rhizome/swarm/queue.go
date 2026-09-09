@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 )
 
@@ -17,6 +18,7 @@ const (
 	queueKindOffer  = "offer"
 	queueKindClaim  = "claim"
 	queueKindAssign = "assign"
+	queueKindCancel = "cancel"
 )
 
 // queueMsg wraps offer/claim/assign payloads in a broadcast envelope.
@@ -25,6 +27,23 @@ type queueMsg struct {
 	Offer  *Offer  `json:"offer,omitempty"`
 	Claim  *Claim  `json:"claim,omitempty"`
 	Assign *Assign `json:"assign,omitempty"`
+	Cancel *Cancel `json:"cancel,omitempty"`
+}
+
+// OfferRequirements constrain which members may claim an offer. Empty lists
+// mean "any member".
+type OfferRequirements struct {
+	// Agents limits claiming to members that host one of these agent ids.
+	Agents []string `json:"agents,omitempty"`
+	// Models limits claiming to members advertising one of these models.
+	Models []string `json:"models,omitempty"`
+	// Skills limits claiming to members advertising one of these skills.
+	Skills []string `json:"skills,omitempty"`
+}
+
+// Empty reports whether the requirements constrain claiming at all.
+func (r OfferRequirements) Empty() bool {
+	return len(r.Agents) == 0 && len(r.Models) == 0 && len(r.Skills) == 0
 }
 
 // Offer is a task published to a swarm for members to claim.
@@ -37,15 +56,32 @@ type Offer struct {
 	Tools     []string  `json:"tools,omitempty"`
 	Offerer   string    `json:"offerer"`
 	CreatedAt time.Time `json:"created_at"`
+	// Media carries file attachments for the task. Path entries are
+	// offerer-local; they are pushed to the chosen claimant over the blob
+	// protocol at assignment time.
+	Media []mesh.MediaAttachment `json:"media,omitempty"`
+	// Requires lists capabilities a claimant must satisfy before bidding.
+	Requires *OfferRequirements `json:"requires,omitempty"`
+	// Attempt is the broadcast attempt number — incremented when a failed
+	// or stalled offer is re-offered. Members treat a higher Attempt as a
+	// fresh offer (re-claim) rather than a duplicate.
+	Attempt int `json:"attempt,omitempty"`
 	// TTLSeconds bounds how long the offer stays open for claims.
 	TTLSeconds int64 `json:"ttl_seconds,omitempty"`
 }
 
 // Claim is a member's bid for an offer, sent point-to-point to the offerer.
 type Claim struct {
-	OfferID     string `json:"offer_id"`
-	Claimant    string `json:"claimant"`
-	ActiveTasks int    `json:"active_tasks,omitempty"`
+	OfferID  string `json:"offer_id"`
+	Claimant string `json:"claimant"`
+	// Attempt is the offer attempt this claim answers; stale-attempt claims
+	// are dropped by the offerer.
+	Attempt int `json:"attempt,omitempty"`
+	// ActiveTasks is the claimant's current remote-task load.
+	ActiveTasks int `json:"active_tasks,omitempty"`
+	// CapDigest is the claimant's advertised capability digest, so the
+	// offerer can weight claims by capability as well as load.
+	CapDigest string `json:"cap_digest,omitempty"`
 }
 
 // Assign announces which claimant won an offer.
@@ -55,12 +91,24 @@ type Assign struct {
 	TaskID  string `json:"task_id,omitempty"`
 }
 
+// Cancel withdraws an open or assigned offer. Only the original offerer may
+// cancel; receivers verify Cancel.Offerer against the recorded offer.
+type Cancel struct {
+	OfferID string `json:"offer_id"`
+	Offerer string `json:"offerer"`
+}
+
 // OfferRequest describes a task to offer to a swarm.
 type OfferRequest struct {
 	AgentID string
 	Model   string
 	Task    string
 	Tools   []string
+	// Media attaches files; pushed to the claimant at assignment time.
+	Media []mesh.MediaAttachment
+	// Requires constrains which members may claim (capability-aware
+	// claiming). Zero value means any member.
+	Requires OfferRequirements
 }
 
 // OfferStatus is the lifecycle state of a tracked offer.
@@ -75,6 +123,13 @@ const (
 	OfferExpired OfferStatus = "expired"
 	// OfferFailed means assignment or submit failed.
 	OfferFailed OfferStatus = "failed"
+	// OfferCancelled means the offerer withdrew the offer.
+	OfferCancelled OfferStatus = "cancelled"
+	// OfferDone means the assigned task completed successfully.
+	OfferDone OfferStatus = "done"
+	// OfferDeadLetter means the offer exhausted retries after
+	// failed/stalled attempts.
+	OfferDeadLetter OfferStatus = "dead_letter"
 	// OfferObserved marks an offer seen from another peer.
 	OfferObserved OfferStatus = "observed"
 )
@@ -85,31 +140,62 @@ type OfferInfo struct {
 	Status   OfferStatus `json:"status"`
 	TaskID   string      `json:"task_id,omitempty"`
 	Assignee string      `json:"assignee,omitempty"`
-	Error    string      `json:"error,omitempty"`
+	// Result holds the completed task output once status is done.
+	Result  string `json:"result,omitempty"`
+	Error   string `json:"error,omitempty"`
+	Retries int    `json:"retries,omitempty"`
 }
 
 // TaskSubmitter submits a task to a peer; usually
 // mesh.Mesh.SubmitRemoteTaskWithPeer.
 type TaskSubmitter func(ctx context.Context, preferred peer.ID, call mesh.RemoteCall) (peer.ID, string, error)
 
+// TaskCanceller asks a peer to cancel a submitted task; usually
+// mesh.Mesh.CancelRemoteTask.
+type TaskCanceller func(ctx context.Context, pid peer.ID, taskID string) error
+
 // OfferEvaluator decides whether the local node should claim an incoming
 // offer. A nil evaluator claims nothing.
 type OfferEvaluator func(swarmID string, o Offer) bool
+
+// CapMatcher reports whether the local node satisfies an offer's declared
+// requirements (agents/models/skills). A nil matcher is permissive.
+type CapMatcher func(swarmID string, req OfferRequirements) bool
 
 // trackedOffer is the runtime record for one offer we published.
 type trackedOffer struct {
 	info     OfferInfo
 	claims   []Claim
 	claimsCh chan Claim
-	// resolved is closed when the offer reaches a terminal state (assigned,
-	// expired, or failed), so awaiters can stop polling.
+	// resolved is closed when the offer first leaves "open" (assigned or a
+	// terminal state) so `swarm offer --wait`-style awaiters stop polling.
 	resolved chan struct{}
+	// finished is closed when the offer reaches a true terminal state —
+	// done, expired, failed, cancelled, or dead_letter — including any
+	// retries of a failed assignment.
+	finished chan struct{}
+	// cancelCh is closed by CancelOffer; retry loops and the task watcher
+	// select on it.
+	cancelCh  chan struct{}
+	closeOnce sync.Once
+	retries   int
+}
+
+// cancelled reports whether CancelOffer was invoked.
+func (t *trackedOffer) cancelled() bool {
+	select {
+	case <-t.cancelCh:
+		return true
+	default:
+		return false
+	}
 }
 
 // workQueue implements the distributed offer/claim work queue. Offers are
 // broadcast to a swarm; members reply with point-to-point claims during the
 // claim window; the offerer picks the least-loaded claimer and submits the
-// task through the mesh task protocol.
+// task through the mesh task protocol. Failed or stalled assignments are
+// re-offered up to swarm.queue.max_retries before landing in dead_letter.
 type workQueue struct {
 	s *Swarm
 
@@ -119,7 +205,9 @@ type workQueue struct {
 	subs     map[string]func()        // swarm id -> unsubscribe
 
 	submitter TaskSubmitter
+	canceller TaskCanceller
 	evaluator OfferEvaluator
+	matcher   CapMatcher
 
 	wg sync.WaitGroup
 }
@@ -145,6 +233,22 @@ func (s *Swarm) SetTaskSubmitter(fn TaskSubmitter) {
 func (s *Swarm) SetOfferEvaluator(fn OfferEvaluator) {
 	s.queue.mu.Lock()
 	s.queue.evaluator = fn
+	s.queue.mu.Unlock()
+}
+
+// SetTaskCanceller wires the remote-task cancel used when an assigned offer
+// is cancelled or stalls past swarm.queue.assign_timeout.
+func (s *Swarm) SetTaskCanceller(fn TaskCanceller) {
+	s.queue.mu.Lock()
+	s.queue.canceller = fn
+	s.queue.mu.Unlock()
+}
+
+// SetCapMatcher wires the requirement check for capability-aware claiming;
+// the local node only bids on offers whose Requires it satisfies.
+func (s *Swarm) SetCapMatcher(fn CapMatcher) {
+	s.queue.mu.Lock()
+	s.queue.matcher = fn
 	s.queue.mu.Unlock()
 }
 
@@ -215,6 +319,10 @@ func (q *workQueue) onMessage(swarmID string, env Envelope) {
 		if msg.Assign != nil {
 			q.onAssign(*msg.Assign)
 		}
+	case queueKindCancel:
+		if msg.Cancel != nil {
+			q.onCancel(*msg.Cancel)
+		}
 	}
 }
 
@@ -248,21 +356,29 @@ func (q *workQueue) onOffer(swarmID string, env Envelope, o Offer) {
 	if q.incoming == nil {
 		q.incoming = make(map[string]OfferInfo)
 	}
-	if _, seen := q.incoming[o.OfferID]; seen {
+	if seen, ok := q.incoming[o.OfferID]; ok && o.Attempt <= seen.Attempt {
+		// Duplicate of a seen attempt; a re-offer uses a higher Attempt.
 		q.mu.Unlock()
 		return
 	}
 	q.incoming[o.OfferID] = OfferInfo{Offer: o, Status: OfferObserved}
 	evaluator := q.evaluator
+	matcher := q.matcher
 	q.mu.Unlock()
+
+	// Capability-aware claiming: satisfy declared requirements first.
+	if o.Requires != nil && !o.Requires.Empty() && matcher != nil &&
+		!matcher(swarmID, *o.Requires) {
+		return
+	}
 
 	if evaluator == nil || !evaluator(swarmID, o) {
 		return
 	}
 
-	claim := Claim{OfferID: o.OfferID, Claimant: q.s.host.ID().String()}
+	claim := Claim{OfferID: o.OfferID, Claimant: q.s.host.ID().String(), Attempt: o.Attempt}
 	if q.s.presence.capProbe != nil {
-		_, claim.ActiveTasks = q.s.presence.capProbe()
+		claim.CapDigest, claim.ActiveTasks = q.s.presence.capProbe()
 	}
 	offerer, err := peer.Decode(o.Offerer)
 	if err != nil {
@@ -285,8 +401,11 @@ func (q *workQueue) onClaim(swarmID string, c Claim) {
 	started := time.Now()
 	q.mu.Lock()
 	to, ok := q.offers[c.OfferID]
+	open := ok && to.info.Status == OfferOpen
+	// Drop claims answering a superseded re-offer attempt.
+	currentAttempt := ok && c.Attempt == to.info.Attempt
 	q.mu.Unlock()
-	if !ok || to.info.Status != OfferOpen {
+	if !open || !currentAttempt {
 		return
 	}
 	if claimant, err := peer.Decode(c.Claimant); err == nil {
@@ -310,6 +429,25 @@ func (q *workQueue) onAssign(a Assign) {
 		info.Assignee = a.PeerID
 		info.TaskID = a.TaskID
 		q.incoming[a.OfferID] = info
+	}
+}
+
+// onCancel marks an observed offer cancelled. Only the recorded offerer may
+// cancel — forged cancels from other members are ignored.
+func (q *workQueue) onCancel(c Cancel) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	info, ok := q.incoming[c.OfferID]
+	if !ok {
+		return
+	}
+	if c.Offerer != "" && info.Offerer != "" && c.Offerer != info.Offerer {
+		return
+	}
+	if info.Status == OfferObserved || info.Status == OfferAssigned {
+		info.Status = OfferCancelled
+		info.Error = "cancelled by offerer"
+		q.incoming[c.OfferID] = info
 	}
 }
 
@@ -339,12 +477,19 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 		Tools:      req.Tools,
 		Offerer:    s.host.ID().String(),
 		CreatedAt:  time.Now(),
+		Media:      req.Media,
 		TTLSeconds: int64(s.cfg.Queue.OfferTTL.Seconds()),
+	}
+	if !req.Requires.Empty() {
+		reqCopy := req.Requires
+		o.Requires = &reqCopy
 	}
 	to := &trackedOffer{
 		info:     OfferInfo{Offer: o, Status: OfferOpen},
 		claimsCh: make(chan Claim, s.cfg.Queue.MaxOffers),
 		resolved: make(chan struct{}),
+		finished: make(chan struct{}),
+		cancelCh: make(chan struct{}),
 	}
 	q.offers[o.OfferID] = to
 	q.mu.Unlock()
@@ -354,6 +499,7 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 		to.info.Status = OfferFailed
 		to.info.Error = err.Error()
 		q.mu.Unlock()
+		s.finishTracked(to)
 		return "", err
 	}
 
@@ -373,87 +519,352 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 	return o.OfferID, nil
 }
 
-// resolveOffer collects claims for the claim window, picks the least-loaded
-// claimer, submits the task, and publishes the assignment.
-func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOffer) {
-	window := time.NewTimer(s.cfg.Queue.ClaimWindow)
-	defer window.Stop()
+// CancelOffer withdraws a published offer: pending claims are dropped, an
+// assigned remote task is cancelled, and a cancel is broadcast so members
+// stop tracking the offer. Cancelling an already-terminal offer is a no-op.
+func (s *Swarm) CancelOffer(ctx context.Context, swarmID, offerID string) error {
+	started := time.Now()
+	q := s.queue
+	q.mu.Lock()
+	to, ok := q.offers[offerID]
+	canceller := q.canceller
+	q.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown offer %q", offerID)
+	}
+	if to.cancelled() {
+		return nil // idempotent
+	}
 
-collect:
+	q.mu.Lock()
+	assignee := to.info.Assignee
+	taskID := to.info.TaskID
+	status := to.info.Status
+	switch status {
+	case OfferOpen, OfferAssigned:
+		to.info.Status = OfferCancelled
+		to.info.Error = "cancelled by offerer"
+	default:
+		// Already terminal (done/expired/failed/dead_letter).
+		q.mu.Unlock()
+		return nil
+	}
+	q.mu.Unlock()
+	to.closeOnce.Do(func() { close(to.cancelCh) })
+
+	// Cancel the in-flight remote task, if any.
+	if status == OfferAssigned && canceller != nil && assignee != "" && taskID != "" {
+		if pid, err := peer.Decode(assignee); err == nil {
+			cancelCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			_ = canceller(cancelCtx, pid, taskID)
+			cancel()
+		}
+	}
+
+	cancelMsg := Cancel{OfferID: offerID, Offerer: s.host.ID().String()}
+	_ = s.PublishBroadcast(ctx, swarmID, queueMsg{Kind: queueKindCancel, Cancel: &cancelMsg})
+
+	s.finishOffer(to)
+	s.finishTracked(to)
+	s.publishEvent(runtimeevents.KindSwarmOfferCancelled, map[string]any{
+		"swarm_id": swarmID,
+		"offer_id": offerID,
+	})
+	s.auditSwarm(s.host.ID(), "offer_cancel", swarmID, offerID, "ok", started, "")
+	return nil
+}
+
+// resolveOffer runs the offer/claim/assign loop with retry: claims are
+// collected for the claim window, the least-loaded claimer is assigned, the
+// remote task is watched, and a failed/stalled attempt re-opens the offer up
+// to swarm.queue.max_retries times before dead-lettering.
+func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOffer) {
+	for {
+		window := time.NewTimer(s.cfg.Queue.ClaimWindow)
+
+	collect:
+		for {
+			select {
+			case <-ctx.Done():
+				window.Stop()
+				s.failOffer(to, "cancelled")
+				return
+			case <-to.cancelCh:
+				window.Stop()
+				// CancelOffer already transitioned the state.
+				return
+			case <-window.C:
+				break collect
+			case c := <-to.claimsCh:
+				if c.Attempt == s.offerAttempt(to) {
+					to.claims = append(to.claims, c)
+				}
+			}
+		}
+		window.Stop()
+
+		if len(to.claims) == 0 {
+			// No claims is a normal terminal outcome — retries are for
+			// failed/stalled assignments, not an empty window.
+			q := s.queue
+			q.mu.Lock()
+			to.info.Status = OfferExpired
+			q.mu.Unlock()
+			s.finishOffer(to)
+			s.finishTracked(to)
+			s.publishEvent(runtimeevents.KindSwarmOfferExpired, map[string]any{
+				"swarm_id": swarmID,
+				"offer_id": to.info.OfferID,
+			})
+			return
+		}
+
+		// Pick the least-loaded claimer; ties resolve to the earliest claim.
+		best := to.claims[0]
+		for _, c := range to.claims[1:] {
+			if c.ActiveTasks < best.ActiveTasks {
+				best = c
+			}
+		}
+
+		q := s.queue
+		q.mu.Lock()
+		submitter := q.submitter
+		canceller := q.canceller
+		fetcher := s.orch.resultFetcher
+		q.mu.Unlock()
+
+		if submitter == nil {
+			s.failOffer(to, "no task submitter configured")
+			return
+		}
+		claimer, err := peer.Decode(best.Claimant)
+		if err != nil {
+			s.failOffer(to, fmt.Sprintf("invalid claimant %q", best.Claimant))
+			return
+		}
+
+		usedPeer, taskID, err := submitter(ctx, claimer, mesh.RemoteCall{
+			TargetAgentID: to.info.AgentID,
+			Model:         to.info.Model,
+			SystemPrompt:  to.info.Task,
+			Tools:         to.info.Tools,
+			Async:         true,
+			Media:         to.info.Media,
+		})
+		if err != nil {
+			if s.retryOffer(ctx, swarmID, to, "submit: "+err.Error()) {
+				continue
+			}
+			s.deadLetterOffer(to, swarmID, "submit: "+err.Error())
+			return
+		}
+
+		q.mu.Lock()
+		to.info.Status = OfferAssigned
+		to.info.Assignee = usedPeer.String()
+		to.info.TaskID = taskID
+		q.mu.Unlock()
+		s.finishOffer(to)
+
+		assign := Assign{OfferID: to.info.OfferID, PeerID: usedPeer.String(), TaskID: taskID}
+		_ = s.PublishBroadcast(ctx, swarmID, queueMsg{Kind: queueKindAssign, Assign: &assign})
+		s.publishEvent(runtimeevents.KindSwarmOfferAssigned, map[string]any{
+			"swarm_id": swarmID,
+			"offer_id": to.info.OfferID,
+			"peer_id":  usedPeer.String(),
+			"task_id":  taskID,
+		})
+
+		// Without a result fetcher the queue cannot watch the task — the
+		// offer stays "assigned" and the caller polls the task itself.
+		if fetcher == nil {
+			s.finishTracked(to)
+			return
+		}
+
+		outcome, resultText, failReason := s.watchAssignedOffer(ctx, to, usedPeer, taskID, canceller)
+		switch outcome {
+		case offerOutcomeDone:
+			q.mu.Lock()
+			to.info.Status = OfferDone
+			to.info.Result = resultText
+			q.mu.Unlock()
+			s.finishTracked(to)
+			s.publishEvent(runtimeevents.KindSwarmOfferDone, map[string]any{
+				"swarm_id": swarmID,
+				"offer_id": to.info.OfferID,
+				"peer_id":  usedPeer.String(),
+				"task_id":  taskID,
+			})
+			return
+		case offerOutcomeCancelled:
+			return // CancelOffer handled the transition
+		default: // failed or stalled
+			if s.retryOffer(ctx, swarmID, to, failReason) {
+				continue
+			}
+			s.deadLetterOffer(to, swarmID, failReason)
+			return
+		}
+	}
+}
+
+// offerOutcome is the terminal result of watching one assignment attempt.
+type offerOutcome int
+
+const (
+	offerOutcomeDone offerOutcome = iota
+	offerOutcomeCancelled
+	offerOutcomeRetryable
+)
+
+// watchAssignedOffer polls the assigned remote task until it completes,
+// fails, is cancelled, or stalls past swarm.queue.assign_timeout. A stalled
+// task is cancelled via the TaskCanceller seam before re-offering.
+func (s *Swarm) watchAssignedOffer(
+	ctx context.Context,
+	to *trackedOffer,
+	pid peer.ID,
+	taskID string,
+	canceller TaskCanceller,
+) (offerOutcome, string, string) {
+	fetcher := s.orch.resultFetcher
+	deadline := time.NewTimer(s.cfg.Queue.AssignTimeout)
+	defer deadline.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
-			s.failOffer(to, "cancelled")
-			return
-		case <-window.C:
-			break collect
-		case c := <-to.claimsCh:
-			to.claims = append(to.claims, c)
+			return offerOutcomeCancelled, "", "swarm stopped"
+		case <-to.cancelCh:
+			return offerOutcomeCancelled, "", "cancelled"
+		case <-deadline.C:
+			// Stall: cancel the remote task, then re-offer.
+			if canceller != nil {
+				cancelCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				_ = canceller(cancelCtx, pid, taskID)
+				cancel()
+			}
+			return offerOutcomeRetryable, "",
+				fmt.Sprintf("assigned task %s stalled past %s", taskID, s.cfg.Queue.AssignTimeout)
+		default:
 		}
-	}
 
-	if len(to.claims) == 0 {
-		q := s.queue
-		q.mu.Lock()
-		to.info.Status = OfferExpired
-		q.mu.Unlock()
-		s.finishOffer(to)
-		s.publishEvent(runtimeevents.KindSwarmOfferExpired, map[string]any{
-			"swarm_id": swarmID,
-			"offer_id": to.info.OfferID,
-		})
-		return
-	}
-
-	// Pick the least-loaded claimer; ties resolve to the earliest claim.
-	best := to.claims[0]
-	for _, c := range to.claims[1:] {
-		if c.ActiveTasks < best.ActiveTasks {
-			best = c
+		resp, err := fetcher(ctx, pid, taskID, 10*time.Second)
+		if err != nil {
+			if ctx.Err() != nil {
+				return offerOutcomeCancelled, "", ctx.Err().Error()
+			}
+			if to.cancelled() {
+				return offerOutcomeCancelled, "", "cancelled"
+			}
+			return offerOutcomeRetryable, "", fmt.Sprintf("poll task %s: %v", taskID, err)
 		}
+		if !resp.Status.Terminal() {
+			// The remote did not honor the 10s long-poll or returned
+			// quickly with a non-terminal status. Sleep briefly to avoid
+			// a tight CPU spin until the next poll.
+			select {
+			case <-ctx.Done():
+				return offerOutcomeCancelled, "", "swarm stopped"
+			case <-to.cancelCh:
+				return offerOutcomeCancelled, "", "cancelled"
+			case <-deadline.C:
+				if canceller != nil {
+					cancelCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					_ = canceller(cancelCtx, pid, taskID)
+					cancel()
+				}
+				return offerOutcomeRetryable, "",
+					fmt.Sprintf("assigned task %s stalled past %s", taskID, s.cfg.Queue.AssignTimeout)
+			case <-time.After(2 * time.Second):
+			}
+			continue
+		}
+		if resp.Status == agenttask.StatusDone {
+			result := ""
+			if resp.Result != nil {
+				result = resp.Result.ForLLM
+			}
+			return offerOutcomeDone, result, ""
+		}
+		reason := resp.Error
+		if reason == "" {
+			reason = "remote task " + string(resp.Status)
+		}
+		return offerOutcomeRetryable, "", reason
 	}
+}
 
+// offerAttempt reads the offer's current attempt under the queue lock.
+func (s *Swarm) offerAttempt(to *trackedOffer) int {
 	q := s.queue
 	q.mu.Lock()
-	submitter := q.submitter
-	q.mu.Unlock()
+	defer q.mu.Unlock()
+	return to.info.Attempt
+}
 
-	if submitter == nil {
-		s.failOffer(to, "no task submitter configured")
-		return
+// retryOffer re-opens a failed offer for another attempt when retries
+// remain. Returns true when the offer was re-broadcast.
+func (s *Swarm) retryOffer(ctx context.Context, swarmID string, to *trackedOffer, reason string) bool {
+	if to.cancelled() {
+		return false
 	}
-	claimer, err := peer.Decode(best.Claimant)
-	if err != nil {
-		s.failOffer(to, fmt.Sprintf("invalid claimant %q", best.Claimant))
-		return
-	}
-
-	usedPeer, taskID, err := submitter(ctx, claimer, mesh.RemoteCall{
-		TargetAgentID: to.info.AgentID,
-		Model:         to.info.Model,
-		SystemPrompt:  to.info.Task,
-		Tools:         to.info.Tools,
-		Async:         true,
-	})
-	if err != nil {
-		s.failOffer(to, err.Error())
-		return
-	}
-
+	q := s.queue
 	q.mu.Lock()
-	to.info.Status = OfferAssigned
-	to.info.Assignee = usedPeer.String()
-	to.info.TaskID = taskID
+	if to.retries >= s.cfg.Queue.MaxRetries {
+		q.mu.Unlock()
+		return false
+	}
+	to.retries++
+	to.info.Retries = to.retries
+	to.info.Attempt++
+	to.info.Status = OfferOpen
+	to.info.Error = ""
+	to.info.TaskID = ""
+	to.info.Assignee = ""
+	to.claims = nil
+	offer := to.info.Offer // includes bumped Attempt
 	q.mu.Unlock()
-	s.finishOffer(to)
 
-	assign := Assign{OfferID: to.info.OfferID, PeerID: usedPeer.String(), TaskID: taskID}
-	_ = s.PublishBroadcast(ctx, swarmID, queueMsg{Kind: queueKindAssign, Assign: &assign})
-	s.publishEvent(runtimeevents.KindSwarmOfferAssigned, map[string]any{
+	// Drop any stale claims buffered for the previous attempt.
+drain:
+	for {
+		select {
+		case <-to.claimsCh:
+		default:
+			break drain
+		}
+	}
+
+	if err := s.PublishBroadcast(ctx, swarmID, queueMsg{Kind: queueKindOffer, Offer: &offer}); err != nil {
+		return false
+	}
+	s.publishEvent(runtimeevents.KindSwarmOfferRetry, map[string]any{
 		"swarm_id": swarmID,
 		"offer_id": to.info.OfferID,
-		"peer_id":  usedPeer.String(),
-		"task_id":  taskID,
+		"attempt":  to.info.Attempt,
+		"reason":   reason,
+	})
+	return true
+}
+
+// deadLetterOffer marks an offer dead-lettered after retries ran out.
+func (s *Swarm) deadLetterOffer(to *trackedOffer, swarmID, reason string) {
+	q := s.queue
+	q.mu.Lock()
+	to.info.Status = OfferDeadLetter
+	to.info.Error = reason
+	retries := to.retries
+	q.mu.Unlock()
+	s.finishOffer(to)
+	s.finishTracked(to)
+	s.publishEvent(runtimeevents.KindSwarmOfferDeadLetter, map[string]any{
+		"swarm_id": swarmID,
+		"offer_id": to.info.OfferID,
+		"retries":  retries,
+		"error":    reason,
 	})
 }
 
@@ -464,6 +875,7 @@ func (s *Swarm) failOffer(to *trackedOffer, msg string) {
 	to.info.Error = msg
 	q.mu.Unlock()
 	s.finishOffer(to)
+	s.finishTracked(to)
 	s.publishEvent(runtimeevents.KindSwarmError, map[string]any{
 		"stage":    "offer",
 		"offer_id": to.info.OfferID,
@@ -486,6 +898,20 @@ func (s *Swarm) finishOffer(to *trackedOffer) {
 	}
 }
 
+// finishTracked closes the finished channel — the offer reached a true
+// terminal state. Safe to call more than once.
+func (s *Swarm) finishTracked(to *trackedOffer) {
+	if to.finished == nil {
+		return
+	}
+	select {
+	case <-to.finished:
+		// Already closed.
+	default:
+		close(to.finished)
+	}
+}
+
 // offerInfo returns a copy of a tracked published offer.
 func (q *workQueue) offerInfo(offerID string) (OfferInfo, bool) {
 	q.mu.Lock()
@@ -497,9 +923,8 @@ func (q *workQueue) offerInfo(offerID string) (OfferInfo, bool) {
 	return to.info, true
 }
 
-// offerResolved returns a channel that is closed when the offer reaches a
-// terminal state, or nil if the offer is unknown. Callers can select on it
-// to avoid busy-waiting.
+// offerResolved returns a channel that is closed when the offer first leaves
+// "open" (assigned or a terminal state), or nil if the offer is unknown.
 func (q *workQueue) offerResolved(offerID string) <-chan struct{} {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -508,6 +933,19 @@ func (q *workQueue) offerResolved(offerID string) <-chan struct{} {
 		return nil
 	}
 	return to.resolved
+}
+
+// offerFinished returns a channel that is closed when the offer reaches a
+// true terminal state (done/expired/failed/cancelled/dead_letter), or nil if
+// the offer is unknown.
+func (q *workQueue) offerFinished(offerID string) <-chan struct{} {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	to, ok := q.offers[offerID]
+	if !ok {
+		return nil
+	}
+	return to.finished
 }
 
 // OffersFor returns tracked offers for one swarm.

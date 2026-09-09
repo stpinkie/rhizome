@@ -162,15 +162,34 @@ type MeshConfig struct {
 	// peers (a mesh.cap.unsigned event is emitted either way). Not omitempty
 	// so an explicit false survives config write-back.
 	RequireSignedCaps bool `json:"require_signed_caps"`
+
+	// BlobEnabled serves the /rhizome/blob/1.0.0 transfer protocol so remote
+	// tasks can carry attachments and return artifacts. Defaults to true when
+	// the mesh is enabled; not omitempty so an explicit false survives
+	// config write-back.
+	BlobEnabled bool `json:"blob_enabled"`
+	// BlobMaxBytes bounds a single transferred blob. Defaults to 64 MiB.
+	BlobMaxBytes int64 `json:"blob_max_bytes,omitempty"`
+	// BlobTTL is how long a stored blob is kept before the reaper removes
+	// it. Defaults to 24h; 0 means keep forever.
+	BlobTTL time.Duration `json:"blob_ttl,omitempty"`
+
+	// SkillShare is an allowlist of skill names this node will serve to
+	// trusted peers over /rhizome/skill/1.0.0. Empty (the default) denies
+	// all skill pulls — sharing is opt-in per skill name.
+	SkillShare []string `json:"skill_share,omitempty"`
 }
 
 // MeshACLRule authorizes a single peer for remote execution. Nil/empty fields
 // fall back to the global mesh policy.
 type MeshACLRule struct {
-	PeerID        string   `json:"peer_id"`
-	AllowDelegate *bool    `json:"allow_delegate,omitempty"`
-	AllowSpawn    *bool    `json:"allow_spawn,omitempty"`
-	Agents        []string `json:"agents,omitempty"`
+	PeerID        string `json:"peer_id"`
+	AllowDelegate *bool  `json:"allow_delegate,omitempty"`
+	AllowSpawn    *bool  `json:"allow_spawn,omitempty"`
+	// AllowBlob gates /rhizome/blob/1.0.0 transfers for this peer. Nil means
+	// trusted peers may exchange blobs; set false to deny.
+	AllowBlob *bool    `json:"allow_blob,omitempty"`
+	Agents    []string `json:"agents,omitempty"`
 	// RateLimit overrides the per-peer rate limit (requests per minute).
 	// 0 means "use the global per-peer default"; negative means unlimited.
 	RateLimit float64 `json:"rate_limit,omitempty"`
@@ -183,11 +202,13 @@ func (m *MeshConfig) MarshalJSON() ([]byte, error) {
 		RemoteTimeout        string `json:"remote_timeout,omitempty"`
 		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
 		RequestMaxSkew       string `json:"request_max_skew,omitempty"`
+		BlobTTL              string `json:"blob_ttl,omitempty"`
 	}{
 		Alias:                (*Alias)(m),
 		RemoteTimeout:        m.RemoteTimeout.String(),
 		DHTReprovideInterval: m.DHTReprovideInterval.String(),
 		RequestMaxSkew:       m.RequestMaxSkew.String(),
+		BlobTTL:              m.BlobTTL.String(),
 	})
 }
 
@@ -198,6 +219,7 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 		RemoteTimeout        string `json:"remote_timeout,omitempty"`
 		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
 		RequestMaxSkew       string `json:"request_max_skew,omitempty"`
+		BlobTTL              string `json:"blob_ttl,omitempty"`
 	}{
 		Alias: (*Alias)(m),
 	}
@@ -224,6 +246,13 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		m.RequestMaxSkew = d
+	}
+	if aux.BlobTTL != "" {
+		d, err := time.ParseDuration(aux.BlobTTL)
+		if err != nil {
+			return err
+		}
+		m.BlobTTL = d
 	}
 	return nil
 }
@@ -275,6 +304,12 @@ func (m *MeshConfig) Validate() error {
 	}
 	if m.RequestMaxSkew < 0 {
 		return fmt.Errorf("mesh.request_max_skew must be non-negative")
+	}
+	if m.BlobMaxBytes < 0 {
+		return fmt.Errorf("mesh.blob_max_bytes must be non-negative")
+	}
+	if m.BlobTTL < 0 {
+		return fmt.Errorf("mesh.blob_ttl must be non-negative")
 	}
 	if m.RateLimitPerPeer < 0 {
 		return fmt.Errorf("mesh.rate_limit_per_peer must be non-negative")
@@ -1421,11 +1456,11 @@ func (m BrowserBackendsConfig) MarshalYAML() (any, error) {
 // backend is selected by DefaultBackend; per-backend credentials and options
 // live in Backends keyed by catalog backend id.
 type BrowserToolsConfig struct {
-	ToolConfig           `                   yaml:"-"                   envPrefix:"RHIZOME_TOOLS_BROWSER_"`
-	DefaultBackend       string                `yaml:"-"                   json:"default_backend"                  env:"RHIZOME_TOOLS_BROWSER_DEFAULT_BACKEND"`
-	SessionTimeout       string                `yaml:"-"                   json:"session_timeout"                  env:"RHIZOME_TOOLS_BROWSER_SESSION_TIMEOUT"`
-	PrivateHostWhitelist FlexibleStringSlice   `yaml:"-"                   json:"private_host_whitelist,omitempty" env:"RHIZOME_TOOLS_BROWSER_PRIVATE_HOST_WHITELIST"`
-	Backends             BrowserBackendsConfig `yaml:"backends,omitempty"  json:"backends,omitempty"`
+	ToolConfig           `                      yaml:"-"                  envPrefix:"RHIZOME_TOOLS_BROWSER_"`
+	DefaultBackend       string                `yaml:"-"                                                     json:"default_backend"                  env:"RHIZOME_TOOLS_BROWSER_DEFAULT_BACKEND"`
+	SessionTimeout       string                `yaml:"-"                                                     json:"session_timeout"                  env:"RHIZOME_TOOLS_BROWSER_SESSION_TIMEOUT"`
+	PrivateHostWhitelist FlexibleStringSlice   `yaml:"-"                                                     json:"private_host_whitelist,omitempty" env:"RHIZOME_TOOLS_BROWSER_PRIVATE_HOST_WHITELIST"`
+	Backends             BrowserBackendsConfig `yaml:"backends,omitempty"                                    json:"backends,omitempty"`
 }
 
 // GetSessionTimeout returns the parsed session timeout (default 10m).
@@ -1473,32 +1508,35 @@ type ToolsConfig struct {
 	// FilterMinLength is the minimum content length required for filtering.
 	// Content shorter than this will be returned unchanged for performance.
 	// Default: 8
-	FilterMinLength int                `json:"filter_min_length" yaml:"-"                env:"RHIZOME_TOOLS_FILTER_MIN_LENGTH"`
+	FilterMinLength int                `json:"filter_min_length" yaml:"-"                 env:"RHIZOME_TOOLS_FILTER_MIN_LENGTH"`
 	Web             WebToolsConfig     `json:"web"               yaml:"web,omitempty"`
 	Browser         BrowserToolsConfig `json:"browser"           yaml:"browser,omitempty"`
 	Cron            CronToolsConfig    `json:"cron"              yaml:"-"`
 	Exec            ExecConfig         `json:"exec"              yaml:"-"`
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
+	Media           MediaToolsConfig   `json:"media"             yaml:"media,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
-	MCP             MCPConfig          `json:"mcp"               yaml:"-"`
-	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_APPEND_FILE_"`
-	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_EDIT_FILE_"`
-	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_FIND_SKILLS_"`
-	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_I2C_"`
-	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_INSTALL_SKILL_"`
-	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_LIST_DIR_"`
-	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_LOAD_IMAGE_"`
+	MCP             MCPConfig          `json:"mcp"               yaml:"mcp,omitempty"`
+	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_APPEND_FILE_"`
+	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_EDIT_FILE_"`
+	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_FIND_SKILLS_"`
+	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_I2C_"`
+	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_INSTALL_SKILL_"`
+	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LIST_DIR_"`
+	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LOAD_IMAGE_"`
+	LoadVideo       ToolConfig         `json:"load_video"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LOAD_VIDEO_"`
 	Message         MessageToolsConfig `json:"message"           yaml:"-"`
-	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_READ_FILE_"`
-	Serial          ToolConfig         `json:"serial"            yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SERIAL_"`
-	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SEND_FILE_"`
-	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SEND_TTS_"`
-	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SPAWN_"`
-	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SPAWN_STATUS_"`
-	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SPI_"`
-	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_SUBAGENT_"`
-	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_WEB_FETCH_"`
-	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                      envPrefix:"RHIZOME_TOOLS_WRITE_FILE_"`
+	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_READ_FILE_"`
+	Serial          ToolConfig         `json:"serial"            yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SERIAL_"`
+	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SEND_FILE_"`
+	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SEND_TTS_"`
+	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPAWN_"`
+	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPAWN_STATUS_"`
+	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPI_"`
+	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SUBAGENT_"`
+	TranscribeAudio ToolConfig         `json:"transcribe_audio"  yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_TRANSCRIBE_AUDIO_"`
+	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WEB_FETCH_"`
+	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WRITE_FILE_"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -1512,6 +1550,55 @@ func (c *ToolsConfig) GetFilterMinLength() int {
 		return 8
 	}
 	return c.FilterMinLength
+}
+
+// Media vision modes for tools.media.vision_mode.
+const (
+	// VisionModeAuto attaches user-sent images inline to the provider request
+	// whenever the active model is vision-capable (or an image_model fallback
+	// is configured); otherwise only tool-result images are inlined.
+	VisionModeAuto = "auto"
+	// VisionModeTool inlines only tool-result images; user images stay as
+	// path tags and require the load_image tool.
+	VisionModeTool = "tool"
+	// VisionModeOff disables inline images entirely; all media becomes path
+	// tags only.
+	VisionModeOff = "off"
+)
+
+// MediaToolsConfig configures media attachment handling for agent turns.
+type MediaToolsConfig struct {
+	// VisionMode controls how image media reaches the provider:
+	// "auto" (default), "tool", or "off".
+	VisionMode string `json:"vision_mode,omitempty" yaml:"vision_mode,omitempty" env:"RHIZOME_TOOLS_MEDIA_VISION_MODE"`
+	// MaxVideoFrames bounds the keyframes extracted by load_video.
+	MaxVideoFrames int `json:"max_video_frames,omitempty" yaml:"max_video_frames,omitempty" env:"RHIZOME_TOOLS_MEDIA_MAX_VIDEO_FRAMES"`
+	// FFmpegPath overrides the ffmpeg binary used for video frame
+	// extraction; empty means "ffmpeg" resolved from PATH.
+	FFmpegPath string `json:"ffmpeg_path,omitempty" yaml:"ffmpeg_path,omitempty" env:"RHIZOME_TOOLS_MEDIA_FFMPEG_PATH"`
+}
+
+// GetVisionMode returns the normalized media vision mode.
+func (c *MediaToolsConfig) GetVisionMode() string {
+	switch strings.ToLower(strings.TrimSpace(c.VisionMode)) {
+	case VisionModeTool:
+		return VisionModeTool
+	case VisionModeOff:
+		return VisionModeOff
+	default:
+		return VisionModeAuto
+	}
+}
+
+// DefaultMaxVideoFrames is the default upper bound for load_video keyframes.
+const DefaultMaxVideoFrames = 8
+
+// GetMaxVideoFrames returns the configured cap or the default.
+func (c *MediaToolsConfig) GetMaxVideoFrames() int {
+	if c.MaxVideoFrames > 0 {
+		return c.MaxVideoFrames
+	}
+	return DefaultMaxVideoFrames
 }
 
 type SearchCacheConfig struct {
@@ -1631,12 +1718,17 @@ type MCPServerConfig struct {
 
 // MCPConfig defines configuration for all MCP servers
 type MCPConfig struct {
-	ToolConfig `                    envPrefix:"RHIZOME_TOOLS_MCP_"`
-	Discovery  ToolDiscoveryConfig `                               json:"discovery"`
+	ToolConfig `                    envPrefix:"RHIZOME_TOOLS_MCP_" yaml:"-"`
+	Discovery  ToolDiscoveryConfig `                               yaml:"-" json:"discovery"`
 	// MaxInlineTextChars controls how much MCP text stays inline before it is saved as an artifact.
-	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"RHIZOME_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
+	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"RHIZOME_TOOLS_MCP_MAX_INLINE_TEXT_CHARS" yaml:"-"`
 	// Servers is a map of server name to server configuration
-	Servers map[string]MCPServerConfig `json:"servers,omitempty"`
+	Servers map[string]MCPServerConfig `json:"servers,omitempty" yaml:"-"`
+	// Presets configures first-class hosted presets (currently "context7").
+	// Preset entries expand into effective servers via EffectiveServers; an
+	// explicit servers entry of the same name always wins. api_key persists
+	// via config.security.yml.
+	Presets map[string]MCPPresetConfig `json:"presets,omitempty" yaml:"presets,omitempty"`
 }
 
 const DefaultMCPMaxInlineTextChars = 16 * 1024
@@ -2248,6 +2340,10 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.ListDir.Enabled
 	case "load_image":
 		return t.LoadImage.Enabled
+	case "load_video":
+		return t.LoadVideo.Enabled
+	case "transcribe_audio":
+		return t.TranscribeAudio.Enabled
 	case "message":
 		return t.Message.Enabled
 	case "read_file":

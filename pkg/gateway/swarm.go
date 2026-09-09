@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+
 	"github.com/stpinkie/rhizome/pkg/agent"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
@@ -37,12 +39,78 @@ func currentSwarm() *swarm.Swarm {
 func wireSwarm(sw *swarm.Swarm, m *mesh.Mesh, agentLoop *agent.AgentLoop, cfg *config.Config) {
 	sw.SetTaskSubmitter(m.SubmitRemoteTaskWithPeer)
 	sw.SetResultFetcher(m.RemoteTaskResult)
+	sw.SetTaskCanceller(func(ctx context.Context, pid peer.ID, taskID string) error {
+		_, err := m.CancelRemoteTask(ctx, pid, taskID)
+		return err
+	})
 	sw.SetCapProbe(func() (string, int) {
 		return "", m.ActiveTaskCount()
 	})
 	sw.SetOfferEvaluator(func(swarmID string, o swarm.Offer) bool {
 		_, ok := agentLoop.GetRegistry().GetAgent(o.AgentID)
 		return ok
+	})
+	sw.SetCapMatcher(func(swarmID string, req swarm.OfferRequirements) bool {
+		registry := agentLoop.GetRegistry()
+		if len(req.Agents) > 0 {
+			found := false
+			for _, id := range req.Agents {
+				if _, ok := registry.GetAgent(id); ok {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		if len(req.Models) > 0 {
+			found := false
+			for _, want := range req.Models {
+				for _, mc := range cfg.ModelList {
+					if mc == nil {
+						continue
+					}
+					if mc.ModelName == want || mc.Model == want {
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		if len(req.Skills) > 0 {
+			names := map[string]bool{}
+			for _, agentID := range registry.ListAgentIDs() {
+				agentInst, ok := registry.GetAgent(agentID)
+				if !ok || agentInst.ContextBuilder == nil {
+					continue
+				}
+				if info := agentInst.ContextBuilder.GetSkillsInfo(); info != nil {
+					if list, ok := info["names"].([]string); ok {
+						for _, n := range list {
+							names[n] = true
+						}
+					}
+				}
+			}
+			found := false
+			for _, want := range req.Skills {
+				if names[want] {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
 	})
 	sw.SetStateWriter(func(swarmID string, state []byte) error {
 		dir := filepath.Join(cfg.WorkspacePath(), "swarm", swarmID)
@@ -53,7 +121,7 @@ func wireSwarm(sw *swarm.Swarm, m *mesh.Mesh, agentLoop *agent.AgentLoop, cfg *c
 	})
 
 	dispatch := func(ctx context.Context, prompt string) (string, error) {
-		resp, err := agentLoop.ProcessRemoteDispatch(ctx, agent.RemoteDispatchRequest{
+		resp, _, err := agentLoop.ProcessRemoteDispatch(ctx, agent.RemoteDispatchRequest{
 			AgentID:    "main",
 			Prompt:     prompt,
 			SessionKey: "swarm-orchestrator",
@@ -89,9 +157,12 @@ Available agent ids: %s
 
 Goal: %s
 
-Break the goal into independent subtasks that can run in parallel. Reply with
-ONLY a JSON array — either of strings (task descriptions) or objects with
-{"agent_id","task"} fields. No prose, no markdown fences.`
+Break the goal into subtasks. Subtasks that depend on earlier work run after
+their prerequisites; independent subtasks run in parallel. Reply with ONLY a
+JSON array — either of strings (task descriptions) or objects with
+{"id","agent_id","task","depends_on"} fields, where depends_on lists the ids
+of prerequisite subtasks (omit it for independent work). No prose, no
+markdown fences.`
 
 const synthesizePrompt = `Goal: %s
 

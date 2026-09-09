@@ -135,6 +135,13 @@ type SwarmQueueConfig struct {
 	ClaimWindow time.Duration `json:"claim_window,omitempty"`
 	// MaxOffers bounds concurrently tracked local offers. Defaults to 100.
 	MaxOffers int `json:"max_offers,omitempty"`
+	// AssignTimeout bounds how long an assigned remote task may run before
+	// the offer is considered stalled and re-offered. Defaults to 10m.
+	AssignTimeout time.Duration `json:"assign_timeout,omitempty"`
+	// MaxRetries is how many times a failed/stalled offer is re-broadcast
+	// before it lands in dead_letter state. 0/unset means 1; negative
+	// disables retries entirely.
+	MaxRetries int `json:"max_retries,omitempty"`
 }
 
 func (q *SwarmQueueConfig) normalize() {
@@ -147,18 +154,28 @@ func (q *SwarmQueueConfig) normalize() {
 	if q.MaxOffers <= 0 {
 		q.MaxOffers = 100
 	}
+	if q.AssignTimeout <= 0 {
+		q.AssignTimeout = 10 * time.Minute
+	}
+	if q.MaxRetries == 0 {
+		q.MaxRetries = 1
+	} else if q.MaxRetries < 0 {
+		q.MaxRetries = 0 // negative: retries disabled
+	}
 }
 
 func (q SwarmQueueConfig) MarshalJSON() ([]byte, error) {
 	type Alias SwarmQueueConfig
 	return json.Marshal(&struct {
 		Alias
-		OfferTTL    string `json:"offer_ttl,omitempty"`
-		ClaimWindow string `json:"claim_window,omitempty"`
+		OfferTTL      string `json:"offer_ttl,omitempty"`
+		ClaimWindow   string `json:"claim_window,omitempty"`
+		AssignTimeout string `json:"assign_timeout,omitempty"`
 	}{
-		Alias:       Alias(q),
-		OfferTTL:    q.OfferTTL.String(),
-		ClaimWindow: q.ClaimWindow.String(),
+		Alias:         Alias(q),
+		OfferTTL:      q.OfferTTL.String(),
+		ClaimWindow:   q.ClaimWindow.String(),
+		AssignTimeout: q.AssignTimeout.String(),
 	})
 }
 
@@ -166,8 +183,9 @@ func (q *SwarmQueueConfig) UnmarshalJSON(data []byte) error {
 	type Alias SwarmQueueConfig
 	aux := &struct {
 		Alias
-		OfferTTL    string `json:"offer_ttl,omitempty"`
-		ClaimWindow string `json:"claim_window,omitempty"`
+		OfferTTL      string `json:"offer_ttl,omitempty"`
+		ClaimWindow   string `json:"claim_window,omitempty"`
+		AssignTimeout string `json:"assign_timeout,omitempty"`
 	}{Alias: Alias(*q)}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
@@ -185,6 +203,13 @@ func (q *SwarmQueueConfig) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		q.ClaimWindow = d
+	}
+	if aux.AssignTimeout != "" {
+		d, err := time.ParseDuration(aux.AssignTimeout)
+		if err != nil {
+			return err
+		}
+		q.AssignTimeout = d
 	}
 	return nil
 }

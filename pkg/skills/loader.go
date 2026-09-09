@@ -94,6 +94,24 @@ func NewSkillsLoader(workspace string, globalSkills string, builtinSkills string
 	}
 }
 
+// GlobalSkillsDir returns the global skills root (~/.rhizome/skills), used as
+// the install target for mesh-pulled skills. Empty when unconfigured.
+func (sl *SkillsLoader) GlobalSkillsDir() string { return sl.globalSkills }
+
+// SkillDir returns the directory containing a skill's SKILL.md, resolved
+// with the usual workspace > global > builtin priority.
+func (sl *SkillsLoader) SkillDir(name string) (string, bool) {
+	if err := ValidateSkillName(name); err != nil {
+		return "", false
+	}
+	for _, info := range sl.ListSkills() {
+		if info.Name == name {
+			return filepath.Dir(info.Path), true
+		}
+	}
+	return "", false
+}
+
 func (sl *SkillsLoader) ListSkills() []SkillInfo {
 	skills := make([]SkillInfo, 0)
 	seen := make(map[string]bool)

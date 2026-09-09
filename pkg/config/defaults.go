@@ -461,6 +461,12 @@ func DefaultConfig() *Config {
 			LoadImage: ToolConfig{
 				Enabled: true,
 			},
+			LoadVideo: ToolConfig{
+				Enabled: true,
+			},
+			TranscribeAudio: ToolConfig{
+				Enabled: true,
+			},
 			Message: MessageToolsConfig{
 				ToolConfig: ToolConfig{
 					Enabled: true,
@@ -657,6 +663,9 @@ func DefaultMeshConfig() MeshConfig {
 		RateLimitGlobal:      300,
 		AuditLog:             true,
 		RequireSignedCaps:    true,
+		BlobEnabled:          true,
+		BlobMaxBytes:         64 << 20,
+		BlobTTL:              24 * time.Hour,
 	}
 }
 

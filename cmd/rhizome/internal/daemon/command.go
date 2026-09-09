@@ -17,10 +17,42 @@ import (
 	"github.com/stpinkie/rhizome/pkg/gateway"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/pair"
 	"github.com/stpinkie/rhizome/pkg/rhizome/swarm"
 	"github.com/stpinkie/rhizome/pkg/rhizome/sync"
 	"github.com/stpinkie/rhizome/pkg/skills"
 )
+
+// persistPairedPeer writes a freshly paired peer into mesh.trusted_peers and
+// mesh.bootstrap_peers so the trust survives daemon restarts.
+func persistPairedPeer(configPath, peerID string, addrs []string) error {
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	seen := map[string]bool{peerID: true}
+	peers := []string{peerID}
+	for _, p := range cfg.Mesh.TrustedPeers {
+		if !seen[p] {
+			peers = append(peers, p)
+			seen[p] = true
+		}
+	}
+	cfg.Mesh.TrustedPeers = peers
+	for _, a := range addrs {
+		dup := false
+		for _, b := range cfg.Mesh.BootstrapPeers {
+			if b == a {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			cfg.Mesh.BootstrapPeers = append(cfg.Mesh.BootstrapPeers, a)
+		}
+	}
+	return config.SaveConfig(configPath, cfg)
+}
 
 func NewDaemonCommand() *cobra.Command {
 	var listenAddrs []string
@@ -130,11 +162,30 @@ func NewDaemonCommand() *cobra.Command {
 				}
 				rhizomeMesh.SetTaskStorePath(filepath.Join(home, "mesh-tasks.jsonl"))
 				rhizomeMesh.SetScoreStorePath(filepath.Join(home, "mesh-peer-scores.json"))
+				rhizomeMesh.SetBlobDir(filepath.Join(home, "blobs"))
 				rhizomeMesh.SetEventBus(eventBus)
 				if err := rhizomeMesh.Start(ctx); err != nil {
 					return fmt.Errorf("failed to start mesh: %w", err)
 				}
 				defer rhizomeMesh.Stop()
+
+				// Trust pairing: /rhizome/pair/1.0.0 — bundle-based peer
+				// admission. Codes persist at <home>/pair-codes.json.
+				pairMgr := pair.New(node.Host(), derived, home, pair.Hooks{
+					TrustPeer: rhizomeMesh.TrustPeer,
+					Persist: func(peerID string, addrs []string) error {
+						return persistPairedPeer(internal.GetConfigPath(), peerID, addrs)
+					},
+					Event: func(kind runtimeevents.Kind, attrs map[string]any) {
+						eventBus.PublishNonBlocking(runtimeevents.Event{
+							Kind:   kind,
+							Source: runtimeevents.Source{Component: "mesh"},
+							Attrs:  attrs,
+						})
+					},
+				})
+				go func() { _ = pairMgr.Start(ctx) }()
+				gateway.SetPairManager(pairMgr)
 			}
 
 			// Swarm layer: named groups of trusted peers. Requires the mesh

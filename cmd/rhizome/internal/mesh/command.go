@@ -40,6 +40,8 @@ func NewMeshCommand() *cobra.Command {
 		network.NewScatterCommand(),
 		network.NewAuditCommand(),
 		network.NewPingCommand(),
+		network.NewPairCommand(),
+		network.NewSkillCommand(),
 	)
 
 	return cmd

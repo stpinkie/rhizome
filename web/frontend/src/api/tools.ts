@@ -97,3 +97,31 @@ export async function updateWebSearchConfig(
     body: JSON.stringify(payload),
   })
 }
+
+export interface MCPPresetItem {
+  name: string
+  url: string
+  header: string
+  env_var: string
+  enabled: boolean
+  has_key: boolean
+}
+
+interface MCPPresetsResponse {
+  presets: MCPPresetItem[]
+}
+
+export async function getMCPPresets(): Promise<MCPPresetsResponse> {
+  return request<MCPPresetsResponse>("/api/tools/mcp-presets")
+}
+
+export async function updateMCPPreset(
+  name: string,
+  payload: { enabled?: boolean; api_key?: string },
+): Promise<MCPPresetItem> {
+  return request<MCPPresetItem>("/api/tools/mcp-presets", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, ...payload }),
+  })
+}

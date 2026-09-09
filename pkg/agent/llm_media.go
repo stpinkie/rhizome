@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers"
 )
@@ -105,6 +106,30 @@ func sameCandidateSet(a, b []providers.FallbackCandidate) bool {
 		}
 	}
 	return true
+}
+
+// imageInlineModeForAgent decides how image media is inlined based on
+// tools.media.vision_mode and the model that will serve the request.
+// modelName is the wire name of the active (or default) model.
+func imageInlineModeForAgent(cfg *config.Config, agent *AgentInstance, modelName string) imageInlineMode {
+	if cfg == nil {
+		return inlineTool
+	}
+	switch cfg.Tools.Media.GetVisionMode() {
+	case config.VisionModeOff:
+		return inlineOff
+	case config.VisionModeTool:
+		return inlineTool
+	}
+	// auto: inline when the model is vision-capable, or when an image_model
+	// fallback is configured (routeMediaTurn will switch to it anyway).
+	if providers.ModelSupportsVision(modelName) {
+		return inlineAuto
+	}
+	if agent != nil && len(agent.ImageCandidates) > 0 {
+		return inlineAuto
+	}
+	return inlineTool
 }
 
 func messagesContainCurrentTurnMediaTurn(messages []providers.Message) bool {

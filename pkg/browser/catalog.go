@@ -19,6 +19,10 @@ const (
 	KindSpawnCDP BackendKind = "spawn-cdp"
 	// KindCustom uses a user-supplied CDP endpoint URL.
 	KindCustom BackendKind = "custom"
+	// KindNativeCDP is a CDP endpoint driven by the built-in Go client
+	// (pkg/browser/cdp) — no agent-browser CLI required. Supports
+	// authenticated ws/wss endpoints via headers (e.g. Cloudflare).
+	KindNativeCDP BackendKind = "native-cdp"
 	// KindProviderEnv uses an agent-browser provider plugin (-p <name>) with
 	// credentials passed via environment variables.
 	KindProviderEnv BackendKind = "provider-env"
@@ -141,11 +145,32 @@ func Catalog() []BackendSpec {
 			Notes:   "Any CDP endpoint: remote Chrome, self-hosted browserless, SSH tunnel, etc.",
 		},
 		{
+			ID:      "rhizome-cdp",
+			Name:    "Native CDP (built-in Go client)",
+			Kind:    KindNativeCDP,
+			License: "n/a",
+			Status:  "working",
+			Caps:    allCaps,
+			Auth: []AuthField{
+				{Key: "endpoint_url", Label: "CDP endpoint URL (ws://, wss:// or http://)", Required: true},
+				{
+					Key:    "api_key",
+					Label:  "Auth token (sent as Authorization: Bearer on the WebSocket handshake — e.g. Cloudflare)",
+					Secret: true,
+				},
+			},
+			Install: InstallSpec{Method: "config"},
+			Notes:   "Drives any CDP endpoint natively — no Node.js/agent-browser. Authenticated wss:// endpoints (e.g. Cloudflare Browser Rendering connect) are supported via api_key.",
+		},
+		{
 			ID: "provider", Name: "agent-browser provider plugin", Kind: KindProviderEnv,
 			License: "n/a", Status: "working", Caps: allCaps,
 			Auth: []AuthField{
 				{Key: "provider", Label: "Provider name (browseruse, agentcore, ios, ...)", Required: true},
-				{Key: "env", Label: "Env vars as a JSON object — provider credentials go here (e.g. {\"BROWSERUSE_API_KEY\": \"...\"}); values under *KEY*/*TOKEN*/*SECRET*-looking names are masked in logs"},
+				{
+					Key:   "env",
+					Label: "Env vars as a JSON object — provider credentials go here (e.g. {\"BROWSERUSE_API_KEY\": \"...\"}); values under *KEY*/*TOKEN*/*SECRET*-looking names are masked in logs",
+				},
 			},
 			Install: InstallSpec{Method: "config"},
 			Notes:   "Generic passthrough to agent-browser's -p provider plugins, including future ones.",

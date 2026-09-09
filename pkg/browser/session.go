@@ -33,6 +33,7 @@ type Session struct {
 type Manager struct {
 	cfg       *config.BrowserToolsConfig
 	driver    Driver
+	nativeCDP *NativeCDPDriver // used for KindNativeCDP backends
 	runner    Runner
 	workspace string
 	now       func() time.Time
@@ -74,6 +75,19 @@ func (m *Manager) SetDriver(d Driver) { m.driver = d }
 
 // SetRunner overrides the exec runner used by spawn/CLI resolvers (tests).
 func (m *Manager) SetRunner(r Runner) { m.runner = r }
+
+// driverFor picks the driver for a session: native-cdp backends use the
+// built-in Go CDP client, everything else the configured driver
+// (agent-browser CLI by default).
+func (m *Manager) driverFor(sess *Session) Driver {
+	if sess.Spec.Kind == KindNativeCDP {
+		if m.nativeCDP == nil {
+			m.nativeCDP = &NativeCDPDriver{}
+		}
+		return m.nativeCDP
+	}
+	return m.driver
+}
 
 // Workspace returns the workspace used for browser artifacts.
 func (m *Manager) Workspace() string { return m.workspace }
@@ -227,25 +241,26 @@ func (m *Manager) Do(
 	}
 
 	ep := sess.Endpoint
+	drv := m.driverFor(sess)
 	switch capability {
 	case CapOpen:
-		out, err := m.driver.Open(ctx, ep, sess.Key, args["url"])
+		out, err := drv.Open(ctx, ep, sess.Key, args["url"])
 		if err == nil {
 			sess.LastURL = args["url"]
 		}
 		return out, err
 	case CapSnapshot:
-		return m.driver.Snapshot(ctx, ep, sess.Key, args["interactive"] == "true")
+		return drv.Snapshot(ctx, ep, sess.Key, args["interactive"] == "true")
 	case CapClick:
-		return m.driver.Click(ctx, ep, sess.Key, args["ref"])
+		return drv.Click(ctx, ep, sess.Key, args["ref"])
 	case CapFill:
-		return m.driver.Fill(ctx, ep, sess.Key, args["ref"], args["text"])
+		return drv.Fill(ctx, ep, sess.Key, args["ref"], args["text"])
 	case CapScreenshot:
-		return m.driver.Screenshot(ctx, ep, sess.Key, args["path"])
+		return drv.Screenshot(ctx, ep, sess.Key, args["path"])
 	case CapEval:
-		return m.driver.Eval(ctx, ep, sess.Key, args["js"])
+		return drv.Eval(ctx, ep, sess.Key, args["js"])
 	case CapWait:
-		return m.driver.Wait(ctx, ep, sess.Key, args["target"])
+		return drv.Wait(ctx, ep, sess.Key, args["target"])
 	default:
 		return "", fmt.Errorf("unknown browser action %q", capability)
 	}
@@ -314,7 +329,7 @@ func (m *Manager) closeSession(ctx context.Context, sess *Session) error {
 		return nil
 	}
 	if sess.Spec.Kind != KindCustom {
-		if err := m.driver.Close(ctx, sess.Endpoint, sess.Key); err != nil {
+		if err := m.driverFor(sess).Close(ctx, sess.Endpoint, sess.Key); err != nil {
 			logger.WarnCF("browser", "browser close failed",
 				map[string]any{"session": sess.Key, "error": err.Error()})
 		}

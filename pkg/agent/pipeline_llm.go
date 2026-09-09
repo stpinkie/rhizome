@@ -31,7 +31,13 @@ func (p *Pipeline) CallLLM(
 
 	// PreLLM: resolve media refs (except on iteration 1 where user media is already resolved)
 	if iteration > 1 {
-		exec.messages = resolveMediaRefs(exec.messages, p.MediaStore, maxMediaSize, exec.currentTurnStart)
+		exec.messages = resolveMediaRefsMode(
+			exec.messages,
+			p.MediaStore,
+			maxMediaSize,
+			exec.currentTurnStart,
+			imageInlineModeForAgent(p.Cfg, ts.agent, exec.llmModelName),
+		)
 	}
 
 	// PreLLM: graceful terminal handling
@@ -426,11 +432,12 @@ func (p *Pipeline) CallLLM(
 				rebuildPromptReq := promptBuildRequestForTurn(ts, fullHistory, exec.summary, "", nil, p.Cfg)
 				rebuildPromptReq.ActiveSkills = append([]string(nil), contextualSkills...)
 				rebuilt := ts.agent.ContextBuilder.BuildMessagesFromPrompt(rebuildPromptReq)
-				return resolveMediaRefs(
+				return resolveMediaRefsMode(
 					rebuilt,
 					p.MediaStore,
 					maxMediaSize,
 					len(rebuilt)-len(protectedTurnTail),
+					imageInlineModeForAgent(p.Cfg, ts.agent, exec.llmModelName),
 				)
 			}
 			originalHistoryCount := len(exec.history)

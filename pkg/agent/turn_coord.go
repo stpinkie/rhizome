@@ -156,7 +156,13 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 
 		// Inject pending steering messages
 		if len(pendingMessages) > 0 {
-			resolvedPending := resolveMediaRefs(pendingMessages, al.mediaStore, maxMediaSize, 0)
+			resolvedPending := resolveMediaRefsMode(
+				pendingMessages,
+				al.mediaStore,
+				maxMediaSize,
+				0,
+				imageInlineModeForAgent(al.cfg, ts.agent, ""),
+			)
 			totalContentLen := 0
 			for i, pm := range pendingMessages {
 				messages = append(messages, resolvedPending[i])
@@ -444,7 +450,15 @@ func (al *AgentLoop) askSideQuestion(
 	if strings.TrimSpace(question) != "" || len(media) > 0 {
 		currentTurnStart = len(messages) - 1
 	}
-	messages = resolveMediaRefs(messages, al.mediaStore, maxMediaSize, currentTurnStart)
+	// Side-question model name is only known after candidate selection; use
+	// the agent default (plus image_model fallback) for the inline decision.
+	messages = resolveMediaRefsMode(
+		messages,
+		al.mediaStore,
+		maxMediaSize,
+		currentTurnStart,
+		imageInlineModeForAgent(al.cfg, agent, agent.Model),
+	)
 
 	activeCandidates, activeModel, usedLight := al.selectCandidates(agent, question, messages)
 	selectedModelName := sideQuestionModelName(agent, usedLight)

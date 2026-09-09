@@ -13,6 +13,7 @@ import { BootstrapInput } from "./bootstrap-input"
 import { DhtPanel } from "./dht-panel"
 import { NodePanel } from "./node-panel"
 import { PeersPanel } from "./peers-panel"
+import { PairPanel } from "./pair-panel"
 import { SavedPeersPanel } from "./saved-peers-panel"
 import { SwarmsPanel } from "./swarms-panel"
 import { TasksPanel } from "./tasks-panel"
@@ -96,6 +97,8 @@ export function NetworkPage() {
           />
 
           <TasksPanel peers={savedPeersQuery.data?.saved_peers ?? []} />
+
+          <PairPanel />
 
           <SwarmsPanel />
 

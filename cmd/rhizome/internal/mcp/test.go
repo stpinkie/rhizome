@@ -22,7 +22,7 @@ func newTestCommand() *cobra.Command {
 			}
 
 			name := args[0]
-			server, exists := cfg.Tools.MCP.Servers[name]
+			server, exists := cfg.Tools.MCP.EffectiveServers()[name]
 			if !exists {
 				return fmt.Errorf("MCP server %q not found", name)
 			}

@@ -18,12 +18,22 @@ func newRemoveCommand() *cobra.Command {
 			}
 
 			name := args[0]
-			if _, exists := cfg.Tools.MCP.Servers[name]; !exists {
+			_, inServers := cfg.Tools.MCP.Servers[name]
+			_, inPresets := cfg.Tools.MCP.Presets[name]
+			if !inServers && !inPresets {
 				return fmt.Errorf("MCP server %q not found", name)
 			}
 
-			delete(cfg.Tools.MCP.Servers, name)
-			if len(cfg.Tools.MCP.Servers) == 0 {
+			if inPresets {
+				delete(cfg.Tools.MCP.Presets, name)
+				if len(cfg.Tools.MCP.Presets) == 0 {
+					cfg.Tools.MCP.Presets = nil
+				}
+			}
+			if inServers {
+				delete(cfg.Tools.MCP.Servers, name)
+			}
+			if len(cfg.Tools.MCP.Servers) == 0 && len(cfg.Tools.MCP.Presets) == 0 {
 				cfg.Tools.MCP.Servers = nil
 				cfg.Tools.MCP.Enabled = false
 			}

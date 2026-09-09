@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 
 import {
+  cancelSwarmOffer,
   getSwarmOffers,
+  getSwarmRuns,
   getSwarms,
   runSwarmGoal,
   submitSwarmOffer,
@@ -35,6 +37,7 @@ export function useSwarms() {
     es.onmessage = () => {
       void queryClient.invalidateQueries({ queryKey: swarmsQueryKey })
       void queryClient.invalidateQueries({ queryKey: ["network", "swarm-offers"] })
+      void queryClient.invalidateQueries({ queryKey: ["network", "swarm-runs"] })
     }
 
     return () => {
@@ -77,11 +80,25 @@ export function useSwarmOffers(swarmID: string | null) {
     onSettled: () => query.refetch(),
   })
 
+  const cancel = useMutation({
+    mutationFn: (offerID: string) =>
+      cancelSwarmOffer(swarmID as string, offerID),
+    onSettled: () => query.refetch(),
+  })
+
   const run = useMutation({
     mutationFn: (body: { goal: string; agent_id?: string }) =>
       runSwarmGoal(swarmID as string, body.goal, body.agent_id),
     onSettled: () => query.refetch(),
   })
 
-  return { query, offer, run }
+  const runs = useQuery({
+    queryKey: ["network", "swarm-runs", swarmID],
+    queryFn: () => getSwarmRuns(swarmID as string),
+    enabled: swarmID !== null && swarmID !== "",
+    refetchInterval: 10000,
+    retry: 1,
+  })
+
+  return { query, offer, cancel, run, runs }
 }

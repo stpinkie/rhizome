@@ -46,6 +46,19 @@ func currentTurnMessages(messages []providers.Message, currentTurnStart int) []p
 	return messages[currentTurnStart:]
 }
 
+// imageInlineMode controls how image media reaches the provider request.
+type imageInlineMode int
+
+const (
+	// inlineOff disables inline images entirely; all media becomes path tags.
+	inlineOff imageInlineMode = iota
+	// inlineTool inlines only tool-result images (default behavior).
+	inlineTool
+	// inlineAuto additionally attaches user-message images inline when the
+	// model is vision-capable.
+	inlineAuto
+)
+
 // resolveMediaRefs resolves media:// refs in messages.
 // For user messages: images get path tags only ([image:/path]) so the LLM
 // can decide whether to view them via load_image or operate on the file.
@@ -62,6 +75,20 @@ func resolveMediaRefs(
 	store media.MediaStore,
 	maxSize int,
 	currentTurnStart int,
+) []providers.Message {
+	return resolveMediaRefsMode(messages, store, maxSize, currentTurnStart, inlineTool)
+}
+
+// resolveMediaRefsMode is resolveMediaRefs with an explicit image inlining
+// mode: inlineOff keeps everything as path tags, inlineTool inlines
+// tool-result images only, and inlineAuto also attaches user-message images
+// as inline data URLs while keeping the path tag for context.
+func resolveMediaRefsMode(
+	messages []providers.Message,
+	store media.MediaStore,
+	maxSize int,
+	currentTurnStart int,
+	mode imageInlineMode,
 ) []providers.Message {
 	if store == nil {
 		return messages
@@ -124,9 +151,17 @@ func resolveMediaRefs(
 			mime := detectMIME(localPath, meta)
 			pathTags = append(pathTags, buildPathTag(mime, localPath))
 
-			if m.Role == "tool" && idx >= currentTurnStart && strings.HasPrefix(mime, "image/") {
-				dataURL := encodeImageToDataURL(localPath, mime, info, maxSize)
-				if dataURL != "" {
+			switch {
+			case mode == inlineOff:
+				// Path tags only.
+			case mode == inlineAuto && m.Role != "tool" && strings.HasPrefix(mime, "image/"):
+				// Auto mode: user-message images attach inline too, so a
+				// vision-capable model sees them without a load_image call.
+				if dataURL := encodeImageToDataURL(localPath, mime, info, maxSize); dataURL != "" {
+					resolved = append(resolved, dataURL)
+				}
+			case m.Role == "tool" && idx >= currentTurnStart && strings.HasPrefix(mime, "image/"):
+				if dataURL := encodeImageToDataURL(localPath, mime, info, maxSize); dataURL != "" {
 					pendingToolImages = append(pendingToolImages, dataURL)
 				}
 			}

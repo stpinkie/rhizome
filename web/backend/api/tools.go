@@ -203,6 +203,8 @@ func (h *Handler) registerToolRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/tools/{name}/state", h.handleUpdateToolState)
 	mux.HandleFunc("GET /api/tools/web-search-config", h.handleGetWebSearchConfig)
 	mux.HandleFunc("PUT /api/tools/web-search-config", h.handleUpdateWebSearchConfig)
+	mux.HandleFunc("GET /api/tools/mcp-presets", h.handleGetMCPPresets)
+	mux.HandleFunc("PUT /api/tools/mcp-presets", h.handleUpdateMCPPreset)
 }
 
 func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
@@ -524,6 +526,101 @@ func (h *Handler) handleUpdateWebSearchConfig(w http.ResponseWriter, r *http.Req
 	if err := json.NewEncoder(w).Encode(buildWebSearchConfigResponse(cfg)); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
+}
+
+// mcpPresetItem is the API view of a first-class MCP preset.
+type mcpPresetItem struct {
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Header  string `json:"header"`
+	EnvVar  string `json:"env_var"`
+	Enabled bool   `json:"enabled"`
+	HasKey  bool   `json:"has_key"`
+}
+
+// handleGetMCPPresets lists known presets with their configured state.
+func (h *Handler) handleGetMCPPresets(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	items := make([]mcpPresetItem, 0, len(config.MCPPresetSpecs))
+	for name, spec := range config.MCPPresetSpecs {
+		item := mcpPresetItem{
+			Name:   name,
+			URL:    spec.URL,
+			Header: spec.HeaderName,
+			EnvVar: spec.EnvVar,
+		}
+		if p, ok := cfg.Tools.MCP.Presets[name]; ok {
+			item.Enabled = p.Enabled
+			item.HasKey = p.APIKey.String() != ""
+		}
+		items = append(items, item)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{"presets": items}); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// handleUpdateMCPPreset sets enabled state and/or api key for a preset.
+func (h *Handler) handleUpdateMCPPreset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name    string `json:"name"`
+		Enabled *bool  `json:"enabled,omitempty"`
+		APIKey  string `json:"api_key,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+	name := strings.ToLower(strings.TrimSpace(req.Name))
+	spec, ok := config.MCPPresetSpecs[name]
+	if !ok {
+		http.Error(w, "unknown MCP preset", http.StatusNotFound)
+		return
+	}
+	if req.Enabled == nil && req.APIKey == "" {
+		http.Error(w, "nothing to update", http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if cfg.Tools.MCP.Presets == nil {
+		cfg.Tools.MCP.Presets = make(map[string]config.MCPPresetConfig)
+	}
+	preset := cfg.Tools.MCP.Presets[name]
+	if req.Enabled != nil {
+		preset.Enabled = *req.Enabled
+	}
+	if key := strings.TrimSpace(req.APIKey); key != "" {
+		preset.APIKey = *config.NewSecureString(key)
+	}
+	if preset.Enabled {
+		cfg.Tools.MCP.Enabled = true
+	}
+	cfg.Tools.MCP.Presets[name] = preset
+
+	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(mcpPresetItem{
+		Name:    name,
+		URL:     spec.URL,
+		Header:  spec.HeaderName,
+		EnvVar:  spec.EnvVar,
+		Enabled: preset.Enabled,
+		HasKey:  preset.APIKey.String() != "",
+	})
 }
 
 func normalizeWebSearchProvider(provider string) string {

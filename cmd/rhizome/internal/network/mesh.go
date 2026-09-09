@@ -115,6 +115,7 @@ func mutateTrustedPeers(peerID string, add bool) {
 }
 
 func NewDelegateCommand() *cobra.Command {
+	var attaches []string
 	cmd := &cobra.Command{
 		Use:   "delegate <peer-multiaddr> <agent-id> <task>",
 		Short: "Delegate a task to a trusted peer (synchronous)",
@@ -143,10 +144,13 @@ func NewDelegateCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("bootstrap", "", "Optional bootstrap multiaddr of a Rhizome daemon")
+	cmd.Flags().
+		StringArrayVar(&attaches, "attach", nil, "Attach a local file to the remote task (repeatable)")
 	return cmd
 }
 
 func NewSpawnCommand() *cobra.Command {
+	var attaches []string
 	cmd := &cobra.Command{
 		Use:   "spawn <peer-multiaddr> <agent-id> <task>",
 		Short: "Spawn a task on a trusted peer (asynchronous)",
@@ -176,6 +180,8 @@ func NewSpawnCommand() *cobra.Command {
 	}
 	cmd.Flags().String("bootstrap", "", "Optional bootstrap multiaddr of a Rhizome daemon")
 	cmd.Flags().Bool("no-wait", false, "Submit the task and return its id without waiting for the result")
+	cmd.Flags().
+		StringArrayVar(&attaches, "attach", nil, "Attach a local file to the remote task (repeatable)")
 	return cmd
 }
 
@@ -232,6 +238,9 @@ func dialMeshPeer(
 	}
 
 	m := mesh.NewMesh(node, nil, derived, cfg.Mesh, nil)
+	// Enable the blob store so --attach can push files to the callee; the
+	// shared ~/.rhizome/blobs dir is reaped by the daemon's blob TTL.
+	m.SetBlobDir(filepath.Join(home, "blobs"))
 	if err = m.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting mesh: %v\n", err)
 		_ = node.Close()
@@ -259,6 +268,22 @@ func dialMeshPeer(
 	return m, addrInfo.ID, cleanup
 }
 
+// attachMedia converts --attach paths into mesh media attachments.
+func attachMedia(flags *pflag.FlagSet) []mesh.MediaAttachment {
+	paths, _ := flags.GetStringArray("attach")
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]mesh.MediaAttachment, 0, len(paths))
+	for _, p := range paths {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		out = append(out, mesh.MediaAttachment{Path: p})
+	}
+	return out
+}
+
 func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -266,11 +291,14 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 	m, pid, cleanup := dialMeshPeer(ctx, flags, maddrStr)
 	defer cleanup()
 
+	media := attachMedia(flags)
+
 	if spawn {
 		if noWait, _ := flags.GetBool("no-wait"); noWait {
 			usedPeer, taskID, err := m.SubmitRemoteTaskWithPeer(ctx, pid, mesh.RemoteCall{
 				TargetAgentID: agentID,
 				SystemPrompt:  task,
+				Media:         media,
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)
@@ -290,6 +318,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		TargetAgentID: agentID,
 		SystemPrompt:  task,
 		Async:         spawn,
+		Media:         media,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
