@@ -180,7 +180,9 @@ func (s *Syncer) Start(ctx context.Context) error {
 				defer s.wg.Done()
 				_, _ = s.commitAndAnnounce(s.ctx)
 			}()
-		})
+		}, WithOnError(func(err error) {
+			logger.WarnCF("sync", "filesystem watcher error", map[string]any{"error": err.Error()})
+		}))
 		if err != nil {
 			if s.cancel != nil {
 				s.cancel()
@@ -256,7 +258,7 @@ func (s *Syncer) fetchRetryDelay(attempt int) time.Duration {
 			break
 		}
 	}
-	jitter := 0.8 + 0.4*rand.Float64()
+	jitter := 0.8 + 0.4*rand.Float64() //nolint:gosec // G404: backoff jitter, not security-sensitive
 	d := time.Duration(float64(base) * jitter)
 	if d <= 0 {
 		return base
@@ -690,7 +692,7 @@ func (s *Syncer) createMergeCommitLocked(
 ) (plumbing.Hash, error) {
 	msg := fmt.Sprintf("%s: merge from %s", s.nodeName, theirs.String()[:8])
 	if len(conflicts) > 0 {
-		msg += fmt.Sprintf("\n\nConflicts:\n")
+		msg += "\n\nConflicts:\n"
 		for _, c := range conflicts {
 			msg += fmt.Sprintf("  - %s\n", c)
 		}
@@ -822,7 +824,7 @@ func (s *Syncer) saveSyncStatus() {
 // LoadSyncStatus reads the persisted sync status for a workspace.
 func LoadSyncStatus(workspace string) (SyncStatus, error) {
 	path := filepath.Join(filepath.Dir(workspace), "sync-status.json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return SyncStatus{}, nil

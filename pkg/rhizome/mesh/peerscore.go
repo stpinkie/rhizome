@@ -112,6 +112,7 @@ func (s *PeerScoreStore) Load() error {
 		return nil
 	}
 
+	//nolint:gosec // path is built from RHIZOME_HOME, not user-controlled.
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -119,7 +120,7 @@ func (s *PeerScoreStore) Load() error {
 		}
 		return fmt.Errorf("open peer score store: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	dec := json.NewDecoder(f)
 	s.mu.Lock()

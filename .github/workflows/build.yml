@@ -138,3 +138,22 @@ jobs:
         run: bash ./scripts/integration-mesh.sh
         env:
           CGO_ENABLED: '0'
+
+  swarm-integration:
+    name: Swarm Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build and run swarm integration script
+        run: bash ./scripts/integration-swarm.sh
+        env:
+          CGO_ENABLED: '0'

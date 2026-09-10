@@ -55,6 +55,7 @@ func probeDuration(ctx context.Context, ffmpegPath, videoPath string) time.Durat
 	// Try ffprobe first — it is the canonical tool for this.
 	probe := ffprobePath(ffmpegPath)
 	if _, err := exec.LookPath(probe); err == nil {
+		//nolint:gosec // G204: videoPath is a local file path, not untrusted input.
 		cmd := exec.CommandContext(ctx, probe,
 			"-v", "error",
 			"-show_entries", "format=duration",
@@ -75,6 +76,7 @@ func probeDuration(ctx context.Context, ffmpegPath, videoPath string) time.Durat
 	if bin == "" {
 		bin = "ffmpeg"
 	}
+	//nolint:gosec // G204: videoPath is a local file path, not untrusted input.
 	cmd := exec.CommandContext(ctx, bin, "-i", videoPath)
 	_, stderr, err := runWithSeparateOutput(cmd)
 	if err != nil && stderr != "" {
@@ -135,7 +137,7 @@ func ExtractVideoFrames(
 	if maxFrames <= 0 {
 		maxFrames = 8
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create frame dir: %w", err)
 	}
 
@@ -176,6 +178,7 @@ func runFFmpegFrames(
 	args = append(args, "-hide_banner", "-loglevel", "error", "-i", videoPath)
 	args = append(args, filters...)
 	args = append(args, "-frames:v", fmt.Sprintf("%d", maxFrames), "-q:v", "3", "-y", outPattern)
+	//nolint:gosec // G204: videoPath is a local file path; bin is looked-up ffmpeg.
 	cmd := exec.CommandContext(ctx, bin, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("ffmpeg failed: %v: %s", err, strings.TrimSpace(string(out)))

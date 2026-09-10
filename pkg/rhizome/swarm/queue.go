@@ -134,6 +134,15 @@ const (
 	OfferObserved OfferStatus = "observed"
 )
 
+// Terminal reports whether the offer has reached a final lifecycle state.
+func (os OfferStatus) Terminal() bool {
+	switch os {
+	case OfferExpired, OfferFailed, OfferCancelled, OfferDone, OfferDeadLetter:
+		return true
+	}
+	return false
+}
+
 // OfferInfo is the JSON-friendly view of a tracked offer.
 type OfferInfo struct {
 	Offer
@@ -179,6 +188,15 @@ type trackedOffer struct {
 	cancelCh  chan struct{}
 	closeOnce sync.Once
 	retries   int
+
+	// resolvedOnce / finishedOnce make channel closure idempotent under
+	// concurrent completion/cancellation paths.
+	resolvedOnce sync.Once
+	finishedOnce sync.Once
+
+	// finishedAt records when finished was first closed; used to reap
+	// terminal offers after a caller-visible retention window.
+	finishedAt time.Time
 }
 
 // cancelled reports whether CancelOffer was invoked.
@@ -221,6 +239,116 @@ func newWorkQueue(s *Swarm) *workQueue {
 	}
 }
 
+// activeOffers returns the number of non-terminal offers we are currently
+// tracking. It must be called with q.mu held.
+func (q *workQueue) activeOffers() int {
+	n := 0
+	for _, to := range q.offers {
+		switch to.info.Status {
+		case OfferOpen, OfferAssigned:
+			n++
+		}
+	}
+	return n
+}
+
+// retention returns how long a terminal offer is retained in memory after it
+// finishes so callers can still poll its status.
+func (q *workQueue) retention() time.Duration {
+	return q.s.cfg.Queue.AssignTimeout + 2*time.Minute
+}
+
+// maxIncoming is the cap for observed offers from other peers.
+func (q *workQueue) maxIncoming() int {
+	maxOffers := q.s.cfg.Queue.MaxOffers * 2
+	if maxOffers < 64 {
+		maxOffers = 64
+	}
+	return maxOffers
+}
+
+// reap removes terminal offers and stale/capped observed offers. It is safe to
+// call outside q.mu (it acquires the lock itself).
+func (q *workQueue) reap() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.reapLocked()
+}
+
+// reapLocked performs the same cleanup as reap but assumes the caller already
+// holds q.mu.
+func (q *workQueue) reapLocked() {
+	retention := q.retention()
+	now := time.Now()
+
+	// Reap terminal published offers.
+	for id, to := range q.offers {
+		if !to.info.Status.Terminal() {
+			continue
+		}
+		if !to.finishedAt.IsZero() && now.Sub(to.finishedAt) > retention {
+			delete(q.offers, id)
+		}
+	}
+
+	// Reap stale observed offers.
+	for id, info := range q.incoming {
+		if info.Status == OfferCancelled {
+			delete(q.incoming, id)
+			continue
+		}
+		ttl := time.Duration(info.TTLSeconds) * time.Second
+		if ttl <= 0 {
+			ttl = q.s.cfg.Queue.OfferTTL
+		}
+		if now.Sub(info.CreatedAt) > ttl+retention {
+			delete(q.incoming, id)
+		}
+	}
+
+	// Cap observed offers by evicting the oldest, preferring already-terminal
+	// observed entries first.
+	for len(q.incoming) > q.maxIncoming() {
+		var oldestID string
+		var oldest time.Time
+		var hasObserved bool
+		var oldestObservedID string
+		for id, info := range q.incoming {
+			if !oldest.IsZero() && !info.CreatedAt.Before(oldest) {
+				continue
+			}
+			oldest = info.CreatedAt
+			oldestID = id
+			if info.Status == OfferObserved {
+				hasObserved = true
+				oldestObservedID = id
+			}
+		}
+		if hasObserved {
+			delete(q.incoming, oldestObservedID)
+		} else if oldestID != "" {
+			delete(q.incoming, oldestID)
+		} else {
+			break
+		}
+	}
+}
+
+// reapLoop runs periodic queue cleanup for the lifetime of the swarm.
+func (q *workQueue) reapLoop() {
+	defer q.s.wg.Done()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-q.s.ctx.Done():
+			return
+		case <-ticker.C:
+			q.reap()
+		}
+	}
+}
+
 // SetTaskSubmitter wires the mesh submit function used to dispatch claimed
 // offers. Without it, offers are published but never assigned.
 func (s *Swarm) SetTaskSubmitter(fn TaskSubmitter) {
@@ -252,11 +380,14 @@ func (s *Swarm) SetCapMatcher(fn CapMatcher) {
 	s.queue.mu.Unlock()
 }
 
-// start subscribes the queue to every currently-joined swarm.
+// start subscribes the queue to every currently-joined swarm and starts the
+// periodic offer reaper.
 func (q *workQueue) start() {
 	for _, id := range q.s.joinedIDs() {
 		q.watch(id)
 	}
+	q.s.wg.Add(1)
+	go q.reapLoop()
 }
 
 // watch subscribes the queue to a swarm's broadcast channel (idempotent).
@@ -353,6 +484,7 @@ func (q *workQueue) onOffer(swarmID string, env Envelope, o Offer) {
 	}
 
 	q.mu.Lock()
+	q.reapLocked()
 	if q.incoming == nil {
 		q.incoming = make(map[string]OfferInfo)
 	}
@@ -464,7 +596,8 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 
 	q := s.queue
 	q.mu.Lock()
-	if len(q.offers) >= s.cfg.Queue.MaxOffers {
+	q.reapLocked()
+	if q.activeOffers() >= s.cfg.Queue.MaxOffers {
 		q.mu.Unlock()
 		return "", fmt.Errorf("too many open offers (max %d)", s.cfg.Queue.MaxOffers)
 	}
@@ -883,33 +1016,26 @@ func (s *Swarm) failOffer(to *trackedOffer, msg string) {
 	})
 }
 
-// finishOffer closes the resolved channel so awaiters stop polling. Safe to
-// call once per tracked offer; subsequent calls are no-ops (close panics on a
-// closed channel, so we guard with a select).
+// finishOffer closes the resolved channel so awaiters stop polling. It is
+// idempotent and safe to call from concurrent completion/cancellation paths.
 func (s *Swarm) finishOffer(to *trackedOffer) {
 	if to.resolved == nil {
 		return
 	}
-	select {
-	case <-to.resolved:
-		// Already closed.
-	default:
-		close(to.resolved)
-	}
+	to.resolvedOnce.Do(func() { close(to.resolved) })
 }
 
 // finishTracked closes the finished channel — the offer reached a true
-// terminal state. Safe to call more than once.
+// terminal state. It is idempotent and records the first close time for
+// terminal-offer eviction.
 func (s *Swarm) finishTracked(to *trackedOffer) {
 	if to.finished == nil {
 		return
 	}
-	select {
-	case <-to.finished:
-		// Already closed.
-	default:
+	to.finishedOnce.Do(func() {
 		close(to.finished)
-	}
+		to.finishedAt = time.Now()
+	})
 }
 
 // offerInfo returns a copy of a tracked published offer.

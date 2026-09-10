@@ -282,7 +282,7 @@ func (pm *Manager) Accept(ctx context.Context, bundleB64 string) (string, error)
 	}
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(15*time.Second))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	payload, err := json.Marshal(req)
 	if err != nil {
@@ -330,7 +330,7 @@ func (pm *Manager) Accept(ctx context.Context, bundleB64 string) (string, error)
 func (pm *Manager) handleStream(s network.Stream) {
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(15*time.Second))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	typ, raw, err := rc.ReadFrame()
 	if err != nil || typ != frameRequest {

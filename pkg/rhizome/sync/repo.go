@@ -144,7 +144,8 @@ func ConflictPaths(w *git.Worktree) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		//nolint:gosec // G122: path is rooted under the workspace and this is best-effort conflict detection, not a security boundary.
+		data, err := os.ReadFile(filepath.Clean(path))
 		if err != nil {
 			return nil //nolint:nilerr // ignore transient files
 		}
@@ -199,8 +200,8 @@ tmp/
 
 func writeGitExclude(gitDir string) error {
 	infoDir := filepath.Join(gitDir, "info")
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
+	if err := os.MkdirAll(infoDir, 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(infoDir, "exclude"), []byte(gitExclude), 0o644)
+	return os.WriteFile(filepath.Join(infoDir, "exclude"), []byte(gitExclude), 0o600)
 }

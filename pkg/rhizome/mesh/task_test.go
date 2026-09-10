@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -68,16 +71,21 @@ func newTaskTestMeshes(
 	return meshA, meshB
 }
 
-// waitForTaskProtocol waits for both peers to advertise the async task
-// protocol via libp2p identify. Tests that issue CallRemote or FanoutTask
-// should call this to avoid racing the identify exchange.
+// waitForTaskProtocol waits for both peers to be able to open a stream on
+// the async task protocol. A single OpenProtocolStream probe retries on
+// "protocol not supported" until the peer's handler registers, avoiding both
+// identify/peerstore lag and busy-polling stream churn.
 func waitForTaskProtocol(t *testing.T, meshA, meshB *Mesh) {
 	t.Helper()
-	require.Eventually(t, func() bool {
-		protosB, _ := meshA.host.Peerstore().SupportsProtocols(meshB.node.ID(), agenttask.ProtocolID)
-		protosA, _ := meshB.host.Peerstore().SupportsProtocols(meshA.node.ID(), agenttask.ProtocolID)
-		return len(protosB) > 0 && len(protosA) > 0
-	}, 60*time.Second, 100*time.Millisecond, "task protocol should be advertised by both peers")
+	const timeout = 15 * time.Second
+
+	probe := func(h host.Host, pid peer.ID) {
+		s, err := p2putil.OpenProtocolStream(context.Background(), h, pid, agenttask.ProtocolID, timeout)
+		require.NoError(t, err, "task protocol should be advertised")
+		_ = s.Close()
+	}
+	probe(meshA.host, meshB.node.ID())
+	probe(meshB.host, meshA.node.ID())
 }
 
 func TestMeshRemoteTaskAsync(t *testing.T) {

@@ -107,9 +107,10 @@ func TestTaskStoreInMemoryNoPersistence(t *testing.T) {
 }
 
 func TestTaskStoreSaveError(t *testing.T) {
-	// Path in a non-existent parent directory with bad permissions can't be
-	// created on Windows the same way as Unix, so use an invalid path shape.
-	path := filepath.Join(t.TempDir(), "invalid?name.jsonl")
+	// Use a file as the parent path so MkdirAll cannot create the directory.
+	parent := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(parent, []byte("x"), 0o644))
+	path := filepath.Join(parent, "tasks.jsonl")
 	s := NewTaskStoreWithPath(path)
 
 	owner, err := peer.Decode("12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv")
@@ -140,4 +141,32 @@ func TestTaskStoreCloseSaves(t *testing.T) {
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), "mesh stopped")
+}
+
+func TestTaskStoreSnapshotsAreIndependent(t *testing.T) {
+	s := NewTaskStore()
+
+	owner, err := peer.Decode("12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv")
+	require.NoError(t, err)
+
+	snap, _, err := s.Submit(owner, agenttask.Request{TargetAgentID: "main"})
+	require.NoError(t, err)
+
+	// Finish the task so the store's Result pointer is populated.
+	s.Finish(snap.ID, agenttask.StatusDone, toolshared.NewToolResult("original"), "")
+
+	loaded, ok := s.getOwned(snap.ID, owner)
+	require.True(t, ok)
+	require.NotNil(t, loaded.Result)
+
+	// Mutating the shared-appearing Result pointer on the snapshot must not
+	// affect the store's internal task. snapshot() must copy the ToolResult
+	// value into a new pointer.
+	loaded.Result.ForLLM = "tampered"
+	assert.Equal(t, "tampered", loaded.Result.ForLLM, "snapshot should reflect local mutation")
+
+	reloaded, ok := s.getOwned(snap.ID, owner)
+	require.True(t, ok)
+	require.NotNil(t, reloaded.Result)
+	assert.Equal(t, "original", reloaded.Result.ForLLM, "snapshot mutation must not leak into the store")
 }

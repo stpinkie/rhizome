@@ -71,7 +71,7 @@ func (t *Transport) handleStream(s network.Stream) {
 		stream.WithReadTimeout(t.requestTimeout),
 		stream.WithWriteTimeout(t.packfileTimeout),
 	)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	for {
 		typ, payload, err := rc.ReadFrame()
@@ -130,17 +130,15 @@ func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Dur
 	return true
 }
 
-// Fetch requests a packfile from a peer.
+// Fetch requests a packfile from a peer. OpenProtocolStream performs the
+// protocol negotiation and retries while the remote handler is registering,
+// so no separate Supported pre-check is needed.
 func (t *Transport) Fetch(
 	ctx context.Context,
 	pid peer.ID,
 	haves, wants []plumbing.Hash,
 ) ([]byte, plumbing.Hash, error) {
-	if !t.Supported(ctx, pid, 5*time.Second) {
-		return nil, plumbing.ZeroHash, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
-	}
-
-	s, err := t.host.NewStream(ctx, pid, ProtocolID)
+	s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, 5*time.Second)
 	if err != nil {
 		return nil, plumbing.ZeroHash, fmt.Errorf("open stream: %w", err)
 	}
@@ -150,7 +148,7 @@ func (t *Transport) Fetch(
 		stream.WithReadTimeout(t.packfileTimeout),
 		stream.WithWriteTimeout(t.packfileTimeout),
 	)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	req, err := encodeRequest(&requestFrame{Haves: haves, Wants: wants})
 	if err != nil {
@@ -193,12 +191,7 @@ func (t *Transport) AnnounceHead(ctx context.Context, pid peer.ID, head plumbing
 			}
 		}
 
-		if !t.Supported(ctx, pid, 2*time.Second) {
-			lastErr = fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
-			continue
-		}
-
-		s, err := t.host.NewStream(ctx, pid, ProtocolID)
+		s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, 3*time.Second)
 		if err != nil {
 			lastErr = err
 			continue

@@ -100,7 +100,7 @@ func (rs *runStore) Load() error {
 		}
 		return fmt.Errorf("open run store: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	rs.mu.Lock()
 	defer rs.mu.Unlock()

@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build darwin
 
 package browser
 
@@ -10,5 +10,5 @@ func FreeBytes(dir string) (uint64, error) {
 	if err := unix.Statfs(dir, &st); err != nil {
 		return 0, err
 	}
-	return st.Bavail * uint64(st.Bsize), nil
+	return uint64(st.Bavail) * uint64(st.Bsize), nil
 }

@@ -125,12 +125,10 @@ func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Dur
 }
 
 // Call opens a stream to a peer, sends a request, and returns the response.
+// OpenProtocolStream performs the protocol negotiation and retries while the
+// remote handler is registering, so no separate Supported pre-check is needed.
 func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Response, error) {
-	if !t.Supported(ctx, pid, 5*time.Second) {
-		return Response{}, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
-	}
-
-	s, err := t.host.NewStream(ctx, pid, ProtocolID)
+	s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, 15*time.Second)
 	if err != nil {
 		return Response{}, fmt.Errorf("open agent stream: %w", err)
 	}
@@ -144,7 +142,7 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Respons
 		wto = 30 * time.Second
 	}
 	rc := stream.NewReliableConn(s, stream.WithReadTimeout(rto), stream.WithWriteTimeout(wto))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	payload, err := json.Marshal(req)
 	if err != nil {
@@ -171,7 +169,7 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, req Request) (Respons
 
 func (t *Transport) handleStream(s network.Stream) {
 	rc := stream.NewReliableConn(s, stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(5*time.Minute))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	typ, payload, err := rc.ReadFrame()
 	if err != nil {

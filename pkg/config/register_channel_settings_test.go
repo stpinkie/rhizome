@@ -7,6 +7,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// snapshotChannelSettings copies the current channel-settings factory map so
+// tests can restore it and not leak registrations or interfere with count-safe
+// assumptions from other tests.
+func snapshotChannelSettings() map[string]any {
+	channelSettingsMu.RLock()
+	defer channelSettingsMu.RUnlock()
+	m := make(map[string]any, len(channelSettingsFactory))
+	for k, v := range channelSettingsFactory {
+		m[k] = v
+	}
+	return m
+}
+
+// restoreChannelSettings replaces the channel-settings factory with the saved
+// snapshot. Callers must have obtained the snapshot with snapshotChannelSettings.
+func restoreChannelSettings(m map[string]any) {
+	channelSettingsMu.Lock()
+	defer channelSettingsMu.Unlock()
+	channelSettingsFactory = m
+}
+
 // customChannelSettings stands in for an out-of-tree channel's settings struct.
 type customChannelSettings struct {
 	Token string `json:"token"`
@@ -16,7 +37,10 @@ type customChannelSettings struct {
 // previously-unknown channel type valid and decodable — the behavior out-of-tree
 // channels rely on (they call RegisterChannelSettings from init()).
 func TestRegisterChannelSettings(t *testing.T) {
-	const typ = "custom_test_channel"
+	orig := snapshotChannelSettings()
+	defer restoreChannelSettings(orig)
+
+	typ := "custom_test_channel_" + t.Name()
 
 	assert.False(t, isValidChannelType(typ), "type should be unknown before registration")
 
@@ -33,7 +57,10 @@ func TestRegisterChannelSettings(t *testing.T) {
 // registered out-of-tree channel type passes InitChannelList and decodes its
 // settings — the full path that previously errored with "unknown type".
 func TestRegisterChannelSettings_InitChannelList(t *testing.T) {
-	const typ = "custom_initlist_channel"
+	orig := snapshotChannelSettings()
+	defer restoreChannelSettings(orig)
+
+	typ := "custom_initlist_channel_" + t.Name()
 	RegisterChannelSettings(typ, customChannelSettings{})
 
 	channels := ChannelsConfig{

@@ -216,11 +216,12 @@ func (s *FileMediaStore) ReleaseAll(scope string) error {
 }
 
 // removeFileAndEmptyDir removes the file at path and, if its parent directory
-// is now empty, removes the directory too. This lets tools that extract media
-// into a per-call subdirectory under media.TempDir() have both the files and
-// the directory cleaned up by the store's normal lifecycle, without the tool
-// needing to track the directory separately. Non-empty directories and the
-// shared media.TempDir() root are left in place.
+// is now empty and lives under media.TempDir(), removes the directory too.
+// This lets tools that extract media into a per-call subdirectory under
+// media.TempDir() have both the files and the directory cleaned up by the
+// store's normal lifecycle, without the tool needing to track the directory
+// separately. Directories outside media.TempDir() (e.g. caller-owned temp
+// directories) are never removed, even if they empty out.
 func removeFileAndEmptyDir(path string) {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		logger.WarnCF("media", "cleanup: failed to remove file", map[string]any{
@@ -229,9 +230,15 @@ func removeFileAndEmptyDir(path string) {
 		})
 		return
 	}
-	dir := filepath.Dir(path)
-	// Never remove the shared media temp root or the OS temp root.
-	if dir == filepath.Clean(TempDir()) || dir == filepath.Clean(os.TempDir()) {
+	dir := filepath.Clean(filepath.Dir(path))
+	tempRoot := filepath.Clean(TempDir())
+	// Never remove the shared media temp root, the OS temp root, or any
+	// directory outside the media.TempDir() tree.
+	if dir == tempRoot || dir == filepath.Clean(os.TempDir()) {
+		return
+	}
+	rel, err := filepath.Rel(tempRoot, dir)
+	if err != nil || rel == ".." || !filepath.IsLocal(rel) {
 		return
 	}
 	entries, err := os.ReadDir(dir)

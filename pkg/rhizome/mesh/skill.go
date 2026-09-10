@@ -113,7 +113,7 @@ func (m *Mesh) skillCall(ctx context.Context, pid peer.ID, req skillRequest) (sk
 	}
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(15*time.Second))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	if err = rc.WriteFrame(skillFrameRequest, payloadWithSig(req)); err != nil {
 		return skillResponse{}, fmt.Errorf("write skill request: %w", err)
@@ -154,7 +154,7 @@ func payloadWithSig(req skillRequest) []byte {
 func (m *Mesh) handleSkillStream(s network.Stream) {
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(15*time.Second))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	typ, raw, err := rc.ReadFrame()
 	if err != nil || typ != skillFrameRequest {
@@ -273,7 +273,7 @@ func (m *Mesh) serveSkillPull(from peer.ID, name string, started time.Time) skil
 	}
 	tmpPath := tmp.Name()
 	_ = tmp.Close()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if err := skills.PackSkillDir(dir, tmpPath); err != nil {
 		return reject(fmt.Sprintf("pack skill: %v", err))
@@ -318,9 +318,10 @@ type PullSkillResult struct {
 
 // PullSkill fetches a skill bundle from a trusted peer and installs it under
 // the local global skills directory (~/.rhizome/skills/<name>) with
-// mesh:<peer-id> origin metadata. The bundle is guard-scanned; suspicious
-// content is flagged but still installed (the guard verdict is advisory).
-func (m *Mesh) PullSkill(ctx context.Context, pid peer.ID, name string) (PullSkillResult, error) {
+// mesh:<peer-id> origin metadata. The bundle is guard-scanned; by default
+// suspicious bundles are rejected. Suspicious bundles are only installed when
+// allowSuspicious is true or mesh.skill_pull_allow_suspicious is set.
+func (m *Mesh) PullSkill(ctx context.Context, pid peer.ID, name string, allowSuspicious bool) (PullSkillResult, error) {
 	if err := skills.ValidateSkillName(name); err != nil {
 		return PullSkillResult{}, err
 	}
@@ -356,7 +357,7 @@ func (m *Mesh) PullSkill(ctx context.Context, pid peer.ID, name string) (PullSki
 	if err := os.RemoveAll(dest); err != nil {
 		return PullSkillResult{}, fmt.Errorf("clear previous install: %w", err)
 	}
-	if err := os.MkdirAll(dest, 0o755); err != nil {
+	if err := os.MkdirAll(dest, 0o750); err != nil {
 		return PullSkillResult{}, err
 	}
 
@@ -364,6 +365,18 @@ func (m *Mesh) PullSkill(ctx context.Context, pid peer.ID, name string) (PullSki
 	if err != nil {
 		_ = os.RemoveAll(dest)
 		return PullSkillResult{}, err
+	}
+	if scan.Suspicious && !allowSuspicious && !m.cfg.SkillPullAllowSuspicious {
+		_ = os.RemoveAll(dest)
+		msg := fmt.Sprintf("suspicious skill bundle rejected: %v", scan.Matches)
+		m.auditMesh(pid, "skill.pull", "", name, "rejected", started, msg)
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":   "skill.pull",
+			"error":   msg,
+			"peer_id": pid.String(),
+			"skill":   name,
+		})
+		return PullSkillResult{}, fmt.Errorf("%s", msg)
 	}
 	if err := skills.WriteSkillOrigin(dest, "mesh", "mesh:"+pid.String()); err != nil {
 		return PullSkillResult{}, fmt.Errorf("write origin metadata: %w", err)

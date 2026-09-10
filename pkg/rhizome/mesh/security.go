@@ -145,11 +145,14 @@ func (m *Mesh) checkRemoteAllowed(pid peer.ID, op, agentID string) error {
 	rule := m.aclRuleFor(pid)
 	if rule == nil {
 		// Global fallback.
-		allowed := m.cfg.AllowRemoteDelegate || m.cfg.AllowRemoteSpawn
-		if op == "delegate" {
+		var allowed bool
+		switch op {
+		case "delegate":
 			allowed = m.cfg.AllowRemoteDelegate
-		} else if op == "spawn" {
+		case "spawn":
 			allowed = m.cfg.AllowRemoteSpawn
+		default:
+			allowed = m.cfg.AllowRemoteDelegate || m.cfg.AllowRemoteSpawn
 		}
 		if !allowed {
 			return fmt.Errorf("remote %s is disabled for peer %s", op, pid)
@@ -279,11 +282,12 @@ func (l *auditLogger) Log(entry map[string]any) {
 		l.rotateLocked()
 	}
 
+	//nolint:gosec // path is built from RHIZOME_HOME, not user-controlled.
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return
@@ -349,6 +353,7 @@ func ReadAuditTail(path string, n int) ([]json.RawMessage, error) {
 		return nil, nil
 	}
 
+	//nolint:gosec // path is built from RHIZOME_HOME, not user-controlled.
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -356,7 +361,7 @@ func ReadAuditTail(path string, n int) ([]json.RawMessage, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {

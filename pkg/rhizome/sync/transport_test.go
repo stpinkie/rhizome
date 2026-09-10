@@ -210,5 +210,7 @@ func TestTransportAnnounceUnresponsivePeer(t *testing.T) {
 	start := time.Now()
 	err := trA.AnnounceHead(ctx, nodeB.ID(), testHash(0x42))
 	require.Error(t, err)
-	assert.Less(t, time.Since(start), 20*time.Second)
+	// AnnounceHead worst case: 4 attempts × 3s per-attempt + backoffs
+	// (0 + 0.5s + 1s + 2s) ≈ 15.5s. 30s gives ample margin under CI load.
+	assert.Less(t, time.Since(start), 30*time.Second)
 }

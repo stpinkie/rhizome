@@ -178,6 +178,10 @@ type MeshConfig struct {
 	// trusted peers over /rhizome/skill/1.0.0. Empty (the default) denies
 	// all skill pulls — sharing is opt-in per skill name.
 	SkillShare []string `json:"skill_share,omitempty"`
+	// SkillPullAllowSuspicious allows pulling skill bundles that the guard
+	// scanner flags as suspicious. Defaults to false; suspicious bundles are
+	// rejected unless this is true or the caller passes an explicit override.
+	SkillPullAllowSuspicious bool `json:"skill_pull_allow_suspicious,omitempty"`
 }
 
 // MeshACLRule authorizes a single peer for remote execution. Nil/empty fields

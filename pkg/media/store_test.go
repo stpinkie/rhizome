@@ -333,8 +333,16 @@ func TestConcurrentSafety(t *testing.T) {
 			defer wg.Done()
 			scope := strings.Repeat("s", gIdx+1)
 
+			// Use a per-goroutine subdirectory so one goroutine's cleanup does
+			// not race with another creating files in the same directory.
+			gDir := filepath.Join(dir, fmt.Sprintf("g%d", gIdx))
+			if err := os.MkdirAll(gDir, 0o755); err != nil {
+				t.Errorf("MkdirAll failed: %v", err)
+				return
+			}
+
 			for i := range filesPerGoroutine {
-				path := createTempFile(t, dir, strings.Repeat("f", gIdx*filesPerGoroutine+i+1)+".tmp")
+				path := createTempFile(t, gDir, strings.Repeat("f", gIdx*filesPerGoroutine+i+1)+".tmp")
 				ref, err := store.Store(path, MediaMeta{Source: "test"}, scope)
 				if err != nil {
 					t.Errorf("Store failed: %v", err)

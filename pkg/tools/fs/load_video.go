@@ -24,6 +24,11 @@ type LoadVideoTool struct {
 	mediaStore  media.MediaStore
 	allowPaths  []*regexp.Regexp
 
+	// extractFrames is the frame extraction backend. It is wired to
+	// media.ExtractVideoFrames by default, but can be swapped in tests or
+	// replaced with an out-of-tree video processor.
+	extractFrames func(context.Context, string, string, string, int) ([]string, error)
+
 	defaultChannel string
 	defaultChatID  string
 }
@@ -44,13 +49,14 @@ func NewLoadVideoTool(
 		patterns = allowPaths[0]
 	}
 	return &LoadVideoTool{
-		workspace:   workspace,
-		restrict:    restrict,
-		maxFileSize: maxFileSize,
-		maxFrames:   maxFrames,
-		ffmpegPath:  ffmpegPath,
-		mediaStore:  store,
-		allowPaths:  patterns,
+		workspace:     workspace,
+		restrict:      restrict,
+		maxFileSize:   maxFileSize,
+		maxFrames:     maxFrames,
+		ffmpegPath:    ffmpegPath,
+		mediaStore:    store,
+		allowPaths:    patterns,
+		extractFrames: media.ExtractVideoFrames,
 	}
 }
 
@@ -154,7 +160,7 @@ func (t *LoadVideoTool) Execute(ctx context.Context, args map[string]any) *ToolR
 	// Frames are registered with the media store under CleanupPolicyDeleteOnCleanup.
 	// The store deletes each frame file when the scope is released and also removes
 	// the now-empty per-call subdirectory, so no temp artifacts leak.
-	frames, err := media.ExtractVideoFrames(ctx, t.ffmpegPath, resolved, tmpDir, maxFrames)
+	frames, err := t.extractFrames(ctx, t.ffmpegPath, resolved, tmpDir, maxFrames)
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return ErrorResult(fmt.Sprintf("extract frames: %v", err))
@@ -167,6 +173,7 @@ func (t *LoadVideoTool) Execute(ctx context.Context, args map[string]any) *ToolR
 	filename := filepath.Base(resolved)
 	scope := fmt.Sprintf("tool:load_video:%s:%s", channel, chatID)
 	refs := make([]string, 0, len(frames))
+	stored := make(map[string]struct{}, len(frames))
 	for i, frame := range frames {
 		ref, err := t.mediaStore.Store(frame, media.MediaMeta{
 			Filename:      fmt.Sprintf("%s.frame%02d.jpg", filename, i+1),
@@ -175,13 +182,32 @@ func (t *LoadVideoTool) Execute(ctx context.Context, args map[string]any) *ToolR
 			CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
 		}, scope)
 		if err != nil {
+			// Do not leave unregistered frame files in the temp directory.
+			_ = os.Remove(frame)
 			continue
 		}
 		refs = append(refs, ref)
+		stored[frame] = struct{}{}
 	}
+
+	// If every store failed, the temp directory has no registered files and
+	// the media store will never clean it up. Remove it to avoid a leak.
 	if len(refs) == 0 {
+		_ = os.RemoveAll(tmpDir)
 		return ErrorResult("failed to register extracted frames in media store")
 	}
+
+	// Remove any unregistered leftovers so they do not outlive the call.
+	for _, frame := range frames {
+		if _, ok := stored[frame]; !ok {
+			_ = os.Remove(frame)
+		}
+	}
+
+	// If the extractor did not actually place frames in tmpDir, the directory
+	// is now empty and should be removed. When frames are registered there,
+	// the media store will clean the files and the directory on scope release.
+	_ = os.Remove(tmpDir)
 
 	return &ToolResult{
 		ForLLM: fmt.Sprintf(

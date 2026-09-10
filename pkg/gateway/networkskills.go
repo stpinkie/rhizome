@@ -87,8 +87,9 @@ func (h *networkSkillsHandler) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *networkSkillsHandler) pull(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Peer string `json:"peer"`
-		Name string `json:"name"`
+		Peer            string `json:"peer"`
+		Name            string `json:"name"`
+		AllowSuspicious bool   `json:"allow_suspicious,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -111,7 +112,7 @@ func (h *networkSkillsHandler) pull(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel = context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 	}
-	res, err := h.mesh.PullSkill(ctx, pid, body.Name)
+	res, err := h.mesh.PullSkill(ctx, pid, body.Name, body.AllowSuspicious)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return

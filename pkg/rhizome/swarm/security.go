@@ -224,11 +224,11 @@ func (l *auditLogger) Log(entry map[string]any) {
 		l.rotateLocked()
 	}
 
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Clean(l.path), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return

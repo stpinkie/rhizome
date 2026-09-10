@@ -81,12 +81,10 @@ func (t *Transport) Supported(ctx context.Context, pid peer.ID, timeout time.Dur
 }
 
 // Call sends an envelope to a peer and waits for its response envelope.
+// OpenProtocolStream performs the protocol negotiation and retries while the
+// remote handler is registering, so no separate Supported pre-check is needed.
 func (t *Transport) Call(ctx context.Context, pid peer.ID, env Envelope) (Envelope, error) {
-	if !t.Supported(ctx, pid, 5*time.Second) {
-		return Envelope{}, fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
-	}
-
-	s, err := t.host.NewStream(ctx, pid, ProtocolID)
+	s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, 15*time.Second)
 	if err != nil {
 		return Envelope{}, fmt.Errorf("open swarm stream: %w", err)
 	}
@@ -94,7 +92,7 @@ func (t *Transport) Call(ctx context.Context, pid peer.ID, env Envelope) (Envelo
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(callTimeout),
 		stream.WithWriteTimeout(pushTimeout))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	payload, err := json.Marshal(env)
 	if err != nil {
@@ -140,11 +138,7 @@ func (t *Transport) Push(ctx context.Context, pid peer.ID, env Envelope) error {
 			case <-time.After(backoffs[attempt]):
 			}
 		}
-		if !t.Supported(ctx, pid, 5*time.Second) {
-			lastErr = fmt.Errorf("peer %s does not support %s", pid, ProtocolID)
-			continue
-		}
-		s, err := t.host.NewStream(ctx, pid, ProtocolID)
+		s, err := p2putil.OpenProtocolStream(ctx, t.host, pid, ProtocolID, 15*time.Second)
 		if err != nil {
 			lastErr = fmt.Errorf("open swarm stream: %w", err)
 			continue
@@ -170,7 +164,7 @@ func (t *Transport) handleStream(s network.Stream) {
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(serverReadTimeout),
 		stream.WithWriteTimeout(pushTimeout))
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	typ, payload, err := rc.ReadFrame()
 	if err != nil || len(payload) > t.maxBytes {
@@ -192,11 +186,7 @@ func (t *Transport) handleStream(s network.Stream) {
 		_ = rc.WriteFrame(frameResponse, data)
 	case framePush:
 		t.handler.HandlePush(s.Conn().RemotePeer(), env)
-		// Wait briefly for the sender to acknowledge receipt of our ACK
-		// before closing. Without this, closing the ReliableConn can send
-		// a stream reset that arrives at the sender before its WriteFrame
-		// has processed the ACK, surfacing as "reliable conn closed".
-		rc.SetReadTimeout(time.Second)
-		_, _, _ = rc.ReadFrame()
+		// The ReliableConn now performs an ACK-aware graceful close, so
+		// we no longer need to pause before the deferred rc.Close().
 	}
 }

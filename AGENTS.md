@@ -9,7 +9,9 @@ This is a hard fork/rebrand of PicoClaw. Module path: `github.com/stpinkie/rhizo
 ```powershell
 $env:CGO_ENABLED='0'
 go build -tags goolm,stdjson ./...
-go test -tags goolm,stdjson ./...
+# -p 1 runs packages sequentially, avoiding libp2p/mDNS port and scheduler
+# contention that can make the full suite flaky on local Windows runners.
+go test -p 1 -tags goolm,stdjson ./...
 ```
 
 - Some packages (e.g. `maunium.net/go/mautrix/crypto/libolm`) require CGO unless the `goolm` build tag is set. The `stdjson` tag selects the standard `encoding/json` fallback.
@@ -387,3 +389,36 @@ npx tsc --noEmit -p tsconfig.app.json
 - First-class local protocols (`ollama`, `vllm`, `lmstudio`, `litellm`) set `Local: true` and `EmptyAPIKeyAllowed: true`; the frontend shows them as "local" and allows blank API keys.
 - `openai_compat.Provider` strips the leading `provider/` segment when configured (`WithStripModelPrefix`) and preserves prefixes for `openrouter` endpoints.
 - When editing provider code, run `go build -tags goolm,stdjson ./...` and `go test -tags goolm,stdjson ./pkg/... ./web/...` (full `./...` includes slow `cmd/membench`).
+
+## Windows Firewall (local dev)
+
+Windows Defender Firewall prompts for every new `.exe` that opens a network socket. This is painful on Windows because `go test` writes each package's test binary to a random `go-build<random>` temp directory, and `NewNode` starts an mDNS service that uses UDP multicast on `224.0.0.251:5353`.
+
+To stop the popup barrage while keeping the firewall enabled, build binaries to stable paths and run the provided PowerShell scripts as Administrator.
+
+```powershell
+# 1. Build the main binary and launcher as normal.
+$env:CGO_ENABLED='0'
+go build -tags goolm,stdjson -o build\rhizome.exe ./cmd/rhizome
+# or: make build
+# or: make build-launcher
+
+# 2. Create firewall allow rules for every project .exe under build\ and web\build\. Run once.
+.\scripts\dev-firewall-setup.ps1
+
+# 3. Run unit tests. This compiles each package's test binary to build\tests\<pkg>.test.exe,
+#    adds a rule for that exact .exe, and runs it.
+.\scripts\test-windows.ps1
+
+# 4. Run integration tests. They now build into stable build\integration-*\ paths and auto-allow.
+.\scripts\integration-mesh.ps1
+.\scripts\integration-swarm.ps1
+```
+
+Notes:
+
+- `dev-firewall-setup.ps1` and `test-windows.ps1` require Administrator elevation so they can call `New-NetFirewallRule`.
+- `test-windows.ps1` accepts `-Package ./pkg/rhizome/network` to run a single package; the full suite includes `cmd/membench`, which is slow.
+- `make test` and raw `go test` still work and are unchanged for Linux, macOS, and CI. On Windows they may still prompt because they use the `go` toolchain's random temp directory.
+- `go run` and `make dev-backend` also use a random temp binary, so for network listeners on Windows build first (`go build -o build\rhizome.exe` or `make build`) and run the resulting `.exe`.
+- CI Windows runners (`.github/workflows/pr.yml`) are ephemeral and already disable the firewall; these scripts are for local dev only.

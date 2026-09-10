@@ -7,10 +7,15 @@ import (
 	"hash/crc32"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const reliableFrameHeaderLen = 20
+
+// maxReliablePayload is the largest payload the reliable framing layer will
+// encode/decode.
+const maxReliablePayload = 128 << 20 // 128 MiB
 
 const (
 	flagData  = byte(1)
@@ -31,12 +36,16 @@ type ReliableFrame struct {
 }
 
 func (f *ReliableFrame) encode(w io.Writer) error {
+	if len(f.Payload) > maxReliablePayload {
+		return fmt.Errorf("reliable frame payload too large: %d", len(f.Payload))
+	}
 	header := make([]byte, reliableFrameHeaderLen)
 	copy(header[0:2], reliableMagic[:])
 	header[2] = 1 // version
 	header[3] = f.Flags
 	binary.BigEndian.PutUint32(header[4:], f.Seq)
 	binary.BigEndian.PutUint32(header[8:], f.Ack)
+	//nolint:gosec // G115: len(f.Payload) is bounded by maxReliablePayload.
 	binary.BigEndian.PutUint32(header[12:], uint32(len(f.Payload)))
 	checksum := crc32.ChecksumIEEE(header[:12])
 	checksum = crc32Update(checksum, f.Payload)
@@ -86,7 +95,7 @@ func decodeReliableFrame(r io.Reader) (*ReliableFrame, error) {
 	seq := binary.BigEndian.Uint32(header[4:])
 	ack := binary.BigEndian.Uint32(header[8:])
 	length := binary.BigEndian.Uint32(header[12:])
-	if length > 128<<20 { // 128 MB sanity limit
+	if length > maxReliablePayload {
 		return nil, fmt.Errorf("reliable frame payload too large: %d", length)
 	}
 	wantCRC := binary.BigEndian.Uint32(header[16:])
@@ -121,9 +130,12 @@ type sendReq struct {
 type ReliableConn struct {
 	conn         io.ReadWriteCloser
 	writeTimeout time.Duration
-	readTimeout  time.Duration
-	maxRetries   int
-	baseRTT      time.Duration
+	// readTimeout is stored atomically because SetReadTimeout may be called
+	// concurrently with the reader goroutine.
+	readTimeoutVal atomic.Int64
+	maxRetries     int
+	baseRTT        time.Duration
+	closeTimeout   time.Duration
 
 	// read-side state
 	rdMu        sync.Mutex
@@ -140,9 +152,12 @@ type ReliableConn struct {
 	unackedFrame *ReliableFrame
 	ackCh        chan struct{} // signalled (non-blocking) when an ACK frame arrives
 
-	done    chan struct{}
-	closed  bool
-	closeMu sync.Mutex
+	done           chan struct{}
+	closed         bool
+	closeMu        sync.Mutex
+	closing        bool
+	closeAcked     chan struct{}
+	closeAckedOnce sync.Once
 }
 
 type recvResult struct {
@@ -160,19 +175,34 @@ func WithWriteTimeout(d time.Duration) ReliableOption {
 
 // WithReadTimeout sets the read deadline applied while waiting for frames.
 func WithReadTimeout(d time.Duration) ReliableOption {
-	return func(r *ReliableConn) { r.readTimeout = d }
+	return func(r *ReliableConn) { r.setReadTimeout(d) }
 }
 
 // SetReadTimeout changes the read deadline applied while waiting for frames.
 // Safe to call after the connection is created; the next ReadFrame uses the
 // new value.
 func (r *ReliableConn) SetReadTimeout(d time.Duration) {
-	r.readTimeout = d
+	r.setReadTimeout(d)
+}
+
+func (r *ReliableConn) setReadTimeout(d time.Duration) {
+	r.readTimeoutVal.Store(int64(d))
+}
+
+func (r *ReliableConn) getReadTimeout() time.Duration {
+	return time.Duration(r.readTimeoutVal.Load())
 }
 
 // WithMaxRetries sets the number of retransmission attempts before giving up.
 func WithMaxRetries(n int) ReliableOption {
 	return func(r *ReliableConn) { r.maxRetries = n }
+}
+
+// WithCloseTimeout sets how long Close waits for a close-ack from the peer
+// before shutting down the underlying stream. A short timeout reduces the
+// window where a stream reset can race an in-flight ACK.
+func WithCloseTimeout(d time.Duration) ReliableOption {
+	return func(r *ReliableConn) { r.closeTimeout = d }
 }
 
 // NewReliableConn wraps a stream with reliable framing. The caller must not use
@@ -181,14 +211,16 @@ func NewReliableConn(conn io.ReadWriteCloser, opts ...ReliableOption) *ReliableC
 	r := &ReliableConn{
 		conn:         conn,
 		writeTimeout: 1 * time.Second,
-		readTimeout:  5 * time.Second,
 		maxRetries:   5,
 		baseRTT:      100 * time.Millisecond,
+		closeTimeout: 2 * time.Second,
 		recvCh:       make(chan recvResult, 1),
 		sendCh:       make(chan sendReq, 1),
 		done:         make(chan struct{}),
 		ackCh:        make(chan struct{}, 1),
+		closeAcked:   make(chan struct{}),
 	}
+	r.setReadTimeout(5 * time.Second)
 	for _, o := range opts {
 		if o != nil {
 			o(r)
@@ -230,13 +262,19 @@ func (r *ReliableConn) WriteFrame(typ byte, payload []byte) error {
 	case err := <-req.err:
 		return err
 	case <-r.done:
-		// The writer reports the concrete send failure on req.err before
-		// shutdown closes r.done, so drain it first instead of masking the
-		// real error with a generic "closed" message.
+		// The writer reports the concrete send failure on req.err (or the
+		// ack on req.ack) once waitForAck observes r.done and re-checks the
+		// ack state. That path is only a few mutex/ channel ops, but it can
+		// race this select. Wait a short grace for the in-flight result
+		// instead of masking success/real errors with a generic "closed".
+		timer := time.NewTimer(1 * time.Second)
+		defer timer.Stop()
 		select {
+		case <-req.ack:
+			return nil
 		case err := <-req.err:
 			return err
-		default:
+		case <-timer.C:
 		}
 		return errors.New("reliable conn closed")
 	}
@@ -258,16 +296,26 @@ func (r *ReliableConn) ReadFrame() (byte, []byte, error) {
 	}
 }
 
-// Close sends a close frame and shuts down the connection.
+// Close sends a close frame and waits for the peer to acknowledge it before
+// shutting down the underlying stream. The graceful close prevents the stream
+// reset from racing an in-flight ACK.
 func (r *ReliableConn) Close() error {
 	r.closeMu.Lock()
-	if r.closed {
+	if r.closed || r.closing {
 		r.closeMu.Unlock()
 		return nil
 	}
+	r.closing = true
 	r.closeMu.Unlock()
 
 	_ = r.sendControlFrame(flagClose, 0)
+
+	select {
+	case <-r.closeAcked:
+	case <-r.done:
+	case <-time.After(r.closeTimeout):
+	}
+
 	r.shutdown(errors.New("reliable conn closed"))
 	return nil
 }
@@ -275,6 +323,9 @@ func (r *ReliableConn) Close() error {
 func (r *ReliableConn) sendControlFrame(flags byte, ack uint32) error {
 	r.wrMu.Lock()
 	defer r.wrMu.Unlock()
+	if r.writeTimeout > 0 {
+		_ = r.setWriteDeadline(time.Now().Add(r.writeTimeout))
+	}
 	f := &ReliableFrame{Flags: flags, Ack: ack}
 	return f.encode(r.conn)
 }
@@ -362,9 +413,17 @@ func (r *ReliableConn) waitForAck(seq uint32, timeout time.Duration) bool {
 		}
 		select {
 		case <-r.done:
-			return false
+			// An ACK may have landed just before the connection shut down.
+			r.wrMu.Lock()
+			acked = r.ackReceived && r.lastAckRecv >= seq
+			r.wrMu.Unlock()
+			return acked
 		case <-deadline.C:
-			return false
+			// Same for the write timeout: don't race a just-arrived ACK.
+			r.wrMu.Lock()
+			acked = r.ackReceived && r.lastAckRecv >= seq
+			r.wrMu.Unlock()
+			return acked
 		case <-r.ackCh:
 		}
 	}
@@ -379,8 +438,8 @@ func (r *ReliableConn) reader() {
 		default:
 		}
 
-		if r.readTimeout > 0 {
-			if err := r.setReadDeadline(time.Now().Add(r.readTimeout)); err != nil {
+		if d := r.getReadTimeout(); d > 0 {
+			if err := r.setReadDeadline(time.Now().Add(d)); err != nil {
 				r.recvCh <- recvResult{err: err}
 				return
 			}
@@ -406,6 +465,10 @@ func (r *ReliableConn) reader() {
 		case flagNack:
 			r.handleNackFrame(frame)
 		case flagClose:
+			// Acknowledge the peer's close so it can stop waiting and shut down
+			// without resetting the stream while our ACK is still in flight.
+			_ = r.sendControlFrame(flagClose, 0)
+			r.closeAckedOnce.Do(func() { close(r.closeAcked) })
 			return
 		case flagReset:
 			r.recvCh <- recvResult{err: errors.New("peer reset reliable conn")}

@@ -11,6 +11,8 @@ import (
 )
 
 // FreeBytes returns the free disk space (bytes) on the volume containing dir.
+//
+//nolint:gosec // G103: unsafe.Pointer is required for the GetDiskFreeSpaceExW syscall.
 func FreeBytes(dir string) (uint64, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {

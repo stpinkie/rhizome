@@ -51,6 +51,9 @@ type MemberInfo struct {
 	ActiveTasks int       `json:"active_tasks,omitempty"`
 }
 
+// Compile-time guard: if Member or MemberInfo fields diverge, this fails.
+var _ MemberInfo = MemberInfo(Member{})
+
 // SwarmInfo is the JSON-friendly view of one swarm.
 type SwarmInfo struct {
 	ID          string       `json:"id"`

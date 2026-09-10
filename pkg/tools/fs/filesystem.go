@@ -423,7 +423,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	if err != nil {
 		return ErrorResult(err.Error())
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// measure total size
 	totalSize := int64(-1) // -1 means unknown
@@ -571,7 +571,7 @@ func (t *ReadFileLinesTool) Execute(ctx context.Context, args map[string]any) *T
 	if err != nil {
 		return ErrorResult(err.Error())
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if info, statErr := file.Stat(); statErr == nil && info.IsDir() {
 		return ErrorResult(fmt.Sprintf("failed to open file: path is a directory: %s", path))
@@ -1059,6 +1059,7 @@ type fileSystem interface {
 type hostFs struct{}
 
 func (h *hostFs) ReadFile(path string) ([]byte, error) {
+	//nolint:gosec // hostFs is intentionally unrestricted when restrict=false.
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1083,6 +1084,7 @@ func (h *hostFs) WriteFile(path string, data []byte) error {
 }
 
 func (h *hostFs) Open(path string) (fs.File, error) {
+	//nolint:gosec // hostFs is intentionally unrestricted when restrict=false.
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1110,7 +1112,7 @@ func (r *sandboxFs) execute(path string, fn func(root *os.Root, relPath string) 
 	if err != nil {
 		return fmt.Errorf("failed to open workspace: %w", err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	relPath, err := getSafeRelPath(r.workspace, path)
 	if err != nil {
@@ -1159,13 +1161,13 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 
 		tmpFile, err := root.OpenFile(tmpRelPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
-			root.Remove(tmpRelPath)
+			_ = root.Remove(tmpRelPath)
 			return fmt.Errorf("failed to open temp file: %w", err)
 		}
 
 		if _, err := tmpFile.Write(data); err != nil {
 			_ = tmpFile.Close()
-			root.Remove(tmpRelPath)
+			_ = root.Remove(tmpRelPath)
 			return fmt.Errorf("failed to write temp file: %w", err)
 		}
 
@@ -1173,17 +1175,17 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 		// This ensures data is physically written to disk, not just cached.
 		if err := tmpFile.Sync(); err != nil {
 			_ = tmpFile.Close()
-			root.Remove(tmpRelPath)
+			_ = root.Remove(tmpRelPath)
 			return fmt.Errorf("failed to sync temp file: %w", err)
 		}
 
 		if err := tmpFile.Close(); err != nil {
-			root.Remove(tmpRelPath)
+			_ = root.Remove(tmpRelPath)
 			return fmt.Errorf("failed to close temp file: %w", err)
 		}
 
 		if err := root.Rename(tmpRelPath, relPath); err != nil {
-			root.Remove(tmpRelPath)
+			_ = root.Remove(tmpRelPath)
 			return fmt.Errorf("failed to rename temp file over target: %w", err)
 		}
 

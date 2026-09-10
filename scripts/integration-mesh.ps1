@@ -9,7 +9,9 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$buildDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString())
+. "$PSScriptRoot\windows-firewall-utils.ps1"
+
+$buildDir = Join-Path $repoRoot 'build\integration-mesh'
 $testDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString())
 $rhizomeBin = Join-Path $buildDir "rhizome.exe"
 
@@ -25,6 +27,9 @@ try {
     & go build -tags goolm,stdjson -o $rhizomeBin ./cmd/rhizome
     if ($LASTEXITCODE -ne 0) { throw "build failed" }
     Pop-Location
+
+    Write-Host "Adding firewall allow rule for $rhizomeBin ..."
+    Add-RhizomeExeFirewallRules -Path $rhizomeBin
 
     $aHome = Join-Path $testDir "a"
     $bHome = Join-Path $testDir "b"
@@ -195,6 +200,5 @@ finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
         }
     }
-    Remove-Item -Recurse -Force $buildDir -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
 }

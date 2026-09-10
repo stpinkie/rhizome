@@ -19,6 +19,7 @@ type Watcher struct {
 	workspace string
 	exclude   []string
 	onChange  func(paths []string)
+	onError   func(error)
 	debounce  time.Duration
 
 	watcher *fsnotify.Watcher
@@ -27,6 +28,25 @@ type Watcher struct {
 	timer   *time.Timer
 	stop    chan struct{}
 	wg      sync.WaitGroup
+
+	closeOnce sync.Once
+}
+
+// WatcherOption configures optional behavior on a Watcher.
+type WatcherOption func(*Watcher)
+
+// WithOnError registers a callback for fsnotify errors and walk errors.
+// The callback may be called concurrently from the watch loop and WalkDir
+// callbacks; it must be safe for concurrent use.
+func WithOnError(fn func(error)) WatcherOption {
+	return func(w *Watcher) { w.onError = fn }
+}
+
+// isGitInternal reports whether a workspace-relative path is inside the
+// git internals directory (.git itself or anything under it). It must not
+// match .github, .gitignore, .gitattributes, etc.
+func isGitInternal(rel string) bool {
+	return rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator))
 }
 
 // NewWatcher creates a recursive workspace watcher. exclude is a list of
@@ -38,6 +58,7 @@ func NewWatcher(
 	workspace string,
 	exclude []string,
 	onChange func(paths []string),
+	opts ...WatcherOption,
 ) (*Watcher, error) {
 	fsWatcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -52,6 +73,9 @@ func NewWatcher(
 		watcher:   fsWatcher,
 		pending:   make(map[string]struct{}),
 		stop:      make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(w)
 	}
 
 	if err := w.addRecursive(workspace); err != nil {
@@ -83,22 +107,22 @@ func (w *Watcher) loop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if err != nil {
-				// Log is unavailable here; surface via a no-op for now.
+			if err != nil && w.onError != nil {
+				w.onError(fmt.Errorf("fsnotify error: %w", err))
 			}
 		}
 	}
 }
 
 func (w *Watcher) handleEvent(event fsnotify.Event) {
-	// Resolve symlinks and get relative path.
+	// Get the workspace-relative path.
 	rel, err := filepath.Rel(w.workspace, event.Name)
 	if err != nil {
 		return
 	}
 
-	// Ignore .git and excluded paths.
-	if w.isExcluded(rel) || strings.HasPrefix(rel, ".git") {
+	// Ignore .git internals and excluded paths.
+	if w.isExcluded(rel) || isGitInternal(rel) {
 		return
 	}
 
@@ -140,6 +164,9 @@ func (w *Watcher) flush() {
 func (w *Watcher) addRecursive(root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			if w.onError != nil {
+				w.onError(fmt.Errorf("walk %s: %w", root, err))
+			}
 			return nil //nolint:nilerr // continue walking
 		}
 		if !d.IsDir() {
@@ -149,7 +176,7 @@ func (w *Watcher) addRecursive(root string) error {
 		if err != nil {
 			return nil //nolint:nilerr // continue walking
 		}
-		if w.isExcluded(rel) || strings.HasPrefix(rel, ".git") {
+		if w.isExcluded(rel) || isGitInternal(rel) {
 			return filepath.SkipDir
 		}
 		return w.watcher.Add(path)
@@ -159,6 +186,9 @@ func (w *Watcher) addRecursive(root string) error {
 func (w *Watcher) addDir(path string) error {
 	return filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
+			if w.onError != nil {
+				w.onError(fmt.Errorf("walk %s: %w", path, err))
+			}
 			return nil //nolint:nilerr // continue walking
 		}
 		if !d.IsDir() {
@@ -168,7 +198,7 @@ func (w *Watcher) addDir(path string) error {
 		if err != nil {
 			return nil //nolint:nilerr // continue walking
 		}
-		if w.isExcluded(rel) || strings.HasPrefix(rel, ".git") {
+		if w.isExcluded(rel) || isGitInternal(rel) {
 			return filepath.SkipDir
 		}
 		return w.watcher.Add(p)
@@ -216,10 +246,31 @@ func normalizeExcludes(excludes []string) []string {
 	return out
 }
 
-// Close stops the watcher.
+// Close stops the watcher. It is safe to call more than once.
 func (w *Watcher) Close() error {
-	close(w.stop)
-	_ = w.watcher.Close()
+	w.closeOnce.Do(func() {
+		// Stop the debounce timer and flush any pending changes synchronously
+		// so the last batch of file events is not lost.
+		w.mu.Lock()
+		if w.timer != nil {
+			w.timer.Stop()
+			w.timer = nil
+		}
+		paths := make([]string, 0, len(w.pending))
+		for p := range w.pending {
+			paths = append(paths, p)
+		}
+		w.pending = make(map[string]struct{})
+		w.mu.Unlock()
+
+		if len(paths) > 0 {
+			sort.Strings(paths)
+			w.onChange(paths)
+		}
+
+		close(w.stop)
+		_ = w.watcher.Close()
+	})
 	w.wg.Wait()
 	return nil
 }

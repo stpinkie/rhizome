@@ -45,7 +45,7 @@ write_config() {
   "swarm": {
     "enabled": true,
     "memberships": ["ops"],
-    "presence": { "heartbeat_interval": "2s", "expire_after": "8s" }
+    "presence": { "heartbeat_interval": "5s", "expire_after": "30s" }
   }
 }
 EOF
@@ -55,7 +55,11 @@ wait_for_member() {
   # $1 = home, $2 = expected peer id, $3 = timeout seconds
   local file="$1/swarms.json"
   for _ in $(seq 1 "$3"); do
-    if [[ -f "${file}" ]] && grep -q "$2" "${file}"; then
+    # Prefer a live CLI readback; fall back to the persisted file.
+    if RHIZOME_HOME="$1" "${RHIZOME_BIN}" swarm members ops 2>/dev/null | grep -q "$2"; then
+      return 0
+    fi
+    if [[ -f "${file}" ]] && grep -q "$2" "${file}" 2>/dev/null; then
       return 0
     fi
     sleep 1

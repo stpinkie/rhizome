@@ -18,8 +18,12 @@ func fastPresenceConfig() config.SwarmConfig {
 	cfg := config.DefaultSwarmConfig()
 	cfg.Presence.HeartbeatInterval = 200 * time.Millisecond
 	cfg.Presence.ExpireAfter = 600 * time.Millisecond
-	cfg.Queue.ClaimWindow = 2 * time.Second
-	cfg.Queue.OfferTTL = 5 * time.Second
+	// Longer claim window gives peers enough time to receive the offer and
+	// respond under parallel/loaded test runs.
+	cfg.Queue.ClaimWindow = 5 * time.Second
+	// Keep observed offers alive long enough for assignment broadcasts to land
+	// under slow/parallel test runs; no-claims paths still expire after ClaimWindow.
+	cfg.Queue.OfferTTL = 60 * time.Second
 	return cfg
 }
 

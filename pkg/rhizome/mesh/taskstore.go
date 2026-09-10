@@ -46,6 +46,43 @@ type MeshTask struct {
 	done       chan struct{}
 }
 
+// MeshTaskSnapshot is a value copy of a MeshTask that can safely be read
+// outside the TaskStore mutex. The store always returns snapshots, never live
+// pointers, to avoid data races on Status/Err/Result.
+type MeshTaskSnapshot struct {
+	ID        string
+	CorrID    string
+	Owner     peer.ID
+	AgentID   string
+	Model     string
+	Status    agenttask.TaskStatus
+	Result    *toolshared.ToolResult
+	Err       string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// snapshot returns a value copy of the task. It must be called with s.mu held.
+func (t *MeshTask) snapshot() MeshTaskSnapshot {
+	var result *toolshared.ToolResult
+	if t.Result != nil {
+		r := *t.Result
+		result = &r
+	}
+	return MeshTaskSnapshot{
+		ID:        t.ID,
+		CorrID:    t.CorrID,
+		Owner:     t.Owner,
+		AgentID:   t.AgentID,
+		Model:     t.Model,
+		Status:    t.Status,
+		Result:    result,
+		Err:       t.Err,
+		CreatedAt: t.CreatedAt,
+		UpdatedAt: t.UpdatedAt,
+	}
+}
+
 // taskRecord is the on-disk, JSON-serializable form of MeshTask. It omits
 // in-memory channels and cancel functions.
 type taskRecord struct {
@@ -107,11 +144,11 @@ func (s *TaskStore) SetPath(path string) {
 	s.saveMu.Unlock()
 }
 
-// Load reads the persisted task file and returns any tasks that were still
-// running when the file was last written. Those tasks are marked as errors
-// (the original goroutines cannot be resumed) and their done channels are
-// closed so waiters return immediately.
-func (s *TaskStore) Load() ([]*MeshTask, error) {
+// Load reads the persisted task file and returns snapshots of any tasks that
+// were still running when the file was last written. Those tasks are marked as
+// errors (the original goroutines cannot be resumed) and their done channels
+// are closed so waiters return immediately.
+func (s *TaskStore) Load() ([]MeshTaskSnapshot, error) {
 	s.saveMu.Lock()
 	path := s.path
 	s.saveMu.Unlock()
@@ -119,6 +156,7 @@ func (s *TaskStore) Load() ([]*MeshTask, error) {
 		return nil, nil
 	}
 
+	//nolint:gosec // path is built from RHIZOME_HOME, not user-controlled.
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -126,9 +164,9 @@ func (s *TaskStore) Load() ([]*MeshTask, error) {
 		}
 		return nil, fmt.Errorf("open task store: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
-	var restarted []*MeshTask
+	var restarted []MeshTaskSnapshot
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -164,7 +202,7 @@ func (s *TaskStore) Load() ([]*MeshTask, error) {
 			t.Err = "daemon restarted"
 			t.UpdatedAt = time.Now().UTC()
 			close(t.done)
-			restarted = append(restarted, t)
+			restarted = append(restarted, t.snapshot())
 		} else {
 			close(t.done)
 		}
@@ -305,20 +343,21 @@ func newTaskID() string {
 }
 
 // Submit registers a new task. If the same peer resubmits the same
-// correlation id, the existing task is returned with created=false.
-func (s *TaskStore) Submit(owner peer.ID, req agenttask.Request) (task *MeshTask, created bool, err error) {
+// correlation id, the existing task's snapshot is returned with created=false.
+func (s *TaskStore) Submit(owner peer.ID, req agenttask.Request) (MeshTaskSnapshot, bool, error) {
+	var zero MeshTaskSnapshot
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return nil, false, fmt.Errorf("task store is closed")
+		return zero, false, fmt.Errorf("task store is closed")
 	}
 
 	if req.CorrelationID != "" {
 		if byID, ok := s.byCorr[owner]; ok {
 			if id, ok := byID[req.CorrelationID]; ok {
 				if existing, ok := s.tasks[id]; ok {
-					return existing, false, nil
+					return existing.snapshot(), false, nil
 				}
 			}
 		}
@@ -326,7 +365,7 @@ func (s *TaskStore) Submit(owner peer.ID, req agenttask.Request) (task *MeshTask
 
 	s.evictLocked()
 
-	task = &MeshTask{
+	task := &MeshTask{
 		ID:        newTaskID(),
 		CorrID:    req.CorrelationID,
 		Owner:     owner,
@@ -346,7 +385,7 @@ func (s *TaskStore) Submit(owner peer.ID, req agenttask.Request) (task *MeshTask
 	}
 
 	s.scheduleSave()
-	return task, true, nil
+	return task.snapshot(), true, nil
 }
 
 // evictLocked drops terminal tasks past the TTL and, when the store is full,
@@ -420,15 +459,16 @@ func (s *TaskStore) deleteLocked(id string) {
 	}
 }
 
-// getOwned returns the task only if it belongs to the given peer.
-func (s *TaskStore) getOwned(id string, owner peer.ID) (*MeshTask, bool) {
+// getOwned returns a snapshot of the task only if it belongs to the given peer.
+func (s *TaskStore) getOwned(id string, owner peer.ID) (MeshTaskSnapshot, bool) {
+	var zero MeshTaskSnapshot
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
 	if !ok || t.Owner != owner {
-		return nil, false
+		return zero, false
 	}
-	return t, true
+	return t.snapshot(), true
 }
 
 // Start marks an accepted task as running and registers its cancel func.
@@ -484,23 +524,39 @@ func (s *TaskStore) Cancel(id string, owner peer.ID) bool {
 }
 
 // Wait blocks until the task reaches a terminal state, the wait duration
-// elapses, or ctx is canceled. Returns the task (possibly still running).
-func (s *TaskStore) Wait(ctx context.Context, id string, owner peer.ID, wait time.Duration) (*MeshTask, bool) {
-	t, ok := s.getOwned(id, owner)
-	if !ok {
-		return nil, false
+// elapses, or ctx is canceled. Returns a snapshot of the task (possibly still
+// running).
+func (s *TaskStore) Wait(ctx context.Context, id string, owner peer.ID, wait time.Duration) (MeshTaskSnapshot, bool) {
+	var zero MeshTaskSnapshot
+	s.mu.Lock()
+	t, ok := s.tasks[id]
+	if !ok || t.Owner != owner {
+		s.mu.Unlock()
+		return zero, false
 	}
+	done := t.done
 	if t.Status.Terminal() || wait <= 0 {
-		return t, true
+		snap := t.snapshot()
+		s.mu.Unlock()
+		return snap, true
 	}
+	s.mu.Unlock()
+
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 	case <-timer.C:
-	case <-t.done:
+	case <-done:
 	}
-	return t, true
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok = s.tasks[id]
+	if !ok || t.Owner != owner {
+		return zero, false
+	}
+	return t.snapshot(), true
 }
 
 // ActiveCount returns the number of non-terminal tasks across all owners —
@@ -533,12 +589,12 @@ func (s *TaskStore) List(owner peer.ID) []agenttask.TaskInfo {
 
 // ListAll returns a snapshot of every stored task. It is intended for
 // persistence and event replay, not routine querying.
-func (s *TaskStore) ListAll() []*MeshTask {
+func (s *TaskStore) ListAll() []MeshTaskSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]*MeshTask, 0, len(s.tasks))
+	out := make([]MeshTaskSnapshot, 0, len(s.tasks))
 	for _, t := range s.tasks {
-		out = append(out, t)
+		out = append(out, t.snapshot())
 	}
 	return out
 }

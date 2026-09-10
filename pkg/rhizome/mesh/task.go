@@ -188,7 +188,7 @@ func (m *Mesh) handleTaskSubmit(from peer.ID, req agenttask.Request, started tim
 
 // runMeshTask executes an accepted task through the mesh run function and
 // records the terminal state in the task store.
-func (m *Mesh) runMeshTask(task *MeshTask, req agenttask.Request) {
+func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 	started := time.Now()
 	parent := m.ctx
 	if parent == nil {

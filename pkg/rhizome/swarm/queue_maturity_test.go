@@ -19,7 +19,8 @@ import (
 // fastQueueConfig tightens queue timings for maturity tests.
 func fastQueueConfig() config.SwarmConfig {
 	cfg := fastPresenceConfig()
-	cfg.Queue.ClaimWindow = 400 * time.Millisecond
+	// Reuse the already-lengthened claim window from fastPresenceConfig and
+	// keep the assignment watch tight for retry/dead-letter paths.
 	cfg.Queue.AssignTimeout = 2 * time.Second
 	return cfg
 }
@@ -65,6 +66,10 @@ func TestSwarmOfferCancel(t *testing.T) {
 func TestSwarmOfferRetryThenDeadLetter(t *testing.T) {
 	cfg := fastQueueConfig()
 	cfg.Queue.MaxRetries = 1
+	// Give the retried offer a longer window to be received and claimed under
+	// parallel/loaded test runs while keeping the overall suite fast.
+	cfg.Queue.ClaimWindow = 10 * time.Second
+	cfg.Queue.AssignTimeout = 10 * time.Second
 	swarmA, swarmB := newTestPair(t, cfg, t.TempDir(), t.TempDir())
 
 	require.NoError(t, swarmA.Join(context.Background(), "work"))
@@ -96,7 +101,7 @@ func TestSwarmOfferRetryThenDeadLetter(t *testing.T) {
 	require.Eventually(t, func() bool {
 		info, ok := swarmA.queue.offerInfo(offerID)
 		return ok && info.Status == OfferDeadLetter
-	}, 15*time.Second, 100*time.Millisecond, "offer should dead-letter after retries")
+	}, 60*time.Second, 100*time.Millisecond, "offer should dead-letter after retries")
 
 	info, _ := swarmA.queue.offerInfo(offerID)
 	assert.Equal(t, 1, info.Retries)

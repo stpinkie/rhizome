@@ -8,7 +8,9 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$buildDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString())
+. "$PSScriptRoot\windows-firewall-utils.ps1"
+
+$buildDir = Join-Path $repoRoot 'build\integration-swarm'
 $testDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.Guid]::NewGuid().ToString())
 $rhizomeBin = Join-Path $buildDir "rhizome.exe"
 
@@ -37,8 +39,8 @@ function Write-SwarmConfig($nodeHome, $peerID, $trustedPeer, $bootstrap) {
             enabled     = $true
             memberships = @("ops")
             presence    = [ordered]@{
-                heartbeat_interval = "2s"
-                expire_after       = "8s"
+                heartbeat_interval = "5s"
+                expire_after       = "30s"
             }
         }
     }
@@ -54,8 +56,13 @@ function Write-SwarmConfig($nodeHome, $peerID, $trustedPeer, $bootstrap) {
 function Wait-ForMember($nodeHome, $peerID, $timeoutSec) {
     $swarmsFile = Join-Path $nodeHome "swarms.json"
     for ($i = 0; $i -lt $timeoutSec; $i++) {
+        # Prefer a live CLI readback; fall back to the persisted file.
+        $env:RHIZOME_HOME = $nodeHome
+        $membersOut = cmd /c "`"$rhizomeBin`" swarm members ops 2>&1" | Out-String
+        if ($membersOut.Contains($peerID)) { return $true }
+
         if (Test-Path $swarmsFile) {
-            $data = Get-Content $swarmsFile -Raw | ConvertFrom-Json
+            $data = Get-Content $swarmsFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
             if ($data.swarms.ops.members -and ($data.swarms.ops.members | Where-Object { $_.peer_id -eq $peerID })) {
                 return $true
             }
@@ -75,6 +82,9 @@ try {
     & go build -tags goolm,stdjson -o $rhizomeBin ./cmd/rhizome
     if ($LASTEXITCODE -ne 0) { throw "build failed" }
     Pop-Location
+
+    Write-Host "Adding firewall allow rule for $rhizomeBin ..."
+    Add-RhizomeExeFirewallRules -Path $rhizomeBin
 
     $aHome = Join-Path $testDir "a"
     $bHome = Join-Path $testDir "b"
@@ -206,6 +216,5 @@ finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
         }
     }
-    Remove-Item -Recurse -Force $buildDir -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
 }

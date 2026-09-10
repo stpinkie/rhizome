@@ -87,14 +87,17 @@ func NewSkillCommand() *cobra.Command {
 	}
 	list.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
 
+	var allowSuspicious bool
+
 	pull := &cobra.Command{
 		Use:   "pull <peer-id> <skill-name>",
 		Short: "Pull a skill bundle from a trusted peer (daemon required)",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			payload, _ := json.Marshal(map[string]string{
-				"peer": args[0],
-				"name": args[1],
+			payload, _ := json.Marshal(map[string]any{
+				"peer":             args[0],
+				"name":             args[1],
+				"allow_suspicious": allowSuspicious,
 			})
 			data, code, err := skillRequest(http.MethodPost,
 				"/network/skills/pull", payload, 2*time.Minute)
@@ -126,6 +129,7 @@ func NewSkillCommand() *cobra.Command {
 			}
 		},
 	}
+	pull.Flags().BoolVar(&allowSuspicious, "allow-suspicious", false, "Install bundles even if the guard scanner flags them as suspicious")
 
 	cmd.AddCommand(list, pull)
 	return cmd

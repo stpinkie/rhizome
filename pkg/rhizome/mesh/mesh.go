@@ -1367,17 +1367,15 @@ func (c *CapsTransport) Supported(ctx context.Context, pid peer.ID, timeout time
 	return true
 }
 
-// Send pushes a capability manifest to a peer.
+// Send pushes a capability manifest to a peer. OpenProtocolStream performs
+// the protocol negotiation and retries while the remote handler is
+// registering, so no separate Supported pre-check is needed.
 func (c *CapsTransport) Send(ctx context.Context, pid peer.ID, capability Capability) error {
-	if !c.Supported(ctx, pid, 5*time.Second) {
-		return fmt.Errorf("peer %s does not support %s", pid, CapsProtocolID)
-	}
-
-	s, err := c.host.NewStream(ctx, pid, CapsProtocolID)
+	s, err := p2putil.OpenProtocolStream(ctx, c.host, pid, CapsProtocolID, 15*time.Second)
 	if err != nil {
 		return fmt.Errorf("open caps stream: %w", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	w := bufio.NewWriter(s)
 	data, err := json.Marshal(capability)
@@ -1391,7 +1389,7 @@ func (c *CapsTransport) Send(ctx context.Context, pid peer.ID, capability Capabi
 }
 
 func (c *CapsTransport) handleStream(s libnet.Stream) {
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	r := bufio.NewReader(s)
 	typ, payload, err := stream.ReadFrame(r)
@@ -1449,16 +1447,14 @@ func (c *CapsTransport) handleQuery(s libnet.Stream, r *bufio.Reader) {
 
 // Query requests a capability from a peer. It blocks until the peer responds
 // or the context is canceled. The trust check is the caller's responsibility.
+// OpenProtocolStream performs the protocol negotiation and retries while the
+// remote handler is registering, so no separate Supported pre-check is needed.
 func (c *CapsTransport) Query(ctx context.Context, pid peer.ID) (Capability, error) {
-	if !c.Supported(ctx, pid, 5*time.Second) {
-		return Capability{}, fmt.Errorf("peer %s does not support %s", pid, CapsProtocolID)
-	}
-
-	s, err := c.host.NewStream(ctx, pid, CapsProtocolID)
+	s, err := p2putil.OpenProtocolStream(ctx, c.host, pid, CapsProtocolID, 15*time.Second)
 	if err != nil {
 		return Capability{}, fmt.Errorf("open caps stream: %w", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	w := bufio.NewWriter(s)
 	if err := stream.WriteFrame(w, capFrameQuery, nil); err != nil {

@@ -65,7 +65,27 @@ jobs:
         run: go generate ./...
 
       - name: Run go test
-        run: CGO_ENABLED=0 go test -tags goolm,stdjson ./...
+        run: CGO_ENABLED=0 go test -p 1 -tags goolm,stdjson ./...
+
+  race:
+    name: Race Detector
+    needs: test-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run go generate
+        run: go generate ./...
+
+      - name: Run race tests
+        run: CGO_ENABLED=1 go test -p 1 -race -tags goolm,stdjson ./pkg/rhizome/mesh ./pkg/rhizome/stream ./pkg/rhizome/swarm
 
   test-windows:
     name: Tests (Windows)
@@ -93,7 +113,7 @@ jobs:
           CGO_ENABLED: '0'
 
       - name: Run go test
-        run: go test -tags goolm,stdjson ./...
+        run: go test -p 1 -tags goolm,stdjson ./...
         env:
           CGO_ENABLED: '0'
 
@@ -157,6 +177,24 @@ jobs:
         env:
           CGO_ENABLED: '0'
 
+  swarm-integration:
+    name: Swarm Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build and run swarm integration script
+        run: bash ./scripts/integration-swarm.sh
+        env:
+          CGO_ENABLED: '0'
+
   cross-compile:
     name: Cross-compile core targets
     runs-on: ubuntu-latest
@@ -172,6 +210,12 @@ jobs:
 
       - name: Cross-compile all Makefile-managed platforms
         run: CGO_ENABLED=0 make build-all
+
+      - name: Cross-compile extra BSD targets
+        run: |
+          CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build -tags goolm,stdjson -o build/rhizome-freebsd-amd64 ./cmd/rhizome
+          CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go build -tags goolm,stdjson -o build/rhizome-openbsd-amd64 ./cmd/rhizome
+          CGO_ENABLED=0 GOOS=dragonfly GOARCH=amd64 go build -tags goolm,stdjson -o build/rhizome-dragonfly-amd64 ./cmd/rhizome
 
   cross-compile-android:
     name: Cross-compile Android bundle

@@ -33,7 +33,6 @@ linters:
     # TODO: Disabled, because they are failing at the moment, we should fix them and enable (step by step)
     - contextcheck
     - embeddedstructfieldcheck
-    - errcheck
     - errchkjson
     - errorlint
     - exhaustive
@@ -46,7 +45,6 @@ linters:
     - gocritic
     - gocyclo
     - godox
-    - gosec
     - ineffassign
     - lll
     - maintidx
@@ -58,7 +56,6 @@ linters:
     - paralleltest
     - perfsprint
     - revive
-    - staticcheck
     - tagalign
     - testifylint
     - thelper
@@ -71,7 +68,7 @@ linters:
         - github.com/bwmarrin/discordgo
     errcheck:
       check-type-assertions: true
-      check-blank: true
+      check-blank: false
     exhaustive:
       default-signifies-exhaustive: true
     funlen:
@@ -154,6 +151,12 @@ linters:
       - linters:
           - nolintlint
         path: 'pkg/tools/(i2c\.go|spi\.go)$'
+      # Tests intentionally ignore Close/Stop errors in t.Cleanup and use
+      # permissive permissions in fixtures; the production code is still linted.
+      - linters:
+          - errcheck
+          - gosec
+        path: _test\.go$
 
 issues:
   max-issues-per-linter: 0

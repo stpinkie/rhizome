@@ -127,6 +127,55 @@ func TestPairBundleBadSignature(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPairRequestPeerMismatch(t *testing.T) {
+	pmA, pmB := newPairNodes(t)
+
+	bundle, err := pmA.Create(time.Minute)
+	require.NoError(t, err)
+
+	b, err := DecodeBundle(bundle)
+	require.NoError(t, err)
+
+	// Build a request where the PeerID does not match the connecting peer.
+	req := Request{
+		Code:      b.Code,
+		PeerID:    pmA.host.ID().String(), // wrong: claims to be A, but from B
+		Timestamp: time.Now().Unix(),
+	}
+	req.Signature = identity.Sign(pmB.id.PrivateKey, joinPayload(req.Code, req.PeerID, req.Timestamp))
+
+	resp := pmA.redeem(pmB.host.ID(), req)
+	assert.False(t, resp.OK)
+	assert.Contains(t, resp.Error, "peer id mismatch")
+}
+
+func TestPairRequestTimestampSkew(t *testing.T) {
+	pmA, pmB := newPairNodes(t)
+
+	bundle, err := pmA.Create(time.Minute)
+	require.NoError(t, err)
+
+	b, err := DecodeBundle(bundle)
+	require.NoError(t, err)
+
+	// Pre-populate A's peerstore with B's key so signature verification can run
+	// and we reach the timestamp-skew guard.
+	pub, err := pmB.host.ID().ExtractPublicKey()
+	require.NoError(t, err)
+	require.NoError(t, pmA.host.Peerstore().AddPubKey(pmB.host.ID(), pub))
+
+	req := Request{
+		Code:      b.Code,
+		PeerID:    pmB.host.ID().String(),
+		Timestamp: time.Now().Add(-10 * time.Minute).Unix(),
+	}
+	req.Signature = identity.Sign(pmB.id.PrivateKey, joinPayload(req.Code, req.PeerID, req.Timestamp))
+
+	resp := pmA.redeem(pmB.host.ID(), req)
+	assert.False(t, resp.OK)
+	assert.Contains(t, resp.Error, "timestamp")
+}
+
 func TestPairUnknownCodeRejected(t *testing.T) {
 	pmA, pmB := newPairNodes(t)
 	// A well-formed bundle whose code pmA never issued must be rejected at
