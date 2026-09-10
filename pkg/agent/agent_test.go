@@ -7833,10 +7833,8 @@ func TestRunWorkerPanicReleasesSessionTurnState(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if al.getActiveTurnState(scopeKey) == nil {
-			break
-		}
+	for al.getActiveTurnState(scopeKey) != nil {
+
 		if time.Now().After(deadline) {
 			t.Fatal("session turn state remained stuck after worker panic")
 		}
@@ -7848,10 +7846,8 @@ func TestRunWorkerPanicReleasesSessionTurnState(t *testing.T) {
 	}
 
 	deadline = time.Now().Add(2 * time.Second)
-	for {
-		if provider.calls.Load() >= 2 {
-			break
-		}
+	for provider.calls.Load() < 2 {
+
 		if time.Now().After(deadline) {
 			t.Fatal("second message did not start a new turn after panic cleanup")
 		}

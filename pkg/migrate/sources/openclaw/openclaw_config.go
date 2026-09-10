@@ -510,7 +510,7 @@ func (c *OpenClawConfig) ConvertToRhizome(sourceHome string) (*RhizomeConfig, []
 			continue
 		}
 		cfg.ModelList = append(cfg.ModelList, ModelConfig{
-			ModelName: fmt.Sprintf("%s", provName),
+			ModelName: provName,
 			Model:     fmt.Sprintf("%s/%s", provName, provName),
 			APIKey:    provCfg.ApiKey,
 			APIBase:   provCfg.BaseUrl,

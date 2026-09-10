@@ -141,6 +141,7 @@ func Load(identityDir string) (*Derived, string, error) {
 // is used to obtain the decryption key.
 func LoadWithProvider(identityDir string, provider KeyProvider) (*Derived, string, error) {
 	path := filepath.Join(identityDir, "node.json")
+	//nolint:gosec // G304: identityDir is the configured RHIZOME_HOME, not user input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, "", fmt.Errorf("read node identity: %w", err)
@@ -182,7 +183,7 @@ func LoadWithProvider(identityDir string, provider KeyProvider) (*Derived, strin
 	}
 
 	priv := ed25519.PrivateKey(privBytes)
-	pub := priv.Public().(ed25519.PublicKey)
+	pub, _ := priv.Public().(ed25519.PublicKey)
 
 	libp2pPriv, err := crypto.UnmarshalEd25519PrivateKey(priv)
 	if err != nil {
@@ -210,6 +211,7 @@ func LoadWithProvider(identityDir string, provider KeyProvider) (*Derived, strin
 }
 
 func writeNodeIdentity(identityDir string, ni NodeIdentity) error {
+	//nolint:gosec // G117: private key is encrypted or empty before marshaling.
 	data, err := json.MarshalIndent(ni, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal node identity: %w", err)

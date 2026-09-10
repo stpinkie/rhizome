@@ -83,7 +83,7 @@ func (r *RawNode) UnmarshalJSON(data []byte) error {
 	if len(trimmed) > 0 {
 		first := trimmed[0]
 		if first != '{' && first != '[' && first != '"' && first != '-' &&
-			!(first >= '0' && first <= '9') && first != 'n' && first != 't' && first != 'f' {
+			(first < '0' || first > '9') && first != 'n' && first != 't' && first != 'f' {
 			// Looks like YAML, not JSON. Parse as YAML and convert to JSON.
 			var v any
 			if err := yaml.Unmarshal(data, &v); err != nil {

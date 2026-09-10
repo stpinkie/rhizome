@@ -181,7 +181,7 @@ func (t *Transport) Stat(ctx context.Context, pid peer.ID, hash string) (Meta, e
 	if err != nil {
 		return Meta{}, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	if err := t.verifyResponse(pid, &resp); err != nil {
 		return Meta{}, err
 	}
@@ -202,7 +202,7 @@ func (t *Transport) Get(ctx context.Context, pid peer.ID, hash string) (string, 
 	if err != nil {
 		return "", Meta{}, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	if err := t.verifyResponse(pid, &resp); err != nil {
 		return "", Meta{}, err
 	}
@@ -287,16 +287,17 @@ func (t *Transport) Put(ctx context.Context, pid peer.ID, hash string) error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	if err := t.verifyResponse(pid, &resp); err != nil {
 		return err
 	}
 
+	//nolint:gosec // G304: localPath is the content-addressed blob path under the store root.
 	f, err := os.Open(localPath)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	buf := make([]byte, chunkSize)
 	for {
@@ -329,7 +330,7 @@ func (t *Transport) handleStream(s network.Stream) {
 		stream.WithReadTimeout(serverReadTimeout),
 		stream.WithWriteTimeout(30*time.Second),
 	)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	from := s.Conn().RemotePeer()
 
 	for {
@@ -420,7 +421,7 @@ func (t *Transport) serveGet(rc *stream.ReliableConn, from peer.ID, req Request)
 		t.report(OpGet, from, req.Hash, err)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	t.respond(rc, Response{
 		OK:          true,

@@ -6,6 +6,10 @@
 # 5. Write a file in B's workspace and wait for A to converge (bidirectional).
 # 6. Restart daemon B and verify a fresh edit on A propagates after reconnect.
 
+param(
+    [switch]$SkipFirewall
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -28,8 +32,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "build failed" }
     Pop-Location
 
-    Write-Host "Adding firewall allow rule for $rhizomeBin ..."
-    Add-RhizomeExeFirewallRules -Path $rhizomeBin
+    if (-not $SkipFirewall) {
+        Write-Host "Adding firewall allow rule for $rhizomeBin ..."
+        Add-RhizomeExeFirewallRules -Path $rhizomeBin
+    }
 
     $aHome = Join-Path $testDir "a"
     $bHome = Join-Path $testDir "b"

@@ -151,6 +151,18 @@ linters:
       - linters:
           - nolintlint
         path: 'pkg/tools/(i2c\.go|spi\.go)$'
+      # v0.8.2 stabilization scope: the re-enabled errcheck/staticcheck/gosec
+      # are enforced in pkg/rhizome, pkg/media, and pkg/tools/fs. The rest of
+      # the repository still carries legacy lint debt and is deferred to
+      # post-v0.8.2 cleanup sprints; the production code in the stabilization
+      # scope is still linted.
+      - linters:
+          - errcheck
+          - gosec
+          - staticcheck
+          - nolintlint
+          - whitespace
+        path: '^(cmd|web|examples|scripts)(?:/|\\\\)|^pkg/(?:agent|audio|auth|browser|bus|channels|commands|config|constants|credential|cron|devices|events|evolution|fileutil|gateway|guard|health|heartbeat|identity|isolation|logger|mcp|memory|migrate|netbind|pid|providers|redact|routing|seahorse|session|skills|state|tokenizer|updater|utils)(?:/|\\\\)|^pkg/tools/(?:[^f]|f[^s]|fs[^/\\\\])'
       # Tests intentionally ignore Close/Stop errors in t.Cleanup and use
       # permissive permissions in fixtures; the production code is still linted.
       - linters:

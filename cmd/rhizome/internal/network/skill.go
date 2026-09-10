@@ -129,7 +129,8 @@ func NewSkillCommand() *cobra.Command {
 			}
 		},
 	}
-	pull.Flags().BoolVar(&allowSuspicious, "allow-suspicious", false, "Install bundles even if the guard scanner flags them as suspicious")
+	pull.Flags().
+		BoolVar(&allowSuspicious, "allow-suspicious", false, "Install bundles even if the guard scanner flags them as suspicious")
 
 	cmd.AddCommand(list, pull)
 	return cmd

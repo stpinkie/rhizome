@@ -196,11 +196,12 @@ func (s *Store) Put(r io.Reader, meta Meta, wantHash string) (string, error) {
 
 // PutFile stores an existing local file.
 func (s *Store) PutFile(path string, meta Meta) (string, error) {
+	//nolint:gosec // G304: PutFile opens the caller-supplied path by design.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
 		return "", err

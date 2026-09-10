@@ -282,7 +282,6 @@ func (l *auditLogger) Log(entry map[string]any) {
 		l.rotateLocked()
 	}
 
-	//nolint:gosec // path is built from RHIZOME_HOME, not user-controlled.
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return

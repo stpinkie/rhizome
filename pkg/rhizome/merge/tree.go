@@ -262,7 +262,7 @@ func blobContent(s storer.EncodedObjectStorer, h plumbing.Hash) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
 }
 

@@ -5,6 +5,10 @@
 # 4. Wait until both sides see each other in the "ops" roster.
 # 5. Verify roster persistence survives a daemon restart.
 
+param(
+    [switch]$SkipFirewall
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -83,8 +87,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "build failed" }
     Pop-Location
 
-    Write-Host "Adding firewall allow rule for $rhizomeBin ..."
-    Add-RhizomeExeFirewallRules -Path $rhizomeBin
+    if (-not $SkipFirewall) {
+        Write-Host "Adding firewall allow rule for $rhizomeBin ..."
+        Add-RhizomeExeFirewallRules -Path $rhizomeBin
+    }
 
     $aHome = Join-Path $testDir "a"
     $bHome = Join-Path $testDir "b"

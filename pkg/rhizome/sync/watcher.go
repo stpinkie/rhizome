@@ -167,7 +167,7 @@ func (w *Watcher) addRecursive(root string) error {
 			if w.onError != nil {
 				w.onError(fmt.Errorf("walk %s: %w", root, err))
 			}
-			return nil //nolint:nilerr // continue walking
+			return nil
 		}
 		if !d.IsDir() {
 			return nil
@@ -189,7 +189,7 @@ func (w *Watcher) addDir(path string) error {
 			if w.onError != nil {
 				w.onError(fmt.Errorf("walk %s: %w", path, err))
 			}
-			return nil //nolint:nilerr // continue walking
+			return nil
 		}
 		if !d.IsDir() {
 			return nil

@@ -512,13 +512,7 @@ func membersSnapshotLocked(swarm *swarmState) []MemberInfo {
 	}
 	out := make([]MemberInfo, 0, len(swarm.Members))
 	for _, m := range swarm.Members {
-		out = append(out, MemberInfo{
-			PeerID:      m.PeerID,
-			LastSeen:    m.LastSeen,
-			Source:      m.Source,
-			CapDigest:   m.CapDigest,
-			ActiveTasks: m.ActiveTasks,
-		})
+		out = append(out, MemberInfo(m))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PeerID < out[j].PeerID })
 	return out

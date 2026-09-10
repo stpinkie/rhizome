@@ -308,7 +308,7 @@ func isNumericToken(value string) bool {
 func validSkillNameOrEmpty(candidate string) string {
 	candidate = strings.Trim(candidate, "-")
 	candidate = strings.Join(strings.FieldsFunc(candidate, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 	}), "-")
 	candidate = strings.ToLower(strings.Trim(candidate, "-"))
 	if candidate == "" {

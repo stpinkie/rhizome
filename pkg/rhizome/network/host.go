@@ -283,9 +283,8 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		bootstrapBackoff = 250 * time.Millisecond
 	}
 	for _, a := range cfg.BootstrapPeers {
-		if err := n.connectAddrWithRetry(ctx, a, bootstrapAttempts, bootstrapBackoff); err != nil {
-			// Log but do not fail startup because a bootstrap may be offline.
-		}
+		// Log but do not fail startup because a bootstrap may be offline.
+		_ = n.connectAddrWithRetry(ctx, a, bootstrapAttempts, bootstrapBackoff)
 	}
 
 	// Public DHT discovery.
@@ -495,6 +494,7 @@ func (n *Node) watchHostEvents(ctx context.Context) {
 }
 
 func (n *Node) setReachability(r libnet.Reachability) {
+	//nolint:gosec // G115: libp2p Reachability is an enum with small positive values.
 	prev := libnet.Reachability(n.reachability.Swap(int32(r)))
 	if prev == r {
 		return

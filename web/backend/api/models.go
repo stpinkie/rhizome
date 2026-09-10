@@ -700,7 +700,7 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if mc.APIKey != "" {
-		mc.ModelConfig.SetAPIKey(mc.APIKey)
+		mc.SetAPIKey(mc.APIKey)
 	}
 
 	h.configMu.Lock()
@@ -789,9 +789,9 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	// Preserve the existing API key when the caller omits it (empty string).
 	// This lets the UI update api_base / proxy without clearing the stored secret.
 	if mc.APIKey == "" {
-		mc.ModelConfig.SetAPIKey(cfg.ModelList[idx].APIKey())
+		mc.SetAPIKey(cfg.ModelList[idx].APIKey())
 	} else {
-		mc.ModelConfig.SetAPIKey(mc.APIKey)
+		mc.SetAPIKey(mc.APIKey)
 	}
 	// Preserve existing ExtraBody when omitted (nil), but clear it when
 	// the frontend sends an empty object {} to indicate the field should
@@ -850,7 +850,7 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Validation error: %v", err), http.StatusBadRequest)
 		return
 	}
-	newModelName := strings.TrimSpace(mc.ModelConfig.ModelName)
+	newModelName := strings.TrimSpace(mc.ModelName)
 	defaultReferenceRenamed := false
 	fallbackReferenceRenamed := false
 	if oldModelName != "" && newModelName != "" && oldModelName != newModelName {
@@ -1356,7 +1356,7 @@ func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) (
 		models := make([]upstreamModel, 0, len(envelope.Data))
 		for _, m := range envelope.Data {
 			if m.ID != "" {
-				models = append(models, upstreamModel{ID: m.ID, OwnedBy: m.OwnedBy})
+				models = append(models, upstreamModel(m))
 			}
 		}
 		return models, nil
@@ -1368,7 +1368,7 @@ func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) (
 		models := make([]upstreamModel, 0, len(arr))
 		for _, m := range arr {
 			if m.ID != "" {
-				models = append(models, upstreamModel{ID: m.ID, OwnedBy: m.OwnedBy})
+				models = append(models, upstreamModel(m))
 			}
 		}
 		return models, nil

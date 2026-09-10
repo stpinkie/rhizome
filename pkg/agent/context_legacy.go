@@ -362,7 +362,7 @@ func (m *legacyContextManager) summarizeBatch(
 		content := strings.TrimSpace(msg.Content)
 		runes := []rune(content)
 		if len(runes) == 0 {
-			fallback.WriteString(fmt.Sprintf("%s: ", msg.Role))
+			fmt.Fprintf(&fallback, "%s: ", msg.Role)
 			continue
 		}
 
@@ -378,7 +378,7 @@ func (m *legacyContextManager) summarizeBatch(
 		if keepLength < len(runes) {
 			content += "..."
 		}
-		fallback.WriteString(fmt.Sprintf("%s: %s", msg.Role, content))
+		fmt.Fprintf(&fallback, "%s: %s", msg.Role, content)
 	}
 	return fallback.String(), nil
 }
