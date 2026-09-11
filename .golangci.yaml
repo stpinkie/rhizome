@@ -1,5 +1,13 @@
 version: "2"
 
+# .golangci.yaml
+#
+# errcheck, gosec, and staticcheck are intentionally enabled. The
+# `exclusions.rules` path exception below only de-scopes the historical lint
+# debt in cmd/, web/, examples/, scripts/, and non-stabilization pkg/ paths.
+# The v0.8.2 stabilization packages (pkg/rhizome, pkg/media, pkg/tools/fs) are
+# fully linted by these linters.
+
 linters:
   default: all
   disable:

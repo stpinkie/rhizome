@@ -32,6 +32,26 @@ $env:TEMP='D:\tmp'
 $env:TMP='D:\tmp'
 ```
 
+## Validation on resource-constrained Linux VMs
+
+The full release gate (`go build ./...`, `go test ./...`, `golangci-lint ./...`,
+`make build-all`) needs a runner with ≥ 10 GB free disk and ≥ 4 GB of memory
+for `CGO_ENABLED=1` race builds.
+
+For small Linux VMs with only ~4 GB of root-FS and ~2 GB of memory, use the
+reduced validation path instead:
+
+```bash
+bash ./scripts/validate-small-vm.sh
+```
+
+This builds the `cmd/rhizome` binary, runs `go vet`/`go test` on
+`pkg/evolution`, `pkg/rhizome`, `pkg/media`, and `pkg/tools/fs`, runs
+`make lint-slim`, then builds the core cross-compile targets. It frees the Go
+build cache between heavy phases and between cross-compile targets so it should
+complete on a 4 GB root FS. It is a pre-flight subset, not a replacement for the
+full release gate.
+
 ## Rhizome P2P Commands
 
 - `rhizome network onboard` — create a node identity from a BIP39 mnemonic (now supports `--generate` and `--encrypt {keyring|passphrase|none}`).

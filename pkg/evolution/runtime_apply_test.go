@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -932,10 +931,6 @@ func TestRuntime_RunColdPathOnce_FirstApplyFailureDoesNotCreateGhostProfile(t *t
 }
 
 func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory permission behavior differs on Windows")
-	}
-
 	root := t.TempDir()
 	paths := evolution.NewPaths(root, "")
 	store := evolution.NewStore(paths)
@@ -953,11 +948,14 @@ func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testin
 		t.Fatalf("AppendLearningRecords: %v", err)
 	}
 
-	if err := os.Chmod(paths.RootDir, 0o555); err != nil {
-		t.Fatalf("Chmod(root read-only): %v", err)
+	// Make SaveDrafts fail by making skill-drafts.json a directory. This is
+	// root-proof: os.ReadFile on a directory returns an error, so
+	// applyCandidateDraft returns ErrApplyDraftFailed and rolls back.
+	if err := os.Mkdir(paths.SkillDrafts, 0o755); err != nil {
+		t.Fatalf("Mkdir(skill-drafts.json failure injector): %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chmod(paths.RootDir, 0o755)
+		_ = os.RemoveAll(paths.SkillDrafts)
 	})
 
 	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{

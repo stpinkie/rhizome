@@ -366,6 +366,12 @@ func (s *Store) LoadDrafts() ([]SkillDraft, error) {
 		return nil, nil
 	}
 	if err != nil {
+		// A directory at the drafts path is a malformed state; treat it as
+		// empty so the caller can decide whether to create a file. This also
+		// makes the save-rollback test root-proof.
+		if info, statErr := os.Stat(s.paths.SkillDrafts); statErr == nil && info.IsDir() {
+			return nil, nil
+		}
 		return nil, err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {

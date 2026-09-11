@@ -434,6 +434,11 @@ build-pi-zero: build-linux-arm build-linux-arm64
 build-all: generate
 	@echo "Building for multiple platforms..."
 	@mkdir -p $(BUILD_DIR)
+
+## build-core: Build the rhizome binary for the core cross-compile targets only
+build-core: generate
+	@echo "Building for core platforms..."
+	@BUILD_DIR="$(BUILD_DIR)" LDFLAGS="$(LDFLAGS)" bash ./scripts/build-core-targets.sh
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./$(CMD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=386 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-386 ./$(CMD_DIR)
 	GOOS=linux GOARCH=arm GOARM=7 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm ./$(CMD_DIR)
@@ -535,6 +540,16 @@ lint:
 		  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2"; \
 		  echo "or set GOLANGCI_LINT=/path/to/golangci-lint"; exit 1; }
 	@$(GOLANGCI_LINT) run --build-tags $(GO_BUILD_TAGS) ./...
+	@./scripts/lint-docs.sh
+
+## lint-slim: Run linters on the v0.8.2 stabilization scope (smaller cache footprint)
+lint-slim:
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || \
+		{ echo "Error: '$(GOLANGCI_LINT)' not found."; \
+		  echo "Install a version matching .github/workflows/pr.yml (currently v2.13.2):"; \
+		  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2"; \
+		  echo "or set GOLANGCI_LINT=/path/to/golangci-lint"; exit 1; }
+	@$(GOLANGCI_LINT) run --build-tags $(GO_BUILD_TAGS) ./pkg/rhizome/... ./pkg/media/... ./pkg/tools/fs/...
 	@./scripts/lint-docs.sh
 
 ## fix: Fix linting issues
