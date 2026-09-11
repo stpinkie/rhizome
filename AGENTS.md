@@ -48,9 +48,24 @@ bash ./scripts/validate-small-vm.sh
 This builds the `cmd/rhizome` binary, runs `go vet`/`go test` on
 `pkg/evolution`, `pkg/rhizome`, `pkg/media`, and `pkg/tools/fs`, runs
 `make lint-slim`, then builds the core cross-compile targets. It frees the Go
-build cache between heavy phases and between cross-compile targets so it should
-complete on a 4 GB root FS. It is a pre-flight subset, not a replacement for the
-full release gate.
+build cache and cross-compile binaries when it detects it is on the small
+overlay, and reuses the cache when `GOCACHE`/`GOMODCACHE` are placed on a large
+host mount. It is a pre-flight subset, not a replacement for the full release
+gate.
+
+If the host provides a large mount (for example `/var/lib/docker/rhizome-cache/`),
+use it for caches and build output:
+
+```bash
+export GOCACHE=/var/lib/docker/rhizome-cache/gocache
+export GOMODCACHE=/var/lib/docker/rhizome-cache/gomodcache
+export RHIZOME_BUILD_DIR=/var/lib/docker/rhizome-cache/build
+export RHIZOME_BUILD_CLEAN=0
+bash ./scripts/validate-small-vm.sh
+```
+
+This keeps the 4 GB overlay from filling and makes the cross-compile phase
+much faster because the Go build cache is reused across targets.
 
 ## Rhizome P2P Commands
 

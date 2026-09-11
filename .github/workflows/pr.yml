@@ -209,14 +209,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Cross-compile all Makefile-managed platforms
+        # dragonfly/amd64 is intentionally omitted: modernc.org/libc has no
+        # Go files for dragonfly, so the build cannot succeed today.
         run: CGO_ENABLED=0 make build-all
-
-      - name: Cross-compile extra BSD targets
-        run: |
-          # dragonfly/amd64 is omitted: modernc.org/libc (pulled in by modernc.org/sqlite)
-          # has no Go files for dragonfly, so the build cannot succeed today.
-          CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build -tags goolm,stdjson -o build/rhizome-freebsd-amd64 ./cmd/rhizome
-          CGO_ENABLED=0 GOOS=openbsd GOARCH=amd64 go build -tags goolm,stdjson -o build/rhizome-openbsd-amd64 ./cmd/rhizome
 
   cross-compile-android:
     name: Cross-compile Android bundle
