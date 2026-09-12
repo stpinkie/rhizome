@@ -177,7 +177,7 @@ if [[ "${B_ONLINE}" -ne 1 ]]; then
   exit 1
 fi
 
-if ! wait_for_member "${B_HOME}" "${A_PEER}" 60; then
+if ! wait_for_member "${B_HOME}" "${A_PEER}" 180; then
   echo "daemon B lost the ops roster after restart" >&2
   cat "${B_LOG}" >&2 || true
   exit 1

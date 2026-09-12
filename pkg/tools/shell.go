@@ -1190,6 +1190,12 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		if err != nil {
 			return ""
 		}
+		// Candidate paths are symlink-resolved below; resolve the workspace the
+		// same way so aliased prefixes (Windows 8.3 short names like RUNNER~1,
+		// macOS /var -> /private/var) don't look like escapes.
+		if resolved, rerr := filepath.EvalSymlinks(cwdPath); rerr == nil {
+			cwdPath = resolved
+		}
 
 		// Web URL schemes whose path components (starting with //) should be exempt
 		// from workspace sandbox checks. file: is intentionally excluded so that

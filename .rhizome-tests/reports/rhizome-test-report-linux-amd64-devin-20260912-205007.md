@@ -10,7 +10,7 @@
 | Go version | go1.26.6 linux/amd64 |
 | Node version | v22.23.2 |
 | pnpm version | 10.33.0 |
-| Commit | 1d8dc6fd (main, plus fixes described below) |
+| Commit | 8aae5cb0 (branch `devin/1789246308-linux-validation-fixes`, on base 1d8dc6fd) |
 | Date | 2026-09-12T20:05:00Z |
 | Duration | ~1900 seconds (total session) |
 
@@ -68,13 +68,13 @@ All pass in isolation and under `go test -p 1`. This reproduces the Windows flak
 
 ## Summary
 
-PASS — full release gate green on Linux amd64: sequential `go test` (102 packages), `make vet`, `make lint` (0 issues), race suite (mesh/stream/swarm), Docker integration suite, mesh integration, swarm integration, web backend/frontend tests, 15-target `make build-all`, and `validate-small-vm.sh` (pending v0.8.4 item — now confirmed clean).
+PASS — release gate green on Linux amd64 in sequential mode: `go test -p 1` (102 packages; the default parallel `make test` flaked twice on known timing-sensitive tests — see Results), `make vet`, `make lint` (0 issues), race suite (mesh/stream/swarm), Docker integration suite, mesh integration, swarm integration, web backend/frontend tests, 15-target `make build-all`, and `validate-small-vm.sh` (pending v0.8.4 item — now confirmed clean).
 
 ## Notes
 
 Four real defects found and fixed during this validation:
 
-1. **`swarm members` (and `swarm list`/`status`/`offers`) wrote results to stderr**, breaking `cmd | grep` in `scripts/integration-swarm.sh` (works on PowerShell because stderr merges differently). Replaced cobra `cmd.Print*` with `fmt.Print*` in `cmd/rhizome/internal/swarm/status.go` and `offer.go`, matching the `network status` convention.
+1. **`swarm members` (and `swarm list`/`status`/`offers`) wrote results to stderr**, breaking `cmd | grep` in `scripts/integration-swarm.sh` (works on PowerShell because stderr merges differently). Replaced cobra `cmd.Print*` with `fmt.Fprint*(cmd.OutOrStdout(), …)` in `cmd/rhizome/internal/swarm/status.go` and `offer.go`, honoring `SetOut` redirection.
 2. **Data race**: `Mesh.cfg.SkillShare` was mutated by tests post-`Start` while `shareableSkills()` read it from the announce loop. Added `Mesh.skillShareMu` + `Mesh.SetSkillShare`; test now uses the setter.
 3. **Lint failure**: redundant `uint64(st.Bavail)` conversion in `pkg/browser/diskspace_linux.go` (unconvert).
 4. **`pnpm format` gate red on main**: 11 frontend files unformatted; ran `prettier --write`.
