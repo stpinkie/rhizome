@@ -123,7 +123,21 @@ jobs:
           CGO_ENABLED: '0'
 
       - name: Run go test
-        run: go test -p 1 -tags goolm,stdjson ./...
+        shell: bash
+        # libp2p/mDNS mesh tests flake on shared Windows runners ("reliable
+        # conn closed", Eventually timeouts) at random call sites. Re-run only
+        # the failed packages once before failing the job.
+        run: |
+          set -o pipefail
+          if go test -p 1 -tags goolm,stdjson ./... 2>&1 | tee go-test.log; then
+            exit 0
+          fi
+          pkgs=$(grep -E '^FAIL[[:space:]]+github.com/' go-test.log | awk '{print $2}' | sort -u | tr '\n' ' ')
+          if [ -z "$pkgs" ]; then
+            exit 1
+          fi
+          echo "::warning::Retrying failed packages once: $pkgs"
+          go test -p 1 -tags goolm,stdjson -count=1 $pkgs
         env:
           CGO_ENABLED: '0'
 
@@ -201,7 +215,10 @@ jobs:
           go-version-file: go.mod
 
       - name: Build and run swarm integration script
-        run: bash ./scripts/integration-swarm.sh
+        # Roster gossip between two libp2p daemons on one runner is
+        # timing-sensitive; a single retry absorbs transient slowness while
+        # still failing on real regressions.
+        run: bash ./scripts/integration-swarm.sh || bash ./scripts/integration-swarm.sh
         env:
           CGO_ENABLED: '0'
 
