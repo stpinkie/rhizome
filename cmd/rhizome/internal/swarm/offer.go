@@ -275,10 +275,10 @@ func newOffersCommand() *cobra.Command {
 				} `json:"offers"`
 			}
 			if err := json.Unmarshal(data, &parsed); err != nil || len(parsed.Offers) == 0 {
-				cmd.Printf("No tracked offers for swarm %q.\n", args[0])
+				fmt.Printf("No tracked offers for swarm %q.\n", args[0])
 				return
 			}
-			cmd.Printf("Offers for %q:\n", args[0])
+			fmt.Printf("Offers for %q:\n", args[0])
 			for _, o := range parsed.Offers {
 				line := fmt.Sprintf("  - %s agent=%s status=%s", o.OfferID, o.AgentID, o.Status)
 				if o.Assignee != "" {
@@ -290,7 +290,7 @@ func newOffersCommand() *cobra.Command {
 				if o.Error != "" {
 					line += " err=" + o.Error
 				}
-				cmd.Println(line)
+				fmt.Println(line)
 			}
 		},
 	}

@@ -284,9 +284,7 @@ export interface SwarmRunsResponse {
   runs?: SwarmRunRecord[]
 }
 
-export async function getSwarmRuns(
-  swarm: string,
-): Promise<SwarmRunsResponse> {
+export async function getSwarmRuns(swarm: string): Promise<SwarmRunsResponse> {
   return request<SwarmRunsResponse>(
     `/api/network/swarms/${encodeURIComponent(swarm)}/runs`,
   )

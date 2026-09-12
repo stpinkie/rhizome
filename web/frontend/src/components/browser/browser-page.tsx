@@ -1,19 +1,15 @@
-import {
-  IconDownload,
-  IconTrash,
-  IconWorld,
-} from "@tabler/icons-react"
+import { IconDownload, IconTrash, IconWorld } from "@tabler/icons-react"
 import { useCallback, useEffect, useState } from "react"
 
 import {
+  type BrowserBackend,
+  type BrowserBackendConfig,
+  type BrowserConfig,
   getBrowserBackends,
   getBrowserConfig,
   installBrowserBackend,
   saveBrowserConfig,
   uninstallBrowserBackend,
-  type BrowserBackend,
-  type BrowserBackendConfig,
-  type BrowserConfig,
 } from "@/api/browser"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -116,7 +112,14 @@ export function BrowserPage() {
         setSaving(false)
       }
     },
-    [enabled, defaultBackend, sessionTimeout, privateHostWhitelist, backendCfgs, refresh],
+    [
+      enabled,
+      defaultBackend,
+      sessionTimeout,
+      privateHostWhitelist,
+      backendCfgs,
+      refresh,
+    ],
   )
 
   const setField = (id: string, key: string, value: string) => {
@@ -164,7 +167,10 @@ export function BrowserPage() {
         title="Browser Automation"
         titleExtra={
           <div className="flex items-center gap-2">
-            <Label htmlFor="browser-enabled" className="text-muted-foreground text-xs">
+            <Label
+              htmlFor="browser-enabled"
+              className="text-muted-foreground text-xs"
+            >
               {enabled ? "Enabled" : "Disabled"}
             </Label>
             <Switch
@@ -232,63 +238,67 @@ export function BrowserPage() {
                             cfg as Record<string, string | undefined>
                           )[f.key]
                           return (
-                          <div key={f.key} className="grid gap-1">
-                            <Label className="text-xs">
-                              {f.label}
-                              {f.required && (
-                                <span className="text-destructive"> *</span>
+                            <div key={f.key} className="grid gap-1">
+                              <Label className="text-xs">
+                                {f.label}
+                                {f.required && (
+                                  <span className="text-destructive"> *</span>
+                                )}
+                              </Label>
+                              {f.key === "env" ? (
+                                <Input
+                                  // Remount when the stored env map changes so
+                                  // the uncontrolled input reflects refreshes.
+                                  key={`env-${b.id}-${JSON.stringify(cfg.env ?? null)}`}
+                                  placeholder='{"KEY":"value"}'
+                                  className="h-8 text-xs"
+                                  defaultValue={
+                                    cfg.env ? JSON.stringify(cfg.env) : ""
+                                  }
+                                  onBlur={(e) => {
+                                    const v = e.target.value.trim()
+                                    if (v === "") {
+                                      // Clearing must remove the key entirely —
+                                      // sending "" would fail to unmarshal into
+                                      // the backend's map[string]string field.
+                                      setBackendCfgs((prev) => {
+                                        const entry = { ...prev[b.id] }
+                                        delete entry.env
+                                        return { ...prev, [b.id]: entry }
+                                      })
+                                      return
+                                    }
+                                    try {
+                                      const parsed = JSON.parse(v)
+                                      setBackendCfgs((prev) => ({
+                                        ...prev,
+                                        [b.id]: { ...prev[b.id], env: parsed },
+                                      }))
+                                    } catch {
+                                      setMessage(
+                                        `Invalid JSON in env for ${b.id}`,
+                                      )
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <Input
+                                  type={f.secret ? "password" : "text"}
+                                  placeholder={
+                                    f.secret && isMaskedSecret(rawVal)
+                                      ? SECRET_SENTINEL
+                                      : undefined
+                                  }
+                                  className="h-8 text-xs"
+                                  value={
+                                    isMaskedSecret(rawVal) ? "" : (rawVal ?? "")
+                                  }
+                                  onChange={(e) =>
+                                    setField(b.id, f.key, e.target.value)
+                                  }
+                                />
                               )}
-                            </Label>
-                            {f.key === "env" ? (
-                              <Input
-                                // Remount when the stored env map changes so
-                                // the uncontrolled input reflects refreshes.
-                                key={`env-${b.id}-${JSON.stringify(cfg.env ?? null)}`}
-                                placeholder='{"KEY":"value"}'
-                                className="h-8 text-xs"
-                                defaultValue={
-                                  cfg.env ? JSON.stringify(cfg.env) : ""
-                                }
-                                onBlur={(e) => {
-                                  const v = e.target.value.trim()
-                                  if (v === "") {
-                                    // Clearing must remove the key entirely —
-                                    // sending "" would fail to unmarshal into
-                                    // the backend's map[string]string field.
-                                    setBackendCfgs((prev) => {
-                                      const entry = { ...prev[b.id] }
-                                      delete entry.env
-                                      return { ...prev, [b.id]: entry }
-                                    })
-                                    return
-                                  }
-                                  try {
-                                    const parsed = JSON.parse(v)
-                                    setBackendCfgs((prev) => ({
-                                      ...prev,
-                                      [b.id]: { ...prev[b.id], env: parsed },
-                                    }))
-                                  } catch {
-                                    setMessage(`Invalid JSON in env for ${b.id}`)
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <Input
-                                type={f.secret ? "password" : "text"}
-                                placeholder={
-                                  f.secret && isMaskedSecret(rawVal)
-                                    ? SECRET_SENTINEL
-                                    : undefined
-                                }
-                                className="h-8 text-xs"
-                                value={isMaskedSecret(rawVal) ? "" : rawVal ?? ""}
-                                onChange={(e) =>
-                                  setField(b.id, f.key, e.target.value)
-                                }
-                              />
-                            )}
-                          </div>
+                            </div>
                           )
                         })}
                         <Button

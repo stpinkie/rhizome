@@ -57,11 +57,14 @@ type skillResponse struct {
 // shareableSkills returns installed skills that are in the skill_share
 // allowlist. Empty allowlist means nothing is shared (deny-all default).
 func (m *Mesh) shareableSkills() []string {
-	if len(m.cfg.SkillShare) == 0 {
+	m.skillShareMu.RLock()
+	share := m.cfg.SkillShare
+	m.skillShareMu.RUnlock()
+	if len(share) == 0 {
 		return nil
 	}
-	allow := make(map[string]bool, len(m.cfg.SkillShare))
-	for _, s := range m.cfg.SkillShare {
+	allow := make(map[string]bool, len(share))
+	for _, s := range share {
 		allow[strings.TrimSpace(s)] = true
 	}
 	m.skillsLoaderMu.RLock()
@@ -83,6 +86,14 @@ func (m *Mesh) shareableSkills() []string {
 // ShareableSkills exposes the local skill_share ∩ installed list for status
 // and API output.
 func (m *Mesh) ShareableSkills() []string { return m.shareableSkills() }
+
+// SetSkillShare replaces the skill_share allowlist; safe to call while the
+// mesh is running.
+func (m *Mesh) SetSkillShare(share []string) {
+	m.skillShareMu.Lock()
+	m.cfg.SkillShare = share
+	m.skillShareMu.Unlock()
+}
 
 // PeerIDString returns this node's peer id string.
 func (m *Mesh) PeerIDString() string { return m.host.ID().String() }

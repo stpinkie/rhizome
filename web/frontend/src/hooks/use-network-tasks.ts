@@ -68,13 +68,17 @@ export function useNetworkTasks(peer: string | null) {
             const taskErr =
               typeof payload.error === "string" ? payload.error : undefined
             if (status === "done") {
-              toast.success(`Task ${taskID.slice(-8)} on ${toastAgentID} completed`)
+              toast.success(
+                `Task ${taskID.slice(-8)} on ${toastAgentID} completed`,
+              )
             } else if (status === "error") {
               toast.error(
                 `Task ${taskID.slice(-8)} on ${toastAgentID} failed${taskErr ? `: ${taskErr}` : ""}`,
               )
             } else {
-              toast.warning(`Task ${taskID.slice(-8)} on ${toastAgentID} cancelled`)
+              toast.warning(
+                `Task ${taskID.slice(-8)} on ${toastAgentID} cancelled`,
+              )
             }
           }
           queryClient.setQueryData(

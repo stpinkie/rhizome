@@ -125,7 +125,7 @@ func TestMeshSkillListDenyAllDefault(t *testing.T) {
 
 	meshA, meshB := newSkillTestPair(t, ctx)
 	// Remove the allowlist: deny-all default.
-	meshA.cfg.SkillShare = nil
+	meshA.SetSkillShare(nil)
 
 	list, err := meshB.ListPeerSkills(ctx, meshA.host.ID())
 	require.NoError(t, err)

@@ -36,8 +36,12 @@ export function useSwarms() {
     es.onerror = () => setStreamConnected(false)
     es.onmessage = () => {
       void queryClient.invalidateQueries({ queryKey: swarmsQueryKey })
-      void queryClient.invalidateQueries({ queryKey: ["network", "swarm-offers"] })
-      void queryClient.invalidateQueries({ queryKey: ["network", "swarm-runs"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["network", "swarm-offers"],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ["network", "swarm-runs"],
+      })
     }
 
     return () => {
