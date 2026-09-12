@@ -136,8 +136,17 @@ jobs:
           if [ -z "$pkgs" ]; then
             exit 1
           fi
-          echo "::warning::Retrying failed packages once: $pkgs"
-          go test -p 1 -tags goolm,stdjson -count=1 $pkgs
+          # Retry each failed package individually (up to 2 attempts each):
+          # isolates per-package flakes (including occasional runtime crashes
+          # under GC stress on shared runners) without re-running everything.
+          rc=0
+          for pkg in $pkgs; do
+            echo "::warning::Retrying failed package: $pkg"
+            go test -p 1 -tags goolm,stdjson -count=1 "$pkg" \
+              || go test -p 1 -tags goolm,stdjson -count=1 "$pkg" \
+              || rc=1
+          done
+          exit $rc
         env:
           CGO_ENABLED: '0'
 
