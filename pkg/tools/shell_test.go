@@ -596,9 +596,15 @@ func TestShellTool_ExitCodeDetails(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	exitCmd := "sh -c 'exit 42'"
+	if runtime.GOOS == "windows" {
+		// Commands run via powershell -Command on Windows, which loses the
+		// child's exit code for nested sh invocations; exit directly.
+		exitCmd = "exit 42"
+	}
 	args := map[string]any{
 		"action":  "run",
-		"command": "sh -c 'exit 42'",
+		"command": exitCmd,
 	}
 
 	result := tool.Execute(ctx, args)

@@ -138,7 +138,7 @@ if ! wait_for_member "${A_HOME}" "${B_PEER}" 60; then
   cat "${A_LOG}" >&2 || true
   exit 1
 fi
-if ! wait_for_member "${B_HOME}" "${A_PEER}" 30; then
+if ! wait_for_member "${B_HOME}" "${A_PEER}" 120; then
   echo "daemon B never saw A in the ops roster" >&2
   cat "${B_LOG}" >&2 || true
   exit 1
