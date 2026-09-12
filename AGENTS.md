@@ -50,8 +50,9 @@ This builds the `cmd/rhizome` binary, runs `go vet`/`go test` on
 `make lint-slim`, then builds the core cross-compile targets. It frees the Go
 build cache and cross-compile binaries when it detects it is on the small
 overlay, and reuses the cache when `GOCACHE`/`GOMODCACHE` are placed on a large
-host mount. It is a pre-flight subset, not a replacement for the full release
-gate.
+host mount. `GOTMPDIR` and `TMPDIR` are also redirected under `GOCACHE` so Go's
+`$WORK` directories and test temp files stay off the overlay. It is a
+pre-flight subset, not a replacement for the full release gate.
 
 If the host provides a large mount (for example `/var/lib/docker/rhizome-cache/`),
 use it for caches and build output:

@@ -55,7 +55,7 @@ for target in \
     fi
 
     # shellcheck disable=SC2086
-    $env_vars go build -tags goolm,stdjson -ldflags "$ldflags" -o "$out" ./cmd/rhizome
+    env $env_vars go build -tags goolm,stdjson -ldflags "$ldflags" -o "$out" ./cmd/rhizome
 
     if rhizome_should_clean_builds; then
         echo "Removing $out to keep the small overlay from filling"

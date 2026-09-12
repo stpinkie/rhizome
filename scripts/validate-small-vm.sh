@@ -7,6 +7,7 @@ set -euo pipefail
 # Optional environment variables to place heavy caches/output on a large host
 # mount:
 #   GOCACHE, GOMODCACHE        Go build and module caches
+#   GOTMPDIR, TMPDIR           Go work dir ($WORK) and temp files; default under GOCACHE
 #   RHIZOME_BUILD_DIR          Where build/ and cross-compile binaries go
 #   RHIZOME_BUILD_CLEAN=1      Force removal of cross-compile binaries
 #
@@ -22,13 +23,17 @@ source "${repo_root}/scripts/rhizome-small-vm-helpers.sh"
 export CGO_ENABLED=0
 export GOCACHE="${GOCACHE:-/tmp/rhizome-gocache}"
 export GOMODCACHE="${GOMODCACHE:-/tmp/rhizome-gomodcache}"
-export TEMP="${GOCACHE}/tmp"
-export TMP="${GOCACHE}/tmp"
+# Go's work dir ($WORK) uses GOTMPDIR; os.TempDir() on Unix uses TMPDIR.
+# TEMP/TMP only apply on Windows but are harmless to set alongside.
+export GOTMPDIR="${GOTMPDIR:-${GOCACHE}/gotmp}"
+export TMPDIR="${TMPDIR:-${GOCACHE}/tmp}"
+export TEMP="$TMPDIR"
+export TMP="$TMPDIR"
 export GOGC=30
 export GOMEMLIMIT="2GiB"
 export PATH="$PATH:$(go env GOPATH)/bin"
 
-mkdir -p "$GOCACHE" "$GOMODCACHE" "$TEMP"
+mkdir -p "$GOCACHE" "$GOMODCACHE" "$GOTMPDIR" "$TMPDIR"
 
 build_dir="${RHIZOME_BUILD_DIR:-build}"
 export BUILD_DIR="$build_dir"
