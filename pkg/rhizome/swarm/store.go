@@ -51,11 +51,16 @@ func (s *Swarm) load() {
 	}
 }
 
-// save writes the swarm registry atomically (temp file + rename).
+// save writes the swarm registry atomically (temp file + rename). The whole
+// tmp-write/remove/rename sequence is serialized by saveMu: callers reach
+// this concurrently, and two interleaved saves could remove swarms.json after
+// the shared tmp file was already renamed away.
 func (s *Swarm) save() {
 	if s.path == "" {
 		return
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.RLock()
 	st := persistedState{Swarms: make(map[string]persistedSwarm, len(s.swarms))}
 	for id, swarm := range s.swarms {

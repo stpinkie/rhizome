@@ -101,6 +101,9 @@ type Swarm struct {
 	mu     sync.RWMutex
 	swarms map[string]*swarmState
 	path   string
+	// saveMu serializes the swarms.json tmp-write + rename; callers reach
+	// save() concurrently (reannounceLoop spawns one goroutine per peer).
+	saveMu sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
