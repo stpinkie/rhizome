@@ -88,10 +88,11 @@ func (m *Mesh) shareableSkills() []string {
 func (m *Mesh) ShareableSkills() []string { return m.shareableSkills() }
 
 // SetSkillShare replaces the skill_share allowlist; safe to call while the
-// mesh is running.
+// mesh is running. The slice is copied so later caller mutations are not
+// visible to readers.
 func (m *Mesh) SetSkillShare(share []string) {
 	m.skillShareMu.Lock()
-	m.cfg.SkillShare = share
+	m.cfg.SkillShare = append([]string(nil), share...)
 	m.skillShareMu.Unlock()
 }
 

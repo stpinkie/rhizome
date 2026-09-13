@@ -52,8 +52,15 @@ jobs:
           # go-libp2p-kad-dht release and has no fixed version — there is no
           # upgrade that clears it. Treat that advisory as known-accepted and
           # fail only on other reachable findings.
-          govulncheck -C . -format text ./... > govulncheck.txt || true
+          set +e
+          govulncheck -C . -format text ./... > govulncheck.txt
+          rc=$?
+          set -e
           cat govulncheck.txt
+          if [ "$rc" -ne 0 ] && ! grep -q '^Vulnerability #' govulncheck.txt; then
+            echo "govulncheck: scan failed (exit $rc), not a clean vulnerability report" >&2
+            exit 1
+          fi
           if grep -E '^Vulnerability #' govulncheck.txt | grep -qv 'GO-2024-3218'; then
             echo "govulncheck: new reachable vulnerabilities found" >&2
             exit 1
