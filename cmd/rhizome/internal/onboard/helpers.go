@@ -72,6 +72,10 @@ func runOnboard(cfg onboardConfig) {
 		}
 	}
 
+	if !cfg.nonInteractive && term.IsTerminal(int(os.Stdin.Fd())) {
+		runModelWizard(c, bufio.NewReader(os.Stdin))
+	}
+
 	if err := config.SaveConfig(configPath, c); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
 		os.Exit(1)

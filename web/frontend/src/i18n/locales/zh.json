@@ -37,6 +37,27 @@
     "errorMismatch": "两次输入的密码不一致。",
     "errorNetwork": "网络错误，请重试。"
   },
+  "setup": {
+    "title": "初始设置",
+    "cardTitle": "配置您的第一个模型",
+    "cardDesc": "选择一个提供商，输入凭据并选择模型，即可开始对话。",
+    "provider": "提供商",
+    "apiKey": "API 密钥",
+    "apiKeyPlaceholder": "粘贴您的 API 密钥",
+    "apiBase": "API 地址",
+    "apiBaseHint": "自托管或 OpenAI 兼容端点可修改此项（例如 http://localhost:11434/v1）。",
+    "model": "模型",
+    "modelPlaceholder": "例如 gpt-4o",
+    "fetchModels": "获取模型列表",
+    "test": "测试连接",
+    "testOK": "连接成功。",
+    "testFailed": "连接测试失败。",
+    "save": "保存并设为默认",
+    "skip": "暂时跳过",
+    "alreadyTitle": "设置已完成",
+    "alreadyDesc": "已配置默认模型。",
+    "continue": "继续"
+  },
   "chat": {
     "welcome": "今天我能为您做些什么？",
     "welcomeDesc": "您可以询问我天气、设置或其他任何任务，我随时为您效劳。",

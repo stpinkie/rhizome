@@ -3,6 +3,7 @@ import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { useEffect, useState } from "react"
 
 import { getLauncherAuthStatus } from "@/api/launcher-auth"
+import { getSetupStatus } from "@/api/setup"
 import { AppLayout } from "@/components/app-layout"
 import { initializeChatStore } from "@/features/chat/controller"
 import { isLauncherAuthPathname } from "@/lib/launcher-login-path"
@@ -59,6 +60,28 @@ const RootLayout = () => {
         }
       })
   }, [isAuthPage])
+
+  // First-run gate: landing on the chat page without a configured model sends
+  // the user to the onboarding wizard once per session.
+  const pathname = routerState.pathname
+  useEffect(() => {
+    if (isAuthPage || pathname !== "/" || typeof sessionStorage === "undefined") {
+      return
+    }
+    if (sessionStorage.getItem("rhizome.setup.skipped")) {
+      return
+    }
+    void getSetupStatus()
+      .then((s) => {
+        if (s.needs_setup) {
+          globalThis.location.assign("/setup")
+        }
+      })
+      .catch(() => {
+        // Status check is best-effort; the chat page surfaces its own
+        // "no default model" state when setup is genuinely incomplete.
+      })
+  }, [isAuthPage, pathname])
 
   useEffect(() => {
     if (isAuthPage) {

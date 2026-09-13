@@ -38,6 +38,27 @@
     "errorMismatch": "Passwords do not match.",
     "errorNetwork": "Network error. Please try again."
   },
+  "setup": {
+    "title": "Setup",
+    "cardTitle": "Configure your first model",
+    "cardDesc": "Pick a provider, enter your credentials, and choose a model to start chatting.",
+    "provider": "Provider",
+    "apiKey": "API key",
+    "apiKeyPlaceholder": "Paste your API key",
+    "apiBase": "API base URL",
+    "apiBaseHint": "Change this for self-hosted or OpenAI-compatible endpoints (e.g. http://localhost:11434/v1).",
+    "model": "Model",
+    "modelPlaceholder": "e.g. gpt-4o",
+    "fetchModels": "Fetch model list",
+    "test": "Test connection",
+    "testOK": "Connection successful.",
+    "testFailed": "Connection test failed.",
+    "save": "Save and set as default",
+    "skip": "Skip for now",
+    "alreadyTitle": "Setup complete",
+    "alreadyDesc": "A default model is already configured.",
+    "continue": "Continue"
+  },
   "chat": {
     "welcome": "How can I help you today?",
     "welcomeDesc": "Ask me about weather, settings, or any other tasks. I'm here to assist you.",
