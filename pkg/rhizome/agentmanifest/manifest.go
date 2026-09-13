@@ -114,7 +114,7 @@ func (m *Manifest) SaveTo(dir string) error {
 	if !ValidAgentID(m.AgentID) {
 		return fmt.Errorf("invalid agent id %q", m.AgentID)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -154,6 +154,7 @@ func LoadAll(dir string) []Manifest {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue
 		}
+		//nolint:gosec // G304: entry names come from ReadDir over the agents dir, filtered to .json.
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue

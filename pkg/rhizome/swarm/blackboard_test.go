@@ -62,8 +62,11 @@ func TestSetContextCoordinatorOnly(t *testing.T) {
 	require.NoError(t, swarmA.Join(ctx, "ops"))
 	require.NoError(t, swarmB.Join(ctx, "ops"))
 
+	// Wait until both nodes agree on the same coordinator — a node whose
+	// roster has not converged yet legitimately elects itself.
 	require.Eventually(t, func() bool {
-		return swarmA.Coordinator("ops") != "" && swarmB.Coordinator("ops") != ""
+		c := swarmA.Coordinator("ops")
+		return c != "" && c == swarmB.Coordinator("ops")
 	}, 10*time.Second, 100*time.Millisecond)
 
 	// The coordinator (lowest peer id) may write; the other may not.

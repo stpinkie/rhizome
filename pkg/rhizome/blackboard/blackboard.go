@@ -115,14 +115,15 @@ func (b *Blackboard) Append(author string, n Note) error {
 	if n.ExpiresAt.IsZero() && b.opts.NoteTTL > 0 {
 		n.ExpiresAt = n.TS.Add(b.opts.NoteTTL)
 	}
-	if err := os.MkdirAll(b.notesDir(), 0o755); err != nil {
+	if err := os.MkdirAll(b.notesDir(), 0o700); err != nil {
 		return err
 	}
 	data, err := json.Marshal(n)
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	//nolint:gosec // G304: path is the author's shard under the workspace notes dir, not user input.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -180,11 +181,12 @@ func (b *Blackboard) truncateShard(path string) error {
 
 // readShard parses one shard file; unreadable lines are skipped.
 func readShard(path string) ([]Note, error) {
+	//nolint:gosec // G304: path is a shard under the workspace notes dir, not user input.
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var notes []Note
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -244,7 +246,7 @@ func (b *Blackboard) ReadContext() string {
 
 // WriteContext replaces the curated context document atomically.
 func (b *Blackboard) WriteContext(content string) error {
-	if err := os.MkdirAll(b.dir, 0o755); err != nil {
+	if err := os.MkdirAll(b.dir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(b.dir, ".context-*.tmp")

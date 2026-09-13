@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,11 +35,11 @@ func TestAgentManifestAdvertisedInCapability(t *testing.T) {
 		}}
 	})
 
-	cap, err := f.meshB.TrustAndDiscover(ctx, f.nodeA.ID())
+	announced, err := f.meshB.TrustAndDiscover(ctx, f.nodeA.ID())
 	require.NoError(t, err)
-	require.Len(t, cap.AgentManifests, 1)
+	require.Len(t, announced.AgentManifests, 1)
 
-	mf := cap.AgentManifests[0]
+	mf := announced.AgentManifests[0]
 	assert.Equal(t, "main", mf.AgentID)
 	assert.Equal(t, "Main", mf.Name)
 	assert.Equal(t, "coordinator agent", mf.Persona)
@@ -57,10 +58,21 @@ func TestAgentManifestAdvertisedInCapability(t *testing.T) {
 		require.NoError(t, s.Verify(f.idA.PublicKey))
 	}
 
-	stored, ok := f.meshB.PeerCapabilities(f.nodeA.ID())
-	require.True(t, ok)
-	idx := agentManifestIndex(stored)
-	assert.Equal(t, mf.Fingerprint(), idx["main"])
+	// The stored capability may be a later advertisement than the one
+	// TrustAndDiscover returned (each build re-signs with a fresh IssuedAt),
+	// so fingerprints can legitimately differ. What must hold is that the
+	// stored manifest is present, authentic, and bound to node A.
+	require.Eventually(t, func() bool {
+		stored, ok := f.meshB.PeerCapabilities(f.nodeA.ID())
+		if !ok || len(stored.AgentManifests) != 1 {
+			return false
+		}
+		sm := stored.AgentManifests[0]
+		return sm.AgentID == "main" &&
+			sm.PeerID == f.nodeA.ID().String() &&
+			sm.Verify(f.idA.PublicKey) == nil &&
+			agentManifestIndex(stored)["main"] == sm.Fingerprint()
+	}, 10*time.Second, 100*time.Millisecond, "stored manifest must verify and be bound to node A")
 }
 
 // TestAgentManifestForgeryDropped verifies that embedded manifests signed by

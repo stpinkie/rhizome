@@ -88,11 +88,11 @@ func (s *Swarm) PostNote(ctx context.Context, swarmID, kind, key, content string
 		ExpiresAt: note.ExpiresAt,
 	})
 	if err != nil {
-		return nil // note is durably local; broadcast is best-effort
+		return nil //nolint:nilerr // note is durably local; broadcast is best-effort
 	}
 	env := Envelope{SwarmID: swarmID, Type: MsgNote, Payload: payload}
 	if err := s.sign(&env); err != nil {
-		return nil
+		return nil //nolint:nilerr // note is durably local; broadcast is best-effort
 	}
 	for _, pid := range s.memberPeers(swarmID) {
 		go func(pid peer.ID) { _ = s.transport.Push(ctx, pid, env) }(pid)
