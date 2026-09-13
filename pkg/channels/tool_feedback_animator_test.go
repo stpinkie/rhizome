@@ -3,7 +3,11 @@ package channels
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/stpinkie/rhizome/pkg/config"
 )
 
 func TestFormatAnimatedToolFeedbackContent(t *testing.T) {
@@ -117,5 +121,96 @@ func TestToolFeedbackAnimator_UpdateFailureRestoresTracking(t *testing.T) {
 	}
 	if currentID, ok := animator.Current("chat-1"); !ok || currentID != "msg-1" {
 		t.Fatalf("Current() after failed Update = (%q, %v), want (msg-1, true)", currentID, ok)
+	}
+}
+
+func TestToolFeedbackAnimator_StopsAfterConsecutiveErrors(t *testing.T) {
+	prev := toolFeedbackAnimationInterval
+	toolFeedbackAnimationInterval = 5 * time.Millisecond
+	defer func() { toolFeedbackAnimationInterval = prev }()
+
+	var calls atomic.Int32
+	animator := NewToolFeedbackAnimator(func(context.Context, string, string, string) error {
+		calls.Add(1)
+		return errors.New("edit failed")
+	})
+	defer animator.StopAll()
+
+	animator.Record("chat-1", "msg-1", "🔧 `read_file`")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := animator.Current("chat-1"); !ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, ok := animator.Current("chat-1"); ok {
+		t.Fatal("animation should have stopped after consecutive edit errors")
+	}
+	if got := calls.Load(); got != toolFeedbackMaxConsecutiveErrors {
+		t.Fatalf("edit calls = %d, want %d", got, toolFeedbackMaxConsecutiveErrors)
+	}
+}
+
+func TestToolFeedbackAnimator_RecoversFromTransientErrors(t *testing.T) {
+	prev := toolFeedbackAnimationInterval
+	toolFeedbackAnimationInterval = 5 * time.Millisecond
+	defer func() { toolFeedbackAnimationInterval = prev }()
+
+	var calls atomic.Int32
+	animator := NewToolFeedbackAnimator(func(context.Context, string, string, string) error {
+		if calls.Add(1) <= 2 {
+			return errors.New("transient")
+		}
+		return nil
+	})
+	defer animator.StopAll()
+
+	animator.Record("chat-1", "msg-1", "🔧 `read_file`")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if calls.Load() > toolFeedbackMaxConsecutiveErrors {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if calls.Load() <= toolFeedbackMaxConsecutiveErrors {
+		t.Fatalf("edit calls = %d, want more than %d (recovered)", calls.Load(), toolFeedbackMaxConsecutiveErrors)
+	}
+	if _, ok := animator.Current("chat-1"); !ok {
+		t.Fatal("animation should still be tracked after transient errors")
+	}
+}
+
+func TestToolFeedbackAnimator_StopsAfterMaxDuration(t *testing.T) {
+	prev := toolFeedbackAnimationInterval
+	toolFeedbackAnimationInterval = 5 * time.Millisecond
+	defer func() { toolFeedbackAnimationInterval = prev }()
+
+	cfg := &config.Config{}
+	cfg.Timeouts.Channel.ToolFeedbackMaxDuration = config.Duration(30 * time.Millisecond)
+	config.SetGlobal(cfg)
+	defer config.SetGlobal(nil)
+
+	var calls atomic.Int32
+	animator := NewToolFeedbackAnimator(func(context.Context, string, string, string) error {
+		calls.Add(1)
+		return nil
+	})
+	defer animator.StopAll()
+
+	animator.Record("chat-1", "msg-1", "🔧 `read_file`")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := animator.Current("chat-1"); !ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, ok := animator.Current("chat-1"); ok {
+		t.Fatal("animation should have stopped after max duration")
 	}
 }

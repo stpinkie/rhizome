@@ -357,6 +357,92 @@ func (b *Channel) GetDecoded() (any, error) {
 	return b.extend, nil
 }
 
+// UnmarshalJSON implements json.Unmarshaler for Channel.
+// Accepts both nested format ({"settings": {...}}) and flat format — any
+// top-level key that is not part of the base Channel schema is folded into
+// Settings. When a key appears in both places, the nested settings value wins.
+func (b *Channel) UnmarshalJSON(data []byte) error {
+	type alias Channel
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*b = *(*Channel)(&a)
+
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+
+	merged := map[string]any{}
+	if len(b.Settings) > 0 {
+		if err := json.Unmarshal(b.Settings, &merged); err != nil {
+			return err
+		}
+	}
+	flat := false
+	for key, raw := range obj {
+		if key == "settings" {
+			continue
+		}
+		if _, ok := BaseFieldNames[key]; ok {
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+		if _, exists := merged[key]; !exists {
+			merged[key] = v
+			flat = true
+		}
+	}
+	if flat {
+		folded, err := json.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		b.Settings = folded
+	}
+
+	return nil
+}
+
+// foldFlatYAMLSettings merges YAML mapping keys that are not part of the base
+// Channel schema into Settings (nested settings values win on conflict).
+func (b *Channel) foldFlatYAMLSettings(value *yaml.Node) {
+	var rawMap map[string]any
+	if err := value.Decode(&rawMap); err != nil || len(rawMap) == 0 {
+		return
+	}
+
+	merged := map[string]any{}
+	if len(b.Settings) > 0 {
+		if err := json.Unmarshal(b.Settings, &merged); err != nil {
+			return
+		}
+	}
+	flat := false
+	for k, v := range rawMap {
+		if k == "settings" {
+			continue
+		}
+		if _, ok := BaseFieldNames[k]; ok {
+			continue
+		}
+		if _, exists := merged[k]; !exists {
+			merged[k] = v
+			flat = true
+		}
+	}
+	if !flat {
+		return
+	}
+	if data, err := json.Marshal(merged); err == nil {
+		b.Settings = data
+	}
+}
+
 // UnmarshalYAML implements yaml.Unmarshaler for Channel.
 // Merges the YAML node into the existing Channel.
 // Supports both nested format (settings: {...}) and flat format (token: xxx).
@@ -374,6 +460,8 @@ func (b *Channel) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	*b = *(*Channel)(&a)
+
+	b.foldFlatYAMLSettings(value)
 
 	if len(b.Settings) > 0 {
 		b.extend = nil

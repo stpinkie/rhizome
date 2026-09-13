@@ -7,6 +7,7 @@ import (
 )
 
 func init() {
+	RegisterQQAuthSchemeFilter()
 	channels.RegisterFactory(
 		config.ChannelQQ,
 		func(channelName, channelType string, cfg *config.Config, b *bus.MessageBus) (channels.Channel, error) {

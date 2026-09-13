@@ -162,13 +162,31 @@ func (a *ToolFeedbackAnimator) detach(chatID string) *toolFeedbackAnimationState
 	return entry
 }
 
+// toolFeedbackMaxConsecutiveErrors is how many edit failures in a row stop
+// an animation — a terminal error (deleted message, dead chat, rate limit)
+// will otherwise loop forever (upstream sipeed/picoclaw#3343).
+const toolFeedbackMaxConsecutiveErrors = 3
+
 func (a *ToolFeedbackAnimator) run(chatID string, entry *toolFeedbackAnimationState) {
 	defer close(entry.done)
+	// When the loop exits on its own (error abort or max lifetime), drop the
+	// registry entry so Current/Take don't report a dead animation.
+	defer func() {
+		a.mu.Lock()
+		if a.entries[chatID] == entry {
+			delete(a.entries, chatID)
+		}
+		a.mu.Unlock()
+	}()
 
 	ticker := time.NewTicker(toolFeedbackAnimationInterval)
 	defer ticker.Stop()
 
+	maxDuration := config.Global().ChannelToolFeedbackMaxDuration()
+	deadline := time.Now().Add(maxDuration)
+
 	frameIdx := 1
+	consecutiveErrors := 0
 
 	for {
 		select {
@@ -178,11 +196,22 @@ func (a *ToolFeedbackAnimator) run(chatID string, entry *toolFeedbackAnimationSt
 			if a.editFn == nil {
 				continue
 			}
+			if maxDuration > 0 && time.Now().After(deadline) {
+				return
+			}
 			frame := toolFeedbackAnimationFrames[frameIdx%len(toolFeedbackAnimationFrames)]
 			content := formatAnimatedToolFeedbackContent(entry.baseContent, frame)
 			ctx, cancel := context.WithTimeout(context.Background(), config.Global().ChannelPublishTimeout())
-			_ = a.editFn(ctx, chatID, entry.messageID, content)
+			err := a.editFn(ctx, chatID, entry.messageID, content)
 			cancel()
+			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= toolFeedbackMaxConsecutiveErrors {
+					return
+				}
+			} else {
+				consecutiveErrors = 0
+			}
 			frameIdx++
 		}
 	}

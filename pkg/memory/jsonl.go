@@ -49,6 +49,11 @@ type SessionMeta struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 	Scope     json.RawMessage `json:"scope,omitempty"`
 	Aliases   []string        `json:"aliases,omitempty"`
+	// ArchivedLines is the cumulative number of raw JSONL lines preserved to
+	// the session's .archive.jsonl before physical rewrites (SetHistory,
+	// Compact). It lets operators tell at a glance whether a session has a
+	// recoverable pre-compaction record (upstream sipeed/picoclaw#3351).
+	ArchivedLines int `json:"archived_lines,omitempty"`
 }
 
 // JSONLStore implements Store using append-only JSONL files.
@@ -91,6 +96,60 @@ func (s *JSONLStore) jsonlPath(key string) string {
 
 func (s *JSONLStore) metaPath(key string) string {
 	return filepath.Join(s.dir, sanitizeKey(key)+".meta.json")
+}
+
+// archivePath returns the append-only file that preserves raw JSONL lines
+// displaced by physical rewrites. The archive is the session's immutable
+// record: compaction may shorten the live .jsonl, but the archive keeps every
+// line that was ever written (upstream sipeed/picoclaw#3351).
+func (s *JSONLStore) archivePath(key string) string {
+	return filepath.Join(s.dir, sanitizeKey(key)+".archive.jsonl")
+}
+
+// archiveCurrentJSONL appends the session's current .jsonl contents to its
+// .archive.jsonl and returns the number of non-empty lines preserved. It must
+// be called while holding the session lock, before any physical rewrite.
+// Returns 0 when there is nothing to archive.
+func (s *JSONLStore) archiveCurrentJSONL(sessionKey string) (int, error) {
+	data, err := os.ReadFile(s.jsonlPath(sessionKey))
+	if os.IsNotExist(err) || len(data) == 0 {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("memory: read jsonl for archive: %w", err)
+	}
+
+	f, err := os.OpenFile(
+		s.archivePath(sessionKey),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+		0o644,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("memory: open archive: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return 0, fmt.Errorf("memory: append archive: %w", err)
+	}
+	if data[len(data)-1] != '\n' {
+		if _, err := f.Write([]byte{'\n'}); err != nil {
+			f.Close()
+			return 0, fmt.Errorf("memory: terminate archive line: %w", err)
+		}
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return 0, fmt.Errorf("memory: sync archive: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return 0, fmt.Errorf("memory: close archive: %w", err)
+	}
+
+	lines := bytes.Count(data, []byte{'\n'})
+	if data[len(data)-1] != '\n' {
+		lines++
+	}
+	return lines, nil
 }
 
 // sanitizeKey converts a session key to a safe filename component.
@@ -419,6 +478,11 @@ func (s *JSONLStore) promoteAliasHistoryLocked(
 		return false, err
 	}
 
+	archived, err := s.archiveCurrentJSONL(sessionKey)
+	if err != nil {
+		return false, err
+	}
+
 	now := time.Now()
 	if canonicalMeta.CreatedAt.IsZero() {
 		canonicalMeta.CreatedAt = now
@@ -427,6 +491,7 @@ func (s *JSONLStore) promoteAliasHistoryLocked(
 	canonicalMeta.Aliases = normalizeAliases(sessionKey, aliases)
 	canonicalMeta.Skip = 0
 	canonicalMeta.Count = len(aliasHistory)
+	canonicalMeta.ArchivedLines += archived
 	canonicalMeta.UpdatedAt = now
 	if aliasSummary != "" {
 		canonicalMeta.Summary = aliasSummary
@@ -761,12 +826,21 @@ func (s *JSONLStore) SetHistory(
 	if err != nil {
 		return err
 	}
+
+	// Preserve the current raw record before the physical rewrite so
+	// compaction never destroys the original messages.
+	archived, err := s.archiveCurrentJSONL(sessionKey)
+	if err != nil {
+		return err
+	}
+
 	now := time.Now()
 	if meta.CreatedAt.IsZero() {
 		meta.CreatedAt = now
 	}
 	meta.Skip = 0
 	meta.Count = len(history)
+	meta.ArchivedLines += archived
 	meta.UpdatedAt = now
 
 	for i := range history {
@@ -815,6 +889,13 @@ func (s *JSONLStore) Compact(
 		return err
 	}
 
+	// Preserve the full raw record (including the truncated prefix) before
+	// reclaiming the space, so Compact frees disk without losing history.
+	archived, err := s.archiveCurrentJSONL(sessionKey)
+	if err != nil {
+		return err
+	}
+
 	// Write meta BEFORE rewriting the JSONL file. If the process
 	// crashes between the two writes, meta has Skip=0 and the old
 	// (uncompacted) file is still intact, so GetHistory reads from
@@ -822,6 +903,7 @@ func (s *JSONLStore) Compact(
 	// losing data. The next Compact or TruncateHistory corrects this.
 	meta.Skip = 0
 	meta.Count = len(active)
+	meta.ArchivedLines += archived
 	meta.UpdatedAt = time.Now()
 
 	err = s.writeMeta(sessionKey, meta)

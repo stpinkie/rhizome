@@ -211,21 +211,34 @@ type SensitiveDataCache struct {
 }
 
 // SensitiveDataReplacer returns the strings.Replacer for filtering sensitive data.
-// It is computed once on first access via sync.Once.
+// It is computed once on first access; safe for concurrent use.
 func (sec *Config) SensitiveDataReplacer() *strings.Replacer {
-	sec.initSensitiveCache()
-	return sec.sensitiveCache.replacer
+	return sec.sensitiveCacheFor().replacer
 }
 
-// initSensitiveCache initializes the sensitive data cache if not already done.
-func (sec *Config) initSensitiveCache() {
-	if sec.sensitiveCache == nil {
-		sec.sensitiveCache = &SensitiveDataCache{}
+// sensitiveCacheInitMu guards lazy allocation of per-Config sensitive caches.
+// Config is occasionally copied by value (e.g. normalizedConfigForSave), so it
+// cannot host its own sync.Once/Mutex without tripping copylocks — a shared
+// package mutex keeps the pointer swap race-free.
+var sensitiveCacheInitMu sync.Mutex
+
+// sensitiveCacheFor returns the initialized sensitive-data cache, creating it
+// on first use. Concurrent first use previously raced the pointer swap in
+// initSensitiveCache and could return a cache whose once had not run — a nil
+// replacer that panicked FilterSensitiveData (upstream sipeed/picoclaw#3374).
+func (sec *Config) sensitiveCacheFor() *SensitiveDataCache {
+	sensitiveCacheInitMu.Lock()
+	cache := sec.sensitiveCache
+	if cache == nil {
+		cache = &SensitiveDataCache{}
+		sec.sensitiveCache = cache
 	}
-	sec.sensitiveCache.once.Do(func() {
+	sensitiveCacheInitMu.Unlock()
+
+	cache.once.Do(func() {
 		values := sec.collectSensitiveValues()
 		if len(values) == 0 {
-			sec.sensitiveCache.replacer = strings.NewReplacer()
+			cache.replacer = strings.NewReplacer()
 			return
 		}
 
@@ -237,11 +250,12 @@ func (sec *Config) initSensitiveCache() {
 			}
 		}
 		if len(pairs) == 0 {
-			sec.sensitiveCache.replacer = strings.NewReplacer()
+			cache.replacer = strings.NewReplacer()
 			return
 		}
-		sec.sensitiveCache.replacer = strings.NewReplacer(pairs...)
+		cache.replacer = strings.NewReplacer(pairs...)
 	})
+	return cache
 }
 
 // collectSensitiveValues collects all sensitive strings from SecurityConfig using reflection.

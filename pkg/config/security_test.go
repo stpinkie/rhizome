@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/caarlos0/env/v11"
@@ -385,4 +386,36 @@ func TestBrowserBackendEnvSecretCollection(t *testing.T) {
 	assert.NotContains(t, got, "provider-secret-123")
 	// Non-secret env values are not collected.
 	assert.Contains(t, got, "flag: true")
+}
+
+// TestSensitiveDataReplacer_ConcurrentFirstUse is a regression test for
+// upstream sipeed/picoclaw#3374: concurrent first use of the lazy sensitive
+// cache raced the pointer swap and could return a nil replacer, panicking
+// FilterSensitiveData.
+func TestSensitiveDataReplacer_ConcurrentFirstUse(t *testing.T) {
+	const goroutines = 8
+
+	for i := 0; i < 200; i++ {
+		cfg := &Config{}
+		cfg.ModelList = SecureModelList{{
+			ModelName: "m",
+			Model:     "openai/gpt-4o",
+			APIKeys:   SimpleSecureStrings("sk-secret-value-123"),
+		}}
+
+		var wg sync.WaitGroup
+		wg.Add(goroutines)
+		for g := 0; g < goroutines; g++ {
+			go func() {
+				defer wg.Done()
+				r := cfg.SensitiveDataReplacer()
+				if r == nil {
+					t.Error("SensitiveDataReplacer returned nil")
+					return
+				}
+				_ = r.Replace("key is sk-secret-value-123")
+			}()
+		}
+		wg.Wait()
+	}
 }

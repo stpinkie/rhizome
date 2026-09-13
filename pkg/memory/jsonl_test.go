@@ -703,6 +703,117 @@ func TestCompact_RemovesSkippedMessages(t *testing.T) {
 	}
 }
 
+func TestSetHistory_ArchivesOriginal(t *testing.T) {
+	// Regression test for upstream sipeed/picoclaw#3351: SetHistory used to
+	// physically destroy the original messages, leaving no way to recover
+	// pre-compaction history. The displaced lines now go to
+	// {key}.archive.jsonl first.
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for _, content := range []string{"first", "second", "third"} {
+		if err := store.AddMessage(ctx, "s1", "user", content); err != nil {
+			t.Fatalf("AddMessage: %v", err)
+		}
+	}
+
+	kept := []providers.Message{{Role: "user", Content: "only-this"}}
+	if err := store.SetHistory(ctx, "s1", kept); err != nil {
+		t.Fatalf("SetHistory: %v", err)
+	}
+
+	archive, err := readMessages(store.archivePath("s1"), 0)
+	if err != nil {
+		t.Fatalf("readMessages(archive): %v", err)
+	}
+	if len(archive) != 3 {
+		t.Fatalf("expected 3 archived messages, got %d", len(archive))
+	}
+	if archive[0].Content != "first" || archive[2].Content != "third" {
+		t.Fatalf("archive contents wrong: %+v", archive)
+	}
+
+	meta, err := store.GetSessionMeta(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetSessionMeta: %v", err)
+	}
+	if meta.ArchivedLines != 3 {
+		t.Fatalf("meta.ArchivedLines = %d, want 3", meta.ArchivedLines)
+	}
+}
+
+func TestCompact_ArchivesSkippedLines(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for i := 0; i < 10; i++ {
+		if err := store.AddMessage(ctx, "compact", "user", string(rune('a'+i))); err != nil {
+			t.Fatalf("AddMessage: %v", err)
+		}
+	}
+	if err := store.TruncateHistory(ctx, "compact", 3); err != nil {
+		t.Fatalf("TruncateHistory: %v", err)
+	}
+	if err := store.Compact(ctx, "compact"); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	// The live file keeps only the active messages...
+	active, err := readMessages(store.jsonlPath("compact"), 0)
+	if err != nil {
+		t.Fatalf("readMessages: %v", err)
+	}
+	if len(active) != 3 {
+		t.Fatalf("expected 3 active, got %d", len(active))
+	}
+
+	// ...but the archive preserved all 10 original lines.
+	archive, err := readMessages(store.archivePath("compact"), 0)
+	if err != nil {
+		t.Fatalf("readMessages(archive): %v", err)
+	}
+	if len(archive) != 10 {
+		t.Fatalf("expected 10 archived messages, got %d", len(archive))
+	}
+	if archive[0].Content != "a" || archive[9].Content != "j" {
+		t.Fatalf("archive contents wrong: %+v", archive)
+	}
+}
+
+func TestArchive_AccumulatesAcrossRewrites(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		if err := store.AddMessage(ctx, "s", "user", "round0"); err != nil {
+			t.Fatalf("AddMessage: %v", err)
+		}
+	}
+	if err := store.SetHistory(ctx, "s", []providers.Message{{Role: "user", Content: "r1"}}); err != nil {
+		t.Fatalf("SetHistory 1: %v", err)
+	}
+	if err := store.SetHistory(ctx, "s", []providers.Message{{Role: "user", Content: "r2"}}); err != nil {
+		t.Fatalf("SetHistory 2: %v", err)
+	}
+
+	archive, err := readMessages(store.archivePath("s"), 0)
+	if err != nil {
+		t.Fatalf("readMessages(archive): %v", err)
+	}
+	// Snapshot 1: two "round0" lines; snapshot 2: one "r1" line.
+	if len(archive) != 3 {
+		t.Fatalf("expected 3 archived lines across rewrites, got %d", len(archive))
+	}
+
+	meta, err := store.GetSessionMeta(ctx, "s")
+	if err != nil {
+		t.Fatalf("GetSessionMeta: %v", err)
+	}
+	if meta.ArchivedLines != 3 {
+		t.Fatalf("meta.ArchivedLines = %d, want 3", meta.ArchivedLines)
+	}
+}
+
 func TestCompact_NoOpWhenNoSkip(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

@@ -351,11 +351,16 @@ func collectUnknownJSONFields(raw any, targetType reflect.Type, path string) []s
 			return nil
 		}
 		fieldMap := jsonFieldTypeMap(targetType)
+		isChannel := targetType == reflect.TypeOf(Channel{})
 		var issues []string
 		for key, value := range obj {
 			fieldType, exists := fieldMap[key]
 			fieldPath := appendJSONPath(path, key)
 			if !exists {
+				// Channel accepts flat settings keys — they fold into Settings.
+				if isChannel {
+					continue
+				}
 				issues = append(issues, fieldPath)
 				continue
 			}

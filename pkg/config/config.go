@@ -2132,20 +2132,18 @@ func SaveConfig(path string, cfg *Config) error {
 	if cfg.Version < CurrentVersion {
 		cfg.Version = CurrentVersion
 	}
-	// Filter out virtual models before serializing to config file
-	nonVirtualModels := make([]*ModelConfig, 0, len(cfg.ModelList))
-	for _, m := range cfg.ModelList {
-		if !m.isVirtual {
-			nonVirtualModels = append(nonVirtualModels, m)
-		}
-	}
-	// Temporarily replace ModelList with filtered version for serialization
+	// Collapse multi-key expansions (created at load time by
+	// expandMultiKeyModels) back into their primary entries before
+	// serializing — persisting the expanded form would drop every api_key
+	// after the first and leave dangling "__key_i" fallback references.
+	collapsedModels := collapseMultiKeyModels(cfg.ModelList)
+	// Temporarily replace ModelList with collapsed version for serialization
 	originalModelList := cfg.ModelList
 	defer func() {
 		// Restore original ModelList after serialization
 		cfg.ModelList = originalModelList
 	}()
-	cfg.ModelList = nonVirtualModels
+	cfg.ModelList = collapsedModels
 
 	if err := saveSecurityConfig(securityPath(path), cfg); err != nil {
 		logger.ErrorCF("config", "cannot save .security.yml", map[string]any{"error": err})
@@ -2316,6 +2314,124 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 	}
 
 	return expanded
+}
+
+// multiKeyBaseName returns the primary model name for an expanded
+// "<name>__key_<i>" entry, or false when the name has no such suffix.
+func multiKeyBaseName(name string) (string, bool) {
+	idx := strings.LastIndex(name, "__key_")
+	if idx <= 0 {
+		return "", false
+	}
+	suffix := name[idx+len("__key_"):]
+	if suffix == "" {
+		return "", false
+	}
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	return name[:idx], true
+}
+
+// collapseMultiKeyModels is the inverse of expandMultiKeyModels: virtual
+// per-key entries are folded back into their primary so a LoadConfig→
+// SaveConfig round trip preserves every api_key and never persists dangling
+// "<name>__key_i" fallback references. The primary entries are copied rather
+// than mutated so the in-memory expansion stays intact. Virtual entries whose
+// primary no longer exists are demoted to regular entries so no credential
+// is silently dropped.
+func collapseMultiKeyModels(models []*ModelConfig) []*ModelConfig {
+	primaries := make(map[string]bool, len(models))
+	virtuals := make(map[string][]*ModelConfig)
+	for _, m := range models {
+		if m == nil {
+			continue
+		}
+		if !m.isVirtual {
+			primaries[m.ModelName] = true
+			continue
+		}
+		base, ok := multiKeyBaseName(m.ModelName)
+		if !ok {
+			continue
+		}
+		virtuals[base] = append(virtuals[base], m)
+	}
+
+	out := make([]*ModelConfig, 0, len(models))
+	for _, m := range models {
+		if m == nil {
+			continue
+		}
+		if m.isVirtual {
+			base, _ := multiKeyBaseName(m.ModelName)
+			if primaries[base] {
+				// Folded into the primary below.
+				continue
+			}
+			// Orphaned virtual entry — keep it as a real model so its key
+			// isn't dropped.
+			m.isVirtual = false
+			out = append(out, m)
+			continue
+		}
+		vs := virtuals[m.ModelName]
+		if len(vs) == 0 {
+			out = append(out, m)
+			continue
+		}
+		collapsed := *m
+		collapsed.APIKeys = mergeAPIKeyEntries(m.APIKeys, vs)
+		collapsed.Fallbacks = stripVirtualFallbacks(m.Fallbacks, vs)
+		out = append(out, &collapsed)
+	}
+	return out
+}
+
+// mergeAPIKeyEntries concatenates the primary's APIKeys with each virtual
+// entry's single key, deduplicating by resolved value while preserving each
+// SecureString's raw form (enc://, file://, or plaintext).
+func mergeAPIKeyEntries(primary SecureStrings, virtuals []*ModelConfig) SecureStrings {
+	merged := make(SecureStrings, 0, len(primary)+len(virtuals))
+	seen := make(map[string]struct{}, len(primary)+len(virtuals))
+	appendKey := func(ss *SecureString) {
+		if ss == nil {
+			return
+		}
+		v := ss.String()
+		if _, ok := seen[v]; ok {
+			return
+		}
+		seen[v] = struct{}{}
+		merged = append(merged, ss)
+	}
+	for _, ss := range primary {
+		appendKey(ss)
+	}
+	for _, vm := range virtuals {
+		for _, ss := range vm.APIKeys {
+			appendKey(ss)
+		}
+	}
+	return merged
+}
+
+// stripVirtualFallbacks removes "<name>__key_i" references introduced by
+// expandMultiKeyModels while keeping the user's own fallbacks.
+func stripVirtualFallbacks(fallbacks []string, virtuals []*ModelConfig) []string {
+	names := make(map[string]struct{}, len(virtuals))
+	for _, v := range virtuals {
+		names[v.ModelName] = struct{}{}
+	}
+	var out []string
+	for _, f := range fallbacks {
+		if _, ok := names[f]; !ok {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func (t *ToolsConfig) IsToolEnabled(name string) bool {

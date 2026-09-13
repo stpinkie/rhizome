@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -1103,4 +1105,106 @@ func TestChannel_EncryptedToken_NoPassphrase(t *testing.T) {
 
 func mustParseRawNode(s string) RawNode {
 	return RawNode(s)
+}
+
+// ═══════════════════════════════════════════════════
+//  Flat channel keys → Settings folding (upstream sipeed/picoclaw#3355)
+// ═══════════════════════════════════════════════════
+
+func TestChannel_UnmarshalJSON_FlatKeys(t *testing.T) {
+	var ch Channel
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"enabled": true,
+		"type": "feishu",
+		"app_id": "cli_flat",
+		"app_secret": "sec",
+		"encrypt_key": "ek",
+		"verification_token": "vt",
+		"is_lark": true
+	}`), &ch))
+
+	require.NoError(t, InitChannelList(ChannelsConfig{"feishu": &ch}))
+
+	decoded, err := ch.GetDecoded()
+	require.NoError(t, err)
+	settings, ok := decoded.(*FeishuSettings)
+	require.True(t, ok, "expected *FeishuSettings, got %T", decoded)
+	assert.Equal(t, "cli_flat", settings.AppID)
+	assert.Equal(t, "sec", settings.AppSecret.String())
+	assert.Equal(t, "ek", settings.EncryptKey.String())
+	assert.Equal(t, "vt", settings.VerificationToken.String())
+	assert.True(t, settings.IsLark)
+
+	// MarshalJSON must emit the folded keys under nested "settings".
+	out, err := json.Marshal(&ch)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(out, &m))
+	_, flat := m["app_id"]
+	assert.False(t, flat, "flat key should not leak to top level")
+	nested, ok := m["settings"].(map[string]any)
+	require.True(t, ok, "expected nested settings object, got %v", m)
+	assert.Equal(t, "cli_flat", nested["app_id"])
+}
+
+func TestChannel_UnmarshalJSON_FlatKeys_NestedWins(t *testing.T) {
+	var ch Channel
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"enabled": true,
+		"type": "feishu",
+		"app_id": "cli_flat",
+		"settings": {"app_id": "cli_nested", "is_lark": true}
+	}`), &ch))
+
+	var settings FeishuSettings
+	require.NoError(t, ch.Decode(&settings))
+	assert.Equal(t, "cli_nested", settings.AppID)
+	assert.True(t, settings.IsLark)
+}
+
+func TestChannel_UnmarshalYAML_FlatKeys(t *testing.T) {
+	var ch Channel
+	require.NoError(t, yaml.Unmarshal([]byte(`
+enabled: true
+type: feishu
+app_id: cli_yaml
+app_secret: ysec
+`), &ch))
+
+	var settings FeishuSettings
+	require.NoError(t, ch.Decode(&settings))
+	assert.Equal(t, "cli_yaml", settings.AppID)
+	assert.Equal(t, "ysec", settings.AppSecret.String())
+}
+
+func TestLoadConfig_FeishuFlatKeys(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := `{
+		"version": 3,
+		"channel_list": {
+			"feishu": {
+				"enabled": true,
+				"app_id": "cli_v3",
+				"app_secret": "v3sec",
+				"encrypt_key": "v3ek",
+				"verification_token": "v3vt"
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(raw), 0o600))
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	ch := cfg.Channels.Get("feishu")
+	require.NotNil(t, ch)
+	decoded, err := ch.GetDecoded()
+	require.NoError(t, err)
+	settings, ok := decoded.(*FeishuSettings)
+	require.True(t, ok, "expected *FeishuSettings, got %T", decoded)
+	assert.Equal(t, "cli_v3", settings.AppID)
+	assert.Equal(t, "v3sec", settings.AppSecret.String())
+	assert.Equal(t, "v3ek", settings.EncryptKey.String())
+	assert.Equal(t, "v3vt", settings.VerificationToken.String())
 }

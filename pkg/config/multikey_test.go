@@ -1,7 +1,13 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExpandMultiKeyModels_SingleKey(t *testing.T) {
@@ -323,6 +329,108 @@ func TestExpandMultiKeyModels_SingleKey_NotVirtual(t *testing.T) {
 	if result[0].isVirtual {
 		t.Errorf("single key model should not be virtual")
 	}
+}
+
+func TestCollapseMultiKeyModels_RestoresPrimary(t *testing.T) {
+	models := []*ModelConfig{
+		{
+			ModelName: "gpt-4",
+			Model:     "openai/gpt-4o",
+			APIKeys:   SimpleSecureStrings("key1", "key2", "key3"),
+			Fallbacks: []string{"claude-3"},
+		},
+	}
+
+	expanded := expandMultiKeyModels(models)
+	require.Len(t, expanded, 3)
+
+	collapsed := collapseMultiKeyModels(expanded)
+	require.Len(t, collapsed, 1)
+	assert.Equal(t, "gpt-4", collapsed[0].ModelName)
+	assert.Equal(t, []string{"key1", "key2", "key3"}, collapsed[0].APIKeys.Values())
+	// The user's own fallbacks survive; only "__key_i" names are stripped.
+	assert.Equal(t, []string{"claude-3"}, collapsed[0].Fallbacks)
+
+	// The in-memory expansion must be untouched — collapse produces copies.
+	require.Len(t, expanded, 3)
+	assert.Equal(t, []string{"key1"}, expanded[2].APIKeys.Values())
+	assert.Len(t, expanded[2].Fallbacks, 3)
+}
+
+func TestCollapseMultiKeyModels_OrphanVirtualDemoted(t *testing.T) {
+	// A virtual entry whose primary was removed must not lose its key —
+	// it is demoted to a regular model instead.
+	orphan := &ModelConfig{
+		ModelName: "gone__key_1",
+		Model:     "openai/gpt-4o",
+		APIKeys:   SimpleSecureStrings("orphan-key"),
+		isVirtual: true,
+	}
+	other := &ModelConfig{
+		ModelName: "other",
+		Model:     "openai/gpt-4o-mini",
+		APIKeys:   SimpleSecureStrings("other-key"),
+	}
+
+	collapsed := collapseMultiKeyModels([]*ModelConfig{orphan, other})
+	require.Len(t, collapsed, 2)
+	assert.Equal(t, "gone__key_1", collapsed[0].ModelName)
+	assert.Equal(t, "orphan-key", collapsed[0].APIKey())
+	assert.False(t, collapsed[0].isVirtual)
+}
+
+func TestCollapseMultiKeyModels_NoExpansion(t *testing.T) {
+	models := []*ModelConfig{
+		{
+			ModelName: "single",
+			Model:     "openai/gpt-4o",
+			APIKeys:   SimpleSecureStrings("only-key"),
+		},
+	}
+	collapsed := collapseMultiKeyModels(models)
+	require.Len(t, collapsed, 1)
+	assert.Same(t, models[0], collapsed[0])
+	assert.Equal(t, "only-key", collapsed[0].APIKey())
+}
+
+func TestSaveConfig_MultiKeyRoundTripPreservesAllKeys(t *testing.T) {
+	// Regression test for upstream sipeed/picoclaw#3373: a model_list entry
+	// with multiple api_keys lost every key after the first on save, and the
+	// surviving entry kept dangling "__key_i" fallback references.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := `{
+		"version": 3,
+		"model_list": [
+			{
+				"model_name": "my-model",
+				"provider": "openai",
+				"model": "gpt-4o",
+				"api_keys": ["sk-primary", "sk-secondary"]
+			}
+		]
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(raw), 0o600))
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NoError(t, SaveConfig(configPath, cfg))
+
+	cfg2, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	var keys []string
+	for _, m := range cfg2.ModelList {
+		if m.ModelName == "my-model" || strings.HasPrefix(m.ModelName, "my-model__key_") {
+			keys = append(keys, m.APIKeys.Values()...)
+		}
+	}
+	assert.ElementsMatch(t, []string{"sk-primary", "sk-secondary"}, keys)
+
+	// The persisted config must not reference virtual "__key_i" entries.
+	saved, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(saved), "__key_")
 }
 
 func TestMergeAPIKeys(t *testing.T) {
