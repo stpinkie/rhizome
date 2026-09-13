@@ -89,6 +89,9 @@ type Swarm struct {
 	queue     *workQueue
 	coord     coordination
 	orch      orchestrator
+	// contextDir resolves the blackboard directory per swarm; nil disables
+	// the shared-context feature.
+	contextDir ContextDirFunc
 	// coordinators maps swarm id -> elected coordinator peer id.
 	coordinators map[string]string
 
@@ -741,6 +744,8 @@ func (s *Swarm) HandlePush(from peer.ID, env Envelope) {
 		if s.isJoined(env.SwarmID) {
 			s.addMember(env.SwarmID, from, "direct")
 		}
+	case MsgNote:
+		s.handleInboundNote(from, env)
 	}
 }
 

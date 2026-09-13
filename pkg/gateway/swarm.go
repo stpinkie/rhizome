@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/swarm"
+	"github.com/stpinkie/rhizome/pkg/tools"
 )
 
 // activeSwarm holds the daemon's swarm layer so HTTP handlers can serve
@@ -118,6 +120,21 @@ func wireSwarm(sw *swarm.Swarm, m *mesh.Mesh, agentLoop *agent.AgentLoop, cfg *c
 			return err
 		}
 		return os.WriteFile(filepath.Join(dir, "state.json"), state, 0o644)
+	})
+	sw.SetContextDirFunc(func(swarmID string) string {
+		return filepath.Join(cfg.WorkspacePath(), "swarm", swarmID)
+	})
+	tools.SetSwarmHooks(&tools.SwarmHooks{
+		PeerID: func() string { return sw.PeerID() },
+		IsMember: func(swarmID string) bool {
+			return sw.IsJoined(swarmID)
+		},
+		PostNote: func(ctx context.Context, swarmID, kind, key, content string, ttl time.Duration) error {
+			return sw.PostNote(ctx, swarmID, kind, key, content, ttl)
+		},
+		SetContext: func(swarmID, content string) error {
+			return sw.SetContext(swarmID, content)
+		},
 	})
 
 	dispatch := func(ctx context.Context, prompt string) (string, error) {

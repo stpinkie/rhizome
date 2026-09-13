@@ -41,6 +41,10 @@ const (
 	// for point-to-point queue messages (e.g. a claim sent to the offerer);
 	// the transport delivers it to local subscribers in both cases.
 	MsgBroadcast MsgType = "msg"
+	// MsgNote pushes a shared-context note to members; the recipient appends
+	// it to the sender's blackboard shard so context propagates ahead of
+	// workspace sync.
+	MsgNote MsgType = "note"
 )
 
 // swarmIDPattern bounds swarm ids to short, safe identifiers usable in file

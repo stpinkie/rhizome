@@ -209,6 +209,12 @@ const (
 	// KindSwarmRunSubtask is emitted on each subtask lifecycle transition
 	// (offered/assigned/done/failed/skipped) during a swarm run.
 	KindSwarmRunSubtask Kind = "swarm.run.subtask"
+	// KindSwarmContextNote is emitted when a blackboard note is appended
+	// (locally posted or received from a member).
+	KindSwarmContextNote Kind = "swarm.context.note"
+	// KindSwarmContextWritten is emitted when the curated context document is
+	// replaced.
+	KindSwarmContextWritten Kind = "swarm.context.written"
 	// KindSwarmError is emitted when a swarm operation fails.
 	KindSwarmError Kind = "swarm.error"
 )
@@ -304,6 +310,8 @@ var knownKinds = []Kind{
 	KindSwarmRunStart,
 	KindSwarmRunEnd,
 	KindSwarmRunSubtask,
+	KindSwarmContextNote,
+	KindSwarmContextWritten,
 	KindSwarmError,
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
@@ -123,6 +124,23 @@ func (h *networkSwarmsHandler) read(w http.ResponseWriter, r *http.Request, sw *
 			"swarm_id": swarmID,
 			"runs":     sw.Runs(swarmID),
 		})
+	case "context":
+		// ?since=<rfc3339> narrows the notes list.
+		var since time.Time
+		if raw := strings.TrimSpace(r.URL.Query().Get("since")); raw != "" {
+			var err error
+			since, err = time.Parse(time.RFC3339, raw)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid since timestamp"})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"swarm_id": swarmID,
+			"context":  sw.ReadContext(swarmID),
+			"digest":   sw.ContextDigest(swarmID),
+			"notes":    sw.ContextNotes(swarmID, since),
+		})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown sub-resource"})
 	}
@@ -149,6 +167,9 @@ func (h *networkSwarmsHandler) write(w http.ResponseWriter, r *http.Request, sw 
 			return
 		case "run":
 			h.runGoal(w, r, sw, parts[0])
+			return
+		case "context":
+			h.writeContext(w, r, sw, parts[0])
 			return
 		}
 	}
@@ -323,6 +344,64 @@ func (h *networkSwarmsHandler) runGoal(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// contextRequest is the JSON body accepted by POST /network/swarms/<id>/context.
+type contextRequest struct {
+	Action  string `json:"action"` // note | set_context
+	Kind    string `json:"kind,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Content string `json:"content"`
+	// TTLSeconds optionally expires the note after N seconds.
+	TTLSeconds float64 `json:"ttl_seconds,omitempty"`
+}
+
+// writeContext handles shared-context writes: "note" appends to the local
+// member's blackboard shard (and broadcasts to members); "set_context"
+// replaces the curated document (coordinator only).
+func (h *networkSwarmsHandler) writeContext(
+	w http.ResponseWriter,
+	r *http.Request,
+	sw *rswarm.Swarm,
+	swarmID string,
+) {
+	if !rswarm.ValidSwarmID(swarmID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid swarm id"})
+		return
+	}
+	var body contextRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid JSON body: " + err.Error(),
+		})
+		return
+	}
+	if strings.TrimSpace(body.Content) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is required"})
+		return
+	}
+	var err error
+	switch strings.ToLower(strings.TrimSpace(body.Action)) {
+	case "", "note":
+		err = sw.PostNote(r.Context(), swarmID, body.Kind, body.Key, body.Content,
+			time.Duration(body.TTLSeconds)*time.Second)
+	case "set_context":
+		err = sw.SetContext(swarmID, body.Content)
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid action: expected 'note' or 'set_context'",
+		})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"swarm_id": swarmID,
+		"action":   body.Action,
+		"status":   "ok",
+	})
 }
 
 // saveMembership updates swarm.memberships in config.json, mirroring the

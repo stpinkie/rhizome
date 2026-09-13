@@ -195,8 +195,14 @@ func (s *Swarm) RunGoal(ctx context.Context, swarmID, goal, defaultAgent string)
 
 	var subtasks []Subtask
 	if s.orch.decomposer != nil {
+		// Ground the decomposer in shared swarm context: the curated document
+		// plus recent member notes give subtask planning shared memory.
+		decomposeGoal := goal
+		if digest := s.ContextDigest(swarmID); digest != "" {
+			decomposeGoal = goal + "\n\nShared swarm context:\n" + digest
+		}
 		var err error
-		subtasks, err = s.orch.decomposer(ctx, goal)
+		subtasks, err = s.orch.decomposer(ctx, decomposeGoal)
 		if err != nil {
 			return res, fmt.Errorf("decompose goal: %w", err)
 		}

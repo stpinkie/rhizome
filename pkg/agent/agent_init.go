@@ -421,6 +421,13 @@ func registerSharedTools(
 			logger.WarnCF("agent", "spawn/spawn_status tools require subagent to be enabled", nil)
 		}
 
+		// Register the swarm shared-context tool when the swarm layer is on.
+		// The blackboard lives under the synced workspace; note posting goes
+		// through the gateway-wired swarm hooks when the daemon is running.
+		if cfg.Swarm.Enabled && cfg.Swarm.ContextEnabled() {
+			agent.Tools.Register(tools.NewSwarmContextTool(cfg.WorkspacePath()))
+		}
+
 		// Register delegate tool for multi-agent setups.
 		// Auto-enabled when multiple agents exist. Delegation uses the SubTurn
 		// mechanism directly (not SubagentManager) and is independent of the

@@ -55,6 +55,70 @@ type SwarmConfig struct {
 	ACL []SwarmACLRule `json:"acl,omitempty"`
 	// Coordination tunes the deterministic coordinator and shared state.
 	Coordination SwarmCoordinationConfig `json:"coordination,omitempty"`
+	// Context tunes the shared-context blackboard (notes + curated context).
+	Context SwarmContextConfig `json:"context,omitempty"`
+}
+
+// SwarmContextConfig controls the swarm shared-context blackboard.
+type SwarmContextConfig struct {
+	// Enabled turns the shared blackboard on. Defaults to true when swarm is
+	// enabled; set false to opt out.
+	Enabled *bool `json:"enabled,omitempty"`
+	// MaxNoteBytes caps a single note's content. Defaults to 4096.
+	MaxNoteBytes int `json:"max_note_bytes,omitempty"`
+	// MaxNotes bounds entries kept per member shard. Defaults to 500.
+	MaxNotes int `json:"max_notes,omitempty"`
+	// DigestBytes caps the prompt-injection digest. Defaults to 8192.
+	DigestBytes int `json:"digest_bytes,omitempty"`
+	// NoteTTL is the default expiry for notes. 0 keeps notes forever.
+	NoteTTL time.Duration `json:"note_ttl,omitempty"`
+}
+
+// ContextEnabled reports whether the shared blackboard is on (default).
+func (s SwarmConfig) ContextEnabled() bool {
+	return s.Context.Enabled == nil || *s.Context.Enabled
+}
+
+func (c *SwarmContextConfig) normalize() {
+	if c.MaxNoteBytes <= 0 {
+		c.MaxNoteBytes = 4096
+	}
+	if c.MaxNotes <= 0 {
+		c.MaxNotes = 500
+	}
+	if c.DigestBytes <= 0 {
+		c.DigestBytes = 8192
+	}
+}
+
+func (c SwarmContextConfig) MarshalJSON() ([]byte, error) {
+	type Alias SwarmContextConfig
+	return json.Marshal(&struct {
+		Alias
+		NoteTTL string `json:"note_ttl,omitempty"`
+	}{
+		Alias:   Alias(c),
+		NoteTTL: c.NoteTTL.String(),
+	})
+}
+
+func (c *SwarmContextConfig) UnmarshalJSON(data []byte) error {
+	type Alias SwarmContextConfig
+	aux := &struct {
+		Alias
+		NoteTTL string `json:"note_ttl,omitempty"`
+	}{Alias: Alias(*c)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.NoteTTL != "" {
+		d, err := time.ParseDuration(aux.NoteTTL)
+		if err != nil {
+			return err
+		}
+		c.NoteTTL = d
+	}
+	return nil
 }
 
 // SwarmCoordinationConfig controls coordinator election and shared state.
@@ -287,6 +351,7 @@ func DefaultSwarmConfig() SwarmConfig {
 	cfg.Presence.normalize()
 	cfg.Queue.normalize()
 	cfg.Coordination.normalize()
+	cfg.Context.normalize()
 	return cfg
 }
 
@@ -317,6 +382,7 @@ func (s *SwarmConfig) Normalize() {
 	s.Presence.normalize()
 	s.Queue.normalize()
 	s.Coordination.normalize()
+	s.Context.normalize()
 }
 
 func (s *SwarmConfig) MarshalJSON() ([]byte, error) {

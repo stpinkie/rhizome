@@ -93,6 +93,7 @@ much faster because the Go build cache is reused across targets.
 - `rhizome swarm list|status|members <id>` — inspect configured memberships and the saved roster (`~/.rhizome/swarms.json`).
 - `rhizome swarm offer <swarm> <agent-id> <task>` / `rhizome swarm offers <swarm>` — publish/track/cancel work-queue offers on the running daemon (`--cancel <offer-id>`, `--require-agent/--require-model/--require-skill` for capability-aware claims).
 - `rhizome swarm run <swarm> <goal>` — decompose a goal into dependency-aware subtasks (DAG waves, `depends_on`), dispatch them over the work queue with retries, aggregate results, and persist run records to `<RHIZOME_HOME>/swarm-runs.jsonl` (bounded). `rhizome swarm runs <swarm>` / `rhizome swarm run-status <swarm> <run-id>` inspect recorded runs; `swarm.run.subtask` events stream per-subtask lifecycle (daemon required).
+- `rhizome swarm context <swarm>` — read a swarm's shared context: the coordinator-curated `context.md` plus recent member notes (`--since <rfc3339>` filters notes, `--set <file>` replaces the curated document — coordinator only). `rhizome swarm note <swarm> <content>` posts a note to the local member's shard and broadcasts it (`--kind`, `--key`, `--ttl`). Daemon required.
 - `rhizome sync status|log|commit|pull|push` — manage the workspace git repo. `sync status` shows HEAD, branch, workspace state, conflicts, last error, and per-peer heads (`--json` for machine-readable).
 - `rhizome daemon` — start a long-running P2P node, workspace syncer, agent gateway, and (when enabled) the decentralised mesh.
   - `--no-dht` disables public DHT discovery.
@@ -208,6 +209,7 @@ of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
     "presence": { "heartbeat_interval": "15s", "expire_after": "45s" },
     "queue": { "offer_ttl": "2m", "claim_window": "5s", "max_offers": 100, "assign_timeout": "10m", "max_retries": 1 },
     "coordination": { "enabled": true, "state_interval": "30s" },
+    "context": { "enabled": true, "max_note_bytes": 4096, "max_notes": 500, "digest_bytes": 8192, "note_ttl": "0s" },
     "rate_limit_per_peer": 60,
     "rate_limit_global": 600,
     "audit_log": true,
@@ -221,8 +223,9 @@ of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
 - `transport` — `direct` (default, per-member stream fan-out) or `gossipsub` (one pub/sub topic per swarm, `rhizome/swarm/<id>`; join/leave/ping stay on direct streams).
 - `acl` — per-(swarm, peer) rules; missing rules default to "trusted peers may offer and claim". `rate_limit` overrides the per-peer cap (negative = unlimited).
 - Swarm ops audit into the shared `mesh-audit.jsonl` with `swarm.`-prefixed ops.
-- Daemon API: `GET /network/swarms`, `GET /network/swarms/<id>[/{members,offers}]`, `POST /network/swarms` (`{"swarm","action":"join|leave"}`), `POST /network/swarms/<id>/offers`, `POST /network/swarms/<id>/offers/cancel`, `POST /network/swarms/<id>/run`, `GET /network/swarms/<id>/runs` (`?run=<id>` for one), `GET /network/swarms/events` (SSE). The launcher proxies them under `/api/network/swarms*` with file/config fallbacks for reads and join/leave.
-- The gateway wires swarm seams (`SetTaskSubmitter`, `SetTaskCanceller`, `SetOfferEvaluator`, `SetCapMatcher`, `SetCapProbe`, `SetStateWriter`, `SetDecomposer`, `SetSynthesizer`, `SetResultFetcher`) in `pkg/gateway/swarm.go`; the daemon registers the instance via `gateway.SetSwarm`.
+- `context` — the shared-context blackboard (v0.9.0). Members append notes to per-author shards at `swarm/<id>/notes/<peer-id>.jsonl` in the synced workspace (conflict-free under git sync); the coordinator curates `swarm/<id>/context.md`. `swarm run` injects a blackboard digest (curated doc + newest notes, capped at `digest_bytes`) into the decomposer prompt. Posted notes also propagate live via `MsgNote` envelopes on `/rhizome/swarm/1.0.0`; remote writes are signature-attributed to the sender's shard. The `swarm_context` agent tool (read/list/post/set_context) is registered when swarm is enabled. Events: `swarm.context.note`, `swarm.context.written`.
+- Daemon API: `GET /network/swarms`, `GET /network/swarms/<id>[/{members,offers}]`, `POST /network/swarms` (`{"swarm","action":"join|leave"}`), `POST /network/swarms/<id>/offers`, `POST /network/swarms/<id>/offers/cancel`, `POST /network/swarms/<id>/run`, `GET /network/swarms/<id>/runs` (`?run=<id>` for one), `GET|POST /network/swarms/<id>/context` (`?since=<rfc3339>` filters notes; POST `{"action":"note"|"set_context","kind","key","content","ttl_seconds"}`), `GET /network/swarms/events` (SSE). The launcher proxies them under `/api/network/swarms*` with file/config fallbacks for reads and join/leave.
+- The gateway wires swarm seams (`SetTaskSubmitter`, `SetTaskCanceller`, `SetOfferEvaluator`, `SetCapMatcher`, `SetCapProbe`, `SetStateWriter`, `SetContextDirFunc`, `SetDecomposer`, `SetSynthesizer`, `SetResultFetcher`) in `pkg/gateway/swarm.go`; the daemon registers the instance via `gateway.SetSwarm`.
 - The Network dashboard has a **Swarms** panel (roster, coordinator, offers, goal runs) fed by `/api/network/swarms*` and the swarm SSE stream.
 
 ## DHT Configuration
