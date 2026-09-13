@@ -135,6 +135,8 @@ type Mesh struct {
 	skillsLoader   *skills.SkillsLoader
 	skillsLoaderMu sync.RWMutex
 
+	skillShareMu sync.RWMutex
+
 	stop     chan struct{}
 	ctx      context.Context
 	cancel   context.CancelFunc

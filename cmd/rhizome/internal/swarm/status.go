@@ -46,6 +46,7 @@ func newListCommand() *cobra.Command {
 				os.Exit(1)
 			}
 			view := loadPersisted()
+			w := cmd.OutOrStdout()
 
 			if asJSON {
 				out := map[string]any{
@@ -54,25 +55,25 @@ func newListCommand() *cobra.Command {
 					"known":       view.Swarms,
 				}
 				data, _ := json.MarshalIndent(out, "", "  ")
-				cmd.Println(string(data))
+				fmt.Fprintln(w, string(data))
 				return
 			}
 
 			if !cfg.Swarm.Enabled {
-				cmd.Println("Swarm is disabled (swarm.enabled=false).")
+				fmt.Fprintln(w, "Swarm is disabled (swarm.enabled=false).")
 			}
 			if len(cfg.Swarm.Memberships) == 0 {
-				cmd.Println("No swarm memberships configured.")
+				fmt.Fprintln(w, "No swarm memberships configured.")
 			} else {
-				cmd.Println("Memberships:")
+				fmt.Fprintln(w, "Memberships:")
 				for _, m := range cfg.Swarm.Memberships {
-					cmd.Printf("  - %s\n", m)
+					fmt.Fprintf(w, "  - %s\n", m)
 				}
 			}
 			if len(view.Swarms) > 0 {
-				cmd.Println("Known swarms (saved roster):")
+				fmt.Fprintln(w, "Known swarms (saved roster):")
 				for id, sw := range view.Swarms {
-					cmd.Printf("  - %s (%d members)\n", id, len(sw.Members))
+					fmt.Fprintf(w, "  - %s (%d members)\n", id, len(sw.Members))
 				}
 			}
 		},
@@ -98,14 +99,15 @@ func newMembersCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "No saved roster for swarm %q — is the daemon running?\n", args[0])
 				os.Exit(1)
 			}
+			w := cmd.OutOrStdout()
 			if asJSON {
 				data, _ := json.MarshalIndent(sw.Members, "", "  ")
-				cmd.Println(string(data))
+				fmt.Fprintln(w, string(data))
 				return
 			}
-			cmd.Printf("Members of %q:\n", args[0])
+			fmt.Fprintf(w, "Members of %q:\n", args[0])
 			for _, m := range sw.Members {
-				cmd.Printf("  - %s (last seen %s, %s)\n", m.PeerID, m.LastSeen, m.Source)
+				fmt.Fprintf(w, "  - %s (last seen %s, %s)\n", m.PeerID, m.LastSeen, m.Source)
 			}
 		},
 	}
@@ -132,16 +134,17 @@ func newStatusCommand() *cobra.Command {
 				"memberships": cfg.Swarm.Memberships,
 				"known":       view.Swarms,
 			}
+			w := cmd.OutOrStdout()
 			if asJSON {
 				data, _ := json.MarshalIndent(out, "", "  ")
-				cmd.Println(string(data))
+				fmt.Fprintln(w, string(data))
 				return
 			}
-			cmd.Printf("Swarm enabled:   %v\n", cfg.Swarm.Enabled)
-			cmd.Printf("Transport:       %s\n", cfg.Swarm.Transport)
-			cmd.Printf("Memberships:     %v\n", cfg.Swarm.Memberships)
-			cmd.Printf("Known swarms:    %d\n", len(view.Swarms))
-			cmd.Println("Live roster is available while the daemon runs (rhizome daemon).")
+			fmt.Fprintf(w, "Swarm enabled:   %v\n", cfg.Swarm.Enabled)
+			fmt.Fprintf(w, "Transport:       %s\n", cfg.Swarm.Transport)
+			fmt.Fprintf(w, "Memberships:     %v\n", cfg.Swarm.Memberships)
+			fmt.Fprintf(w, "Known swarms:    %d\n", len(view.Swarms))
+			fmt.Fprintln(w, "Live roster is available while the daemon runs (rhizome daemon).")
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")

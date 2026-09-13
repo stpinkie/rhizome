@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -122,6 +123,72 @@ func TestSwarmUntrustedJoinRejected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, MsgType("join_rejected"), resp.Type)
 	assert.Empty(t, swarmA.Members("ops"))
+}
+
+// TestSwarmRosterReconvergesAfterTrustGrant proves the periodic re-announce
+// heals a roster that missed its single-shot join announce: the pair connects
+// and joins while mutually untrusted, so no announce succeeds, then trust is
+// granted without any reconnect. Only reannounceLoop can converge the rosters.
+func TestSwarmRosterReconvergesAfterTrustGrant(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	idA, _, err := identity.FromMnemonic(testMnemonic, 0)
+	require.NoError(t, err)
+	idB, _, err := identity.FromMnemonic(testMnemonic, 1)
+	require.NoError(t, err)
+
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	require.NoError(t, err)
+	defer nodeA.Close()
+
+	addrsA := nodeA.BootstrapAddrs()
+	require.NotEmpty(t, addrsA)
+
+	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
+		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers: []string{addrsA[0]},
+	})
+	require.NoError(t, err)
+	defer nodeB.Close()
+
+	require.Eventually(t, func() bool {
+		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 10*time.Second, 50*time.Millisecond)
+
+	var trustMu sync.Mutex
+	trusted := map[peer.ID]bool{}
+	trustFn := func(pid peer.ID) bool {
+		trustMu.Lock()
+		defer trustMu.Unlock()
+		return trusted[pid]
+	}
+
+	cfg := config.DefaultSwarmConfig()
+	cfg.Presence.HeartbeatInterval = time.Second
+
+	swarmA := New(nodeA, idA, cfg, trustFn, nil, t.TempDir())
+	require.NoError(t, swarmA.Start(ctx))
+	defer swarmA.Stop()
+
+	swarmB := New(nodeB, idB, cfg, trustFn, nil, t.TempDir())
+	require.NoError(t, swarmB.Start(ctx))
+	defer swarmB.Stop()
+
+	// Join while mutually untrusted: no announce reaches a trusted peer, and
+	// any inbound envelope is rejected.
+	require.NoError(t, swarmA.Join(ctx, "ops"))
+	require.NoError(t, swarmB.Join(ctx, "ops"))
+
+	trustMu.Lock()
+	trusted[nodeA.ID()] = true
+	trusted[nodeB.ID()] = true
+	trustMu.Unlock()
+
+	// No reconnect occurs; the periodic re-announce must deliver the join.
+	require.Eventually(t, func() bool {
+		return len(swarmA.Members("ops")) >= 1 && len(swarmB.Members("ops")) >= 1
+	}, 20*time.Second, 250*time.Millisecond, "rosters should reconverge via periodic re-announce")
 }
 
 func TestSwarmPersistence(t *testing.T) {

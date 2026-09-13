@@ -1,9 +1,8 @@
+import { IconPlus, IconX } from "@tabler/icons-react"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
-import { IconPlus, IconX } from "@tabler/icons-react"
-
 import { Input } from "@/components/ui/input"
 
 // Base58 alphabet (excludes 0, O, I, l).
@@ -143,13 +142,13 @@ export function MeshPeerList({
               <IconX className="size-4" />
             </Button>
             {error && (
-              <span className="text-destructive text-xs mt-2">{error}</span>
+              <span className="text-destructive mt-2 text-xs">{error}</span>
             )}
           </div>
         )
       })}
       <Button type="button" variant="outline" size="sm" onClick={addItem}>
-        <IconPlus className="size-4 mr-1" />
+        <IconPlus className="mr-1 size-4" />
         {t("pages.config.mesh_peer_add", "Add")}
       </Button>
     </div>

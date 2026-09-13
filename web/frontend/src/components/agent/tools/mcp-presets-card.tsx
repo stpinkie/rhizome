@@ -1,8 +1,9 @@
 import { IconLoader2, IconPuzzle } from "@tabler/icons-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
+import { getMCPPresets, updateMCPPreset } from "@/api/tools"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,7 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { getMCPPresets, updateMCPPreset } from "@/api/tools"
 
 // MCPPresetsCard exposes first-class hosted MCP presets (currently Context7)
 // on the tools page: enable/disable + api key entry. Keys are stored as
@@ -83,8 +83,10 @@ export function MCPPresetsCard() {
                 {!p.has_key && (
                   <>
                     {" "}
-                    · {t("pages.agent.tools.mcp_env_fallback", "env fallback")}:{" "}
-                    {p.env_var}
+                    · {t(
+                      "pages.agent.tools.mcp_env_fallback",
+                      "env fallback",
+                    )}: {p.env_var}
                   </>
                 )}
               </div>

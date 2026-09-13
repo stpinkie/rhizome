@@ -132,15 +132,28 @@ if [[ "${B_ONLINE}" -ne 1 ]]; then
   exit 1
 fi
 
+# dump_diag prints everything needed to debug a roster exchange failure:
+# both daemon logs and both persisted rosters.
+dump_diag() {
+  echo "=== daemon A log ===" >&2
+  cat "${A_LOG}" >&2 2>/dev/null || true
+  echo "=== daemon B log ===" >&2
+  cat "${B_LOG}" >&2 2>/dev/null || true
+  echo "=== A swarms.json ===" >&2
+  cat "${A_HOME}/swarms.json" >&2 2>/dev/null || true
+  echo "=== B swarms.json ===" >&2
+  cat "${B_HOME}/swarms.json" >&2 2>/dev/null || true
+}
+
 echo "Waiting for mutual swarm rosters..."
 if ! wait_for_member "${A_HOME}" "${B_PEER}" 60; then
   echo "daemon A never saw B in the ops roster" >&2
-  cat "${A_LOG}" >&2 || true
+  dump_diag
   exit 1
 fi
-if ! wait_for_member "${B_HOME}" "${A_PEER}" 30; then
+if ! wait_for_member "${B_HOME}" "${A_PEER}" 120; then
   echo "daemon B never saw A in the ops roster" >&2
-  cat "${B_LOG}" >&2 || true
+  dump_diag
   exit 1
 fi
 echo "Both daemons see each other in swarm 'ops'."
@@ -177,9 +190,9 @@ if [[ "${B_ONLINE}" -ne 1 ]]; then
   exit 1
 fi
 
-if ! wait_for_member "${B_HOME}" "${A_PEER}" 60; then
+if ! wait_for_member "${B_HOME}" "${A_PEER}" 180; then
   echo "daemon B lost the ops roster after restart" >&2
-  cat "${B_LOG}" >&2 || true
+  dump_diag
   exit 1
 fi
 

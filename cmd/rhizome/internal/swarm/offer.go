@@ -80,6 +80,7 @@ func newOfferCommand() *cobra.Command {
 			return cobra.ExactArgs(3)(cmd, args)
 		},
 		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
 			swarmID := args[0]
 			if err := internal.ValidateSwarmID(swarmID); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -103,7 +104,7 @@ func newOfferCommand() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "Error: %s\n", strings.TrimSpace(string(data)))
 					os.Exit(1)
 				}
-				fmt.Printf("Offer %s cancelled in swarm %q\n", cancelOfferID, swarmID)
+				fmt.Fprintf(w, "Offer %s cancelled in swarm %q\n", cancelOfferID, swarmID)
 				return
 			}
 
@@ -158,17 +159,17 @@ func newOfferCommand() *cobra.Command {
 			}
 			_ = json.Unmarshal(data, &offerResp)
 			if offerResp.OfferID == "" {
-				fmt.Println(string(data))
+				fmt.Fprintln(w, string(data))
 				return
 			}
 
 			if !wait {
 				if asJSON {
-					fmt.Println(string(data))
+					fmt.Fprintln(w, string(data))
 				} else {
-					fmt.Printf("Offer %s published to swarm %q — claims resolve in the background\n",
+					fmt.Fprintf(w, "Offer %s published to swarm %q — claims resolve in the background\n",
 						offerResp.OfferID, swarmID)
-					fmt.Printf("Track with: rhizome swarm offers %s\n", swarmID)
+					fmt.Fprintf(w, "Track with: rhizome swarm offers %s\n", swarmID)
 				}
 				return
 			}
@@ -192,26 +193,26 @@ func newOfferCommand() *cobra.Command {
 					if o["status"] != "open" {
 						if asJSON {
 							out, _ := json.MarshalIndent(o, "", "  ")
-							fmt.Println(string(out))
+							fmt.Fprintln(w, string(out))
 						} else {
-							fmt.Printf("Offer %s: %s", offerResp.OfferID, o["status"])
+							fmt.Fprintf(w, "Offer %s: %s", offerResp.OfferID, o["status"])
 							if a, ok := o["assignee"].(string); ok && a != "" {
-								fmt.Printf(" → %s", a)
+								fmt.Fprintf(w, " → %s", a)
 							}
 							if tid, ok := o["task_id"].(string); ok && tid != "" {
-								fmt.Printf(" (task %s)", tid)
+								fmt.Fprintf(w, " (task %s)", tid)
 							}
 							if e, ok := o["error"].(string); ok && e != "" {
-								fmt.Printf(" — %s", e)
+								fmt.Fprintf(w, " — %s", e)
 							}
-							fmt.Println()
+							fmt.Fprintln(w)
 						}
 						return
 					}
 				}
 				time.Sleep(time.Second)
 			}
-			fmt.Printf("Offer %s still open after %s\n", offerResp.OfferID, waitDur)
+			fmt.Fprintf(w, "Offer %s still open after %s\n", offerResp.OfferID, waitDur)
 		},
 	}
 	cmd.Flags().StringVar(&model, "model", "", "Model override for the remote agent")
@@ -243,6 +244,7 @@ func newOffersCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			w := cmd.OutOrStdout()
 			data, code, err := daemonRequest(http.MethodGet,
 				"/network/swarms/"+args[0]+"/offers", nil, 10*time.Second)
 			if err != nil {
@@ -257,10 +259,10 @@ func newOffersCommand() *cobra.Command {
 				var pretty any
 				if json.Unmarshal(data, &pretty) == nil {
 					out, _ := json.MarshalIndent(pretty, "", "  ")
-					fmt.Println(string(out))
+					fmt.Fprintln(w, string(out))
 					return
 				}
-				fmt.Println(string(data))
+				fmt.Fprintln(w, string(data))
 				return
 			}
 			var parsed struct {
@@ -275,10 +277,10 @@ func newOffersCommand() *cobra.Command {
 				} `json:"offers"`
 			}
 			if err := json.Unmarshal(data, &parsed); err != nil || len(parsed.Offers) == 0 {
-				cmd.Printf("No tracked offers for swarm %q.\n", args[0])
+				fmt.Fprintf(w, "No tracked offers for swarm %q.\n", args[0])
 				return
 			}
-			cmd.Printf("Offers for %q:\n", args[0])
+			fmt.Fprintf(w, "Offers for %q:\n", args[0])
 			for _, o := range parsed.Offers {
 				line := fmt.Sprintf("  - %s agent=%s status=%s", o.OfferID, o.AgentID, o.Status)
 				if o.Assignee != "" {
@@ -290,7 +292,7 @@ func newOffersCommand() *cobra.Command {
 				if o.Error != "" {
 					line += " err=" + o.Error
 				}
-				cmd.Println(line)
+				fmt.Fprintln(w, line)
 			}
 		},
 	}

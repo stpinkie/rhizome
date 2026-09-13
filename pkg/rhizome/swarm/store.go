@@ -51,11 +51,17 @@ func (s *Swarm) load() {
 	}
 }
 
-// save writes the swarm registry atomically (temp file + rename).
+// save writes the swarm registry atomically (temp file + rename). The whole
+// snapshot/write/rename sequence is serialized by saveMu: callers reach this
+// concurrently, and two interleaved saves could remove swarms.json after the
+// shared tmp file was already renamed away. Holding the lock across the
+// snapshot also keeps the last write the newest.
 func (s *Swarm) save() {
 	if s.path == "" {
 		return
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.RLock()
 	st := persistedState{Swarms: make(map[string]persistedSwarm, len(s.swarms))}
 	for id, swarm := range s.swarms {
@@ -74,11 +80,32 @@ func (s *Swarm) save() {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	// A unique tmp name per save (as in runStore.save) keeps the write safe
+	// even across processes sharing one RHIZOME_HOME, where saveMu cannot
+	// help.
+	f, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp.*")
+	if err != nil {
 		return
 	}
-	// os.Rename on Windows fails when the destination exists.
-	_ = os.Remove(s.path)
-	_ = os.Rename(tmp, s.path)
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return
+	}
+	if f.Close() != nil {
+		_ = os.Remove(tmp)
+		return
+	}
+	// Rename first: os.Rename replaces an existing destination on Windows
+	// too (MoveFileEx with MOVEFILE_REPLACE_EXISTING), so removing the old
+	// file up front would only open a window where a crash leaves no roster
+	// at all. The remove is the fallback for a destination another process
+	// holds open, and saveMu makes that sequence atomic for other savers.
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(s.path)
+		if os.Rename(tmp, s.path) != nil {
+			_ = os.Remove(tmp)
+		}
+	}
 }

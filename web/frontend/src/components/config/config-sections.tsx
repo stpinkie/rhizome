@@ -1519,9 +1519,7 @@ export function MeshSection({
             hint={t("pages.config.mesh_task_failover_hint")}
             layout="setting-row"
             checked={form.taskFailover}
-            onCheckedChange={(checked) =>
-              onChange({ taskFailover: checked })
-            }
+            onCheckedChange={(checked) => onChange({ taskFailover: checked })}
           />
           <Field
             label={t("pages.config.mesh_remote_timeout")}

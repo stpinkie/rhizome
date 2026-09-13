@@ -1190,6 +1190,16 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		if err != nil {
 			return ""
 		}
+		cwdPaths := []string{cwdPath}
+		// Candidate paths are symlink-resolved below; resolve the workspace the
+		// same way so aliased prefixes (Windows 8.3 short names like RUNNER~1,
+		// macOS /var -> /private/var) don't look like escapes.
+		if resolved, rerr := filepath.EvalSymlinks(cwdPath); rerr == nil {
+			resolved = strings.TrimPrefix(resolved, `\\?\`)
+			if resolved != cwdPath {
+				cwdPaths = append(cwdPaths, resolved)
+			}
+		}
 
 		// Web URL schemes whose path components (starting with //) should be exempt
 		// from workspace sandbox checks. file: is intentionally excluded so that
@@ -1200,9 +1210,11 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		if runtime.GOOS == "windows" {
 			// Expand PowerShell environment variables ($env:VAR and ${env:VAR})
 			cmd = expandPowerShellEnvVars(cmd)
-			// Also expand ~ for completeness
+			// Also expand ~ for completeness — but only at the start of a
+			// shell token, mirroring tilde expansion. A bare ReplaceAll would
+			// corrupt 8.3 short names like RUNNER~1.
 			if home, err := os.UserHomeDir(); err == nil {
-				cmd = strings.ReplaceAll(cmd, "~", filepath.FromSlash(home))
+				cmd = expandLeadingTildes(cmd, filepath.FromSlash(home))
 			}
 		}
 
@@ -1290,7 +1302,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			// Check symlinks and junctions
 			resolved, err := filepath.EvalSymlinks(p)
 			if err == nil {
-				p = resolved
+				p = strings.TrimPrefix(resolved, `\\?\`)
 			}
 
 			if safePaths[strings.ToLower(p)] {
@@ -1300,8 +1312,15 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 				continue
 			}
 
-			rel, err := filepath.Rel(cwdPath, p)
-			if err != nil || strings.HasPrefix(rel, "..") {
+			inside := false
+			for _, base := range cwdPaths {
+				rel, err := filepath.Rel(base, p)
+				if err == nil && !strings.HasPrefix(rel, "..") {
+					inside = true
+					break
+				}
+			}
+			if !inside {
 				return "Command blocked by safety guard (path outside working dir)"
 			}
 		}
@@ -1378,6 +1397,22 @@ func isShellTokenBoundary(b byte) bool {
 		return true
 	}
 	return false
+}
+
+// expandLeadingTildes replaces ~ with home only when it begins a shell token
+// (start of string or right after a token boundary), matching shell tilde
+// expansion. Interior tildes such as Windows 8.3 short names (RUNNER~1) are
+// left alone.
+func expandLeadingTildes(cmd, home string) string {
+	var b strings.Builder
+	for i := 0; i < len(cmd); i++ {
+		if cmd[i] == '~' && (i == 0 || isShellTokenBoundary(cmd[i-1])) {
+			b.WriteString(home)
+			continue
+		}
+		b.WriteByte(cmd[i])
+	}
+	return b.String()
 }
 
 // looksLikeDomain returns true when s looks like a DNS domain name:

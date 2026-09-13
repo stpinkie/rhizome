@@ -2,6 +2,7 @@ import { IconLoader2, IconPlugConnected, IconPlus } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { acceptPairBundle, createPairBundle } from "@/api/network"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -10,7 +11,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { acceptPairBundle, createPairBundle } from "@/api/network"
 
 // PairPanel implements the "Pair a node" flow: mint a single-use bundle to
 // share out of band, or redeem a bundle received from another node.

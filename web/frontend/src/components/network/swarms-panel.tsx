@@ -9,6 +9,7 @@ import {
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import type { SwarmInfo } from "@/api/network"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,7 +22,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSwarmOffers, useSwarms } from "@/hooks/use-swarms"
-import type { SwarmInfo } from "@/api/network"
 
 function shortID(id?: string): string {
   if (!id) return ""
@@ -64,8 +64,13 @@ interface SwarmCardProps {
 
 function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
   const { t } = useTranslation()
-  const { query: offersQuery, offer, cancel, run, runs } =
-    useSwarmOffers(swarm.id)
+  const {
+    query: offersQuery,
+    offer,
+    cancel,
+    run,
+    runs,
+  } = useSwarmOffers(swarm.id)
   const [taskText, setTaskText] = useState("")
   const [taskAgent, setTaskAgent] = useState("main")
   const [goalText, setGoalText] = useState("")
@@ -253,9 +258,7 @@ function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
                       {o.task}
                     </span>
                     {o.assignee && (
-                      <span className="font-mono">
-                        → {shortID(o.assignee)}
-                      </span>
+                      <span className="font-mono">→ {shortID(o.assignee)}</span>
                     )}
                     {o.error && (
                       <span className="text-destructive">{o.error}</span>

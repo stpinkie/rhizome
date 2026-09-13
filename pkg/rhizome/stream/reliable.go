@@ -283,17 +283,32 @@ func (r *ReliableConn) WriteFrame(typ byte, payload []byte) error {
 // ReadFrame returns the next in-order data frame type and payload from the peer.
 func (r *ReliableConn) ReadFrame() (byte, []byte, error) {
 	select {
-	case <-r.done:
-		return 0, nil, errors.New("reliable conn closed")
 	case res := <-r.recvCh:
-		if res.err != nil {
-			return 0, nil, res.err
-		}
-		if len(res.frame.Payload) == 0 {
-			return 0, nil, errors.New("empty reliable data frame")
-		}
-		return res.frame.Payload[0], res.frame.Payload[1:], nil
+		return frameFromResult(res)
+	case <-r.done:
 	}
+	// done fired, but the reader may have queued a final data frame just
+	// before the peer's close frame shut it down — a bare select between done
+	// and recvCh drops that queued frame whenever Go picks the done case.
+	// Drain once more before reporting closure.
+	select {
+	case res := <-r.recvCh:
+		return frameFromResult(res)
+	default:
+		return 0, nil, errors.New("reliable conn closed")
+	}
+}
+
+// frameFromResult unwraps a queued receive result into the frame's type byte
+// and payload.
+func frameFromResult(res recvResult) (byte, []byte, error) {
+	if res.err != nil {
+		return 0, nil, res.err
+	}
+	if len(res.frame.Payload) == 0 {
+		return 0, nil, errors.New("empty reliable data frame")
+	}
+	return res.frame.Payload[0], res.frame.Payload[1:], nil
 }
 
 // Close sends a close frame and waits for the peer to acknowledge it before
