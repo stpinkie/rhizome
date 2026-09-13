@@ -403,14 +403,14 @@ func dingTalkUploadType(partType string) string {
 // dingTalkMediaReplyBody builds the session-webhook reply payload. Session
 // webhooks only support image and file msgtypes, so audio/video parts sent
 // through this path go out as file attachments.
-func dingTalkMediaReplyBody(partType, mediaID string) map[string]interface{} {
+func dingTalkMediaReplyBody(partType, mediaID string) map[string]any {
 	if partType == "image" {
-		return map[string]interface{}{
+		return map[string]any{
 			"msgtype": "image",
 			"image":   map[string]string{"media_id": mediaID},
 		}
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"msgtype": "file",
 		"file":    map[string]string{"media_id": mediaID},
 	}

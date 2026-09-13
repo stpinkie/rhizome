@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
-
 	"github.com/stpinkie/rhizome/pkg/rhizome/blackboard"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 // SwarmContextTool exposes the swarm shared-context blackboard to agents:
@@ -152,7 +151,9 @@ func (t *SwarmContextTool) Execute(ctx context.Context, args map[string]any) *to
 		if err := bb.Append(author, blackboard.Note{Kind: kind, Key: key, Content: content}); err != nil {
 			return toolshared.ErrorResult(err.Error())
 		}
-		return toolshared.SilentResult("Note recorded locally in swarm " + swarmID + " (no swarm layer running; it propagates on next sync).")
+		return toolshared.SilentResult(
+			"Note recorded locally in swarm " + swarmID + " (no swarm layer running; it propagates on next sync).",
+		)
 
 	case "set_context":
 		content, _ := args["content"].(string)

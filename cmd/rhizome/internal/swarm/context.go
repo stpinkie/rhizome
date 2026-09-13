@@ -117,7 +117,8 @@ func newContextCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
 	cmd.Flags().StringVar(&since, "since", "", "Only notes newer than this RFC3339 timestamp")
-	cmd.Flags().StringVar(&setFile, "set", "", "Replace curated context.md with this file's contents (coordinator only)")
+	cmd.Flags().
+		StringVar(&setFile, "set", "", "Replace curated context.md with this file's contents (coordinator only)")
 	return cmd
 }
 

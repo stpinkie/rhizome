@@ -212,35 +212,35 @@ type UpdaterTimeouts struct {
 
 // ChannelTimeouts covers shared channel (messaging) operation timeouts.
 type ChannelTimeouts struct {
-	RequestTimeout       Duration `json:"request,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_REQUEST"`
-	ConnectTimeout       Duration `json:"connect,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_CONNECT"`
-	CommandTimeout       Duration `json:"command,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_COMMAND"`
-	AuthTimeout          Duration `json:"auth,omitempty"                    env:"RHIZOME_TIMEOUTS_CHANNEL_AUTH"`
-	MediaTimeout         Duration `json:"media,omitempty"                   env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA"`
-	PublishTimeout       Duration `json:"publish,omitempty"                 env:"RHIZOME_TIMEOUTS_CHANNEL_PUBLISH"`
-	HeartbeatInterval    Duration `json:"heartbeat_interval,omitempty"      env:"RHIZOME_TIMEOUTS_CHANNEL_HEARTBEAT_INTERVAL"`
-	ReconnectInitial     Duration `json:"reconnect_initial,omitempty"       env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_INITIAL"`
-	ReconnectMax         Duration `json:"reconnect_max,omitempty"           env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_MAX"`
-	MessageCacheTTL      Duration `json:"message_cache_ttl,omitempty"       env:"RHIZOME_TIMEOUTS_CHANNEL_MESSAGE_CACHE_TTL"`
-	ConfigCacheTTL       Duration `json:"config_cache_ttl,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_CONFIG_CACHE_TTL"`
-	SessionPauseDuration Duration `json:"session_pause_duration,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_SESSION_PAUSE_DURATION"`
-	MediaGroupDelay      Duration `json:"media_group_delay,omitempty"       env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA_GROUP_DELAY"`
-	TypingMaxDuration    Duration `json:"typing_max_duration,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_MAX_DURATION"`
-	ToolFeedbackInterval Duration `json:"tool_feedback_interval,omitempty"  env:"RHIZOME_TIMEOUTS_CHANNEL_TOOL_FEEDBACK_INTERVAL"`
+	RequestTimeout       Duration `json:"request,omitempty"                env:"RHIZOME_TIMEOUTS_CHANNEL_REQUEST"`
+	ConnectTimeout       Duration `json:"connect,omitempty"                env:"RHIZOME_TIMEOUTS_CHANNEL_CONNECT"`
+	CommandTimeout       Duration `json:"command,omitempty"                env:"RHIZOME_TIMEOUTS_CHANNEL_COMMAND"`
+	AuthTimeout          Duration `json:"auth,omitempty"                   env:"RHIZOME_TIMEOUTS_CHANNEL_AUTH"`
+	MediaTimeout         Duration `json:"media,omitempty"                  env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA"`
+	PublishTimeout       Duration `json:"publish,omitempty"                env:"RHIZOME_TIMEOUTS_CHANNEL_PUBLISH"`
+	HeartbeatInterval    Duration `json:"heartbeat_interval,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_HEARTBEAT_INTERVAL"`
+	ReconnectInitial     Duration `json:"reconnect_initial,omitempty"      env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_INITIAL"`
+	ReconnectMax         Duration `json:"reconnect_max,omitempty"          env:"RHIZOME_TIMEOUTS_CHANNEL_RECONNECT_MAX"`
+	MessageCacheTTL      Duration `json:"message_cache_ttl,omitempty"      env:"RHIZOME_TIMEOUTS_CHANNEL_MESSAGE_CACHE_TTL"`
+	ConfigCacheTTL       Duration `json:"config_cache_ttl,omitempty"       env:"RHIZOME_TIMEOUTS_CHANNEL_CONFIG_CACHE_TTL"`
+	SessionPauseDuration Duration `json:"session_pause_duration,omitempty" env:"RHIZOME_TIMEOUTS_CHANNEL_SESSION_PAUSE_DURATION"`
+	MediaGroupDelay      Duration `json:"media_group_delay,omitempty"      env:"RHIZOME_TIMEOUTS_CHANNEL_MEDIA_GROUP_DELAY"`
+	TypingMaxDuration    Duration `json:"typing_max_duration,omitempty"    env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_MAX_DURATION"`
+	ToolFeedbackInterval Duration `json:"tool_feedback_interval,omitempty" env:"RHIZOME_TIMEOUTS_CHANNEL_TOOL_FEEDBACK_INTERVAL"`
 	// ToolFeedbackMaxDuration bounds how long a tool-feedback animation may
 	// keep editing a channel message before it stops on its own. Prevents a
 	// runaway animator from editing a message indefinitely when the turn that
 	// owns it died without cleanup (upstream sipeed/picoclaw#3343).
 	ToolFeedbackMaxDuration Duration `json:"tool_feedback_max_duration,omitempty" env:"RHIZOME_TIMEOUTS_CHANNEL_TOOL_FEEDBACK_MAX_DURATION"`
-	StreamMaxDuration       Duration `json:"stream_max_duration,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MAX_DURATION"`
-	StreamMinInterval       Duration `json:"stream_min_interval,omitempty"     env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MIN_INTERVAL"`
-	RouteTTL                Duration `json:"route_ttl,omitempty"               env:"RHIZOME_TIMEOUTS_CHANNEL_ROUTE_TTL"`
-	PollInterval            Duration `json:"poll_interval,omitempty"           env:"RHIZOME_TIMEOUTS_CHANNEL_POLL_INTERVAL"`
-	RateLimitDelay          Duration `json:"rate_limit_delay,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_RATE_LIMIT_DELAY"`
-	MaxBackoff              Duration `json:"max_backoff,omitempty"             env:"RHIZOME_TIMEOUTS_CHANNEL_MAX_BACKOFF"`
-	JanitorInterval         Duration `json:"janitor_interval,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_JANITOR_INTERVAL"`
-	PlaceholderTTL          Duration `json:"placeholder_ttl,omitempty"         env:"RHIZOME_TIMEOUTS_CHANNEL_PLACEHOLDER_TTL"`
-	TypingRefreshInterval   Duration `json:"typing_refresh_interval,omitempty" env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_REFRESH_INTERVAL"`
+	StreamMaxDuration       Duration `json:"stream_max_duration,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MAX_DURATION"`
+	StreamMinInterval       Duration `json:"stream_min_interval,omitempty"        env:"RHIZOME_TIMEOUTS_CHANNEL_STREAM_MIN_INTERVAL"`
+	RouteTTL                Duration `json:"route_ttl,omitempty"                  env:"RHIZOME_TIMEOUTS_CHANNEL_ROUTE_TTL"`
+	PollInterval            Duration `json:"poll_interval,omitempty"              env:"RHIZOME_TIMEOUTS_CHANNEL_POLL_INTERVAL"`
+	RateLimitDelay          Duration `json:"rate_limit_delay,omitempty"           env:"RHIZOME_TIMEOUTS_CHANNEL_RATE_LIMIT_DELAY"`
+	MaxBackoff              Duration `json:"max_backoff,omitempty"                env:"RHIZOME_TIMEOUTS_CHANNEL_MAX_BACKOFF"`
+	JanitorInterval         Duration `json:"janitor_interval,omitempty"           env:"RHIZOME_TIMEOUTS_CHANNEL_JANITOR_INTERVAL"`
+	PlaceholderTTL          Duration `json:"placeholder_ttl,omitempty"            env:"RHIZOME_TIMEOUTS_CHANNEL_PLACEHOLDER_TTL"`
+	TypingRefreshInterval   Duration `json:"typing_refresh_interval,omitempty"    env:"RHIZOME_TIMEOUTS_CHANNEL_TYPING_REFRESH_INTERVAL"`
 }
 
 // DefaultTimeouts returns the built-in timeout values that match the current

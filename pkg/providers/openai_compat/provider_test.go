@@ -2219,11 +2219,12 @@ func TestSerializeMessages_StripsSystemParts(t *testing.T) {
 		t.Fatal("system_parts should not appear in serialized output")
 	}
 }
+
 func TestProviderChat_SendsSessionHeader(t *testing.T) {
 	var sessionHeader string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sessionHeader = r.Header.Get("x-opencode-session")
+		sessionHeader = r.Header.Get("X-Opencode-Session")
 		resp := map[string]any{
 			"choices": []map[string]any{
 				{
