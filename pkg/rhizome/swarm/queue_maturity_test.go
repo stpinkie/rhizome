@@ -98,10 +98,14 @@ func TestSwarmOfferRetryThenDeadLetter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The lifecycle is a serial chain: claim window -> assign -> fail ->
+	// rebroadcast -> claim window -> assign -> fail -> dead letter, ~20s of
+	// timer waits minimum before any propagation or scheduler delay. Give it
+	// headroom for loaded parallel runs.
 	require.Eventually(t, func() bool {
 		info, ok := swarmA.queue.offerInfo(offerID)
 		return ok && info.Status == OfferDeadLetter
-	}, 60*time.Second, 100*time.Millisecond, "offer should dead-letter after retries")
+	}, 120*time.Second, 100*time.Millisecond, "offer should dead-letter after retries")
 
 	info, _ := swarmA.queue.offerInfo(offerID)
 	assert.Equal(t, 1, info.Retries)

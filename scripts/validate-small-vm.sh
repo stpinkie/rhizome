@@ -30,7 +30,12 @@ export TMPDIR="${TMPDIR:-${GOCACHE}/tmp}"
 export TEMP="$TMPDIR"
 export TMP="$TMPDIR"
 export GOGC=30
-export GOMEMLIMIT="2GiB"
+# Keep GOMEMLIMIT under typical container cgroup caps (~2GiB): lint and test
+# processes need headroom beyond the Go heap limit or they get OOM-killed.
+export GOMEMLIMIT="${GOMEMLIMIT:-1500MiB}"
+# golangci-lint defaults to one worker per host CPU; on small VMs with big
+# hosts (e.g. 64-core container host) that alone exhausts the memory cap.
+export GOMAXPROCS="${GOMAXPROCS:-4}"
 export PATH="$PATH:$(go env GOPATH)/bin"
 
 mkdir -p "$GOCACHE" "$GOMODCACHE" "$GOTMPDIR" "$TMPDIR"
