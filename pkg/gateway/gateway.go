@@ -51,6 +51,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/netbind"
 	"github.com/stpinkie/rhizome/pkg/pid"
 	"github.com/stpinkie/rhizome/pkg/providers"
+	"github.com/stpinkie/rhizome/pkg/rhizome/agentmanifest"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/state"
@@ -234,6 +235,42 @@ func RunWithMesh(
 		local := agent.NewSubTurnSpawner(agentLoop)
 		rhizomeMesh.SetAgentLister(func() []string {
 			return agentLoop.GetRegistry().ListAgentIDs()
+		})
+		// Per-agent identity manifests (AIEOS-style): signed by the node key,
+		// embedded into capability announcements, and persisted under
+		// <workspace>/agents/ so they sync to peers alongside other state.
+		rhizomeMesh.SetAgentManifestSource(func() []agentmanifest.Input {
+			registry := agentLoop.GetRegistry()
+			var out []agentmanifest.Input
+			for _, id := range registry.ListAgentIDs() {
+				inst, ok := registry.GetAgent(id)
+				if !ok || inst == nil {
+					continue
+				}
+				in := agentmanifest.Input{
+					AgentID: inst.ID,
+					Name:    inst.Name,
+					Models:  append([]string{inst.Model}, inst.Fallbacks...),
+					Skills:  append([]string(nil), inst.SkillsFilter...),
+				}
+				if d, ok := registry.GetAgentDescriptor(inst.ID); ok && d != nil {
+					in.Persona = d.Description
+					if in.Name == "" {
+						in.Name = d.Name
+					}
+				}
+				out = append(out, in)
+			}
+			return out
+		})
+		manifestDir := filepath.Join(cfg.WorkspacePath(), "agents")
+		rhizomeMesh.SetManifestSink(func(mf agentmanifest.Manifest) {
+			if err := mf.SaveTo(manifestDir); err != nil {
+				logger.WarnCF("mesh", "failed to persist agent manifest", map[string]any{
+					"agent_id": mf.AgentID,
+					"error":    err.Error(),
+				})
+			}
 		})
 		// The media store lets the mesh register fetched attachments and
 		// resolve result artifacts for remote tasks.

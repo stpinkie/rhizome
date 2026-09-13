@@ -135,6 +135,7 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 - `pkg/rhizome/agentrpc` — libp2p request/response framing for remote agent tasks (`/rhizome/agent/1.0.0`), with signed nonce+timestamp replay fields and a bounded idempotency cache.
 - `pkg/rhizome/agenttask` — asynchronous task protocol (`/rhizome/agent-task/1.0.0`): submit/status/result(long-poll)/cancel/list.
 - `pkg/rhizome/blob` — content-addressed file transfer between trusted peers (`/rhizome/blob/1.0.0`) over `stream.ReliableConn`: signed put/get/stat ops, SHA-256-verified chunked streaming, per-blob size cap, TTL reaper.
+- `pkg/rhizome/agentmanifest` — AIEOS-style agent identity manifests: signed Ed25519 documents (agent id, name, persona, models, skills, peer id, timestamp) embedded in capability announcements and persisted to `<workspace>/agents/<id>.manifest.json`.
 - `pkg/rhizome/mesh` — peer capability exchange (signed manifests), trust, remote `delegate`/`spawn`, scatter-gather fan-out (`FanoutTask`), per-peer ACL + rate limits, replay protection, and the audit trail (`~/.rhizome/mesh-audit.jsonl`).
 - `pkg/rhizome/swarm` — swarm layer over the mesh: signed envelopes on `/rhizome/swarm/1.0.0`, join/leave + roster gossip, presence heartbeats, offer/claim work queue, deterministic coordinator election (lowest peer id) with shared state written to `swarm/<id>/state.json` in the synced workspace, goal orchestration (`RunGoal`), and pluggable broadcast transport (`direct` fan-out or `gossipsub`).
 - `cmd/rhizome/internal/network`, `cmd/rhizome/internal/daemon`, `cmd/rhizome/internal/swarm`, and `cmd/rhizome/internal/sync` — CLI commands.
@@ -191,6 +192,8 @@ Add a `mesh` section to `config.json`:
 - `network status` reports `reachability`, `addrs`, and `relayed_addrs`; relayed (`Limited`) connections count as usable.
 
 When `mesh.enabled` is true, `rhizome daemon` advertises local capabilities over `/rhizome/caps/1.0.0`, accepts remote agent requests over `/rhizome/agent/1.0.0` from trusted peers, and publishes mesh/DHT runtime events to the shared event bus.
+
+Agent identity manifests ride inside the capability payload (`agent_manifests`): each configured agent gets an `agentmanifest.Manifest` signed with the node key and bound to the sender's peer id, and the gateway persists each signed copy to `<workspace>/agents/<id>.manifest.json` so manifests sync to peers. Receivers verify every manifest against the sender's key after the outer capability signature check and drop forgeries (a `mesh.error` event with stage `capability.agent_manifest` is emitted). Manifest model/skill fields honor `advertise_models`/`advertise_skills`; status views (`network status --peers`, saved-peers) expose per-agent fingerprints. Manifests prove *who* issued an identity claim — execution authorization remains governed by trust + ACL.
 
 ## Swarm Mode (v0.7.0, Tracks 21–30)
 

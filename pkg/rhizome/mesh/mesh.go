@@ -3,6 +3,7 @@ package mesh
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/media"
+	"github.com/stpinkie/rhizome/pkg/rhizome/agentmanifest"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/blob"
@@ -58,6 +60,10 @@ type Capability struct {
 	// ShareableSkills lists installed skill names the peer will serve over
 	// /rhizome/skill/1.0.0 (the mesh.skill_share allowlist ∩ installed).
 	ShareableSkills []string `json:"shareable_skills,omitempty"`
+	// AgentManifests carries per-agent AIEOS-style identity manifests, each
+	// signed by the issuing node's Ed25519 identity. The outer capability
+	// signature covers them; each is also independently verified on receipt.
+	AgentManifests []agentmanifest.Manifest `json:"agent_manifests,omitempty"`
 	// Signature covers the canonical encoding of all fields above, proving
 	// the manifest was issued by PeerID. Unsigned manifests are rejected
 	// unless mesh.require_signed_caps is disabled; a mesh.cap.unsigned
@@ -72,6 +78,8 @@ type PeerCapability struct {
 	Agents          []string `json:"agents,omitempty"`
 	ActiveTasks     int      `json:"active_tasks,omitempty"`
 	ShareableSkills []string `json:"shareable_skills,omitempty"`
+	// AgentManifests maps agent id to manifest fingerprint for status output.
+	AgentManifests map[string]string `json:"agent_manifests,omitempty"`
 }
 
 // PeerStatus is the JSON-friendly status for one connected peer.
@@ -131,6 +139,12 @@ type Mesh struct {
 
 	agentLister   func() []string
 	agentListerMu sync.RWMutex
+
+	// manifestSource supplies unsigned per-agent manifest fields; manifestSink
+	// persists each signed manifest (e.g. into the synced workspace).
+	manifestSource func() []agentmanifest.Input
+	manifestSink   func(agentmanifest.Manifest)
+	manifestMu     sync.RWMutex
 
 	skillsLoader   *skills.SkillsLoader
 	skillsLoaderMu sync.RWMutex
@@ -901,6 +915,33 @@ func (m *Mesh) localCapability() Capability {
 	if len(c.Agents) == 0 {
 		c.Agents = append(c.Agents, "main")
 	}
+
+	// Sign and embed per-agent identity manifests. Model/skill fields inside
+	// a manifest honor the same advertise flags as the capability itself.
+	m.manifestMu.RLock()
+	manifestSource, manifestSink := m.manifestSource, m.manifestSink
+	m.manifestMu.RUnlock()
+	if manifestSource != nil {
+		for _, in := range manifestSource() {
+			mf := agentmanifest.Manifest{AgentID: in.AgentID, Name: in.Name, Persona: in.Persona}
+			if m.cfg.AdvertiseModels {
+				mf.Models = in.Models
+			}
+			if m.cfg.AdvertiseSkills {
+				mf.Skills = in.Skills
+			}
+			if !agentmanifest.ValidAgentID(mf.AgentID) {
+				continue
+			}
+			if err := mf.Sign(m.node.PeerID(), m.id.PrivateKey); err != nil {
+				continue
+			}
+			c.AgentManifests = append(c.AgentManifests, mf)
+			if manifestSink != nil {
+				manifestSink(mf)
+			}
+		}
+	}
 	m.signCapability(&c)
 	return c
 }
@@ -944,6 +985,7 @@ func (m *Mesh) verifyCapability(from peer.ID, c *Capability) error {
 		if m.cfg.RequireSignedCaps {
 			return fmt.Errorf("unsigned capability manifest from peer %s", from)
 		}
+		c.AgentManifests = m.filterAgentManifests(from, c.AgentManifests)
 		return nil
 	}
 
@@ -970,7 +1012,47 @@ func (m *Mesh) verifyCapability(from peer.ID, c *Capability) error {
 	if age := time.Since(time.Unix(c.Timestamp, 0)); c.Timestamp == 0 || age < 0 || age > capabilityMaxAge {
 		return fmt.Errorf("capability timestamp outside allowed window")
 	}
+
+	// Each embedded agent manifest is independently signed; verify against the
+	// sender's key and drop forgeries rather than rejecting the whole manifest.
+	// Runs after the outer signature check since it covers the manifest list.
+	c.AgentManifests = m.filterAgentManifests(from, c.AgentManifests)
 	return nil
+}
+
+// filterAgentManifests drops embedded agent manifests whose PeerID does not
+// match the sender or whose Ed25519 signature fails verification against the
+// sender's public key. Invalid entries are reported via a mesh.error event.
+func (m *Mesh) filterAgentManifests(from peer.ID, manifests []agentmanifest.Manifest) []agentmanifest.Manifest {
+	if len(manifests) == 0 {
+		return manifests
+	}
+	pub := m.host.Peerstore().PubKey(from)
+	if pub == nil {
+		return nil
+	}
+	raw, err := pub.Raw()
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		return nil
+	}
+	valid := manifests[:0]
+	dropped := 0
+	for i := range manifests {
+		mf := manifests[i]
+		if mf.PeerID != from.String() || mf.Verify(ed25519.PublicKey(raw)) != nil {
+			dropped++
+			continue
+		}
+		valid = append(valid, mf)
+	}
+	if dropped > 0 {
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":   "capability.agent_manifest",
+			"error":   fmt.Sprintf("dropped %d invalid agent manifest(s)", dropped),
+			"peer_id": from.String(),
+		})
+	}
+	return valid
 }
 
 // SetAgentLister sets the function used to enumerate local agent ids for
@@ -980,6 +1062,24 @@ func (m *Mesh) SetAgentLister(fn func() []string) {
 	m.agentListerMu.Lock()
 	defer m.agentListerMu.Unlock()
 	m.agentLister = fn
+}
+
+// SetAgentManifestSource sets the function that supplies per-agent manifest
+// fields (id, name, persona, models, skills). Each input is stamped with the
+// node peer id and timestamp, signed with the node identity, embedded into
+// the capability manifest, and passed to the manifest sink.
+func (m *Mesh) SetAgentManifestSource(fn func() []agentmanifest.Input) {
+	m.manifestMu.Lock()
+	defer m.manifestMu.Unlock()
+	m.manifestSource = fn
+}
+
+// SetManifestSink registers a callback invoked with each freshly signed
+// local agent manifest (e.g. to persist it into the synced workspace).
+func (m *Mesh) SetManifestSink(fn func(agentmanifest.Manifest)) {
+	m.manifestMu.Lock()
+	defer m.manifestMu.Unlock()
+	m.manifestSink = fn
 }
 
 // QueryCapability fetches the current capability from a trusted peer.
@@ -1039,6 +1139,18 @@ func (m *Mesh) PeerCapabilities(pid peer.ID) (Capability, bool) {
 	defer m.capsMu.RUnlock()
 	c, ok := m.caps[pid]
 	return c, ok
+}
+
+// agentManifestIndex maps agent id to manifest fingerprint for status views.
+func agentManifestIndex(c Capability) map[string]string {
+	if len(c.AgentManifests) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(c.AgentManifests))
+	for i := range c.AgentManifests {
+		out[c.AgentManifests[i].AgentID] = c.AgentManifests[i].Fingerprint()
+	}
+	return out
 }
 
 // TrustPeer adds a peer to the trust set.
@@ -1126,6 +1238,7 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 					pc.ShareableSkills = capability.ShareableSkills
 				}
 				pc.ActiveTasks = capability.ActiveTasks
+				pc.AgentManifests = agentManifestIndex(capability)
 				ps.Capability = pc
 			}
 			out.Peers = append(out.Peers, ps)
