@@ -1,7 +1,9 @@
 package irc
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stpinkie/rhizome/pkg/bus"
 	"github.com/stpinkie/rhizome/pkg/config"
@@ -145,4 +147,58 @@ func TestStripBotMention(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSplitLineBytes(t *testing.T) {
+	t.Run("short line unchanged", func(t *testing.T) {
+		got := splitLineBytes("hello", 400)
+		if len(got) != 1 || got[0] != "hello" {
+			t.Fatalf("got %v", got)
+		}
+	})
+
+	t.Run("long ascii splits on spaces", func(t *testing.T) {
+		line := strings.Repeat("word ", 200) // 1000 bytes
+		parts := splitLineBytes(line, 100)
+		if len(parts) < 10 {
+			t.Fatalf("expected >=10 parts, got %d", len(parts))
+		}
+		for i, p := range parts {
+			if len(p) > 100 {
+				t.Fatalf("part %d exceeds limit: %d bytes", i, len(p))
+			}
+		}
+		if joined := strings.Join(parts, ""); joined != line {
+			t.Fatalf("parts do not reassemble: got %q", joined)
+		}
+	})
+
+	t.Run("multibyte never splits mid-rune", func(t *testing.T) {
+		line := strings.Repeat("界", 300) // 900 bytes, 3 bytes/rune
+		parts := splitLineBytes(line, 100)
+		for i, p := range parts {
+			if len(p) > 100 {
+				t.Fatalf("part %d exceeds limit: %d bytes", i, len(p))
+			}
+			if !utf8.ValidString(p) {
+				t.Fatalf("part %d is invalid UTF-8: %q", i, p)
+			}
+		}
+		if joined := strings.Join(parts, ""); joined != line {
+			t.Fatal("parts do not reassemble")
+		}
+	})
+
+	t.Run("unbreakable run of runes still bounded", func(t *testing.T) {
+		line := strings.Repeat("a", 1000)
+		parts := splitLineBytes(line, 100)
+		for i, p := range parts {
+			if len(p) > 100 {
+				t.Fatalf("part %d exceeds limit: %d bytes", i, len(p))
+			}
+		}
+		if joined := strings.Join(parts, ""); joined != line {
+			t.Fatal("parts do not reassemble")
+		}
+	})
 }

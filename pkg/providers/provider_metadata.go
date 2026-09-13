@@ -42,6 +42,23 @@ type ModelProviderOption struct {
 }
 
 var modelProviderOptionsByName = map[string]ModelProviderOption{
+	// Generic preset for any server speaking the OpenAI chat-completions API
+	// (Ollama, LM Studio, vLLM, llama.cpp, OpenCode Go, …). No default API
+	// base — the user must supply api_base; api_key stays optional for local
+	// servers.
+	"openai-compatible": {
+		ID:                  "openai-compatible",
+		DisplayName:         "OpenAI Compatible",
+		IconSlug:            "openai",
+		CreateAllowed:       true,
+		DefaultModelAllowed: true,
+		SupportsFetch:       true,
+		Priority:            40,
+		Aliases:             []string{"openai-compat", "custom-openai"},
+		ProtocolFamily:      "openai-compatible",
+		EmptyAPIKeyAllowed:  true,
+		StripModelPrefix:    true,
+	},
 	"openai": {
 		ID:                    "openai",
 		DisplayName:           "OpenAI",

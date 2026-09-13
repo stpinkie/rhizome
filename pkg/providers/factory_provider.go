@@ -187,6 +187,7 @@ func createOpenAICompatibleProvider(
 		openaicompat.WithRequestTimeout(timeout),
 		openaicompat.WithExtraBody(extraBody),
 		openaicompat.WithCustomHeaders(cfg.CustomHeaders),
+		openaicompat.WithSessionHeader(cfg.SessionHeader),
 		openaicompat.WithProviderName(option.ID),
 		openaicompat.WithStripModelPrefix(option.StripModelPrefix),
 	)

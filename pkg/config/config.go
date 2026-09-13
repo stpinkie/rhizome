@@ -1111,6 +1111,9 @@ type ModelConfig struct {
 	Streaming           ModelStreamingConfig `json:"streaming,omitzero"`              // Opt-in for provider streaming on this model entry
 	ExtraBody           map[string]any       `json:"extra_body,omitempty"`            // Additional fields to inject into request body
 	CustomHeaders       map[string]string    `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
+	// SessionHeader names an HTTP header that carries the turn's session key
+	// on every request (e.g. "x-opencode-session" for OpenCode Go).
+	SessionHeader string `json:"session_header,omitempty"`
 
 	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
 

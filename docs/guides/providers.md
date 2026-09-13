@@ -133,6 +133,7 @@ This design also enables **multi-agent support** with flexible provider selectio
 | `tool_schema_transform` | string | No | Optional compatibility transform for tool parameter schemas. Default: disabled. Supported values: `simple`.                                                                                             |
 | `extra_body` | object | No | Additional fields to inject into every request body                                                                                                                                                                                         |
 | `custom_headers` | object | No | Additional HTTP headers to inject into every request (e.g., `{"X-Source":"coding-plan"}`). If a key matches a built-in header, the custom value overrides the built-in one (e.g., `Authorization`, `User-Agent`, `Content-Type`, `Accept`). |
+| `session_header` | string | No | Name of an HTTP header that carries the turn's session key on every request (e.g., `"x-opencode-session"` for OpenCode Go). OpenAI-compatible protocol only. |
 | `streaming.enabled` | bool | No | Opt-in for provider streaming on this model entry. Defaults to `false` and also requires the active channel's `settings.streaming.enabled` to be `true`. |
 | `rpm` | int | No | Per-minute request rate limit                                                                                                                                                                                                               |
 | `fallbacks` | string[] | No | Fallback model names for automatic failover                                                                                                                                                                                                 |
@@ -371,12 +372,12 @@ For direct Anthropic API access or custom endpoints that only support Anthropic'
 `api_base` defaults to `http://localhost:1234/v1`. API key is optional unless your LM Studio server enables authentication.<br/>
 With explicit `provider`, Rhizome sends `openai/gpt-oss-20b` unchanged to the LM Studio server. The legacy compatibility form `"model": "lmstudio/openai/gpt-oss-20b"` still resolves to the same upstream model ID when `provider` is omitted.
 
-**Custom Proxy/API**
+**Custom Proxy/API — `openai-compatible` preset**
 
 ```json
 {
   "model_name": "my-custom-model",
-  "provider": "openai",
+  "provider": "openai-compatible",
   "model": "custom-model",
   "api_base": "https://my-proxy.com/v1",
   "api_keys": ["sk-..."],
@@ -384,6 +385,12 @@ With explicit `provider`, Rhizome sends `openai/gpt-oss-20b` unchanged to the LM
   "request_timeout": 300
 }
 ```
+
+`openai-compatible` is the named preset for any endpoint speaking the OpenAI
+chat-completions API (Ollama, LM Studio, vLLM, llama.cpp, OpenCode Go, custom
+proxies). It has no default `api_base` — supply one explicitly; `api_keys`
+stays optional for unauthenticated local servers. `"provider": "openai"` with
+a custom `api_base` remains equivalent.
 
 **LiteLLM Proxy**
 

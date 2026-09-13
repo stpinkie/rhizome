@@ -2219,3 +2219,52 @@ func TestSerializeMessages_StripsSystemParts(t *testing.T) {
 		t.Fatal("system_parts should not appear in serialized output")
 	}
 }
+func TestProviderChat_SendsSessionHeader(t *testing.T) {
+	var sessionHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sessionHeader = r.Header.Get("x-opencode-session")
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{
+					"message":       map[string]any{"content": "ok"},
+					"finish_reason": "stop",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p := NewProvider("key", server.URL, "", WithSessionHeader("x-opencode-session"))
+	_, err := p.Chat(
+		t.Context(),
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"gpt-4o-mini",
+		map[string]any{"session_key": "telegram:123:chat"},
+	)
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if sessionHeader != "telegram:123:chat" {
+		t.Fatalf("expected session header to carry session key, got %q", sessionHeader)
+	}
+
+	// Without a session key in options the header must not be sent.
+	sessionHeader = ""
+	_, err = p.Chat(
+		t.Context(),
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"gpt-4o-mini",
+		map[string]any{},
+	)
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if sessionHeader != "" {
+		t.Fatalf("expected no session header without session_key, got %q", sessionHeader)
+	}
+}

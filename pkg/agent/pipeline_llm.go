@@ -79,6 +79,9 @@ func (p *Pipeline) CallLLM(
 		"temperature":      ts.agent.Temperature,
 		"prompt_cache_key": ts.agent.ID,
 	}
+	if ts.sessionKey != "" {
+		exec.llmOpts["session_key"] = ts.sessionKey
+	}
 	if exec.useNativeSearch {
 		exec.llmOpts["native_search"] = true
 	}

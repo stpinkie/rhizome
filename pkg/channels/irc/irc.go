@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ergochat/irc-go/ircevent"
 	"github.com/ergochat/irc-go/ircmsg"
@@ -146,21 +147,58 @@ func (c *IRCChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]strin
 		return nil, nil
 	}
 
-	// Send each line separately (IRC is line-oriented)
+	// Send each line separately (IRC is line-oriented), splitting lines that
+	// exceed the protocol's per-message byte budget. The shared splitter cuts
+	// at 400 runes, but IRC truncates at ~512 bytes — multi-byte text would be
+	// cut mid-message (or mid-UTF-8) without this pass.
+	const maxLineBytes = 400
 	lines := strings.Split(msg.Content, "\n")
+	sent := 0
 	for _, line := range lines {
 		line = strings.TrimRight(line, "\r")
 		if line == "" {
 			continue
 		}
-		c.conn.Privmsg(target, line)
+		for _, part := range splitLineBytes(line, maxLineBytes) {
+			c.conn.Privmsg(target, part)
+			sent++
+		}
 	}
 
 	logger.DebugCF("irc", "Message sent", map[string]any{
 		"target": target,
-		"lines":  len(lines),
+		"lines":  sent,
 	})
 	return nil, nil
+}
+
+// splitLineBytes splits s into chunks of at most maxBytes bytes, breaking on
+// rune boundaries and preferring the last space within each chunk window.
+func splitLineBytes(s string, maxBytes int) []string {
+	if len(s) <= maxBytes {
+		return []string{s}
+	}
+	var out []string
+	for len(s) > maxBytes {
+		cut := maxBytes
+		// Walk back to a rune boundary.
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		if cut == 0 {
+			cut = maxBytes // pathological: split anyway
+		}
+		// Prefer breaking at the last space in the window.
+		if idx := strings.LastIndex(s[:cut], " "); idx > 0 {
+			cut = idx + 1 // keep the space at the end of this chunk
+		}
+		out = append(out, s[:cut])
+		s = s[cut:]
+	}
+	if s != "" {
+		out = append(out, s)
+	}
+	return out
 }
 
 // StartTyping implements channels.TypingCapable using IRCv3 +typing client tag.

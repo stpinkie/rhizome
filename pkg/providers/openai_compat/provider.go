@@ -43,6 +43,7 @@ type Provider struct {
 	httpClient       *http.Client
 	extraBody        map[string]any // Additional fields to inject into request body
 	customHeaders    map[string]string
+	sessionHeader    string
 	userAgent        string
 }
 
@@ -81,6 +82,14 @@ func WithExtraBody(extraBody map[string]any) Option {
 func WithCustomHeaders(customHeaders map[string]string) Option {
 	return func(p *Provider) {
 		p.customHeaders = customHeaders
+	}
+}
+
+// WithSessionHeader names a header that receives the request's session key
+// (from options["session_key"]) on every call — e.g. "x-opencode-session".
+func WithSessionHeader(header string) Option {
+	return func(p *Provider) {
+		p.sessionHeader = strings.TrimSpace(header)
 	}
 }
 
@@ -320,6 +329,19 @@ func (p *Provider) applyCustomHeaders(req *http.Request) {
 	}
 }
 
+// applySessionHeader sets the configured session header to the session key
+// carried in options["session_key"], when both are present.
+func (p *Provider) applySessionHeader(req *http.Request, options map[string]any) {
+	if p.sessionHeader == "" || options == nil {
+		return
+	}
+	sessionKey, _ := options["session_key"].(string)
+	if sessionKey == "" {
+		return
+	}
+	req.Header.Set(p.sessionHeader, sessionKey)
+}
+
 func (p *Provider) SetProviderName(providerName string) {
 	p.providerName = strings.ToLower(strings.TrimSpace(providerName))
 }
@@ -480,6 +502,7 @@ func (p *Provider) Chat(
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 	p.applyCustomHeaders(req)
+	p.applySessionHeader(req, options)
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -552,6 +575,7 @@ func (p *Provider) ChatStreamEvents(
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 	p.applyCustomHeaders(req)
+	p.applySessionHeader(req, options)
 
 	// Use a client without Timeout for streaming — the http.Client.Timeout covers
 	// the entire request lifecycle including body reads, which would kill long streams.
