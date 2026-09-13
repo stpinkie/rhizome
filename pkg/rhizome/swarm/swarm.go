@@ -239,6 +239,9 @@ func (s *Swarm) Start(ctx context.Context) error {
 		}
 	}
 
+	s.wg.Add(1)
+	go s.reannounceLoop(s.ctx)
+
 	s.startPresence()
 	s.queue.start()
 	if s.cfg.CoordinationEnabled() {
@@ -338,6 +341,33 @@ func (s *Swarm) joinedIDs() []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// reannounceLoop periodically re-announces joined swarms to connected trusted
+// peers. The connect-time announce is single-shot: a lost JoinAck, an inbound
+// stream that landed before the remote handler registered, or an expiry
+// eviction would otherwise leave rosters permanently diverged. The interval
+// tracks the heartbeat cadence so convergence outpaces expire_after.
+func (s *Swarm) reannounceLoop(ctx context.Context) {
+	defer s.wg.Done()
+	interval := s.cfg.Presence.HeartbeatInterval * 3
+	if interval < 5*time.Second {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		for _, pid := range s.connectedTrustedPeers() {
+			for _, id := range s.joinedIDs() {
+				go s.announceTo(ctx, pid, id)
+			}
+		}
+	}
 }
 
 // isTrusted reports whether the peer is in the mesh trust set.
