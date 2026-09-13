@@ -11,6 +11,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -33,6 +36,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/identity"
 	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/media"
 	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
@@ -357,11 +361,17 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	}
 	content = utils.SanitizeMessageContent(content)
 
-	if content == "" {
-		return
+	var mediaPaths []string
+	if ref := c.downloadInboundMedia(evt); ref != "" {
+		mediaPaths = append(mediaPaths, ref)
 	}
 
-	var mediaPaths []string
+	if content == "" && len(mediaPaths) == 0 {
+		return
+	}
+	if content == "" {
+		content = "[media only]"
+	}
 
 	metadata := make(map[string]string)
 	metadata["message_id"] = evt.Info.ID
@@ -447,6 +457,240 @@ func (c *WhatsAppNativeChannel) Send(ctx context.Context, msg bus.OutboundMessag
 		return nil, fmt.Errorf("whatsapp send: %w", channels.ErrTemporary)
 	}
 	return nil, nil
+}
+
+// SendMedia implements channels.MediaSender: resolves media:// refs through
+// the media store, uploads the bytes to WhatsApp via whatsmeow, and sends the
+// matching image/video/audio/document message per part.
+func (c *WhatsAppNativeChannel) SendMedia(
+	ctx context.Context,
+	msg bus.OutboundMediaMessage,
+) ([]string, error) {
+	if !c.IsRunning() {
+		return nil, channels.ErrNotRunning
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+
+	if client == nil || !client.IsConnected() {
+		return nil, fmt.Errorf("whatsapp connection not established: %w", channels.ErrTemporary)
+	}
+	if client.Store.ID == nil {
+		return nil, fmt.Errorf("whatsapp not yet paired (QR login pending): %w", channels.ErrTemporary)
+	}
+
+	to, err := parseJID(msg.ChatID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid chat id %q: %w", msg.ChatID, err)
+	}
+
+	store := c.GetMediaStore()
+	if store == nil {
+		return nil, fmt.Errorf("no media store available: %w", channels.ErrSendFailed)
+	}
+
+	var messageIDs []string
+	for _, part := range msg.Parts {
+		localPath, err := store.Resolve(part.Ref)
+		if err != nil {
+			logger.ErrorCF("whatsapp", "Failed to resolve media ref", map[string]any{
+				"ref":   part.Ref,
+				"error": err.Error(),
+			})
+			continue
+		}
+		data, err := os.ReadFile(localPath)
+		if err != nil {
+			logger.ErrorCF("whatsapp", "Failed to read media file", map[string]any{
+				"path":  localPath,
+				"error": err.Error(),
+			})
+			continue
+		}
+
+		mime := part.ContentType
+		if mime == "" {
+			mime = http.DetectContentType(data)
+		}
+
+		var waMsg *waE2E.Message
+		switch part.Type {
+		case "image":
+			resp, uerr := client.Upload(ctx, data, whatsmeow.MediaImage)
+			if uerr != nil {
+				return messageIDs, fmt.Errorf("whatsapp media upload: %w", channels.ErrTemporary)
+			}
+			waMsg = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+				Caption:       proto.String(part.Caption),
+				Mimetype:      proto.String(mime),
+				URL:           &resp.URL,
+				DirectPath:    &resp.DirectPath,
+				MediaKey:      resp.MediaKey,
+				FileEncSHA256: resp.FileEncSHA256,
+				FileSHA256:    resp.FileSHA256,
+				FileLength:    &resp.FileLength,
+			}}
+		case "audio":
+			resp, uerr := client.Upload(ctx, data, whatsmeow.MediaAudio)
+			if uerr != nil {
+				return messageIDs, fmt.Errorf("whatsapp media upload: %w", channels.ErrTemporary)
+			}
+			// OGG/OPUS files named *voice* render as push-to-talk bubbles.
+			fn := strings.ToLower(part.Filename)
+			isVoice := strings.Contains(fn, "voice") &&
+				(strings.HasSuffix(fn, ".ogg") || strings.HasSuffix(fn, ".oga") || strings.HasSuffix(fn, ".opus"))
+			waMsg = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+				Mimetype:      proto.String(mime),
+				PTT:           proto.Bool(isVoice),
+				URL:           &resp.URL,
+				DirectPath:    &resp.DirectPath,
+				MediaKey:      resp.MediaKey,
+				FileEncSHA256: resp.FileEncSHA256,
+				FileSHA256:    resp.FileSHA256,
+				FileLength:    &resp.FileLength,
+			}}
+		case "video":
+			resp, uerr := client.Upload(ctx, data, whatsmeow.MediaVideo)
+			if uerr != nil {
+				return messageIDs, fmt.Errorf("whatsapp media upload: %w", channels.ErrTemporary)
+			}
+			waMsg = &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+				Caption:       proto.String(part.Caption),
+				Mimetype:      proto.String(mime),
+				URL:           &resp.URL,
+				DirectPath:    &resp.DirectPath,
+				MediaKey:      resp.MediaKey,
+				FileEncSHA256: resp.FileEncSHA256,
+				FileSHA256:    resp.FileSHA256,
+				FileLength:    &resp.FileLength,
+			}}
+		default: // "file" or unknown types
+			resp, uerr := client.Upload(ctx, data, whatsmeow.MediaDocument)
+			if uerr != nil {
+				return messageIDs, fmt.Errorf("whatsapp media upload: %w", channels.ErrTemporary)
+			}
+			filename := part.Filename
+			if filename == "" {
+				filename = filepath.Base(localPath)
+			}
+			waMsg = &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+				Caption:       proto.String(part.Caption),
+				Mimetype:      proto.String(mime),
+				FileName:      proto.String(filename),
+				URL:           &resp.URL,
+				DirectPath:    &resp.DirectPath,
+				MediaKey:      resp.MediaKey,
+				FileEncSHA256: resp.FileEncSHA256,
+				FileSHA256:    resp.FileSHA256,
+				FileLength:    &resp.FileLength,
+			}}
+		}
+
+		resp, err := client.SendMessage(ctx, to, waMsg)
+		if err != nil {
+			logger.ErrorCF("whatsapp", "Failed to send media", map[string]any{
+				"type":  part.Type,
+				"error": err.Error(),
+			})
+			return messageIDs, fmt.Errorf("whatsapp send media: %w", channels.ErrTemporary)
+		}
+		messageIDs = append(messageIDs, resp.ID)
+	}
+
+	return messageIDs, nil
+}
+
+// downloadInboundMedia downloads an attachment-bearing message (image, video,
+// audio, or document) to the media temp dir and registers it with the media
+// store. Returns the media ref (or raw path when no store is configured), or
+// "" when the message has no downloadable attachment.
+func (c *WhatsAppNativeChannel) downloadInboundMedia(evt *events.Message) string {
+	m := evt.Message
+
+	filename := "attachment"
+	mimeType := ""
+	switch {
+	case m.GetImageMessage() != nil:
+		mimeType = m.GetImageMessage().GetMimetype()
+		filename = "photo" + mimeExt(mimeType)
+	case m.GetVideoMessage() != nil:
+		mimeType = m.GetVideoMessage().GetMimetype()
+		filename = "video" + mimeExt(mimeType)
+	case m.GetAudioMessage() != nil:
+		mimeType = m.GetAudioMessage().GetMimetype()
+		filename = "audio" + mimeExt(mimeType)
+	case m.GetDocumentMessage() != nil:
+		doc := m.GetDocumentMessage()
+		mimeType = doc.GetMimetype()
+		if fn := doc.GetFileName(); fn != "" {
+			filename = fn
+		} else {
+			filename = "document" + mimeExt(mimeType)
+		}
+	default:
+		return ""
+	}
+
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return ""
+	}
+
+	data, err := client.DownloadAny(c.runCtx, m)
+	if err != nil {
+		logger.ErrorCF("whatsapp", "Failed to download inbound media", map[string]any{
+			"error": err.Error(),
+		})
+		return ""
+	}
+
+	mediaDir := media.TempDir()
+	if err := os.MkdirAll(mediaDir, 0o700); err != nil {
+		return ""
+	}
+	localPath := filepath.Join(
+		mediaDir,
+		uuid.New().String()[:8]+"_"+utils.SanitizeFilename(filename),
+	)
+	if err := os.WriteFile(localPath, data, 0o600); err != nil {
+		logger.ErrorCF("whatsapp", "Failed to write inbound media", map[string]any{
+			"error": err.Error(),
+		})
+		return ""
+	}
+
+	if store := c.GetMediaStore(); store != nil {
+		scope := channels.BuildMediaScope("whatsapp", evt.Info.Chat.String(), evt.Info.ID)
+		ref, err := store.Store(localPath, media.MediaMeta{
+			Filename:      filename,
+			ContentType:   mimeType,
+			Source:        "whatsapp",
+			CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
+		}, scope)
+		if err == nil {
+			return ref
+		}
+	}
+	return localPath
+}
+
+// mimeExt returns a lowercase file extension for a MIME type, or "".
+func mimeExt(mimeType string) string {
+	base, _, _ := strings.Cut(mimeType, ";")
+	exts, err := mime.ExtensionsByType(strings.TrimSpace(base))
+	if err != nil || len(exts) == 0 {
+		return ""
+	}
+	return exts[0]
 }
 
 // parseJID converts a chat ID (phone number or JID string) to types.JID.

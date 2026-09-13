@@ -3,6 +3,8 @@ package vk
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -17,6 +19,8 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/identity"
 	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/media"
+	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
 type VKChannel struct {
@@ -147,13 +151,23 @@ func (c *VKChannel) handleMessage(msg object.MessagesMessage) {
 		return
 	}
 
+	mediaScope := channels.BuildMediaScope("vk", strconv.Itoa(msg.PeerID), strconv.Itoa(msg.ConversationMessageID))
+
 	text := msg.Text
-	if text == "" && len(msg.Attachments) > 0 {
-		text = c.processAttachments(msg.Attachments)
+	var mediaPaths []string
+	if len(msg.Attachments) > 0 {
+		var attachText string
+		attachText, mediaPaths = c.processAttachments(msg.Attachments, mediaScope)
+		if text == "" {
+			text = attachText
+		}
 	}
 
-	if text == "" {
+	if text == "" && len(mediaPaths) == 0 {
 		return
+	}
+	if text == "" {
+		text = "[media only]"
 	}
 
 	groupTrigger := c.bc.GroupTrigger
@@ -184,7 +198,7 @@ func (c *VKChannel) handleMessage(msg object.MessagesMessage) {
 		"is_group": fmt.Sprintf("%t", isGroupChat),
 	}
 
-	c.HandleInboundContext(c.ctx, chatID, text, nil, bus.InboundContext{
+	c.HandleInboundContext(c.ctx, chatID, text, mediaPaths, bus.InboundContext{
 		Channel:   "vk",
 		ChatID:    chatID,
 		ChatType:  chatType,
@@ -243,6 +257,134 @@ func (c *VKChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string
 	return messageIDs, nil
 }
 
+// SendMedia implements channels.MediaSender: uploads each part to VK's
+// message upload servers and sends them as message attachments. Captions are
+// joined into the message text (VK attachments have no per-item caption).
+func (c *VKChannel) SendMedia(
+	ctx context.Context,
+	msg bus.OutboundMediaMessage,
+) ([]string, error) {
+	if !c.IsRunning() {
+		return nil, channels.ErrNotRunning
+	}
+
+	peerID, err := strconv.Atoi(msg.ChatID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid chat ID %s: %w", msg.ChatID, channels.ErrSendFailed)
+	}
+
+	store := c.GetMediaStore()
+	if store == nil {
+		return nil, fmt.Errorf("no media store available: %w", channels.ErrSendFailed)
+	}
+
+	var attachments []string
+	var captions []string
+	for _, part := range msg.Parts {
+		if part.Caption != "" {
+			captions = append(captions, part.Caption)
+		}
+
+		localPath, err := store.Resolve(part.Ref)
+		if err != nil {
+			logger.ErrorCF("vk", "Failed to resolve media ref", map[string]any{
+				"ref":   part.Ref,
+				"error": err.Error(),
+			})
+			continue
+		}
+
+		file, err := os.Open(localPath)
+		if err != nil {
+			logger.ErrorCF("vk", "Failed to open media file", map[string]any{
+				"path":  localPath,
+				"error": err.Error(),
+			})
+			continue
+		}
+
+		filename := part.Filename
+		if filename == "" {
+			filename = filepath.Base(localPath)
+		}
+
+		var attachment string
+		switch part.Type {
+		case "image":
+			var saved api.PhotosSaveMessagesPhotoResponse
+			saved, err = c.vk.UploadMessagesPhoto(peerID, file)
+			if err == nil && len(saved) > 0 {
+				attachment = fmt.Sprintf("photo%d_%d", saved[0].OwnerID, saved[0].ID)
+			}
+		case "audio":
+			var saved api.DocsSaveResponse
+			saved, err = c.vk.UploadMessagesDoc(peerID, "audio_message", filename, "", file)
+			if err == nil {
+				attachment = vkDocAttachment(saved)
+			}
+		default: // "video" and "file" upload as documents
+			var saved api.DocsSaveResponse
+			saved, err = c.vk.UploadMessagesDoc(peerID, "doc", filename, "", file)
+			if err == nil {
+				attachment = vkDocAttachment(saved)
+			}
+		}
+		file.Close()
+
+		if err != nil {
+			logger.ErrorCF("vk", "Failed to upload media", map[string]any{
+				"type":  part.Type,
+				"error": err.Error(),
+			})
+			return nil, fmt.Errorf("vk media upload: %w", channels.ErrTemporary)
+		}
+		if attachment == "" {
+			logger.ErrorCF("vk", "Media upload returned no attachment", map[string]any{
+				"type": part.Type,
+			})
+			continue
+		}
+		attachments = append(attachments, attachment)
+	}
+
+	if len(attachments) == 0 {
+		return nil, fmt.Errorf("no media parts could be sent: %w", channels.ErrSendFailed)
+	}
+
+	b := params.NewMessagesSendBuilder()
+	b.RandomID(0)
+	b.PeerID(peerID)
+	b.Attachment(strings.Join(attachments, ","))
+	if text := strings.Join(captions, "\n"); text != "" {
+		b.Message(text)
+	}
+	if msg.Context.ReplyToMessageID != "" {
+		if replyID, err := strconv.Atoi(msg.Context.ReplyToMessageID); err == nil {
+			b.ReplyTo(replyID)
+		}
+	}
+
+	resp, err := c.vk.MessagesSend(b.Params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send media message: %w", err)
+	}
+
+	return []string{strconv.Itoa(resp)}, nil
+}
+
+// vkDocAttachment builds a VK attachment reference from an upload response.
+func vkDocAttachment(resp api.DocsSaveResponse) string {
+	switch {
+	case resp.Doc.ID != 0:
+		return fmt.Sprintf("doc%d_%d", resp.Doc.OwnerID, resp.Doc.ID)
+	case resp.AudioMessage.ID != 0:
+		return fmt.Sprintf("doc%d_%d", resp.AudioMessage.OwnerID, resp.AudioMessage.ID)
+	case resp.Graffiti.ID != 0:
+		return fmt.Sprintf("doc%d_%d", resp.Graffiti.OwnerID, resp.Graffiti.ID)
+	}
+	return ""
+}
+
 func (c *VKChannel) isMentioned(msg object.MessagesMessage) bool {
 	return false
 }
@@ -263,13 +405,45 @@ func (c *VKChannel) getUserName(userID int) string {
 	return fmt.Sprintf("%s %s", user.FirstName, user.LastName)
 }
 
-func (c *VKChannel) processAttachments(attachments []object.MessagesMessageAttachment) string {
+// processAttachments converts VK attachments into text placeholders and
+// downloadable media refs. Photos, docs, and voice messages are fetched into
+// the media store; videos, stickers, and other types keep their placeholder.
+func (c *VKChannel) processAttachments(
+	attachments []object.MessagesMessageAttachment,
+	mediaScope string,
+) (string, []string) {
 	var parts []string
+	var mediaPaths []string
+
+	storeMedia := func(localPath, filename string) string {
+		if localPath == "" {
+			return ""
+		}
+		if store := c.GetMediaStore(); store != nil {
+			ref, err := store.Store(localPath, media.MediaMeta{
+				Filename:      filename,
+				Source:        "vk",
+				CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
+			}, mediaScope)
+			if err == nil {
+				return ref
+			}
+		}
+		return localPath
+	}
 
 	for _, att := range attachments {
 		switch att.Type {
 		case "photo":
 			parts = append(parts, "[photo]")
+			if url := vkLargestPhotoURL(att.Photo); url != "" {
+				localPath := utils.DownloadFile(url, "photo.jpg", utils.DownloadOptions{
+					LoggerPrefix: "vk",
+				})
+				if ref := storeMedia(localPath, "photo.jpg"); ref != "" {
+					mediaPaths = append(mediaPaths, ref)
+				}
+			}
 		case "video":
 			parts = append(parts, "[video]")
 		case "audio":
@@ -280,14 +454,57 @@ func (c *VKChannel) processAttachments(attachments []object.MessagesMessageAttac
 			} else {
 				parts = append(parts, "[document]")
 			}
+			if att.Doc.URL != "" {
+				filename := att.Doc.Title
+				if filename == "" {
+					filename = "document"
+				}
+				localPath := utils.DownloadFile(att.Doc.URL, filename, utils.DownloadOptions{
+					LoggerPrefix: "vk",
+				})
+				if ref := storeMedia(localPath, filename); ref != "" {
+					mediaPaths = append(mediaPaths, ref)
+				}
+			}
 		case "audio_message":
 			parts = append(parts, "[voice]")
+			voiceURL := att.AudioMessage.Preview.AudioMessage.LinkOgg
+			filename := "voice.ogg"
+			if voiceURL == "" {
+				voiceURL = att.AudioMessage.Preview.AudioMessage.LinkMp3
+				filename = "voice.mp3"
+			}
+			if voiceURL != "" {
+				localPath := utils.DownloadFile(voiceURL, filename, utils.DownloadOptions{
+					LoggerPrefix: "vk",
+				})
+				if ref := storeMedia(localPath, filename); ref != "" {
+					mediaPaths = append(mediaPaths, ref)
+				}
+			}
 		case "sticker":
 			parts = append(parts, "[sticker]")
 		}
 	}
 
-	return strings.Join(parts, " ")
+	return strings.Join(parts, " "), mediaPaths
+}
+
+// vkLargestPhotoURL returns the URL of the largest available photo size.
+func vkLargestPhotoURL(photo object.PhotosPhoto) string {
+	best := ""
+	bestArea := float64(0)
+	for _, size := range photo.Sizes {
+		if size.URL == "" {
+			continue
+		}
+		area := size.Width * size.Height
+		if area >= bestArea {
+			bestArea = area
+			best = size.URL
+		}
+	}
+	return best
 }
 
 func (c *VKChannel) VoiceCapabilities() channels.VoiceCapabilities {
