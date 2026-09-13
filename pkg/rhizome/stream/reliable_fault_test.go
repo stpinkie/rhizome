@@ -217,6 +217,47 @@ func TestReliableConnWriteFrameFailsWithoutAck(t *testing.T) {
 	assert.Less(t, time.Since(start), 10*time.Second)
 }
 
+// TestReadFrameDeliversFrameQueuedBeforeClose reproduces the request/response
+// tail race: the peer writes a data frame and immediately follows it with a
+// close frame, so the reader queues the data into recvCh and then shuts the
+// conn down. ReadFrame must return the queued frame, not "reliable conn
+// closed" — a bare select over done and recvCh drops it whenever Go picks the
+// done case. Looped so the old coin-flip cannot pass by luck.
+func TestReadFrameDeliversFrameQueuedBeforeClose(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		rc, peer := wirePipe(t)
+
+		// Drain our ACK + close-ack — net.Pipe writes block until read.
+		go func() {
+			for {
+				if _, err := decodeReliableFrame(peer); err != nil {
+					return
+				}
+			}
+		}()
+
+		// Peer sends an in-order data frame (seq 0) then a close frame,
+		// back-to-back — exactly what a request/response server's
+		// WriteFrame + deferred Close produces on the wire. Written from this
+		// goroutine (not peerWrite) so the frames cannot race each other.
+		require.NoError(t, (&ReliableFrame{Flags: flagData, Seq: 0, Payload: []byte{9, 'h', 'i'}}).encode(peer))
+		require.NoError(t, (&ReliableFrame{Flags: flagClose}).encode(peer))
+
+		// Wait until the reader has processed the close frame and shut down,
+		// so done and recvCh are both ready before ReadFrame runs.
+		select {
+		case <-rc.done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("conn did not close after peer close frame")
+		}
+
+		typ, payload, err := rc.ReadFrame()
+		require.NoError(t, err, "queued response frame must survive the peer's close (iter %d)", i)
+		require.Equal(t, byte(9), typ)
+		require.Equal(t, []byte("hi"), payload)
+	}
+}
+
 // TestDecodeReliableFrameRejectsOversized exercises the 128MB sanity limit in
 // the reliable frame decoder without allocating the payload.
 func TestDecodeReliableFrameRejectsOversized(t *testing.T) {
