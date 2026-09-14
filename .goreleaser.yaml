@@ -11,7 +11,7 @@ before:
   hooks:
     - go generate ./...
     - sh -c 'cd web/frontend && CI=true pnpm install --frozen-lockfile && pnpm build:backend'
-    - sh -c 'GOBIN="$(go env GOPATH)/bin"; mkdir -p "$GOBIN"; go install github.com/tc-hib/go-winres@v0.3.3 && "$GOBIN/go-winres" make --in web/backend/winres/winres.json --out web/backend/rsrc --product-version={{ .Version }} --file-version={{ .Version }}'
+    - sh -c 'V="{{ .Version }}"; V="${V#v}"; V="${V%%-*}"; [ -n "$V" ] || V=0.0.0; GOBIN="$(go env GOPATH)/bin"; mkdir -p "$GOBIN"; go install github.com/tc-hib/go-winres@v0.3.3 && "$GOBIN/go-winres" make --in web/backend/winres/winres.json --out web/backend/rsrc --product-version="$V" --file-version="$V"'
     - sh -c 'if [ "${INCLUDE_ANDROID_BUNDLE:-}" = "true" ]; then make build-android-bundle; fi'
 
 builds:
@@ -239,6 +239,9 @@ changelog:
 
 release:
   disable: '{{ isEnvSet "NIGHTLY_BUILD" }}'
+  # Semver-aware: tags with a pre-release suffix (v1.2.3-rc1) publish as
+  # pre-release without needing the workflow_dispatch flag.
+  prerelease: auto
   extra_files:
     - glob: ./build/rhizome-android-universal.zip
   footer: >-

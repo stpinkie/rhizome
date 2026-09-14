@@ -68,6 +68,45 @@ bash ./scripts/validate-small-vm.sh
 This keeps the 4 GB overlay from filling and makes the cross-compile phase
 much faster because the Go build cache is reused across targets.
 
+## Cutting a Release
+
+1. Push a `v*` tag — either `gh workflow run create-tag.yml -f tag=vX.Y.Z`
+   or `git push origin vX.Y.Z`. Both paths run `release.yml`: a manual tag
+   push fires it directly; `create-tag.yml` dispatches it explicitly because
+   `GITHUB_TOKEN` pushes never trigger `push` events.
+2. `release.yml` (GoReleaser, ~2–3 h) publishes the GitHub release with all
+   platform assets, GHCR images (`ghcr.io/<owner>/rhizome:<tag>` + `:latest`
+   and the `-launcher` variants), the Android universal zip, and deb/rpm
+   packages. `vX.Y.Z-suffix` tags are marked pre-release automatically
+   (`prerelease: auto` in `.goreleaser.yaml`); `workflow_dispatch` runs can
+   still force draft/prerelease via inputs.
+3. Verify: the release page has all archives, `docker pull
+   ghcr.io/<owner>/rhizome:vX.Y.Z` works, and `rhizome version` inside an
+   artifact reports the tag.
+
+Registry & secrets posture:
+
+- **GHCR is canonical** — works via `GITHUB_TOKEN` on every run.
+- **Docker Hub** images are only pushed when `DOCKERHUB_USERNAME`/
+  `DOCKERHUB_TOKEN` secrets exist; otherwise `docker.io` targets are
+  stripped from the run (`release.yml` and `nightly.yml` share the pattern).
+- **macOS** binaries ship unsigned until `MACOS_SIGN_*`/`MACOS_NOTARY_*`
+  secrets exist (`notarize.macos` in `.goreleaser.yaml` is env-gated).
+- **Tags `v0.4.2`–`v0.9.0` have no published artifacts** — no backfill, by
+  decision; `v0.9.1` is the first tag released by the current pipeline.
+
+Anti-rot:
+
+- `pr.yml` runs `goreleaser check` on every PR.
+- `release-smoke.yml` builds the full matrix weekly
+  (`goreleaser build --snapshot --clean`, Mondays 06:00 UTC, no publish,
+  no NDK).
+- GoReleaser is pinned to `~> v2.18` in all three workflows — bump
+  deliberately, after a green smoke run.
+- `nightly.yml` is manual-only (cron commented); it runs without Docker Hub
+  creds and publishes `nightly`/`nightly-launcher` GHCR images but no
+  GitHub release.
+
 ## Rhizome P2P Commands
 
 - `rhizome network onboard` — create a node identity from a BIP39 mnemonic (now supports `--generate` and `--encrypt {keyring|passphrase|none}`).

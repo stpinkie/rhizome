@@ -298,3 +298,23 @@ jobs:
         env:
           ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_HOST: linux-x86_64
+
+  goreleaser-check:
+    name: GoReleaser Config Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Validate .goreleaser.yaml
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          # Same pin as release.yml / nightly.yml / release-smoke.yml.
+          version: ~> v2.18
+          args: check

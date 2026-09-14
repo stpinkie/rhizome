@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # actions:write lets this job dispatch release.yml after pushing the
+      # tag — pushes made with GITHUB_TOKEN do not fire push events.
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -58,3 +61,11 @@ jobs:
           echo "- **Tag:** \`${{ inputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Commit:** \`${COMMIT_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Branch:** \`$(git branch -r --contains "$COMMIT_SHA" | head -1 | xargs)\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch release workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml -f tag="${{ inputs.tag }}"
+          echo "- **Release:** dispatched \`release.yml\` for \`${{ inputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"

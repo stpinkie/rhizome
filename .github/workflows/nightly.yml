@@ -1,8 +1,10 @@
 name: Nightly Build
 
 on:
-  # Scheduled runs are disabled until release secrets (Docker Hub, GHCR, Volcengine TOS, macOS notary) are configured.
-  # To re-enable the nightly build, add:
+  # Manual-only: the cron stays off until we want published nightly GHCR
+  # images. The workflow itself is runnable today — Docker Hub is skipped
+  # and stripped when its secrets are absent, GHCR works via GITHUB_TOKEN.
+  # To re-enable the nightly schedule, add:
   #   schedule:
   #     - cron: '0 0 * * *'
   workflow_dispatch:
@@ -68,6 +70,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Check Docker Hub credentials
+        id: dockerhub
+        run: |
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -76,11 +87,21 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub
+        if: steps.dockerhub.outputs.available == 'true'
         uses: docker/login-action@v4
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Strip Docker Hub targets when credentials are absent
+        if: steps.dockerhub.outputs.available != 'true'
+        run: |
+          # Remove docker.io/ image lines so GoReleaser only pushes to GHCR.
+          sed -i '/docker\.io/d' .goreleaser.yaml
+          # GoReleaser refuses to run on a dirty tree; hide the local edit.
+          git update-index --assume-unchanged .goreleaser.yaml
+          echo "Docker Hub credentials not configured; stripped docker.io targets."
 
       - name: Install zip
         run: sudo apt-get install -y zip
@@ -104,7 +125,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: ~> v2
+          version: ~> v2.18
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
