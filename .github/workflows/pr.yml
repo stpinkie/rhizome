@@ -84,6 +84,29 @@ jobs:
       - name: Run go test
         run: CGO_ENABLED=0 go test -p 1 -tags goolm,stdjson ./...
 
+  test-parallel:
+    name: Tests (parallel, advisory)
+    runs-on: ubuntu-latest
+    # Advisory only: package-level parallelism is where the historical libp2p
+    # timing flake family surfaced. Runs the networked packages with default
+    # -p so regressions are visible on the PR without gating it.
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run go generate
+        run: go generate ./...
+
+      - name: Run networked tests with default parallelism
+        run: CGO_ENABLED=0 go test -count=1 -tags goolm,stdjson ./pkg/rhizome/... ./pkg/gateway
+
   race:
     name: Race Detector
     needs: test-linux

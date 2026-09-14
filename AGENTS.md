@@ -32,6 +32,25 @@ $env:TEMP='D:\tmp'
 $env:TMP='D:\tmp'
 ```
 
+### Writing networked tests
+
+Any test that calls `network.NewNode` must isolate itself — parallel test
+binaries otherwise share the LAN and can cross-connect:
+
+- Identity: `testutil.NewIdentity(t)` (fresh random Ed25519). Never reuse
+  the shared `abandon…about` mnemonic for a networked node — two processes
+  holding the same key authenticate as the same peer.
+- Config: set `DisableMDNS: true` and `DisableNATPortMap: true` (mDNS
+  cross-discovers foreign test nodes; NAT-PMP/UPnP/SSDP probe the LAN for
+  the process lifetime and just burn CPU on loopback).
+- Wire peers explicitly via `BootstrapPeers` — the tests' connectivity is
+  intentional, not ambient.
+- `TestMDNSDiscoversPeer` (`pkg/rhizome/network/host_test.go`) covers the
+  real discovery path under a per-run `MDNSServiceName`.
+- `scripts/flake-hunt.sh [RUNS]` (`.ps1` on Windows) repeats the networked
+  packages under default `-p` parallelism and reports per-test pass rates;
+  `pr.yml`'s `test-parallel` job is the same signal, non-blocking, per PR.
+
 ## Validation on resource-constrained Linux VMs
 
 The full release gate (`go build ./...`, `go test ./...`, `golangci-lint ./...`,

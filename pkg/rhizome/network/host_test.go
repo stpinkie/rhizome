@@ -2,6 +2,9 @@ package network
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -70,4 +73,35 @@ func TestTwoNodesPing(t *testing.T) {
 	if rtt < 0 {
 		t.Fatalf("expected non-negative rtt, got %v", rtt)
 	}
+}
+
+// TestMDNSDiscoversPeer exercises the production LAN discovery path that every
+// other test disables: two nodes share a per-run service name, get no
+// bootstrap peers, and must find and connect to each other purely via
+// multicast. The unique service name keeps the discovery domain isolated from
+// other test binaries and any real daemon on the LAN.
+func TestMDNSDiscoversPeer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var suffix [3]byte
+	_, err := rand.Read(suffix[:])
+	require.NoError(t, err)
+	cfg := Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		MDNSServiceName:   fmt.Sprintf("_rhizome-t%s._p2p", hex.EncodeToString(suffix[:])),
+	}
+
+	nodeA, err := NewNode(ctx, testutil.NewIdentity(t).Libp2pPrivKey, cfg)
+	require.NoError(t, err)
+	defer nodeA.Close()
+
+	nodeB, err := NewNode(ctx, testutil.NewIdentity(t).Libp2pPrivKey, cfg)
+	require.NoError(t, err)
+	defer nodeB.Close()
+
+	require.Eventually(t, func() bool {
+		return IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
+	}, 30*time.Second, 500*time.Millisecond, "mDNS never connected the nodes")
 }
