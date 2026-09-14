@@ -73,6 +73,11 @@ type Syncer struct {
 	commitTicker *time.Ticker
 	stop         chan struct{}
 	wg           sync.WaitGroup
+	// lifecycleMu guards wg.Add during shutdown: once stopping is set under
+	// the write lock, no new wg-tracked goroutine may be added, so a 0->1
+	// counter transition can never race wg.Wait in Stop.
+	lifecycleMu sync.RWMutex
+	stopping    bool
 
 	syncStatusPath string
 
@@ -156,11 +161,9 @@ func (s *Syncer) Start(ctx context.Context) error {
 
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.spawn(func() {
 		_ = s.transport.Start(s.ctx)
-	}()
+	})
 
 	// Wait until the stream handler is registered before returning.
 	select {
@@ -175,11 +178,9 @@ func (s *Syncer) Start(ctx context.Context) error {
 	if s.autoSync {
 		var err error
 		s.watcher, err = NewWatcher(s.ctx, s.worktree.Filesystem.Root(), s.exclude, func(paths []string) {
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
+			s.spawn(func() {
 				_, _ = s.commitAndAnnounce(s.ctx)
-			}()
+			})
 		}, WithOnError(func(err error) {
 			logger.WarnCF("sync", "filesystem watcher error", map[string]any{"error": err.Error()})
 		}))
@@ -192,37 +193,31 @@ func (s *Syncer) Start(ctx context.Context) error {
 
 		if s.commitInterval > 0 {
 			s.commitTicker = time.NewTicker(s.commitInterval)
-			s.wg.Add(1)
-			go s.commitLoop(s.ctx)
+			s.spawn(func() { s.commitLoop(s.ctx) })
 		}
 	}
 
 	if s.announceInterval > 0 {
 		s.ticker = time.NewTicker(s.announceInterval)
-		s.wg.Add(1)
-		go s.antiEntropyLoop(s.ctx)
+		s.spawn(func() { s.antiEntropyLoop(s.ctx) })
 	}
 
 	s.node.OnConnected(func(ev network.PeerEvent) {
 		if ev.PeerID == s.node.ID() {
 			return
 		}
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
+		s.spawn(func() {
 			s.announceToPeer(s.ctx, ev.PeerID)
-		}()
+		})
 	})
 
 	for _, pid := range s.node.ConnectedPeers() {
 		if pid == s.node.ID() {
 			continue
 		}
-		s.wg.Add(1)
-		go func(p peer.ID) {
-			defer s.wg.Done()
-			s.announceToPeer(s.ctx, p)
-		}(pid)
+		s.spawn(func() {
+			s.announceToPeer(s.ctx, pid)
+		})
 	}
 
 	return nil
@@ -289,6 +284,13 @@ func (s *Syncer) transportPackfileTimeout() time.Duration {
 
 // Stop cleanly shuts down the syncer.
 func (s *Syncer) Stop() error {
+	s.lifecycleMu.Lock()
+	if s.stopping {
+		s.lifecycleMu.Unlock()
+		return nil
+	}
+	s.stopping = true
+	s.lifecycleMu.Unlock()
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -304,6 +306,22 @@ func (s *Syncer) Stop() error {
 	}
 	s.wg.Wait()
 	return nil
+}
+
+// spawn launches fn as a wg-tracked goroutine unless the syncer is stopping.
+// The read lock makes the stopping check and wg.Add atomic with respect to
+// Stop, which sets stopping under the write lock before calling wg.Wait.
+func (s *Syncer) spawn(fn func()) {
+	s.lifecycleMu.RLock()
+	defer s.lifecycleMu.RUnlock()
+	if s.stopping {
+		return
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		fn()
+	}()
 }
 
 // PullFrom fetches and merges from a single peer.
@@ -469,7 +487,6 @@ func (s *Syncer) commitAndAnnounceLocked(ctx context.Context) (plumbing.Hash, er
 }
 
 func (s *Syncer) commitLoop(ctx context.Context) {
-	defer s.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -522,9 +539,7 @@ func (s *Syncer) HandleAnnounce(from peer.ID, head plumbing.Hash) {
 	}
 	s.saveSyncStatus()
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.spawn(func() {
 		parent := s.ctx
 		if parent == nil {
 			parent = context.Background()
@@ -532,11 +547,10 @@ func (s *Syncer) HandleAnnounce(from peer.ID, head plumbing.Hash) {
 		ctx, cancel := context.WithTimeout(parent, s.fetchAttemptTimeout())
 		defer cancel()
 		_ = s.PullFrom(ctx, from)
-	}()
+	})
 }
 
 func (s *Syncer) antiEntropyLoop(ctx context.Context) {
-	defer s.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -554,13 +568,11 @@ func (s *Syncer) runAntiEntropy(ctx context.Context) {
 		if pid == s.node.ID() {
 			continue
 		}
-		s.wg.Add(1)
-		go func(p peer.ID) {
-			defer s.wg.Done()
+		s.spawn(func() {
 			ctx, cancel := context.WithTimeout(ctx, s.fetchAttemptTimeout())
 			defer cancel()
-			_ = s.PullFrom(ctx, p)
-		}(pid)
+			_ = s.PullFrom(ctx, pid)
+		})
 	}
 }
 

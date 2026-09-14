@@ -2,11 +2,13 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
@@ -120,5 +122,50 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 	}
 	if string(data) != "hello from A\n" {
 		t.Fatalf("B AGENT.md = %q, want %q", data, "hello from A\n")
+	}
+}
+
+// TestSyncerStopConcurrentAnnounce exercises the Stop() shutdown path while
+// inbound announces keep arriving: previously each announce did wg.Add(1)
+// directly, so an Add landing on a zeroed counter while Stop's wg.Wait was in
+// flight tripped Go's misuse detector ("WaitGroup is reused before previous
+// Wait has returned"). The lifecycle gate now drops late work instead.
+func TestSyncerStopConcurrentAnnounce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	id, _, err := identity.FromMnemonic(
+		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+		3,
+	)
+	require.NoError(t, err)
+
+	node, err := network.NewNode(ctx, id.Libp2pPrivKey, network.Config{
+		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+	})
+	require.NoError(t, err)
+	defer node.Close()
+
+	for i := 0; i < 15; i++ {
+		syncer, err := NewSyncer(ctx, Config{
+			Workspace:        t.TempDir(),
+			NodeName:         "node-stop",
+			Node:             node,
+			AutoSync:         true,
+			CommitInterval:   time.Hour,
+			AnnounceInterval: time.Hour,
+		})
+		require.NoError(t, err)
+		require.NoError(t, syncer.Start(ctx))
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for j := 0; j < 100; j++ {
+				syncer.HandleAnnounce(node.ID(), plumbing.NewHash(fmt.Sprintf("%040x", i*100+j)))
+			}
+		}()
+		require.NoError(t, syncer.Stop())
+		<-done
 	}
 }
