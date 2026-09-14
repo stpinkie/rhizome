@@ -66,10 +66,7 @@ func TestSwarmOfferCancel(t *testing.T) {
 func TestSwarmOfferRetryThenDeadLetter(t *testing.T) {
 	cfg := fastQueueConfig()
 	cfg.Queue.MaxRetries = 1
-	// Give the retried offer a longer window to be received and claimed under
-	// parallel/loaded test runs while keeping the overall suite fast.
-	cfg.Queue.ClaimWindow = 10 * time.Second
-	cfg.Queue.AssignTimeout = 10 * time.Second
+	cfg.Queue.ClaimWindow = 5 * time.Second
 	swarmA, swarmB := newTestPair(t, cfg, t.TempDir(), t.TempDir())
 
 	require.NoError(t, swarmA.Join(context.Background(), "work"))
@@ -77,8 +74,6 @@ func TestSwarmOfferRetryThenDeadLetter(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(swarmA.Members("work")) == 1
 	}, 10*time.Second, 100*time.Millisecond)
-
-	swarmB.SetOfferEvaluator(func(_ string, o Offer) bool { return o.AgentID == "main" })
 
 	var submits atomic.Int32
 	swarmA.SetTaskSubmitter(func(_ context.Context, preferred peer.ID, _ mesh.RemoteCall) (peer.ID, string, error) {
@@ -98,14 +93,37 @@ func TestSwarmOfferRetryThenDeadLetter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The lifecycle is a serial chain: claim window -> assign -> fail ->
-	// rebroadcast -> claim window -> assign -> fail -> dead letter, ~20s of
-	// timer waits minimum before any propagation or scheduler delay. Give it
-	// headroom for loaded parallel runs.
+	// Inject claims directly rather than relying on B receiving the offer
+	// broadcast and replying over libp2p: under parallel package load that
+	// round trip can outlast the claim window, expiring the offer before the
+	// retry/dead-letter path under test ever runs.
+	stopClaims := make(chan struct{})
+	defer close(stopClaims)
+	go func() {
+		for {
+			select {
+			case <-stopClaims:
+				return
+			case <-time.After(25 * time.Millisecond):
+			}
+			info, ok := swarmA.queue.offerInfo(offerID)
+			if !ok || info.Status != OfferOpen {
+				continue
+			}
+			swarmA.queue.onClaim("work", Claim{
+				OfferID:  offerID,
+				Claimant: swarmB.PeerID(),
+				Attempt:  info.Attempt,
+			})
+		}
+	}()
+
+	// Two claim windows plus scheduling: ~10s floor, with margin for loaded
+	// parallel runs.
 	require.Eventually(t, func() bool {
 		info, ok := swarmA.queue.offerInfo(offerID)
 		return ok && info.Status == OfferDeadLetter
-	}, 120*time.Second, 100*time.Millisecond, "offer should dead-letter after retries")
+	}, 60*time.Second, 100*time.Millisecond, "offer should dead-letter after retries")
 
 	info, _ := swarmA.queue.offerInfo(offerID)
 	assert.Equal(t, 1, info.Retries)

@@ -735,6 +735,21 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 			}
 		}
 		window.Stop()
+		// Drain claims buffered before the deadline: when the window fires
+		// with a claim already queued, select may still choose the timer and
+		// drop a claim that arrived in time, wrongly expiring the offer.
+		attempt := s.offerAttempt(to)
+	drain:
+		for {
+			select {
+			case c := <-to.claimsCh:
+				if c.Attempt == attempt {
+					to.claims = append(to.claims, c)
+				}
+			default:
+				break drain
+			}
+		}
 
 		if len(to.claims) == 0 {
 			// No claims is a normal terminal outcome — retries are for

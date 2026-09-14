@@ -34,8 +34,9 @@ export GOGC=30
 # processes need headroom beyond the Go heap limit or they get OOM-killed.
 export GOMEMLIMIT="${GOMEMLIMIT:-1500MiB}"
 # golangci-lint defaults to one worker per host CPU; on small VMs with big
-# hosts (e.g. 64-core container host) that alone exhausts the memory cap.
-export GOMAXPROCS="${GOMAXPROCS:-4}"
+# hosts (e.g. a 64-core container host capped at 2GiB) even a handful of
+# workers OOMs during typecheck — keep it at 2.
+export GOMAXPROCS="${GOMAXPROCS:-2}"
 export PATH="$PATH:$(go env GOPATH)/bin"
 
 mkdir -p "$GOCACHE" "$GOMODCACHE" "$GOTMPDIR" "$TMPDIR"
