@@ -368,6 +368,97 @@ func TestBrowserSectionOmittedWhenSecretless(t *testing.T) {
 	assert.NotContains(t, string(rawYAML), "browser:")
 }
 
+// TestModulesSecurityRoundTrip verifies that module secrets persist to
+// .security.yml (never to config.json) and merge back on load without
+// clobbering the enabled/fields values that live only in config.json.
+func TestModulesSecurityRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	secPath := securityPath(configPath)
+
+	original := &Config{}
+	original.Modules = ModulesConfig{
+		"nimbus-verified-proxy": {
+			Enabled: true,
+			Fields:  map[string]string{"network": "mainnet"},
+			Secrets: map[string]SecureString{
+				"jwt_secret": *NewSecureString("nimbus_secret"),
+			},
+		},
+		"ethereum-rpc": {Enabled: false},
+	}
+
+	require.NoError(t, SaveConfig(configPath, original))
+
+	// config.json must not contain the plaintext secret but must carry the
+	// non-secret fields.
+	rawJSON, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(rawJSON), "nimbus_secret")
+	assert.Contains(t, string(rawJSON), "mainnet")
+
+	// .security.yml must carry the secret under modules.<id>.secrets.
+	rawYAML, err := os.ReadFile(secPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(rawYAML), "nimbus_secret")
+	var saved struct {
+		Modules map[string]map[string]any `yaml:"modules"`
+	}
+	require.NoError(t, yaml.Unmarshal(rawYAML, &saved))
+	require.Contains(t, saved.Modules, "nimbus-verified-proxy")
+	assert.Equal(t, "nimbus_secret",
+		saved.Modules["nimbus-verified-proxy"]["secrets"].(map[string]any)["jwt_secret"])
+	// Secret-less modules are omitted from .security.yml.
+	assert.NotContains(t, saved.Modules, "ethereum-rpc")
+
+	// Simulate LoadConfig: JSON first (Secrets has no json tag — dropped),
+	// then .security.yml merges secrets back without wiping enabled/fields.
+	loaded := &Config{}
+	require.NoError(t, json.Unmarshal(rawJSON, loaded))
+	mod := loaded.Modules["nimbus-verified-proxy"]
+	assert.True(t, mod.Enabled)
+	assert.Equal(t, "mainnet", mod.Fields["network"])
+	emptySec := mod.Secrets["jwt_secret"]
+	assert.Empty(t, emptySec.String())
+
+	// A stale module id present only in .security.yml must not resurrect.
+	require.NoError(t, os.WriteFile(secPath, []byte(`modules:
+  nimbus-verified-proxy:
+    secrets:
+      jwt_secret: nimbus_secret
+  ghost:
+    secrets:
+      k: ghost_val
+`), 0o600))
+	require.NoError(t, loadSecurityConfig(loaded, secPath))
+
+	mod = loaded.Modules["nimbus-verified-proxy"]
+	sec := mod.Secrets["jwt_secret"]
+	assert.Equal(t, "nimbus_secret", sec.String())
+	assert.True(t, mod.Enabled)
+	assert.Equal(t, "mainnet", mod.Fields["network"])
+	_, ghostPresent := loaded.Modules["ghost"]
+	assert.False(t, ghostPresent)
+}
+
+// TestModulesSectionOmittedWhenSecretless verifies .security.yml does not
+// gain a stray `modules:` key when no module secret is configured.
+func TestModulesSectionOmittedWhenSecretless(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	secPath := securityPath(configPath)
+
+	cfg := &Config{}
+	cfg.Modules = ModulesConfig{
+		"ethereum-rpc": {Enabled: true, Fields: map[string]string{"endpoint_url": "https://x"}},
+	}
+	require.NoError(t, SaveConfig(configPath, cfg))
+
+	rawYAML, err := os.ReadFile(secPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(rawYAML), "modules:")
+}
+
 // TestBrowserBackendEnvSecretCollection verifies that env values stored under
 // secret-looking keys are picked up by the sensitive-data replacer so they
 // are masked in logs and tool output.

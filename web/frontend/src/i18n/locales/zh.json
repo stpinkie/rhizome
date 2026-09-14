@@ -15,7 +15,8 @@
     "config": "配置",
     "logs": "日志",
     "network_group": "网络",
-    "network": "网络"
+    "network": "网络",
+    "modules": "模块"
   },
   "launcherLogin": {
     "title": "登录",

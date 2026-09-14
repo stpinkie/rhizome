@@ -1,0 +1,408 @@
+// Package module implements the rhizome module command tree for managing
+// companion sidecar modules.
+package module
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
+	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/modules"
+)
+
+// manager builds a module manager bound to the user's config file.
+func manager() (*modules.Manager, error) {
+	cfg, err := internal.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+	path := internal.GetConfigPath()
+	return modules.NewManager(internal.GetRhizomeHome(), cfg, nil,
+		func(c *config.Config) error { return config.SaveConfig(path, c) }), nil
+}
+
+// daemonUp reports whether a daemon is reachable for live lifecycle ops.
+func daemonUp() bool {
+	base, _ := internal.DaemonBaseURL()
+	return base != ""
+}
+
+// NewModuleCommand returns the rhizome module command tree.
+func NewModuleCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "module",
+		Short: "Manage companion modules (sidecar capabilities)",
+		Long: "Companion modules extend Rhizome with sidecar binaries — they are " +
+			"installed under ~/.rhizome/modules, verified by pinned sha256, and " +
+			"supervised by the daemon.",
+	}
+	cmd.AddCommand(
+		newListCommand(),
+		newStatusCommand(),
+		newInstallCommand(),
+		newUninstallCommand(),
+		newEnableCommand(true),
+		newEnableCommand(false),
+		newLifecycleCommand("start"),
+		newLifecycleCommand("stop"),
+		newLifecycleCommand("restart"),
+		newLogsCommand(),
+		newSetCommand(),
+		newValidateCommand(),
+	)
+	return cmd
+}
+
+func printJSON(w io.Writer, v any) {
+	out, _ := json.MarshalIndent(v, "", "  ")
+	fmt.Fprintln(w, string(out))
+}
+
+func fatal(err error) {
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	os.Exit(1)
+}
+
+// fetchInfo returns live module info — via the daemon when one is running
+// (so running/unhealthy status is accurate), else from the local manager.
+func fetchInfo(id string) (modules.Info, error) {
+	if daemonUp() {
+		data, code, err := internal.DaemonRequest(http.MethodGet, "/modules/"+id, nil, 10*time.Second)
+		if err == nil && code == http.StatusOK {
+			var info modules.Info
+			if err := json.Unmarshal(data, &info); err == nil {
+				return info, nil
+			}
+		}
+	}
+	mgr, err := manager()
+	if err != nil {
+		return modules.Info{}, err
+	}
+	return mgr.Info(id)
+}
+
+func fetchList() ([]modules.Info, error) {
+	if daemonUp() {
+		data, code, err := internal.DaemonRequest(http.MethodGet, "/modules", nil, 10*time.Second)
+		if err == nil && code == http.StatusOK {
+			var resp struct {
+				Modules []modules.Info `json:"modules"`
+			}
+			if err := json.Unmarshal(data, &resp); err == nil {
+				return resp.Modules, nil
+			}
+		}
+	}
+	mgr, err := manager()
+	if err != nil {
+		return nil, err
+	}
+	return mgr.List()
+}
+
+func newListCommand() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List catalog modules and their status",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			w := cmd.OutOrStdout()
+			infos, err := fetchList()
+			if err != nil {
+				fatal(err)
+			}
+			if asJSON {
+				printJSON(w, infos)
+				return
+			}
+			fmt.Fprintf(w, "%-24s %-10s %-14s %-8s %s\n", "ID", "KIND", "STATUS", "ENABLED", "NAME")
+			for _, i := range infos {
+				enabled := ""
+				if i.Enabled {
+					enabled = "yes"
+				}
+				fmt.Fprintf(w, "%-24s %-10s %-14s %-8s %s\n",
+					i.Spec.ID, i.Spec.Kind, i.Status, enabled, i.Spec.Name)
+			}
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
+	return cmd
+}
+
+func newStatusCommand() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "status <module-id>",
+		Short: "Show detailed module status",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			info, err := fetchInfo(args[0])
+			if err != nil {
+				fatal(err)
+			}
+			if asJSON {
+				printJSON(w, info)
+				return
+			}
+			fmt.Fprintf(w, "%s — %s\n", info.Spec.ID, info.Spec.Name)
+			fmt.Fprintf(w, "  kind:      %s\n", info.Spec.Kind)
+			fmt.Fprintf(w, "  status:    %s\n", info.Status)
+			fmt.Fprintf(w, "  enabled:   %v\n", info.Enabled)
+			if info.Version != "" {
+				fmt.Fprintf(w, "  version:   %s\n", info.Version)
+			}
+			if info.InstalledPath != "" {
+				fmt.Fprintf(w, "  path:      %s\n", info.InstalledPath)
+			}
+			if info.PID != 0 {
+				fmt.Fprintf(w, "  pid:       %d (started %s)\n", info.PID,
+					info.StartedAt.Format(time.RFC3339))
+			}
+			if info.Restarts > 0 {
+				fmt.Fprintf(w, "  restarts:  %d (last exit: %s)\n", info.Restarts, info.LastExit)
+			}
+			if len(info.MissingFields) > 0 {
+				fmt.Fprintf(w, "  missing:   %s\n", strings.Join(info.MissingFields, ", "))
+			}
+			if len(info.Spec.ConfigFields) > 0 {
+				fmt.Fprintf(w, "  fields:\n")
+				for _, f := range info.Spec.ConfigFields {
+					val := info.Fields[f.Key]
+					if f.Secret {
+						set := ""
+						for _, k := range info.SecretKeys {
+							if k == f.Key {
+								set = "yes"
+							}
+						}
+						fmt.Fprintf(w, "    - %s (secret, set: %s)\n", f.Key, orNo(set))
+						continue
+					}
+					fmt.Fprintf(w, "    - %s = %s\n", f.Key, orDefault(val, f.Default))
+				}
+			}
+			if info.Spec.Notes != "" {
+				fmt.Fprintf(w, "  notes:     %s\n", info.Spec.Notes)
+			}
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
+	return cmd
+}
+
+func orNo(s string) string {
+	if s == "" {
+		return "no"
+	}
+	return s
+}
+
+func orDefault(v, def string) string {
+	if v == "" {
+		if def == "" {
+			return "(unset)"
+		}
+		return def + " (default)"
+	}
+	return v
+}
+
+func newInstallCommand() *cobra.Command {
+	var version string
+	cmd := &cobra.Command{
+		Use:   "install <module-id>",
+		Short: "Download, verify, and install a module release",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			mgr, err := manager()
+			if err != nil {
+				fatal(err)
+			}
+			fmt.Fprintf(w, "Installing %s…\n", args[0])
+			if err := mgr.Install(context.Background(), args[0], version); err != nil {
+				fatal(err)
+			}
+			info, _ := mgr.Info(args[0])
+			fmt.Fprintf(w, "Installed %s v%s → %s\n", args[0], info.Version, info.InstalledPath)
+		},
+	}
+	cmd.Flags().StringVar(&version, "version", "", "Pinned version to install (default: latest)")
+	return cmd
+}
+
+func newUninstallCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall <module-id>",
+		Short: "Remove an installed module",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			mgr, err := manager()
+			if err != nil {
+				fatal(err)
+			}
+			if err := mgr.Uninstall(args[0]); err != nil {
+				fatal(err)
+			}
+			fmt.Fprintf(w, "Uninstalled %s\n", args[0])
+		},
+	}
+}
+
+func newEnableCommand(enable bool) *cobra.Command {
+	name, short := "enable", "Enable"
+	if !enable {
+		name, short = "disable", "Disable"
+	}
+	return &cobra.Command{
+		Use:   name + " <module-id>",
+		Short: short + " a module (daemon-kind modules autostart with the daemon)",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			mgr, err := manager()
+			if err != nil {
+				fatal(err)
+			}
+			if err := mgr.Enable(args[0], enable); err != nil {
+				fatal(err)
+			}
+			fmt.Fprintf(w, "Module %s %sd\n", args[0], name)
+		},
+	}
+}
+
+// newLifecycleCommand builds start/stop/restart — all proxied to the daemon.
+func newLifecycleCommand(action string) *cobra.Command {
+	return &cobra.Command{
+		Use: action + " <module-id>",
+		Short: fmt.Sprintf("%s a module process (daemon required)",
+			strings.ToUpper(action[:1])+action[1:]),
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			payload, _ := json.Marshal(map[string]string{"action": action})
+			data, code, err := internal.DaemonRequest(http.MethodPost,
+				"/modules/"+args[0], payload, 30*time.Second)
+			if err != nil {
+				fatal(fmt.Errorf("%v — lifecycle actions require a running daemon (rhizome daemon)", err))
+			}
+			if code != http.StatusOK {
+				fatal(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+			}
+			fmt.Fprintf(w, "Module %s: %s\n", args[0], strings.TrimSpace(string(data)))
+		},
+	}
+}
+
+func newLogsCommand() *cobra.Command {
+	var tail int
+	cmd := &cobra.Command{
+		Use:   "logs <module-id>",
+		Short: "Show module stdout/stderr logs",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			mgr, err := manager()
+			if err != nil {
+				fatal(err)
+			}
+			stdout, stderr, err := mgr.Logs(args[0], tail)
+			if err != nil {
+				fatal(err)
+			}
+			if stdout == "" && stderr == "" {
+				fmt.Fprintf(w, "No logs for %s.\n", args[0])
+				return
+			}
+			if stdout != "" {
+				fmt.Fprintf(w, "── stdout ──\n%s\n", stdout)
+			}
+			if stderr != "" {
+				fmt.Fprintf(w, "── stderr ──\n%s\n", stderr)
+			}
+		},
+	}
+	cmd.Flags().IntVar(&tail, "tail", 200, "Lines to show (max 2000)")
+	return cmd
+}
+
+// newSetCommand writes module fields (or secrets with --secret).
+func newSetCommand() *cobra.Command {
+	var secret bool
+	cmd := &cobra.Command{
+		Use:   "set <module-id> <key>=<value> [key=value...]",
+		Short: "Set module config fields (use --secret for secret fields)",
+		Args:  cobra.MinimumNArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			kv := map[string]string{}
+			for _, arg := range args[1:] {
+				k, v, ok := strings.Cut(arg, "=")
+				if !ok || k == "" {
+					fatal(fmt.Errorf("expected key=value, got %q", arg))
+				}
+				kv[k] = v
+			}
+			mgr, err := manager()
+			if err != nil {
+				fatal(err)
+			}
+			if secret {
+				err = mgr.SetSecrets(args[0], kv)
+			} else {
+				err = mgr.SetFields(args[0], kv)
+			}
+			if err != nil {
+				fatal(err)
+			}
+			keys := make([]string, 0, len(kv))
+			for k := range kv {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			if secret {
+				fmt.Fprintf(w, "Module %s secrets updated: %s (stored in .security.yml)\n",
+					args[0], strings.Join(keys, ", "))
+			} else {
+				fmt.Fprintf(w, "Module %s fields updated: %s\n", args[0], strings.Join(keys, ", "))
+			}
+		},
+	}
+	cmd.Flags().BoolVar(&secret, "secret", false, "Write to module secrets (.security.yml)")
+	return cmd
+}
+
+func newValidateCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate",
+		Short: "Validate the modules section of config.json against the catalog",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			w := cmd.OutOrStdout()
+			cfg, err := internal.LoadConfig()
+			if err != nil {
+				fatal(err)
+			}
+			if err := modules.ValidateConfig(cfg); err != nil {
+				fatal(err)
+			}
+			fmt.Fprintln(w, "Module configuration OK")
+		},
+	}
+}
