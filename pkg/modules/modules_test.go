@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -328,6 +329,133 @@ func TestInstallReleaseVerifyAndExtract(t *testing.T) {
 	}
 }
 
+func TestInstallReleaseSHA512(t *testing.T) {
+	spec := testSpec("m1")
+	spec.Install.Releases[0].SHA256 = nil
+	spec.Install.Releases[0].SHA512 = map[string]string{Platform(): "deadbeef"}
+	registerTestSpec(t, spec)
+
+	asset := buildTarGz(t, map[string]string{"testbin": "#!/bin/sh\n"})
+	sum := sha512.Sum512(asset)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(asset)
+	}))
+	defer srv.Close()
+	old := downloadBaseURL
+	downloadBaseURL = srv.URL
+	t.Cleanup(func() { downloadBaseURL = old })
+
+	cfg := &config.Config{}
+	mgr, _, _ := newTestManager(t, cfg)
+
+	spec.Install.Releases[0].SHA512[Platform()] = strings.Repeat("0", 128)
+	if err := mgr.Install(t.Context(), "m1", ""); err == nil ||
+		!strings.Contains(err.Error(), "sha512 mismatch") {
+		t.Fatalf("expected sha512 mismatch, got %v", err)
+	}
+
+	spec.Install.Releases[0].SHA512[Platform()] = hex.EncodeToString(sum[:])
+	if err := mgr.Install(t.Context(), "m1", ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if got := mgr.installedVersion("m1"); got != "1.0.0" {
+		t.Fatalf("installed version = %q", got)
+	}
+}
+
+// TestInstallFlattensNestedBinary covers archives that wrap the binary in a
+// subdirectory (nimbus ships build/nimbus_verified_proxy): the binary must
+// land at the version-dir root where binaryPath looks.
+func TestInstallFlattensNestedBinary(t *testing.T) {
+	spec := testSpec("m1")
+	registerTestSpec(t, spec)
+
+	binName := "testbin"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	asset := buildTarGz(t, map[string]string{
+		"build/" + binName: "binary",
+		"README.md":        "docs",
+	})
+	sum := sha256.Sum256(asset)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(asset)
+	}))
+	defer srv.Close()
+	old := downloadBaseURL
+	downloadBaseURL = srv.URL
+	t.Cleanup(func() { downloadBaseURL = old })
+
+	spec.Install.Releases[0].SHA256[Platform()] = hex.EncodeToString(sum[:])
+	cfg := &config.Config{}
+	mgr, _, _ := newTestManager(t, cfg)
+	if err := mgr.Install(t.Context(), "m1", ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	bin := mgr.binaryPath(spec)
+	if filepath.Base(bin) != binName {
+		t.Fatalf("binaryPath base = %q, want %q", filepath.Base(bin), binName)
+	}
+	if _, err := os.Stat(bin); err != nil {
+		t.Fatalf("binary not at flattened path %s: %v", bin, err)
+	}
+	// The non-binary member keeps its archive path.
+	if _, err := os.Stat(filepath.Join(mgr.Dir("m1"), "1.0.0", "README.md")); err != nil {
+		t.Fatalf("README.md missing under version dir: %v", err)
+	}
+}
+
+func TestAssetOSAlias(t *testing.T) {
+	spec, ok := Lookup("nimbus-verified-proxy")
+	if !ok {
+		t.Skip("nimbus-verified-proxy not in catalog")
+	}
+	r, _ := spec.LatestRelease()
+	asset := spec.Asset(r)
+	if !strings.HasPrefix(asset, "nimbus_verified_proxy-") ||
+		!strings.HasSuffix(asset, "-v0.4.1-ec214533.tar.gz") {
+		t.Fatalf("unexpected asset name %q", asset)
+	}
+	wantOS := map[string]string{
+		"linux": "linux", "windows": "windows", "darwin": "macos",
+	}[runtime.GOOS]
+	if wantOS != "" && !strings.Contains(asset, "-"+wantOS+"-") {
+		t.Fatalf("asset %q lacks os label %q", asset, wantOS)
+	}
+}
+
+func TestNimbusCatalogEntry(t *testing.T) {
+	spec, ok := Lookup("nimbus-verified-proxy")
+	if !ok {
+		t.Fatal("nimbus-verified-proxy not in catalog")
+	}
+	if spec.Kind != KindDaemon {
+		t.Fatalf("kind = %q, want daemon", spec.Kind)
+	}
+	r, ok := spec.LatestRelease()
+	if !ok {
+		t.Fatal("no pinned release")
+	}
+	// Every advertised platform must carry a digest.
+	for _, p := range spec.Platforms {
+		if d, algo := r.Digest(p); d == "" || algo != "sha512" {
+			t.Fatalf("platform %s: digest=%q algo=%q", p, d, algo)
+		}
+	}
+	for _, key := range []string{"execution_api_url", "beacon_api_url", "trusted_block_root"} {
+		f, ok := spec.Field(key)
+		if !ok || !f.Required || f.Arg == "" {
+			t.Fatalf("field %s missing/not required/no arg", key)
+		}
+	}
+	if spec.Health.Type != "jsonrpc" || spec.Health.Target != "{listen_url}" {
+		t.Fatalf("health = %+v", spec.Health)
+	}
+}
+
 func TestInstallRejectsMissingPlatformDigest(t *testing.T) {
 	spec := testSpec("m1")
 	spec.Install.Releases[0].SHA256 = map[string]string{"other/os": "x"}
@@ -335,8 +463,8 @@ func TestInstallRejectsMissingPlatformDigest(t *testing.T) {
 	cfg := &config.Config{}
 	mgr, _, _ := newTestManager(t, cfg)
 	if err := mgr.Install(t.Context(), "m1", ""); err == nil ||
-		!strings.Contains(err.Error(), "no sha256") {
-		t.Fatalf("expected no-sha256 error, got %v", err)
+		!strings.Contains(err.Error(), "no digest") {
+		t.Fatalf("expected no-digest error, got %v", err)
 	}
 }
 
@@ -500,11 +628,15 @@ func TestBuildCommandTemplating(t *testing.T) {
 			{Key: "endpoint", Label: "Endpoint", Required: true},
 			{Key: "port", Label: "Port", Default: "8545", Arg: "rpc-port"},
 			{Key: "opt", Label: "Opt"},
+			{Key: "api_url", Label: "API URL", Arg: "api-url", Secret: true},
 		},
 	}
 	registerTestSpec(t, spec)
 	cfg := &config.Config{Modules: config.ModulesConfig{
-		"m1": {Fields: map[string]string{"endpoint": "http://localhost:8545"}},
+		"m1": {
+			Fields:  map[string]string{"endpoint": "http://localhost:8545"},
+			Secrets: map[string]config.SecureString{"api_url": *config.NewSecureString("https://key:secret@example.com")},
+		},
 	}}
 	mgr, _, _ := newTestManager(t, cfg)
 
@@ -512,7 +644,12 @@ func TestBuildCommandTemplating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--rpc-port=8545", "--url=http://localhost:8545", "--verbose"}
+	// Secret-valued args must reach argv (nimbus relies on this) but never
+	// config.json — the Secrets map has no json tag.
+	want := []string{
+		"--rpc-port=8545", "--api-url=https://key:secret@example.com",
+		"--url=http://localhost:8545", "--verbose",
+	}
 	got := cmd.Args[1:]
 	if len(got) != len(want) {
 		t.Fatalf("args = %v, want %v", got, want)

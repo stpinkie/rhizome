@@ -161,11 +161,15 @@ Anti-rot:
 ## Companion Modules
 
 `pkg/modules` is the sidecar module system (v0.10.0): catalog-driven binaries
-installed under `<RHIZOME_HOME>/modules/<id>/<version>/`, sha256-verified at
-install time, and supervised by the daemon. Modules extend Rhizome without
+installed under `<RHIZOME_HOME>/modules/<id>/<version>/`, verified against a
+catalog-pinned sha256/sha512 digest at install time, and supervised by the
+daemon. Modules extend Rhizome without
 growing the base binary. Kinds: `daemon` (supervised, restart-on-exit with
 backoff), `ondemand` (spawned by a consumer), `config` (endpoint descriptor,
-no process). `ethereum-rpc` is the first config-kind entry.
+no process). `nimbus-verified-proxy` (status-im/nimbus-eth1 verified
+Ethereum RPC) is the first daemon-kind entry — fields `execution_api_url`,
+`beacon_api_url`, `trusted_block_root` (all required; URLs are secrets),
+`network`, `listen_url`. `ethereum-rpc` is the first config-kind entry.
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.
@@ -185,8 +189,8 @@ reads/config/install when no daemon runs. Events: `module.installed`,
 `module.uninstalled`, `module.started`, `module.stopped`, `module.crashed`,
 `module.enabled`, `module.disabled`. `module-state.json` persists
 pid/restarts/last-exit so status works daemonless. Security: HTTPS-only
-downloads, mandatory per-platform sha256, no user-supplied URLs, module dirs
-`0700`.
+downloads, mandatory per-platform digest (sha256 or sha512 — nimbus publishes
+sha512), no user-supplied URLs, module dirs `0700`.
 
 ## Web Backend Network API
 
