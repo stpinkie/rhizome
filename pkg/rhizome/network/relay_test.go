@@ -11,19 +11,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	circuitv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
-
-const testMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-
-func testIdentity(t *testing.T, index uint32) *identity.Derived {
-	t.Helper()
-	id, _, err := identity.FromMnemonic(testMnemonic, index)
-	if err != nil {
-		t.Fatalf("identity %d: %v", index, err)
-	}
-	return id
-}
 
 // TestRelayTraversal exercises the relay transport path end-to-end: node R runs
 // a circuit relay v2 service, node B reserves a slot on R, and node A dials B
@@ -38,14 +27,16 @@ func TestRelayTraversal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idR := testIdentity(t, 10)
-	idA := testIdentity(t, 11)
-	idB := testIdentity(t, 12)
+	idR := testutil.NewIdentity(t)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
 	nodeR, err := NewNode(ctx, idR.Libp2pPrivKey, Config{
 		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
 		RelayService:      true,
 		ForceReachability: "public",
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("new relay node: %v", err)
@@ -63,6 +54,8 @@ func TestRelayTraversal(t *testing.T) {
 		NATTraversal:      true,
 		StaticRelays:      relayAddrs,
 		ForceReachability: "private",
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("new private node: %v", err)
@@ -73,6 +66,8 @@ func TestRelayTraversal(t *testing.T) {
 		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
 		NATTraversal:      true,
 		ForceReachability: "public",
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("new dialer node: %v", err)
@@ -157,12 +152,14 @@ func TestRelayPeerSource(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idR := testIdentity(t, 20)
-	idA := testIdentity(t, 21)
-	idB := testIdentity(t, 22)
+	idR := testutil.NewIdentity(t)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
 	nodeR, err := NewNode(ctx, idR.Libp2pPrivKey, Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("new node R: %v", err)
@@ -171,7 +168,9 @@ func TestRelayPeerSource(t *testing.T) {
 	relayAddrs := nodeR.BootstrapAddrs()
 
 	nodeA, err := NewNode(ctx, idA.Libp2pPrivKey, Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("new node A: %v", err)
@@ -189,10 +188,12 @@ func TestRelayPeerSource(t *testing.T) {
 	}
 
 	nodeB, err := NewNode(ctx, idB.Libp2pPrivKey, Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
-		NATTraversal:   true,
-		StaticRelays:   relayAddrs,
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		NATTraversal:      true,
+		StaticRelays:      relayAddrs,
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("new node B: %v", err)

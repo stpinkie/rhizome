@@ -80,6 +80,11 @@ func TestSwarmOfferClaimAssign(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Gate on B having observed the offer: the assign broadcast that follows
+	// the claim travels on its own stream and is dropped if it beats the
+	// offer to B.
+	waitOfferObserved(t, swarmB, "work", offerID)
+
 	require.Eventually(t, func() bool {
 		info, ok := swarmA.queue.offerInfo(offerID)
 		return ok && info.Status == OfferAssigned

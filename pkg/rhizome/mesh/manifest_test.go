@@ -12,6 +12,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentmanifest"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
 
 // TestAgentManifestAdvertisedInCapability verifies that manifests built from
@@ -81,9 +82,8 @@ func TestAgentManifestAdvertisedInCapability(t *testing.T) {
 func TestAgentManifestForgeryDropped(t *testing.T) {
 	f := newSecurityMeshFixture(t, config.MeshConfig{Enabled: true})
 
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 11)
-	require.NoError(t, err)
+	// Any foreign key works here; it must simply differ from A's.
+	idB := testutil.NewIdentity(t)
 
 	good := agentmanifest.Manifest{AgentID: "good", Name: "Good"}
 	require.NoError(t, good.Sign(f.nodeA.ID().String(), f.idA.PrivateKey))

@@ -12,8 +12,8 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	"github.com/stpinkie/rhizome/pkg/skills"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
@@ -22,18 +22,14 @@ func TestMeshRemoteCall(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		1,
-	)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	defer nodeA.Close()
 
@@ -41,8 +37,10 @@ func TestMeshRemoteCall(t *testing.T) {
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	defer nodeB.Close()
@@ -86,18 +84,14 @@ func TestMeshUntrustedPeer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		1,
-	)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	defer nodeA.Close()
 
@@ -105,8 +99,10 @@ func TestMeshUntrustedPeer(t *testing.T) {
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	defer nodeB.Close()
@@ -140,18 +136,14 @@ func TestMeshInvalidRequestSignature(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		1,
-	)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	defer nodeA.Close()
 
@@ -159,8 +151,10 @@ func TestMeshInvalidRequestSignature(t *testing.T) {
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	defer nodeB.Close()
@@ -204,18 +198,14 @@ func TestMeshCapabilityExchange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		1,
-	)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	defer nodeA.Close()
 
@@ -223,8 +213,10 @@ func TestMeshCapabilityExchange(t *testing.T) {
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	defer nodeB.Close()
@@ -263,13 +255,13 @@ func TestMeshCapabilityAdvertisesModelsAndSkills(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	id, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	require.NoError(t, err)
+	id := testutil.NewIdentity(t)
 
-	node, err := network.NewNode(ctx, id.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	node, err := network.NewNode(ctx, id.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	defer node.Close()
 

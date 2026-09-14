@@ -14,20 +14,13 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/stpinkie/rhizome/pkg/config"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
 
 func newTestPeerID(t *testing.T) string {
 	t.Helper()
-	derived, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		1,
-	)
-	if err != nil {
-		t.Fatalf("derive identity: %v", err)
-	}
-	return derived.PeerID
+	return testutil.NewIdentity(t).PeerID
 }
 
 func TestNetworkSavedPeersHandlerRequiresAuth(t *testing.T) {
@@ -241,7 +234,7 @@ func TestNetworkSavedPeersHandlerRemoveMissingPeer(t *testing.T) {
 }
 
 func TestNetworkSavedPeersHandlerListWithMesh(t *testing.T) {
-	_, peerNode, peerCleanup := newStartedPeerMesh(t, 1)
+	_, peerNode, peerCleanup := newStartedPeerMesh(t)
 	defer peerCleanup()
 
 	// Give the peer a moment to start listening.
@@ -252,7 +245,7 @@ func TestNetworkSavedPeersHandlerListWithMesh(t *testing.T) {
 		t.Fatal("peer has no bootstrap addresses")
 	}
 
-	daemonMesh, _, daemonCleanup := newStartedPeerMesh(t, 2)
+	daemonMesh, _, daemonCleanup := newStartedPeerMesh(t)
 	defer daemonCleanup()
 
 	dir := t.TempDir()

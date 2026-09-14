@@ -10,8 +10,8 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -64,10 +64,11 @@ func TestMeshPickPeerPrefersLeastLoaded(t *testing.T) {
 	meshA, _ := newTaskTestMeshes(t, runFunc, cfg)
 
 	// Bring up a third node connected to A.
-	idC, _, err := identity.FromMnemonic(testMnemonic, 7)
-	require.NoError(t, err)
+	idC := testutil.NewIdentity(t)
 	nodeC, err := network.NewNode(ctx, idC.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeC.Close() })

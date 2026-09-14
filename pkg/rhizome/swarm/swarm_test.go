@@ -11,11 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stpinkie/rhizome/pkg/config"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
-
-const testMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
 // newTestPair starts two in-process nodes with swarm layers that trust each
 // other and returns the swarm managers.
@@ -23,12 +21,14 @@ func newTestPair(t *testing.T, cfg config.SwarmConfig, homeA, homeB string) (*Sw
 	t.Helper()
 	ctx := context.Background()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 0)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 1)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeA.Close() })
 
@@ -36,8 +36,10 @@ func newTestPair(t *testing.T, cfg config.SwarmConfig, homeA, homeB string) (*Sw
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })
@@ -60,6 +62,37 @@ func newTestPair(t *testing.T, cfg config.SwarmConfig, homeA, homeB string) (*Sw
 	return swarmA, swarmB
 }
 
+// waitOfferObserved blocks until s has recorded offerID in its incoming set.
+// Broadcasts travel on a fresh stream per message, so a follow-on cancel or
+// assign that outruns the offer itself is dropped by design; tests must gate
+// on observation before relying on later broadcasts.
+func waitOfferObserved(t *testing.T, s *Swarm, swarmID, offerID string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for _, o := range s.OffersFor(swarmID) {
+			if o.OfferID == offerID {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 100*time.Millisecond, "peer never observed offer %s", offerID)
+}
+
+// injectClaim delivers a claim straight into the offerer's queue, bypassing
+// the offer-broadcast→claim network round trip for tests whose subject is
+// downstream of claiming.
+func injectClaim(t *testing.T, s *Swarm, swarmID, offerID, claimant string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		info, ok := s.queue.offerInfo(offerID)
+		if !ok || info.Status != OfferOpen {
+			return false
+		}
+		s.queue.onClaim(swarmID, Claim{OfferID: offerID, Claimant: claimant, Attempt: info.Attempt})
+		return true
+	}, 10*time.Second, 50*time.Millisecond, "offer %s never opened for claims", offerID)
+}
+
 func TestSwarmJoinAndRoster(t *testing.T) {
 	swarmA, swarmB := newTestPair(t, config.DefaultSwarmConfig(), t.TempDir(), t.TempDir())
 
@@ -79,12 +112,14 @@ func TestSwarmUntrustedJoinRejected(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 0)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 1)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	defer nodeA.Close()
 
@@ -92,8 +127,10 @@ func TestSwarmUntrustedJoinRejected(t *testing.T) {
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	defer nodeB.Close()
@@ -133,12 +170,14 @@ func TestSwarmRosterReconvergesAfterTrustGrant(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 0)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 1)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	require.NoError(t, err)
 	defer nodeA.Close()
 
@@ -146,8 +185,10 @@ func TestSwarmRosterReconvergesAfterTrustGrant(t *testing.T) {
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	defer nodeB.Close()

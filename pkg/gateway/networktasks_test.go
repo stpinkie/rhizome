@@ -17,9 +17,9 @@ import (
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -128,22 +128,22 @@ func newTaskPeerFixture(
 	t.Helper()
 	ctx := context.Background()
 
-	idA, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 20)
-	if err != nil {
-		t.Fatalf("derive identity A: %v", err)
-	}
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", 21)
-	if err != nil {
-		t.Fatalf("derive identity B: %v", err)
-	}
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	nodeA, err := rnet.NewNode(ctx, idA.Libp2pPrivKey, rnet.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := rnet.NewNode(ctx, idA.Libp2pPrivKey, rnet.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	if err != nil {
 		t.Fatalf("node A: %v", err)
 	}
-	nodeB, err := rnet.NewNode(ctx, idB.Libp2pPrivKey, rnet.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeB, err := rnet.NewNode(ctx, idB.Libp2pPrivKey, rnet.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	if err != nil {
 		_ = nodeA.Close()
 		t.Fatalf("node B: %v", err)

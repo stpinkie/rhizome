@@ -8,30 +8,21 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
 
 func TestTwoNodesPing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	if err != nil {
-		t.Fatalf("identity A: %v", err)
-	}
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		1,
-	)
-	if err != nil {
-		t.Fatalf("identity B: %v", err)
-	}
-
-	nodeA, err := NewNode(ctx, idA.Libp2pPrivKey, Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+	nodeA, err := NewNode(ctx, idA.Libp2pPrivKey, Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
 	if err != nil {
 		t.Fatalf("new node A: %v", err)
 	}
@@ -43,8 +34,10 @@ func TestTwoNodesPing(t *testing.T) {
 	}
 
 	nodeB, err := NewNode(ctx, idB.Libp2pPrivKey, Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("new node B: %v", err)

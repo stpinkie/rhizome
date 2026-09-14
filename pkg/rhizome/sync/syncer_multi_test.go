@@ -19,9 +19,9 @@ func TestSyncerThreePeerConvergence(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 40)
-	nodeB := newTestNode(t, ctx, 41)
-	nodeC := newTestNode(t, ctx, 42)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
+	nodeC := newTestNode(t, ctx)
 
 	wsA := newTestWorkspace(t)
 	wsB := newTestWorkspace(t)
@@ -78,8 +78,8 @@ func TestSyncerConflictingEditsConverge(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(wsA, "SHARED.md"), []byte("base\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(wsB, "SHARED.md"), []byte("base\n"), 0o644))
 
-	nodeA := newTestNode(t, ctx, 43)
-	nodeB := newTestNode(t, ctx, 44)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
 
 	syncerA := newTestSyncer(t, ctx, "node-a", wsA, nodeA)
 	syncerB := newTestSyncer(t, ctx, "node-b", wsB, nodeB)
@@ -101,20 +101,26 @@ func TestSyncerConflictingEditsConverge(t *testing.T) {
 	// Reconnect: each side's OnConnected handler announces its head, which
 	// triggers a pull and three-way merge on the remote side.
 	connectNodes(t, ctx, nodeA, nodeB)
+	waitSyncProtocol(t, nodeA, nodeB.ID())
+	waitSyncProtocol(t, nodeB, nodeA.ID())
 
-	// The merge is asynchronous. Explicit pulls are driven as well so a single
-	// transient failure (e.g. a Windows "Access is denied" rename inside
-	// go-git's staging) cannot stall convergence — HandleAnnounce dedups on
-	// head, so a repeated announce alone would not retry a failed pull.
+	// The merge is asynchronous. Stage the pulls so each Eventually drives a
+	// single direction per tick instead of two full round-trips: B merges A's
+	// divergent head first, then A merges whatever B advertises next. Explicit
+	// pulls double as the retry driver — HandleAnnounce dedups on head, so a
+	// repeated announce alone cannot retry a transiently failed pull (e.g. a
+	// Windows "Access is denied" rename inside go-git's staging).
+	require.Eventually(t, func() bool {
+		_ = syncerB.PullFrom(ctx, nodeA.ID())
+		dataB, err := os.ReadFile(filepath.Join(wsB, "SHARED.md"))
+		return err == nil && strings.Contains(string(dataB), "<<<<<<<")
+	}, 60*time.Second, time.Second, "B never merged A's divergent commit")
+
 	require.Eventually(t, func() bool {
 		_ = syncerA.PullFrom(ctx, nodeB.ID())
-		_ = syncerB.PullFrom(ctx, nodeA.ID())
-		dataA, errA := os.ReadFile(filepath.Join(wsA, "SHARED.md"))
-		dataB, errB := os.ReadFile(filepath.Join(wsB, "SHARED.md"))
-		return errA == nil && errB == nil &&
-			strings.Contains(string(dataA), "<<<<<<<") &&
-			strings.Contains(string(dataB), "<<<<<<<")
-	}, 60*time.Second, 500*time.Millisecond, "conflicting edits never produced merge markers on both sides")
+		dataA, err := os.ReadFile(filepath.Join(wsA, "SHARED.md"))
+		return err == nil && strings.Contains(string(dataA), "<<<<<<<")
+	}, 60*time.Second, time.Second, "A never merged B's divergent head")
 
 	// Each side produced its own merge commit; exchange until HEADs match.
 	convergePeers(t, ctx, syncerA, nodeA, syncerB, nodeB)
@@ -140,7 +146,7 @@ func TestSyncerReconnectCatchUp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 45)
+	nodeA := newTestNode(t, ctx)
 	wsA := newTestWorkspace(t)
 	syncerA := newTestSyncer(t, ctx, "node-a", wsA, nodeA)
 
@@ -151,7 +157,7 @@ func TestSyncerReconnectCatchUp(t *testing.T) {
 
 	// B starts its node with no bootstrap and its syncer afterwards; the
 	// explicit connect below simulates the reconnect.
-	nodeB := newTestNode(t, ctx, 46)
+	nodeB := newTestNode(t, ctx)
 	wsB := newTestWorkspace(t)
 	syncerB := newTestSyncer(t, ctx, "node-b", wsB, nodeB)
 
@@ -171,8 +177,8 @@ func TestSyncerBidirectionalSync(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 47)
-	nodeB := newTestNode(t, ctx, 48)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
 
 	wsA := newTestWorkspace(t)
 	wsB := newTestWorkspace(t)

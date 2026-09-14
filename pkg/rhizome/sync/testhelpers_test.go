@@ -11,21 +11,23 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
 
 const syncTestMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
-// newTestNode creates a libp2p node on 127.0.0.1 with a deterministic
-// identity derived from the shared test mnemonic.
-func newTestNode(t *testing.T, ctx context.Context, index uint32, bootstrap ...string) *network.Node {
+// newTestNode creates a libp2p node on 127.0.0.1 with a fresh random
+// identity and mDNS disabled so concurrent test binaries can neither
+// discover nor impersonate each other.
+func newTestNode(t *testing.T, ctx context.Context, bootstrap ...string) *network.Node {
 	t.Helper()
-	id, _, err := identity.FromMnemonic(syncTestMnemonic, index)
-	require.NoError(t, err)
+	id := testutil.NewIdentity(t)
 	n, err := network.NewNode(ctx, id.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: bootstrap,
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    bootstrap,
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = n.Close() })

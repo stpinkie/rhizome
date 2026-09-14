@@ -10,35 +10,13 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/stretchr/testify/require"
-
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
-	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
 
 func TestSyncerTwoNodesShareEdits(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	if err != nil {
-		t.Fatalf("identity A: %v", err)
-	}
-	idB, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		1,
-	)
-	if err != nil {
-		t.Fatalf("identity B: %v", err)
-	}
-
-	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
-	if err != nil {
-		t.Fatalf("new node A: %v", err)
-	}
-	defer nodeA.Close()
+	nodeA := newTestNode(t, ctx)
 
 	addsA := nodeA.BootstrapAddrs()
 	if len(addsA) == 0 {
@@ -77,14 +55,7 @@ func TestSyncerTwoNodesShareEdits(t *testing.T) {
 		t.Fatalf("commit A: %v", err)
 	}
 
-	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addsA[0]},
-	})
-	if err != nil {
-		t.Fatalf("new node B: %v", err)
-	}
-	defer nodeB.Close()
+	nodeB := newTestNode(t, ctx, addsA[0])
 
 	syncerB, err := NewSyncer(ctx, Config{
 		Workspace:        dirB,
@@ -134,17 +105,7 @@ func TestSyncerStopConcurrentAnnounce(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	id, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		3,
-	)
-	require.NoError(t, err)
-
-	node, err := network.NewNode(ctx, id.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
-	})
-	require.NoError(t, err)
-	defer node.Close()
+	node := newTestNode(t, ctx)
 
 	for i := 0; i < 15; i++ {
 		syncer, err := NewSyncer(ctx, Config{

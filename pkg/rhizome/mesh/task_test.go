@@ -13,13 +13,11 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
-
-const testMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
 // newTaskTestMeshes starts two meshed nodes that trust each other. The
 // returned cleanup stops both meshes and nodes.
@@ -31,13 +29,13 @@ func newTaskTestMeshes(
 	t.Helper()
 	ctx := context.Background()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 0)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 1)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
 	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeA.Close() })
@@ -46,8 +44,10 @@ func newTaskTestMeshes(
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{addrsA[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{addrsA[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })
@@ -300,10 +300,11 @@ func TestMeshSubmitRemoteTaskFailover(t *testing.T) {
 	waitForTaskProtocol(t, meshA, meshB)
 
 	// Bring up a third node C connected to A.
-	idC, _, err := identity.FromMnemonic(testMnemonic, 7)
-	require.NoError(t, err)
+	idC := testutil.NewIdentity(t)
 	nodeC, err := network.NewNode(ctx, idC.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeC.Close() })

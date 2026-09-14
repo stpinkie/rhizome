@@ -17,8 +17,8 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/blob"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -27,20 +27,22 @@ import (
 func newBlobTestPair(t *testing.T, ctx context.Context) (*Mesh, *Mesh) {
 	t.Helper()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 10)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 11)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
 	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeA.Close() })
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{nodeA.BootstrapAddrs()[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{nodeA.BootstrapAddrs()[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })
@@ -133,10 +135,11 @@ func TestMeshBlobDisabled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 12)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
 	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	defer nodeA.Close()

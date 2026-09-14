@@ -57,8 +57,8 @@ func TestTransportFetchRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 30)
-	nodeB := newTestNode(t, ctx, 31)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
 	connectNodes(t, ctx, nodeA, nodeB)
 
 	head := testHash(0xAB)
@@ -105,8 +105,8 @@ func TestTransportAnnounceReceived(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 32)
-	nodeB := newTestNode(t, ctx, 33)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
 	connectNodes(t, ctx, nodeA, nodeB)
 
 	handlerB := &stubSyncHandler{
@@ -139,8 +139,8 @@ func TestTransportErrorFramePropagation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 34)
-	nodeB := newTestNode(t, ctx, 35)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
 	connectNodes(t, ctx, nodeA, nodeB)
 
 	handlerB := &stubSyncHandler{
@@ -166,8 +166,8 @@ func TestTransportFetchTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 36)
-	nodeB := newTestNode(t, ctx, 37)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
 	connectNodes(t, ctx, nodeA, nodeB)
 
 	release := make(chan struct{})
@@ -199,8 +199,8 @@ func TestTransportAnnounceUnresponsivePeer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nodeA := newTestNode(t, ctx, 38)
-	nodeB := newTestNode(t, ctx, 39)
+	nodeA := newTestNode(t, ctx)
+	nodeB := newTestNode(t, ctx)
 	connectNodes(t, ctx, nodeA, nodeB)
 
 	// Note: no transport is started on nodeB, so the sync protocol is not

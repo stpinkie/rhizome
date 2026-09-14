@@ -11,8 +11,8 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -32,15 +32,14 @@ func newFanoutTestMeshes(
 		RemoteTimeout:    30 * time.Second,
 	}
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 0)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 1)
-	require.NoError(t, err)
-	idC, _, err := identity.FromMnemonic(testMnemonic, 7)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
+	idC := testutil.NewIdentity(t)
 
 	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeA.Close() })
@@ -56,13 +55,17 @@ func newFanoutTestMeshes(
 	require.NotEmpty(t, addrsA)
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })
 
 	nodeC, err := network.NewNode(ctx, idC.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeC.Close() })
@@ -247,10 +250,11 @@ func TestMeshFanoutQuorumPending(t *testing.T) {
 func TestMeshFanoutNoCapablePeer(t *testing.T) {
 	ctx := context.Background()
 
-	id, _, err := identity.FromMnemonic(testMnemonic, 0)
-	require.NoError(t, err)
+	id := testutil.NewIdentity(t)
 	node, err := network.NewNode(ctx, id.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = node.Close() })

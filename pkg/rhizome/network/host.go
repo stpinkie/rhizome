@@ -87,6 +87,22 @@ type Config struct {
 	// PublicAddrs are extra multiaddrs advertised to peers (e.g. a static
 	// public endpoint behind port-forwarding).
 	PublicAddrs []string
+
+	// DisableMDNS turns off mDNS LAN discovery entirely: the host neither
+	// announces itself on "_rhizome._p2p" nor auto-dials peers it hears.
+	// Tests and one-shot commands set this so an ephemeral host cannot
+	// cross-connect with unrelated nodes on the shared multicast domain.
+	DisableMDNS bool
+
+	// MDNSServiceName overrides the mDNS service name (default
+	// "_rhizome._p2p"). Mainly useful for isolating discovery domains in
+	// tests or deliberately partitioned private meshes.
+	MDNSServiceName string
+
+	// DisableNATPortMap skips UPnP/NAT-PMP/PCP port-mapping. The discovery
+	// goroutines probe the LAN for the process's lifetime, which is pure
+	// overhead for loopback-only test nodes and one-shot commands.
+	DisableNATPortMap bool
 }
 
 // SetEventBus sets the runtime event bus used to publish mesh events.
@@ -116,7 +132,8 @@ func (n *Node) publishMeshEvent(kind runtimeevents.Kind, attrs map[string]any) {
 	})
 }
 
-// NewNode creates a libp2p host and starts mDNS discovery.
+// NewNode creates a libp2p host and, unless Config.DisableMDNS is set,
+// starts mDNS LAN discovery.
 func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error) {
 	addrs := cfg.ListenAddrs
 	if len(addrs) == 0 {
@@ -132,7 +149,9 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(addrs...),
 		libp2p.Transport(tcp.NewTCPTransport, tcp.DisableReuseport()),
-		libp2p.NATPortMap(),
+	}
+	if !cfg.DisableNATPortMap {
+		baseOpts = append(baseOpts, libp2p.NATPortMap())
 	}
 
 	// relaySource is late-bound: AutoRelay calls it after the host (and Node)
@@ -261,15 +280,21 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	n.watchHostEvents(n.reconnectCtx)
 
 	// mDNS LAN discovery.
-	n.mdns = mdns.NewMdnsService(h, "_rhizome._p2p", n)
-	if err := n.mdns.Start(); err != nil {
-		logger.WarnCF(
-			"network",
-			"mDNS discovery failed; continuing without local multicast discovery",
-			map[string]any{"error": err.Error()},
-		)
-		_ = n.mdns.Close()
-		n.mdns = nil
+	if !cfg.DisableMDNS {
+		service := cfg.MDNSServiceName
+		if service == "" {
+			service = "_rhizome._p2p"
+		}
+		n.mdns = mdns.NewMdnsService(h, service, n)
+		if err := n.mdns.Start(); err != nil {
+			logger.WarnCF(
+				"network",
+				"mDNS discovery failed; continuing without local multicast discovery",
+				map[string]any{"error": err.Error()},
+			)
+			_ = n.mdns.Close()
+			n.mdns = nil
+		}
 	}
 
 	// Connect to bootstrap peers with a small amount of retry/backoff.

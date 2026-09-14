@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stpinkie/rhizome/pkg/config"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	"github.com/stpinkie/rhizome/pkg/skills"
 )
 
@@ -21,20 +21,22 @@ import (
 func newSkillTestPair(t *testing.T, ctx context.Context) (*Mesh, *Mesh) {
 	t.Helper()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 20)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 21)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
 	nodeA, err := network.NewNode(ctx, idA.Libp2pPrivKey, network.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeA.Close() })
 
 	nodeB, err := network.NewNode(ctx, idB.Libp2pPrivKey, network.Config{
-		ListenAddrs:    []string{"/ip4/127.0.0.1/tcp/0"},
-		BootstrapPeers: []string{nodeA.BootstrapAddrs()[0]},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		BootstrapPeers:    []string{nodeA.BootstrapAddrs()[0]},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })

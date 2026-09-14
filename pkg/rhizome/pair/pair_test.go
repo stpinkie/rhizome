@@ -13,27 +13,24 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
-
-const testMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
 // newPairNodes starts two in-process libp2p nodes and their pair managers.
 func newPairNodes(t *testing.T) (*Manager, *Manager) {
 	t.Helper()
 	ctx := context.Background()
 
-	idA, _, err := identity.FromMnemonic(testMnemonic, 0)
-	require.NoError(t, err)
-	idB, _, err := identity.FromMnemonic(testMnemonic, 1)
-	require.NoError(t, err)
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
 
 	nodeA, err := rnet.NewNode(ctx, idA.Libp2pPrivKey,
-		rnet.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+		rnet.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}, DisableMDNS: true, DisableNATPortMap: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeA.Close() })
 
 	nodeB, err := rnet.NewNode(ctx, idB.Libp2pPrivKey,
-		rnet.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+		rnet.Config{ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}, DisableMDNS: true, DisableNATPortMap: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeB.Close() })
 

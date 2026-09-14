@@ -45,6 +45,11 @@ func TestSwarmOfferCancel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// B must have observed the offer before the cancel: broadcasts travel on
+	// a fresh stream per message, so a cancel that outruns the offer is
+	// dropped and B's observed copy would never transition to cancelled.
+	waitOfferObserved(t, swarmB, "work", offerID)
+
 	// Cancel while the offer is still collecting claims.
 	require.NoError(t, swarmA.CancelOffer(context.Background(), "work", offerID))
 
@@ -171,7 +176,6 @@ func TestSwarmOfferDoneResult(t *testing.T) {
 		return len(swarmA.Members("work")) == 1
 	}, 10*time.Second, 100*time.Millisecond)
 
-	swarmB.SetOfferEvaluator(func(_ string, o Offer) bool { return o.AgentID == "main" })
 	swarmA.SetTaskSubmitter(func(_ context.Context, preferred peer.ID, _ mesh.RemoteCall) (peer.ID, string, error) {
 		return preferred, "task-ok", nil
 	})
@@ -189,10 +193,15 @@ func TestSwarmOfferDoneResult(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Inject the claim rather than relying on B receiving the offer broadcast
+	// and replying over libp2p: claim transport is not the subject here — the
+	// assign→submit→fetch→done lifecycle is.
+	injectClaim(t, swarmA, "work", offerID, swarmB.PeerID())
+
 	require.Eventually(t, func() bool {
 		info, ok := swarmA.queue.offerInfo(offerID)
 		return ok && info.Status == OfferDone
-	}, 15*time.Second, 100*time.Millisecond, "offer should complete")
+	}, 30*time.Second, 100*time.Millisecond, "offer should complete")
 
 	info, _ := swarmA.queue.offerInfo(offerID)
 	assert.Equal(t, "all done", info.Result)

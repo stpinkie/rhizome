@@ -16,25 +16,21 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/stpinkie/rhizome/pkg/config"
-	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 )
 
 func newTestNetworkStatusMesh(t *testing.T) (*mesh.Mesh, func()) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	derived, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	if err != nil {
-		t.Fatalf("derive identity: %v", err)
-	}
+	derived := testutil.NewIdentity(t)
 
 	node, err := rnet.NewNode(ctx, derived.Libp2pPrivKey, rnet.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("create node: %v", err)
@@ -127,13 +123,7 @@ func TestNetworkStatusHandlerSaveTrustedPeer(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	derived, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		0,
-	)
-	if err != nil {
-		t.Fatalf("derive identity: %v", err)
-	}
+	derived := testutil.NewIdentity(t)
 
 	pid, err := peer.Decode(derived.PeerID)
 	if err != nil {
@@ -205,20 +195,16 @@ func TestNetworkStatusHandlerTrustFalseDoesNotSave(t *testing.T) {
 	}
 }
 
-func newStartedPeerMesh(t *testing.T, nodeIndex uint32) (*mesh.Mesh, *rnet.Node, func()) {
+func newStartedPeerMesh(t *testing.T) (*mesh.Mesh, *rnet.Node, func()) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	derived, _, err := identity.FromMnemonic(
-		"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-		nodeIndex,
-	)
-	if err != nil {
-		t.Fatalf("derive identity: %v", err)
-	}
+	derived := testutil.NewIdentity(t)
 
 	node, err := rnet.NewNode(ctx, derived.Libp2pPrivKey, rnet.Config{
-		ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"},
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
 	})
 	if err != nil {
 		t.Fatalf("create node: %v", err)
@@ -239,7 +225,7 @@ func newStartedPeerMesh(t *testing.T, nodeIndex uint32) (*mesh.Mesh, *rnet.Node,
 }
 
 func TestNetworkStatusHandlerTrustTrueSaves(t *testing.T) {
-	_, peerNode, peerCleanup := newStartedPeerMesh(t, 1)
+	_, peerNode, peerCleanup := newStartedPeerMesh(t)
 	defer peerCleanup()
 
 	// Give the peer a moment to start listening.
@@ -250,7 +236,7 @@ func TestNetworkStatusHandlerTrustTrueSaves(t *testing.T) {
 		t.Fatal("peer has no bootstrap addresses")
 	}
 
-	daemonMesh, daemonNode, daemonCleanup := newStartedPeerMesh(t, 2)
+	daemonMesh, daemonNode, daemonCleanup := newStartedPeerMesh(t)
 	defer daemonCleanup()
 
 	dir := t.TempDir()
