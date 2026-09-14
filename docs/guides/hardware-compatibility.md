@@ -1,6 +1,6 @@
 # 🖥️ Rhizome Hardware Compatibility List
 
-Rhizome runs on a wide range of Linux devices. This page tracks verified chips, products, and development boards. Because the current full build is ~98 MB and the daemon uses ~60 MB private memory, boards with less than 256 MB total RAM are not verified. See the [Minimum Requirements](#5-minimum-requirements) table for the two-tier footprint.
+Rhizome runs on a wide range of Linux devices. This page tracks verified chips, products, and development boards. Because the current full build is ~74 MB stripped and the daemon uses ~60 MB private memory, boards with less than 256 MB total RAM are not verified. See the [Minimum Requirements](#5-minimum-requirements) table for the two-tier footprint.
 
 **Your hardware not listed?** Submit a PR to add it! Hardware vendors are welcome to contribute and co-promote.
 
@@ -19,7 +19,7 @@ Rhizome runs on a wide range of Linux devices. This page tracks verified chips, 
 
 | Sub-arch | Typical Chips | Notes |
 |----------|--------------|-------|
-| ARMv7 | [BCM2836](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2836) (Raspberry Pi 2) / [BCM2837](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2837) 32-bit mode | `linux/arm` build (GOARM=7); 256 MB+ RAM for the full daemon. Also works on Android 4.4+ armv7a with `android/arm` cgo build. |
+| ARMv7 | [BCM2836](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2836) (Raspberry Pi 2) / [BCM2837](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2837) 32-bit mode | `linux/arm` build (GOARM=7); 256 MB+ RAM for the full daemon. Also works on Android 5.0+ (API 21) armv7a with `android/arm` cgo build. |
 | ARMv6 | [BCM2835](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2835) (Raspberry Pi 1/Zero) | Single-core ARM1176JZF-S; needs 512 MB+ board for the full daemon |
 | ARM64 | [Allwinner H618](https://linux-sunxi.org/H618) | Quad-core Cortex-A53, used in Orange Pi Zero 3 |
 | ARM64 | [BCM2711](https://www.raspberrypi.com/documentation/computers/processors.html#bcm2711) (Raspberry Pi 4) | Quad-core Cortex-A72 |
@@ -85,7 +85,7 @@ Consumer products, routers, and industrial devices that have been tested with Rh
 
 Any ARM64 Android phone (2015+) with 1GB+ RAM. Install [Termux](https://github.com/termux/termux-app), use `proot` to run the `linux/arm` or `linux/arm64` binary.
 
-Native Android 4.4+ (API 19) PIE binaries (`armeabi-v7a`, `x86`, `x86_64`, `arm64-v8a`) are also available in `rhizome-android-universal.zip` from GitHub Releases.
+Native Android 5.0+ (API 21) PIE binaries (`armeabi-v7a`, `x86`, `x86_64`, `arm64-v8a`) are also available in `rhizome-android-universal.zip` from GitHub Releases.
 
 > See the [Android Termux Guide](android-termux.md) for setup instructions.
 
@@ -117,7 +117,7 @@ Current release builds are larger than the original PicoClaw target because they
 | OS | Linux (kernel 3.4+) | Linux 5.x+ |
 | Network | Required (for LLM API calls) | Ethernet or WiFi |
 
-For Android 4.4 (API 19) the native PIE binary uses TCP and best-effort mDNS/QUIC fallback. On old or restricted sandboxes `rhizome daemon --no-dht` is recommended.
+On old or restricted Android sandboxes the native PIE binary uses TCP with best-effort mDNS/QUIC fallback, and `rhizome daemon --no-dht` is recommended.
 
 ---
 
@@ -141,7 +141,7 @@ A universal Android zip with `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64` nat
 
 #### Native Android
 
-For Android 4.4+ devices, use the `rhizome-android-universal.zip` from releases or build with the Android NDK:
+For Android 5.0+ devices, use the `rhizome-android-universal.zip` from releases or build with the Android NDK:
 
 ```bash
 export ANDROID_NDK=/path/to/android-ndk

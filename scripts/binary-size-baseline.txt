@@ -1,0 +1,5 @@
+# Stripped rhizome-linux-amd64 size baseline (bytes), enforced by the
+# "Check binary size against baseline" step in .github/workflows/build.yml.
+# CI warns at +15% and fails at +30% over this value. Bump deliberately via
+# PR when a dependency earns its size — the diff is the review moment.
+73662626 2026-09-14 v0.9.1

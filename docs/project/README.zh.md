@@ -3,7 +3,7 @@
 
 <h1>Rhizome: 基于Go语言的超高效 AI 助手</h1>
 
-<h3>$10 硬件 · 10MB 内存 · 毫秒启动 · Let's Go, Rhizome!</h3>
+<h3>Any Machine · Single Binary · ms Boot · Let's Go, Rhizome!</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">

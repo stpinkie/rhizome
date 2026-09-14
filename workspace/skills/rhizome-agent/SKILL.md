@@ -6,7 +6,7 @@ metadata: {"nanobot":{"emoji":"🦞"}}
 
 # Rhizome Agent
 
-Rhizome is a lightweight personal AI assistant and agent framework with a native CLI, chat gateway, MCP integration, installable skills, session routing, scheduled jobs, and self-evolution.
+Rhizome is a personal AI agent framework with a native CLI, chat gateway, P2P mesh, MCP integration, installable skills, session routing, scheduled jobs, and self-evolution — built to run on the hardware people already own.
 
 Use this skill when the job is about **Rhizome itself**: onboarding, configuration, debugging, adding features, extending the CLI, changing routing/session behavior, working on skills or MCP support, or contributing to this repository.
 

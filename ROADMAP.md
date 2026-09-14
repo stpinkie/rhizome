@@ -1,18 +1,18 @@
 
 # 🌱 Rhizome Roadmap
 
-> **Vision**: To build the ultimate lightweight, secure, and fully autonomous AI Agent infrastructure.automate the mundane, unleash your creativity
+> **Vision**: A personal AI agent that runs everywhere you already have hardware — secure, autonomous, and cheap enough to leave running. Automate the mundane, unleash your creativity.
 
 ---
 
-## 🚀 1. Core Optimization: Extreme Lightweight
+## 🌐 1. Ubiquity: An Agent on Every Machine
 
-*Our defining characteristic. We fight software bloat to ensure Rhizome runs smoothly on the smallest embedded devices.*
+*Our defining characteristic is omnipresence, not minimalism. Rhizome targets meaningful hardware people already own — aging laptops, obsolete Macs, old Android phones, Raspberry-Pi-class SBCs, free-tier VMs — not sub-64 MB proof-of-concept boards. Lightweight enough to forget it's running; never stripped of useful functionality to hit a number.*
 
-* [**Memory Footprint Reduction**](https://github.com/stpinkie/rhizome/issues/346) 
-  * **Goal**: Run smoothly on 64MB RAM embedded boards (e.g., low-end RISC-V SBCs) with the core process consuming < 20MB.
-  * **Context**: RAM is expensive and scarce on edge devices. Memory optimization takes precedence over storage size.
-  * **Action**: Analyze memory growth between releases, remove redundant dependencies, and optimize data structures.
+* [**Efficiency as a budget, not a floor**](https://github.com/stpinkie/rhizome/issues/346)
+  * **Goal**: Resident daemon comfortable on 256 MB-class boards and up; one-shot CLI on anything that can exec a Go binary. Idle cost and cold-start time matter more than absolute footprint.
+  * **Context**: The credible version of "an agent on every machine" is a node that idles quietly on real, older hardware — not a stripped build on a chip nobody deploys on.
+  * **Action**: Track idle RSS and binary size per release (CI size gate); new dependencies must justify their cost; optimize idle CPU and cold start before shaving megabytes.
 
 
 ## 🛡️ 2. Security Hardening: Defense in Depth

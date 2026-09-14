@@ -2,11 +2,19 @@
 
 Date: 2026-09-08 · Build: `CGO_ENABLED=0 go build -tags goolm,stdjson` (Windows amd64)
 
+> **Positioning update (v0.9.x):** the project goal is no longer the smallest
+> possible footprint — it is omnipresence on meaningful hardware (aging
+> laptops, old phones, SBCs, free-tier VMs). The metrics that matter are idle
+> RSS, idle CPU, and cold-start time on that class of hardware, tracked per
+> release via `scripts/measure-footprint.sh` (pending). Binary size is a
+> secondary concern gated in CI mainly to catch dependency creep.
+
 ## Binary size
 
 | Metric | Value |
 | --- | --- |
-| `rhizome` binary | **98.7 MB** |
+| `rhizome` binary (unstripped) | **98.7 MB** |
+| `rhizome` binary (`-s -w` stripped, linux-amd64, v0.9.1) | **73.7 MB** |
 | Go module deps | 198 |
 | Daemon private memory (idle) | ~60 MB |
 
@@ -50,8 +58,8 @@ this sprint).
    driver) outside the binary; a native Go CDP client (planned for Cloudflare
    auth-WS support) should remain a thin package.
 4. **Measure with `go build -ldflags="-dumpdep"` / size analysis** in CI to
-   catch dependency creep; 200 deps is already a large surface for an
-   "ultra-lightweight" agent.
+   catch dependency creep; ~200 deps is a large surface — new dependencies
+   must justify their RSS/binary cost.
 
 ## Runtime memory notes
 

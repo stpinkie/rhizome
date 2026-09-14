@@ -35,6 +35,27 @@ jobs:
       - name: Build core binaries
         run: make build-all
 
+      - name: Check binary size against baseline
+        run: |
+          bin=build/rhizome-linux-amd64
+          actual=$(stat -c%s "$bin")
+          baseline=$(awk 'NF && $1 !~ /^#/ {print $1; exit}' scripts/binary-size-baseline.txt)
+          if [ -z "$baseline" ]; then
+            echo "::error::no baseline found in scripts/binary-size-baseline.txt"
+            exit 1
+          fi
+          pct=$(( (actual - baseline) * 100 / baseline ))
+          echo "rhizome-linux-amd64: ${actual} bytes (baseline ${baseline}, ${pct}%)"
+          echo "module deps: $(go list -m all | wc -l)"
+          if [ "$pct" -gt 30 ]; then
+            echo "::error::binary size grew ${pct}% over baseline; bump scripts/binary-size-baseline.txt deliberately or drop the new weight"
+            exit 1
+          elif [ "$pct" -gt 15 ]; then
+            echo "::warning::binary size grew ${pct}% over baseline"
+          elif [ "$pct" -lt -10 ]; then
+            echo "::warning::binary is ${pct#-}% under baseline; consider lowering scripts/binary-size-baseline.txt"
+          fi
+
       - name: Upload core artifacts
         uses: actions/upload-artifact@v7
         with:

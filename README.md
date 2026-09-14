@@ -1,9 +1,9 @@
 <div align="center">
 <img src="assets/logo.webp" alt="Rhizome" width="512">
 
-<h1>Rhizome: Ultra-Efficient AI Assistant in Go</h1>
+<h1>Rhizome: Your AI Agent, Everywhere</h1>
 
-<h3>$10 Hardware · 10MB RAM · ms Boot · Let's Go, Rhizome!</h3>
+<h3>Any Machine · Single Binary · ms Boot · Let's Go, Rhizome!</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
@@ -22,11 +22,11 @@
 
 ---
 
-> **Rhizome** is a community-maintained hard fork of [PicoClaw](https://github.com/sipeed/picoclaw). It is written entirely in **Go** and continues the goal of an ultra-lightweight personal AI assistant.
+> **Rhizome** is a community-maintained hard fork of [PicoClaw](https://github.com/sipeed/picoclaw). It is written entirely in **Go** and aims to put a personal AI agent on every machine you already own — aging laptops, old phones, single-board computers, free-tier VMs.
 
 **Rhizome** is a personal AI assistant inspired by [NanoBot](https://github.com/HKUDS/nanobot). It adds a Go-native P2P mesh, workspace sync, and an agent gateway on top of the original PicoClaw idea.
 
-**Single Go binary, no runtime dependencies** — runs natively on Linux, Windows, macOS, FreeBSD/NetBSD, and Android, including 32-bit x86, ARMv7, and native Android 4.4+ targets. See the [Hardware Compatibility List](docs/guides/hardware-compatibility.md) for verified boards and the current two-tier resource requirements.
+**Single Go binary, no runtime dependencies** — runs natively on Linux, Windows, macOS, FreeBSD/NetBSD, and Android, including 32-bit x86, ARMv7, and Android 5.0+ (API 21) targets. See the [Hardware Compatibility List](docs/guides/hardware-compatibility.md) for verified boards and the current two-tier resource requirements.
 
 <p align="center">
 <img src="assets/rhizome_mem.gif" width="360" height="240">
@@ -39,7 +39,7 @@
 > * **CANONICAL SOURCE:** The canonical source and release location is **<https://github.com/stpinkie/rhizome>**; releases are published under GitHub Releases. Beware of third-party domains claiming to be official.
 > * **BEWARE:** Many `.ai/.org/.com/.net/...` domains have been registered by third parties. Do not trust them.
 > * **NOTE:** Rhizome is in early rapid development. There may be unresolved security issues. Do not deploy to production before v1.0.
-> * **NOTE:** The full `rhizome` binary is ~98 MB and the daemon uses ~60 MB private memory. Resource optimization is planned after feature stabilization.
+> * **NOTE:** The full `rhizome` binary is ~74 MB stripped and the daemon uses ~60 MB private memory. Resource optimization is planned after feature stabilization.
 
 ## 📢 News
 
@@ -96,7 +96,7 @@
 
 🪶 **Single binary, no runtime dependencies**: One statically-linked Go executable that runs on Linux, Windows, macOS, FreeBSD/NetBSD, and Android.*
 
-💰 **Minimal cost**: Efficient enough to run on a wide range of low-cost ARM and RISC-V boards; see the [Hardware Compatibility List](docs/guides/hardware-compatibility.md).
+💰 **Runs on what you own**: Designed to live resident on hardware you already have — old Android phones, aging laptops, ARM/RISC-V boards, free-tier VMs — without getting in the way; see the [Hardware Compatibility List](docs/guides/hardware-compatibility.md).
 
 ⚡️ **Lightning-fast boot**: Starts in under a second on the verified low-cost boards.
 
@@ -110,7 +110,7 @@
 
 🧠 **Smart routing**: Rule-based model routing — simple queries go to lightweight models, saving API costs.
 
-_*Measured on Windows with `CGO_ENABLED=0`, tags `goolm,stdjson`, and `-ldflags "-s -w"`; the stripped binary is ~98 MB._
+_*Measured on Windows with `CGO_ENABLED=0`, tags `goolm,stdjson`, and `-ldflags "-s -w"`; the stripped binary is ~74 MB._
 
 <div align="center">
 
@@ -151,9 +151,9 @@ _*Measured on Windows with `CGO_ENABLED=0`, tags `goolm,stdjson`, and `-ldflags 
 </tr>
 </table>
 
-### 🐜 Innovative Low-Footprint Deployment
+### 🐜 Deployment on Real-World Hardware
 
-Rhizome can be deployed on a wide range of Linux and embedded devices!
+Rhizome can be deployed on a wide range of Linux devices — including hardware you might otherwise retire!
 
 - $15 [Raspberry Pi Zero](https://www.raspberrypi.com/products/raspberry-pi-zero/) (or [Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)), for a minimal home assistant
 - $50~70 [CanMV-K230](https://developer.canaan-creative.com/k230_canmv/en/main/), for RISC-V-based embedded use

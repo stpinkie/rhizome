@@ -1,6 +1,6 @@
 # Contributing to Rhizome
 
-Thank you for your interest in contributing to Rhizome! This project is a community-driven effort to build the lightweight and versatile personal AI assistant. We welcome contributions of all kinds: bug fixes, features, documentation, translations, and testing.
+Thank you for your interest in contributing to Rhizome! This project is a community-driven effort to build a personal AI agent that runs on the hardware people already own. We welcome contributions of all kinds: bug fixes, features, documentation, translations, and testing.
 
 Rhizome itself was substantially developed with AI assistance — we embrace this approach and have built our contribution process around it.
 
