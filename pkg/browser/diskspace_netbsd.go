@@ -10,5 +10,5 @@ func FreeBytes(dir string) (uint64, error) {
 	if err := unix.Statvfs(dir, &st); err != nil {
 		return 0, err
 	}
-	return st.Bavail * st.Bsize, nil
+	return st.Bavail * uint64(st.Bsize), nil
 }
