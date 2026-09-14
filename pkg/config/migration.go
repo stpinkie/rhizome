@@ -40,6 +40,7 @@ type legacyDiagnosticConfig struct {
 	Mesh        MeshConfig             `json:"mesh,omitempty"`
 	Swarm       SwarmConfig            `json:"swarm,omitempty"`
 	Modules     ModulesConfig          `json:"modules,omitempty"`
+	ACP         ACPConfig              `json:"acp,omitempty"`
 	Events      EventsConfig           `json:"events,omitempty"`
 	Hooks       HooksConfig            `json:"hooks,omitempty"`
 	Tools       ToolsConfig            `json:"tools,omitempty"`

@@ -157,6 +157,7 @@ type ToolApprovalRequest struct {
 	Meta      HookMeta       `json:"meta"`
 	Context   *TurnContext   `json:"context,omitempty"`
 	Tool      string         `json:"tool"`
+	CallID    string         `json:"call_id,omitempty"`
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 

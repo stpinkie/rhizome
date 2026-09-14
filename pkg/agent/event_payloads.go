@@ -116,12 +116,14 @@ type SessionSummarizePayload struct {
 // ToolExecStartPayload describes a tool execution request.
 type ToolExecStartPayload struct {
 	Tool      string
+	CallID    string
 	Arguments map[string]any
 }
 
 // ToolExecEndPayload describes the outcome of a tool execution.
 type ToolExecEndPayload struct {
 	Tool       string
+	CallID     string
 	Duration   time.Duration
 	ForLLMLen  int
 	ForUserLen int
@@ -132,6 +134,7 @@ type ToolExecEndPayload struct {
 // ToolExecSkippedPayload describes a skipped tool call.
 type ToolExecSkippedPayload struct {
 	Tool   string
+	CallID string
 	Reason string
 }
 

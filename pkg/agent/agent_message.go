@@ -65,6 +65,26 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 	return al.processMessage(ctx, msg)
 }
 
+// ProcessInbound processes a fully-constructed inbound message through the
+// normal routing, session, and tool pipeline. Unlike ProcessDirectWithChannel
+// the caller controls the whole bus.InboundMessage — channel, chat, sender,
+// media refs, and an explicit session key — which embedded protocol servers
+// (e.g. the ACP bridge) need to bind their own session semantics onto the
+// standard agent pipeline.
+func (al *AgentLoop) ProcessInbound(
+	ctx context.Context,
+	msg bus.InboundMessage,
+) (string, error) {
+	if err := al.ensureHooksInitialized(ctx); err != nil {
+		return "", err
+	}
+	if err := al.ensureMCPInitialized(ctx); err != nil {
+		return "", err
+	}
+
+	return al.processMessage(ctx, msg)
+}
+
 func (al *AgentLoop) ProcessHeartbeat(
 	ctx context.Context,
 	content, channel, chatID string,
