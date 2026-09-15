@@ -15,6 +15,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/gateway"
+	"github.com/stpinkie/rhizome/pkg/modules"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/pair"
@@ -204,6 +205,20 @@ func NewDaemonCommand() *cobra.Command {
 					"swarm.enabled is set but mesh.enabled is off; swarm requires the mesh trust layer",
 				)
 			}
+
+			// Companion modules: catalog-driven sidecars supervised by the
+			// daemon. A bad modules section warns but never blocks startup —
+			// per-module errors surface in `rhizome module status` and the log.
+			configPath := internal.GetConfigPath()
+			moduleMgr := modules.NewManager(home, cfg, eventBus,
+				func(c *config.Config) error { return config.SaveConfig(configPath, c) })
+			if err := modules.ValidateConfig(cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "module config warning: %v\n", err)
+			}
+			moduleSup := modules.NewSupervisor(moduleMgr)
+			moduleSup.StartEnabled()
+			defer moduleSup.StopAll() // modules stop before mesh teardown (LIFO)
+			gateway.SetModuleManager(moduleMgr)
 
 			fmt.Printf("%s Rhizome daemon online\n", internal.Logo)
 			fmt.Printf("  Name:    %s\n", name)

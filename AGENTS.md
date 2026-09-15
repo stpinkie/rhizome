@@ -158,6 +158,36 @@ Anti-rot:
   - `--no-gateway` starts the P2P node and syncer without the HTTP gateway.
   - `--sync-commit-interval` and `--sync-announce-interval` tune auto-sync.
 
+## Companion Modules
+
+`pkg/modules` is the sidecar module system (v0.10.0): catalog-driven binaries
+installed under `<RHIZOME_HOME>/modules/<id>/<version>/`, sha256-verified at
+install time, and supervised by the daemon. Modules extend Rhizome without
+growing the base binary. Kinds: `daemon` (supervised, restart-on-exit with
+backoff), `ondemand` (spawned by a consumer), `config` (endpoint descriptor,
+no process). `ethereum-rpc` is the first config-kind entry.
+
+- `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
+- `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.
+- `rhizome module install <id> [--version v]` — download, sha256-verify, extract.
+- `rhizome module uninstall <id>` — remove the module directory.
+- `rhizome module enable|disable <id>` — set `modules.<id>.enabled` (daemon-kind modules autostart with the daemon).
+- `rhizome module start|stop|restart <id>` — lifecycle via the running daemon (daemon required).
+- `rhizome module logs <id> [--tail N]` — bounded stdout/stderr logs under the module dir.
+- `rhizome module set <id> key=value…` — write `modules.<id>.fields`; `--secret` writes `.secrets` (`.security.yml`, never config.json).
+- `rhizome module validate` — check the `modules` config section against the catalog.
+
+Daemon endpoints (bearer auth): `GET /modules`, `GET /modules/<id>`,
+`GET /modules/<id>/logs?tail=N`, `POST /modules/<id>` `{action,
+version}`, `PUT /modules/<id>/fields`, `PUT /modules/<id>/secrets`.
+Launcher mirrors them under `/api/modules*` with a local fallback for
+reads/config/install when no daemon runs. Events: `module.installed`,
+`module.uninstalled`, `module.started`, `module.stopped`, `module.crashed`,
+`module.enabled`, `module.disabled`. `module-state.json` persists
+pid/restarts/last-exit so status works daemonless. Security: HTTPS-only
+downloads, mandatory per-platform sha256, no user-supplied URLs, module dirs
+`0700`.
+
 ## Web Backend Network API
 
 The web console (the launcher) exposes authenticated JSON endpoints that wrap `rhizome network status` so the dashboard can display live mesh/DHT status:
@@ -184,6 +214,7 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 ## Key Packages
 
 - `pkg/browser` — pluggable browser-automation backends (catalog, `AgentBrowserDriver` CLI wrapper, endpoint resolvers, session manager, Cloudflare REST); `pkg/tools/browser` exposes the eight `browser_*` agent tools.
+- `pkg/modules` — companion-module sidecar system (catalog, sha256-verified install, daemon supervision with restart backoff, bounded logs, `module.*` events); `cmd/rhizome/internal/module` exposes the `rhizome module` CLI, `pkg/gateway/moduleapi.go` the `/modules*` daemon endpoints, `web/backend/api/modules.go` the `/api/modules*` launcher routes.
 - `pkg/redact` — leaf package for secret masking (generic patterns + configured `SecureString` values); used by `pkg/logger` and `Config.FilterSensitiveData`.
 - `pkg/guard` — leaf package for prompt-injection phrase detection; used by shell-command screening, the tool-argument scan, and CLI tool-call extraction.
 - `pkg/rhizome/identity` — BIP39/SLIP-0010 Ed25519 node identity, persistence, and Ed25519 signing; now supports OS keyring and passphrase encryption.

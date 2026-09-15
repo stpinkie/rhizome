@@ -16,7 +16,8 @@
     "logs": "Logs",
     "network_group": "Network",
     "network": "Network",
-    "browser": "Browser"
+    "browser": "Browser",
+    "modules": "Modules"
   },
   "launcherLogin": {
     "title": "Sign in",

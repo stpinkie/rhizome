@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as NetworkRouteImport } from './routes/network'
+import { Route as ModulesRouteImport } from './routes/modules'
 import { Route as ModelsRouteImport } from './routes/models'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LauncherSetupRouteImport } from './routes/launcher-setup'
@@ -35,6 +36,11 @@ const SetupRoute = SetupRouteImport.update({
 const NetworkRoute = NetworkRouteImport.update({
   id: '/network',
   path: '/network',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ModulesRoute = ModulesRouteImport.update({
+  id: '/modules',
+  path: '/modules',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ModelsRoute = ModelsRouteImport.update({
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
   '/models': typeof ModelsRoute
+  '/modules': typeof ModulesRoute
   '/network': typeof NetworkRoute
   '/setup': typeof SetupRoute
   '/agent/hub': typeof AgentHubRoute
@@ -143,6 +150,7 @@ export interface FileRoutesByTo {
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
   '/models': typeof ModelsRoute
+  '/modules': typeof ModulesRoute
   '/network': typeof NetworkRoute
   '/setup': typeof SetupRoute
   '/agent/hub': typeof AgentHubRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   '/launcher-setup': typeof LauncherSetupRoute
   '/logs': typeof LogsRoute
   '/models': typeof ModelsRoute
+  '/modules': typeof ModulesRoute
   '/network': typeof NetworkRoute
   '/setup': typeof SetupRoute
   '/agent/hub': typeof AgentHubRoute
@@ -184,6 +193,7 @@ export interface FileRouteTypes {
     | '/launcher-setup'
     | '/logs'
     | '/models'
+    | '/modules'
     | '/network'
     | '/setup'
     | '/agent/hub'
@@ -203,6 +213,7 @@ export interface FileRouteTypes {
     | '/launcher-setup'
     | '/logs'
     | '/models'
+    | '/modules'
     | '/network'
     | '/setup'
     | '/agent/hub'
@@ -222,6 +233,7 @@ export interface FileRouteTypes {
     | '/launcher-setup'
     | '/logs'
     | '/models'
+    | '/modules'
     | '/network'
     | '/setup'
     | '/agent/hub'
@@ -242,6 +254,7 @@ export interface RootRouteChildren {
   LauncherSetupRoute: typeof LauncherSetupRoute
   LogsRoute: typeof LogsRoute
   ModelsRoute: typeof ModelsRoute
+  ModulesRoute: typeof ModulesRoute
   NetworkRoute: typeof NetworkRoute
   SetupRoute: typeof SetupRoute
 }
@@ -260,6 +273,13 @@ declare module '@tanstack/react-router' {
       path: '/network'
       fullPath: '/network'
       preLoaderRoute: typeof NetworkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/modules': {
+      id: '/modules'
+      path: '/modules'
+      fullPath: '/modules'
+      preLoaderRoute: typeof ModulesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/models': {
@@ -418,6 +438,7 @@ const rootRouteChildren: RootRouteChildren = {
   LauncherSetupRoute: LauncherSetupRoute,
   LogsRoute: LogsRoute,
   ModelsRoute: ModelsRoute,
+  ModulesRoute: ModulesRoute,
   NetworkRoute: NetworkRoute,
   SetupRoute: SetupRoute,
 }

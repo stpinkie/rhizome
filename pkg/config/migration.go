@@ -39,6 +39,7 @@ type legacyDiagnosticConfig struct {
 	Gateway     GatewayConfig          `json:"gateway,omitempty"`
 	Mesh        MeshConfig             `json:"mesh,omitempty"`
 	Swarm       SwarmConfig            `json:"swarm,omitempty"`
+	Modules     ModulesConfig          `json:"modules,omitempty"`
 	Events      EventsConfig           `json:"events,omitempty"`
 	Hooks       HooksConfig            `json:"hooks,omitempty"`
 	Tools       ToolsConfig            `json:"tools,omitempty"`

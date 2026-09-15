@@ -47,6 +47,7 @@ func TestNewRhizomeCommand(t *testing.T) {
 		"mcp",
 		"migrate",
 		"model",
+		"module",
 		"network",
 		"onboard",
 		"skills",

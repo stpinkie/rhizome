@@ -83,6 +83,7 @@ type Config struct {
 	Gateway   GatewayConfig   `json:"gateway"             yaml:"-"`
 	Mesh      MeshConfig      `json:"mesh,omitempty"      yaml:"-"`
 	Swarm     SwarmConfig     `json:"swarm,omitempty"     yaml:"-"`
+	Modules   ModulesConfig   `json:"modules,omitempty"   yaml:"modules,omitempty"`
 	Events    EventsConfig    `json:"events,omitempty"    yaml:"-"`
 	Hooks     HooksConfig     `json:"hooks,omitempty"     yaml:"-"`
 	Tools     ToolsConfig     `json:"tools"               yaml:",inline"`
@@ -1484,6 +1485,80 @@ func (c BrowserToolsConfig) IsZero() bool {
 	for _, bc := range c.Backends {
 		if bc.APIKey.String() != "" {
 			return false
+		}
+	}
+	return true
+}
+
+// ModuleConfig holds per-module settings keyed by catalog module id.
+// Non-secret fields live in Fields (config.json); secret fields live in
+// Secrets and migrate to .security.yml via the SecureString pattern —
+// Secrets has no json tag so it can never be written to config.json.
+type ModuleConfig struct {
+	Enabled bool                    `json:"enabled,omitempty" yaml:"-"`
+	Fields  map[string]string       `json:"fields,omitempty"  yaml:"-"`
+	Secrets map[string]SecureString `json:"-"                 yaml:"secrets,omitempty"`
+}
+
+// ModulesConfig maps companion-module ids to their settings. It follows the
+// BrowserBackendsConfig overlay pattern: UnmarshalYAML merges secrets from
+// .security.yml onto entries already loaded from config.json instead of
+// replacing them, and MarshalYAML writes only modules that carry secrets.
+type ModulesConfig map[string]ModuleConfig
+
+// UnmarshalYAML overlays secrets from .security.yml onto existing entries.
+// Entries absent from config.json are ignored: a secret-only entry is
+// unconfigurable and usually means the user removed the module.
+func (m *ModulesConfig) UnmarshalYAML(value *yaml.Node) error {
+	var incoming map[string]ModuleConfig
+	if err := value.Decode(&incoming); err != nil {
+		return err
+	}
+	if *m == nil {
+		*m = ModulesConfig{}
+	}
+	for id, mc := range incoming {
+		old, ok := (*m)[id]
+		if !ok {
+			continue
+		}
+		for k, v := range mc.Secrets {
+			if v.String() == "" {
+				continue
+			}
+			if old.Secrets == nil {
+				old.Secrets = map[string]SecureString{}
+			}
+			old.Secrets[k] = v
+		}
+		(*m)[id] = old
+	}
+	return nil
+}
+
+// MarshalYAML writes only modules that carry a secret; everything else lives
+// in config.json, so .security.yml stays a secrets-only overlay.
+func (m ModulesConfig) MarshalYAML() (any, error) {
+	out := make(map[string]ModuleConfig, len(m))
+	for id, mc := range m {
+		for _, s := range mc.Secrets {
+			if s.String() != "" {
+				out[id] = mc
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// IsZero lets yaml omitempty drop the `modules:` section from .security.yml
+// when no module holds a secret.
+func (m ModulesConfig) IsZero() bool {
+	for _, mc := range m {
+		for _, s := range mc.Secrets {
+			if s.String() != "" {
+				return false
+			}
 		}
 	}
 	return true

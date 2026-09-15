@@ -27,6 +27,7 @@ import (
 	meshcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/mesh"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/migrate"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/model"
+	modulecmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/module"
 	networkcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/network"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/onboard"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/skills"
@@ -147,6 +148,7 @@ rhizome --no-color status`,
 		networkcmd.NewNetworkCommand(),
 		meshcmd.NewMeshCommand(),
 		swarmcmd.NewSwarmCommand(),
+		modulecmd.NewModuleCommand(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
 		updater.NewUpdateCommand("rhizome"),

@@ -686,6 +686,13 @@ func setupAndStartServices(
 		}
 	}
 
+	modHandler := newModuleHandler(authToken)
+	for _, path := range []string{"/modules", "/modules/"} {
+		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, modHandler); err != nil {
+			return nil, fmt.Errorf("error registering module handler %s: %w", path, err)
+		}
+	}
+
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
 	}
