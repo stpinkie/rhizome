@@ -65,7 +65,11 @@ const RootLayout = () => {
   // the user to the onboarding wizard once per session.
   const pathname = routerState.pathname
   useEffect(() => {
-    if (isAuthPage || pathname !== "/" || typeof sessionStorage === "undefined") {
+    if (
+      isAuthPage ||
+      pathname !== "/" ||
+      typeof sessionStorage === "undefined"
+    ) {
       return
     }
     if (sessionStorage.getItem("rhizome.setup.skipped")) {

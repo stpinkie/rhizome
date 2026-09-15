@@ -1,24 +1,20 @@
-import {
-  IconCheck,
-  IconLoader2,
-  IconRefresh,
-} from "@tabler/icons-react"
+import { IconCheck, IconLoader2, IconRefresh } from "@tabler/icons-react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
 import {
+  type UpstreamModel,
   addModel,
   fetchUpstreamModels,
   getModels,
   setDefaultModel,
   testModelInline,
-  type UpstreamModel,
 } from "@/api/models"
 import { getSetupStatus } from "@/api/setup"
 import {
-  getProviderCatalog,
   type ProviderCatalogEntry,
+  getProviderCatalog,
 } from "@/components/models/provider-registry"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
