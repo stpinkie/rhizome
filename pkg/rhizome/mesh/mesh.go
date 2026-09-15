@@ -82,12 +82,44 @@ type PeerCapability struct {
 	AgentManifests map[string]string `json:"agent_manifests,omitempty"`
 }
 
+// PeerConnInfo describes one live connection to a peer.
+type PeerConnInfo struct {
+	RemoteMultiaddr string `json:"remote_multiaddr"`
+	Direction       string `json:"direction"` // inbound|outbound
+	Transport       string `json:"transport"` // quic|tcp|relay|other
+	StreamCount     int    `json:"stream_count"`
+	OpenedAt        string `json:"opened_at,omitempty"`
+}
+
+// PeerScoreView is the JSON-facing snapshot of a peer's quality score.
+type PeerScoreView struct {
+	Successes    int     `json:"successes"`
+	Failures     int     `json:"failures"`
+	AvgLatencyMs float64 `json:"avg_latency_ms"`
+	LastError    string  `json:"last_error,omitempty"`
+	Score        float64 `json:"score"`
+}
+
+// BandwidthView reports in/out byte totals and current rates.
+type BandwidthView struct {
+	TotalIn  int64   `json:"total_in"`
+	TotalOut int64   `json:"total_out"`
+	RateIn   float64 `json:"rate_in"`
+	RateOut  float64 `json:"rate_out"`
+}
+
 // PeerStatus is the JSON-friendly status for one connected peer.
 type PeerStatus struct {
 	PeerID     string         `json:"peer_id"`
 	Addrs      []string       `json:"addrs"`
 	Trusted    bool           `json:"trusted"`
 	Capability PeerCapability `json:"capability,omitempty"`
+
+	Conns     []PeerConnInfo `json:"conns,omitempty"`
+	LatencyMs float64        `json:"latency_ms,omitempty"`
+	Score     *PeerScoreView `json:"score,omitempty"`
+	LastSeen  string         `json:"last_seen,omitempty"`
+	Bandwidth *BandwidthView `json:"bandwidth,omitempty"`
 }
 
 // NetworkStatus is the combined mesh/DHT snapshot returned by Mesh.NetworkStatus.
@@ -101,6 +133,7 @@ type NetworkStatus struct {
 	RelayedAddrs []string        `json:"relayed_addrs,omitempty"`
 	Peers        []PeerStatus    `json:"peers,omitempty"`
 	DHT          *rnet.DHTStatus `json:"dht,omitempty"`
+	Bandwidth    *BandwidthView  `json:"bandwidth,omitempty"`
 }
 
 // RankedPeer is a capable peer with its capability and routing score.
@@ -155,12 +188,14 @@ type Mesh struct {
 
 	skillShareMu sync.RWMutex
 
-	stop     chan struct{}
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	eventBus runtimeevents.Bus
-	name     string
+	stop         chan struct{}
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	eventBus     runtimeevents.Bus
+	activity     *activityFeed
+	activityOnce sync.Once
+	name         string
 
 	replay    *replayGuard
 	rateMu    sync.Mutex
@@ -225,6 +260,7 @@ func NewMesh(
 // SetEventBus sets the runtime event bus used to publish mesh events.
 func (m *Mesh) SetEventBus(bus runtimeevents.Bus) {
 	m.eventBus = bus
+	m.startActivityFeed()
 }
 
 // SetAuditPath overrides the audit trail location. An empty path disables
@@ -1229,6 +1265,7 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 				ps.Addrs = append(ps.Addrs, a.String())
 			}
 			ps.Trusted = m.IsTrusted(pid)
+			m.fillPeerObservability(&ps, pid)
 			if capability, ok := m.PeerCapabilities(pid); ok {
 				pc := PeerCapability{}
 				if len(capability.Models) > 0 {
@@ -1249,12 +1286,92 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 			}
 			out.Peers = append(out.Peers, ps)
 		}
+		if totals := m.node.BandwidthTotals(); totals.TotalIn != 0 || totals.TotalOut != 0 {
+			out.Bandwidth = &BandwidthView{
+				TotalIn:  totals.TotalIn,
+				TotalOut: totals.TotalOut,
+				RateIn:   totals.RateIn,
+				RateOut:  totals.RateOut,
+			}
+		}
 		dht := m.node.DHTStatus()
 		if dht.Rendezvous != "" {
 			out.DHT = &dht
 		}
 	}
 	return out
+}
+
+// fillPeerObservability populates the conns/latency/score/bandwidth fields on
+// a PeerStatus. Everything here is best-effort: absent data stays empty.
+func (m *Mesh) fillPeerObservability(ps *PeerStatus, pid peer.ID) {
+	h := m.node.Host()
+	if h == nil {
+		return
+	}
+
+	for _, conn := range h.Network().ConnsToPeer(pid) {
+		info := PeerConnInfo{
+			RemoteMultiaddr: conn.RemoteMultiaddr().String(),
+			Direction:       strings.ToLower(conn.Stat().Direction.String()),
+			Transport:       detectTransport(conn.RemoteMultiaddr().String()),
+			StreamCount:     len(conn.GetStreams()),
+		}
+		if opened := conn.Stat().Opened; !opened.IsZero() {
+			info.OpenedAt = opened.UTC().Format(time.RFC3339)
+		}
+		ps.Conns = append(ps.Conns, info)
+	}
+
+	if lat := h.Peerstore().LatencyEWMA(pid); lat > 0 {
+		ps.LatencyMs = float64(lat) / float64(time.Millisecond)
+	}
+
+	if m.scoreStore != nil {
+		if sc, ok := m.scoreStore.Get(pid); ok {
+			ps.Score = &PeerScoreView{
+				Successes:    sc.Successes,
+				Failures:     sc.Failures,
+				AvgLatencyMs: float64(sc.AvgLatency) / float64(time.Millisecond),
+				LastError:    sc.LastError,
+				Score:        sc.Score(),
+			}
+			if !sc.LastSeen.IsZero() {
+				ps.LastSeen = sc.LastSeen.UTC().Format(time.RFC3339)
+			}
+		}
+	}
+
+	if bw := m.node.BandwidthForPeer(pid); bw.TotalIn != 0 || bw.TotalOut != 0 {
+		ps.Bandwidth = &BandwidthView{
+			TotalIn:  bw.TotalIn,
+			TotalOut: bw.TotalOut,
+			RateIn:   bw.RateIn,
+			RateOut:  bw.RateOut,
+		}
+	}
+}
+
+// detectTransport infers the transport from a connection's remote multiaddr.
+func detectTransport(remoteAddr string) string {
+	switch {
+	case strings.Contains(remoteAddr, "/p2p-circuit"):
+		return "relay"
+	case strings.Contains(remoteAddr, "/quic"):
+		return "quic"
+	case strings.Contains(remoteAddr, "/tcp"):
+		return "tcp"
+	default:
+		return "other"
+	}
+}
+
+// PeerScore returns the recorded quality score for a peer.
+func (m *Mesh) PeerScore(pid peer.ID) (PeerScore, bool) {
+	if m == nil || m.scoreStore == nil {
+		return PeerScore{}, false
+	}
+	return m.scoreStore.Get(pid)
 }
 
 // TrustedPeers returns the list of trusted peer IDs.

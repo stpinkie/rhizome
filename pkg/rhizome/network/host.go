@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/metrics"
 	libnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
@@ -49,6 +50,7 @@ type Node struct {
 	relayAddrsMu sync.RWMutex
 	eventSubs    []event.Subscription
 	relaySource  *relayPeerSource
+	bwCounter    *metrics.BandwidthCounter
 }
 
 // Config is the static configuration for a Rhizome network node.
@@ -145,10 +147,12 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 	// UDP features and network interface enumeration unavailable on Android
 	// and pre-3.9 kernels) are never required. TCP uses DisableReuseport
 	// because SO_REUSEPORT only exists on Linux 3.9+.
+	bwCounter := metrics.NewBandwidthCounter()
 	baseOpts := []libp2p.Option{
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(addrs...),
 		libp2p.Transport(tcp.NewTCPTransport, tcp.DisableReuseport()),
+		libp2p.BandwidthReporter(bwCounter),
 	}
 	if !cfg.DisableNATPortMap {
 		baseOpts = append(baseOpts, libp2p.NATPortMap())
@@ -255,6 +259,7 @@ func NewNode(ctx context.Context, priv crypto.PrivKey, cfg Config) (*Node, error
 		notifiee:      NewPeerNotifiee(),
 		timeouts:      timeouts,
 		reconnectTick: time.NewTicker(10 * time.Second),
+		bwCounter:     bwCounter,
 	}
 	n.reconnectCtx, n.reconnectCancel = context.WithCancel(ctx)
 	h.Network().Notify(n.notifiee)
@@ -624,6 +629,23 @@ func (n *Node) PeerID() string {
 // ID returns this node's libp2p peer id as a peer.ID.
 func (n *Node) ID() peer.ID {
 	return n.host.ID()
+}
+
+// BandwidthTotals returns aggregate in/out byte and rate counters since
+// the node started.
+func (n *Node) BandwidthTotals() metrics.Stats {
+	if n == nil || n.bwCounter == nil {
+		return metrics.Stats{}
+	}
+	return n.bwCounter.GetBandwidthTotals()
+}
+
+// BandwidthForPeer returns per-peer in/out byte and rate counters.
+func (n *Node) BandwidthForPeer(pid peer.ID) metrics.Stats {
+	if n == nil || n.bwCounter == nil {
+		return metrics.Stats{}
+	}
+	return n.bwCounter.GetBandwidthForPeer(pid)
 }
 
 // Host returns the underlying libp2p host.

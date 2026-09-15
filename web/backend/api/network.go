@@ -50,6 +50,8 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/network/tasks", h.handleNetworkTasks)
 	mux.HandleFunc("POST /api/network/tasks", h.handleNetworkTasks)
 	mux.HandleFunc("GET /api/network/tasks/events", h.handleNetworkTaskEvents)
+	mux.HandleFunc("GET /api/network/activity", h.handleNetworkActivity)
+	mux.HandleFunc("GET /api/network/events", h.handleNetworkEvents)
 	mux.HandleFunc("GET /api/network/audit", h.handleNetworkAudit)
 	mux.HandleFunc("POST /api/network/pair", h.handleNetworkPair)
 	mux.HandleFunc("POST /api/network/pair/accept", h.handleNetworkPair)
@@ -1080,6 +1082,116 @@ func (h *Handler) handleNetworkTaskEvents(w http.ResponseWriter, r *http.Request
 		f.Flush()
 	}
 
+	buf := make([]byte, 4096)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// handleNetworkActivity proxies the daemon's /network/activity feed. The
+// feed is in-memory on the daemon, so there is no offline fallback.
+func (h *Handler) handleNetworkActivity(w http.ResponseWriter, r *http.Request) {
+	if !h.gatewayAvailableForProxy() {
+		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+		return
+	}
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+		return
+	}
+
+	u := h.gatewayProxyURL()
+	u.Path = "/network/activity"
+	u.RawQuery = r.URL.Query().Encode()
+
+	ctx, cancel := context.WithTimeout(r.Context(), defaultNetworkTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+
+	resp, err := (&http.Client{Timeout: defaultNetworkTimeout}).Do(req)
+	if err != nil {
+		respondNetworkError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		respondNetworkError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		respondNetworkError(w, resp.StatusCode, strings.TrimSpace(string(body)))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}
+
+// handleNetworkEvents proxies the daemon's /network/events SSE stream
+// (all mesh.*/swarm.* runtime events). Daemon-required like tasks/events.
+func (h *Handler) handleNetworkEvents(w http.ResponseWriter, r *http.Request) {
+	if !h.gatewayAvailableForProxy() {
+		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+		return
+	}
+	gateway.mu.Lock()
+	pidData := gateway.pidData
+	gateway.mu.Unlock()
+	if pidData == nil {
+		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
+		return
+	}
+
+	u := h.gatewayProxyURL()
+	u.Path = "/network/events"
+	u.RawQuery = r.URL.Query().Encode()
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
+	if err != nil {
+		respondNetworkError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+pidData.Token)
+
+	resp, err := (&http.Client{Timeout: 0}).Do(req)
+	if err != nil {
+		respondNetworkError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		respondNetworkError(w, resp.StatusCode, strings.TrimSpace(string(body)))
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 	buf := make([]byte, 4096)
 	for {
 		n, err := resp.Body.Read(buf)

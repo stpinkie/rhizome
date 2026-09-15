@@ -42,11 +42,19 @@ function AddrList({ addrs }: { addrs: string[] }) {
   )
 }
 
+function formatBytes(n: number): string {
+  if (n >= 1 << 30) return `${(n / (1 << 30)).toFixed(1)} GiB`
+  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MiB`
+  if (n >= 1 << 10) return `${(n / (1 << 10)).toFixed(1)} KiB`
+  return `${n} B`
+}
+
 export function NodePanel({ response, isLoading }: NodePanelProps) {
   const { t } = useTranslation()
   const reachability = response?.reachability
   const addrs = response?.addrs ?? []
   const relayed = response?.relayed_addrs ?? []
+  const bandwidth = response?.bandwidth
 
   const reachabilityBadge = () => {
     switch (reachability) {
@@ -116,6 +124,12 @@ export function NodePanel({ response, isLoading }: NodePanelProps) {
               label={t("pages.network.listen_addrs", "Advertised Addresses")}
               value={addrs.length > 0 ? <AddrList addrs={addrs} /> : "-"}
             />
+            {bandwidth && (
+              <NodeRow
+                label={t("pages.network.bandwidth", "Bandwidth")}
+                value={`↓${formatBytes(bandwidth.total_in)} (${formatBytes(bandwidth.rate_in)}/s) ↑${formatBytes(bandwidth.total_out)} (${formatBytes(bandwidth.rate_out)}/s)`}
+              />
+            )}
           </div>
         )}
       </CardContent>

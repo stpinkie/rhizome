@@ -673,6 +673,20 @@ func setupAndStartServices(
 		return nil, fmt.Errorf("error registering network task events handler: %w", err)
 	}
 
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/activity",
+		newNetworkActivityHandler(rhizomeMesh, authToken),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network activity handler: %w", err)
+	}
+
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/events",
+		newNetworkEventsHandler(rhizomeMesh, authToken),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network events handler: %w", err)
+	}
+
 	swarmsHandler := newNetworkSwarmsHandler(authToken, configPath)
 	if err = runningServices.ChannelManager.RegisterHTTPHandler(
 		"/network/swarms",
