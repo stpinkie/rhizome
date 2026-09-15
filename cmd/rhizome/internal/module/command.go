@@ -37,6 +37,26 @@ func daemonUp() bool {
 	return base != ""
 }
 
+// daemonAction posts a mutating module action (install/uninstall/enable/
+// disable/start/stop/restart) to the running daemon, which applies it against
+// its in-memory manager AND persists — local writes would leave the daemon's
+// status view stale until restart. Returns true when the daemon answered; a
+// non-200 response is fatal since falling back to disk would desync it.
+func daemonAction(id, action, version string, timeout time.Duration) bool {
+	if !daemonUp() {
+		return false
+	}
+	payload, _ := json.Marshal(map[string]string{"action": action, "version": version})
+	data, code, err := internal.DaemonRequest(http.MethodPost, "/modules/"+id, payload, timeout)
+	if err != nil {
+		return false
+	}
+	if code != http.StatusOK {
+		fatal(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+	}
+	return true
+}
+
 // NewModuleCommand returns the rhizome module command tree.
 func NewModuleCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -229,11 +249,16 @@ func newInstallCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "Installing %s…\n", args[0])
+			if daemonAction(args[0], "install", version, 10*time.Minute) {
+				info, _ := fetchInfo(args[0])
+				fmt.Fprintf(w, "Installed %s v%s → %s\n", args[0], info.Version, info.InstalledPath)
+				return
+			}
 			mgr, err := manager()
 			if err != nil {
 				fatal(err)
 			}
-			fmt.Fprintf(w, "Installing %s…\n", args[0])
 			if err := mgr.Install(context.Background(), args[0], version); err != nil {
 				fatal(err)
 			}
@@ -252,6 +277,10 @@ func newUninstallCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			w := cmd.OutOrStdout()
+			if daemonAction(args[0], "uninstall", "", 30*time.Second) {
+				fmt.Fprintf(w, "Uninstalled %s\n", args[0])
+				return
+			}
 			mgr, err := manager()
 			if err != nil {
 				fatal(err)
@@ -275,6 +304,10 @@ func newEnableCommand(enable bool) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			w := cmd.OutOrStdout()
+			if daemonAction(args[0], name, "", 30*time.Second) {
+				fmt.Fprintf(w, "Module %s %sd\n", args[0], name)
+				return
+			}
 			mgr, err := manager()
 			if err != nil {
 				fatal(err)
@@ -359,6 +392,22 @@ func newSetCommand() *cobra.Command {
 				}
 				kv[k] = v
 			}
+			if daemonUp() {
+				sub := "fields"
+				if secret {
+					sub = "secrets"
+				}
+				payload, _ := json.Marshal(kv)
+				data, code, err := internal.DaemonRequest(http.MethodPut,
+					"/modules/"+args[0]+"/"+sub, payload, 30*time.Second)
+				if err == nil {
+					if code != http.StatusOK {
+						fatal(fmt.Errorf("%s", strings.TrimSpace(string(data))))
+					}
+					reportSet(w, args[0], kv, secret)
+					return
+				}
+			}
 			mgr, err := manager()
 			if err != nil {
 				fatal(err)
@@ -371,21 +420,25 @@ func newSetCommand() *cobra.Command {
 			if err != nil {
 				fatal(err)
 			}
-			keys := make([]string, 0, len(kv))
-			for k := range kv {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			if secret {
-				fmt.Fprintf(w, "Module %s secrets updated: %s (stored in .security.yml)\n",
-					args[0], strings.Join(keys, ", "))
-			} else {
-				fmt.Fprintf(w, "Module %s fields updated: %s\n", args[0], strings.Join(keys, ", "))
-			}
 		},
 	}
 	cmd.Flags().BoolVar(&secret, "secret", false, "Write to module secrets (.security.yml)")
 	return cmd
+}
+
+// reportSet prints the post-write confirmation for `module set`.
+func reportSet(w io.Writer, id string, kv map[string]string, secret bool) {
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if secret {
+		fmt.Fprintf(w, "Module %s secrets updated: %s (stored in .security.yml)\n",
+			id, strings.Join(keys, ", "))
+	} else {
+		fmt.Fprintf(w, "Module %s fields updated: %s\n", id, strings.Join(keys, ", "))
+	}
 }
 
 func newValidateCommand() *cobra.Command {

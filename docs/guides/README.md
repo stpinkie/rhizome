@@ -13,5 +13,7 @@ Task-oriented guides for setup, configuration, and common Rhizome workflows.
 - [Rhizome Hardware Compatibility List](hardware-compatibility.md): tested boards and platform notes.
 - [Android 4.4 Compatibility Test Plan](android-44-testing.md): verify Rhizome on Android 4.4 (API 19) hardware.
 - [Using Antigravity Provider in Rhizome](ANTIGRAVITY_USAGE.md): Google Cloud Code Assist setup and usage.
+- [Companion Modules](modules.md): sidecar binaries (`rhizome module`) — verified installs, daemon supervision, secrets posture.
+- [ACP — Agent Client Protocol](acp.md): `rhizome acp` for Zed/JetBrains, plus binding external ACP agents to Rhizome agent ids.
 
 Translations usually live beside the English source when available.

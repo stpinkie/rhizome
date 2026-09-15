@@ -1364,6 +1364,21 @@ func TestConfigExample_WebProviderIsAuto(t *testing.T) {
 	}
 }
 
+// The example file is a reference doc users copy as config.json — it must
+// survive the strict loader, not just plain unmarshal. "_comment" keys are
+// the file's documentation convention and are tolerated by the walker.
+func TestConfigExample_StrictLoadable(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "config.example.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(config.example.json) error: %v", err)
+	}
+
+	var cfg Config
+	if err := decodeJSONWithDiagnostics(data, &cfg, "config.example.json"); err != nil {
+		t.Fatalf("decodeJSONWithDiagnostics(config.example.json) error: %v", err)
+	}
+}
+
 func TestDefaultConfig_ToolFeedbackDisabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Agents.Defaults.ToolFeedback.Enabled {

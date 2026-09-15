@@ -361,6 +361,11 @@ func collectUnknownJSONFields(raw any, targetType reflect.Type, path string) []s
 				if isChannel {
 					continue
 				}
+				// "_comment" keys are documentation markers (see
+				// config/config.example.json); they carry no config value.
+				if key == "_comment" {
+					continue
+				}
 				issues = append(issues, fieldPath)
 				continue
 			}
