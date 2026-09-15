@@ -142,6 +142,7 @@ toolLoop:
 				ts.eventMeta("runTurn", "turn.tool.skipped"),
 				ToolExecSkippedPayload{
 					Tool:   toolName,
+					CallID: tc.ID,
 					Reason: denyContent,
 				},
 			)
@@ -193,6 +194,7 @@ toolLoop:
 						ts.eventMeta("runTurn", "turn.tool.start"),
 						ToolExecStartPayload{
 							Tool:      toolName,
+							CallID:    tc.ID,
 							Arguments: cloneEventArguments(toolArgs),
 						},
 					)
@@ -311,6 +313,7 @@ toolLoop:
 						ts.eventMeta("runTurn", "turn.tool.end"),
 						ToolExecEndPayload{
 							Tool:       toolName,
+							CallID:     tc.ID,
 							Duration:   toolDuration,
 							ForLLMLen:  len(contentForLLM),
 							ForUserLen: len(hookResult.ForUser),
@@ -363,6 +366,7 @@ toolLoop:
 									ts.eventMeta("runTurn", "turn.tool.skipped"),
 									ToolExecSkippedPayload{
 										Tool:   skippedTC.Name,
+										CallID: skippedTC.ID,
 										Reason: skipReason,
 									},
 								)
@@ -412,6 +416,7 @@ toolLoop:
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
 					ToolExecSkippedPayload{
 						Tool:   toolName,
+						CallID: tc.ID,
 						Reason: denyContent,
 					},
 				)
@@ -441,6 +446,7 @@ toolLoop:
 				Meta:      ts.eventMeta("runTurn", "turn.tool.approve"),
 				Context:   cloneTurnContext(ts.turnCtx),
 				Tool:      toolName,
+				CallID:    tc.ID,
 				Arguments: toolArgs,
 			})
 			if !approval.Approved {
@@ -451,6 +457,7 @@ toolLoop:
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
 					ToolExecSkippedPayload{
 						Tool:   toolName,
+						CallID: tc.ID,
 						Reason: denyContent,
 					},
 				)

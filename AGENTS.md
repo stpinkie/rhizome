@@ -192,6 +192,33 @@ pid/restarts/last-exit so status works daemonless. Security: HTTPS-only
 downloads, mandatory per-platform digest (sha256 or sha512 — nimbus publishes
 sha512), no user-supplied URLs, module dirs `0700`.
 
+## ACP (Agent Client Protocol)
+
+`rhizome acp [--agent <id>]` serves ACP over stdio (Zed/JetBrains drive
+Rhizome as an editor agent). `pkg/acp` contains all
+`github.com/coder/acp-go-sdk` usage. Architecture:
+
+- **stdout is protocol-only.** `main()` skips the banner/TZ prints under
+  `stdioProtocolCommand()`; the command calls `logger.DisableConsole()`
+  *before* `LoadConfig` (config warnings go through the stdout-bound
+  console writer). Diagnostics: `RHIZOME_LOG_FILE` or slog→stderr.
+- **Sessions** map to `agent:<agent-id>:acp:<session-id>` (legacy explicit
+  key so `resolveScopeKey` preserves it) and prompts run through
+  `AgentLoop.ProcessInbound` on channel `acp`, chatID = sessionId.
+- **Streaming** uses the `bus.Streamer` delegate seam (`Server` implements
+  `bus.StreamDelegate` for channel `acp` only). The command force-enables
+  `ModelList[].Streaming.Enabled` and injects a process-local
+  `Channels["acp"]` entry — no global `acp` channel type is registered.
+  Non-streaming providers degrade to a single final chunk.
+- **Tool calls** → `tool_call`/`tool_call_update` notifications from
+  `agent.tool.exec_*` runtime events, correlated by `CallID` (`tc.ID`)
+  carried on the exec payloads.
+- **Permissions**: `acp.server.permission_policy` = `prompt` (default:
+  `session/request_permission` per tool call, `*_always` cached per
+  session, failures deny) | `allow` | `deny`. Client policy
+  `acp.client.permission_policy` is reserved for the Track 62 ACP client.
+- See `docs/guides/acp.md` for Zed `agent_servers` / JetBrains setup.
+
 ## Web Backend Network API
 
 The web console (the launcher) exposes authenticated JSON endpoints that wrap `rhizome network status` so the dashboard can display live mesh/DHT status:
@@ -219,6 +246,7 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 
 - `pkg/browser` — pluggable browser-automation backends (catalog, `AgentBrowserDriver` CLI wrapper, endpoint resolvers, session manager, Cloudflare REST); `pkg/tools/browser` exposes the eight `browser_*` agent tools.
 - `pkg/modules` — companion-module sidecar system (catalog, sha256-verified install, daemon supervision with restart backoff, bounded logs, `module.*` events); `cmd/rhizome/internal/module` exposes the `rhizome module` CLI, `pkg/gateway/moduleapi.go` the `/modules*` daemon endpoints, `web/backend/api/modules.go` the `/api/modules*` launcher routes.
+- `pkg/acp` — ACP (Agent Client Protocol) server bridge: `rhizome acp` exposes the agent loop to editor clients over stdio JSON-RPC via `coder/acp-go-sdk` (all SDK usage isolated here). Sessions map to `agent:<id>:acp:<sid>` keys on channel `acp` through `AgentLoop.ProcessInbound`; streaming via a `bus.StreamDelegate`; tool approvals bridge to `session/request_permission`.
 - `pkg/redact` — leaf package for secret masking (generic patterns + configured `SecureString` values); used by `pkg/logger` and `Config.FilterSensitiveData`.
 - `pkg/guard` — leaf package for prompt-injection phrase detection; used by shell-command screening, the tool-argument scan, and CLI tool-call extraction.
 - `pkg/rhizome/identity` — BIP39/SLIP-0010 Ed25519 node identity, persistence, and Ed25519 signing; now supports OS keyring and passphrase encryption.

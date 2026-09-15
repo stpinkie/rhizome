@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
+	acpcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/acp"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/agent"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/auth"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/cliui"
@@ -136,6 +137,7 @@ rhizome --no-color status`,
 	cmd.AddCommand(
 		configcmd.NewConfigCommand(),
 		onboard.NewOnboardCommand(),
+		acpcmd.NewACPCommand(),
 		agent.NewAgentCommand(),
 		auth.NewAuthCommand(),
 		daemon.NewDaemonCommand(),
@@ -179,20 +181,37 @@ const (
 		"\r\n"
 )
 
+// stdioProtocolCommand reports whether argv selects a command that speaks a
+// machine protocol on stdout (currently only `rhizome acp`). For those
+// commands nothing may reach stdout outside the protocol stream — no banner,
+// no env diagnostics.
+func stdioProtocolCommand() bool {
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "-") {
+			continue // flags (and "--") never name the subcommand
+		}
+		return arg == "acp"
+	}
+	return false
+}
+
 func main() {
 	// Initialize Termux SSL certificate detection before anything else
 	initTermuxSSL()
 
 	cliui.Init(earlyColorDisabled())
+	stdio := stdioProtocolCommand()
 
-	if earlyColorDisabled() {
-		fmt.Print(plainBanner)
-	} else {
-		fmt.Printf("%s", banner)
+	if !stdio {
+		if earlyColorDisabled() {
+			fmt.Print(plainBanner)
+		} else {
+			fmt.Printf("%s", banner)
+		}
 	}
 
 	tzEnv := os.Getenv("TZ")
-	if tzEnv != "" {
+	if tzEnv != "" && !stdio {
 		fmt.Println("TZ environment:", tzEnv)
 		zoneinfoEnv := os.Getenv("ZONEINFO")
 		fmt.Println("ZONEINFO environment:", zoneinfoEnv)

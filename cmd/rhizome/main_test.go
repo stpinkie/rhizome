@@ -37,6 +37,7 @@ func TestNewRhizomeCommand(t *testing.T) {
 	assert.Nil(t, cmd.PersistentPostRun)
 
 	allowedCommands := []string{
+		"acp",
 		"agent",
 		"auth",
 		"config",

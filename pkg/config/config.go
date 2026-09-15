@@ -84,6 +84,7 @@ type Config struct {
 	Mesh      MeshConfig      `json:"mesh,omitempty"      yaml:"-"`
 	Swarm     SwarmConfig     `json:"swarm,omitempty"     yaml:"-"`
 	Modules   ModulesConfig   `json:"modules,omitempty"   yaml:"modules,omitempty"`
+	ACP       ACPConfig       `json:"acp,omitempty"       yaml:"-"`
 	Events    EventsConfig    `json:"events,omitempty"    yaml:"-"`
 	Hooks     HooksConfig     `json:"hooks,omitempty"     yaml:"-"`
 	Tools     ToolsConfig     `json:"tools"               yaml:",inline"`
@@ -822,6 +823,21 @@ type StreamingConfig struct {
 	Enabled         bool `json:"enabled,omitempty"`
 	ThrottleSeconds int  `json:"throttle_seconds,omitempty"`
 	MinGrowthChars  int  `json:"min_growth_chars,omitempty"`
+}
+
+// ACPConfig configures the Agent Client Protocol bridge. The server policy
+// governs tool-permission prompts served by `rhizome acp`; the client policy
+// governs how Rhizome answers permission requests from external ACP agents
+// it spawns (Track 62).
+type ACPConfig struct {
+	Server ACPPolicyConfig `json:"server,omitempty"`
+	Client ACPPolicyConfig `json:"client,omitempty"`
+}
+
+// ACPPolicyConfig holds a tool-permission policy: "prompt" (default),
+// "allow", or "deny".
+type ACPPolicyConfig struct {
+	PermissionPolicy string `json:"permission_policy,omitempty"`
 }
 
 func (c StreamingConfig) IsZero() bool {
