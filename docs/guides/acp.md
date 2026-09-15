@@ -1,8 +1,13 @@
 # ACP — Agent Client Protocol
 
-Rhizome can act as an [ACP](https://agentclientprotocol.com) agent, so editors
-such as **Zed** and **JetBrains IDEs** can drive your Rhizome agents directly
-— with streamed responses, tool-call progress, and permission prompts.
+Rhizome speaks [ACP](https://agentclientprotocol.com) in both directions:
+
+- **Server** — `rhizome acp` lets editors such as **Zed** and **JetBrains
+  IDEs** drive your Rhizome agents directly, with streamed responses,
+  tool-call progress, and permission prompts.
+- **Client** — `agents.list[].acp` binds an external ACP agent
+  (`gemini --acp`, `claude-code acp`, …) to a Rhizome agent id, so it can
+  be delegated to like any local agent.
 
 `rhizome acp` speaks newline-delimited JSON-RPC over **stdio**. The editor
 spawns it as a subprocess; prompts run through the normal Rhizome agent
@@ -83,3 +88,81 @@ stdout carries the protocol, so console logging is always disabled inside
 ```bash
 RHIZOME_LOG_FILE=~/.rhizome/acp.log rhizome acp
 ```
+
+---
+
+## External ACP agents (Rhizome as client)
+
+Bind an external ACP-capable agent to a Rhizome agent id:
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "gemini",
+        "acp": {
+          "command": "gemini",
+          "args": ["--acp"],
+          "env": { "GEMINI_API_KEY": "..." },
+          "cwd": "D:\\work\\project"
+        }
+      }
+    ]
+  }
+}
+```
+
+The bound id is routable like any other agent:
+
+- `delegate`/`subagent`/`spawn` tools can target it (subject to the usual
+  `subagents.allow_agents` rules).
+- Trusted mesh peers can delegate into it — the node advertises it in its
+  capability manifest and the dispatch is served by the local ACP client
+  (the agent never routes off-box by accident: the mesh checker treats
+  ACP-bound ids as local).
+- The `acp_run` tool invokes it explicitly.
+
+### Lifecycle
+
+The external process is spawned lazily on first use and reused across
+delegations; each delegation creates a fresh `session/new` (prompt text
+only — media attachments are dropped with a warning). On gateway shutdown
+the processes are terminated.
+
+### What the external agent can do
+
+Rhizome answers client-bound ACP requests like this:
+
+| Capability             | Behaviour                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `fs/read_text_file`    | Served through the workspace sandbox (`agents.defaults.restrict_to_workspace` + `tools.allow_read_paths`), 64 KiB cap. |
+| `fs/write_text_file`   | Served through the same sandbox (`tools.allow_write_paths`); **disabled** under `allow-read-only`. |
+| `session/request_permission` | Answered by `acp.client.permission_policy` (below).                                   |
+| `terminal/*`           | Not supported (`terminal:false`); rhizome never proxies shells into external agents.        |
+
+```json
+{
+  "acp": {
+    "client": { "permission_policy": "deny" }
+  }
+}
+```
+
+| Policy            | Behaviour                                                             |
+| ----------------- | --------------------------------------------------------------------- |
+| `deny`            | *(default)* reject every permission request.                          |
+| `allow-read-only` | allow `read`/`search`/`think`/`fetch` tool kinds; reject the rest.    |
+| `allow`           | allow every permission request.                                        |
+
+Authentication: if the external agent advertises `authMethods` during
+`initialize`, the connection fails — Rhizome does not perform ACP auth.
+Give the agent its credentials via `env` instead.
+
+### Trust posture
+
+The external agent runs as a **plain child process** with its own
+filesystem and environment — it is not sandboxed by `pkg/isolation`.
+Rhizome's controls are the sandboxed fs bridge and the permission policy.
+Treat an `acp` binding with the same trust you'd give running that agent's
+CLI yourself.

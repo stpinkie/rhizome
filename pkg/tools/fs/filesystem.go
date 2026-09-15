@@ -36,6 +36,19 @@ func IsAllowedPath(path string, patterns []*regexp.Regexp) bool {
 	return isAllowedPath(path, patterns)
 }
 
+// CompilePatterns compiles allow-path regex strings, dropping invalid ones.
+// Callers outside the fs package (e.g. the ACP client bridge) use this to
+// build pattern sets for ValidatePathWithAllowPaths.
+func CompilePatterns(patterns []string) []*regexp.Regexp {
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, p := range patterns {
+		if re, err := regexp.Compile(p); err == nil {
+			compiled = append(compiled, re)
+		}
+	}
+	return compiled
+}
+
 func validatePathWithAllowPaths(
 	path, workspace string,
 	restrict bool,

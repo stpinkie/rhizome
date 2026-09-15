@@ -68,6 +68,22 @@ func (al *AgentLoop) ProcessRemoteDispatch(
 		return "", nil, fmt.Errorf("no agent available for remote dispatch")
 	}
 
+	// ACP-bound agents run on an external process; the local pipeline cannot
+	// execute them. The gateway installs the runner when such agents exist.
+	if base.ACP != nil {
+		al.mu.RLock()
+		runner := al.externalRunner
+		al.mu.RUnlock()
+		if runner == nil {
+			return "", nil, fmt.Errorf(
+				"agent %q is bound to an external ACP process but no external runner is configured",
+				base.ID,
+			)
+		}
+		text, err := runner(ctx, base, req)
+		return text, nil, err
+	}
+
 	// Shallow copy like subturn execution: remote tasks get an ephemeral
 	// session and never mutate the live agent's session store or tool registry.
 	agentCopy := *base
