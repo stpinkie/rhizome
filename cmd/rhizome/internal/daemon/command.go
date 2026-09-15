@@ -15,6 +15,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/gateway"
+	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/modules"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
@@ -84,6 +85,12 @@ func NewDaemonCommand() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 			config.SetGlobal(cfg)
+
+			// mesh.role=worker forces DHT, the relay service, and the AutoNAT
+			// service off; the role wins over the individual settings.
+			for _, field := range cfg.Mesh.ApplyRoleOverrides() {
+				logger.Warnf("mesh.role=worker: forcing mesh.%s off (role wins over explicit config)", field)
+			}
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

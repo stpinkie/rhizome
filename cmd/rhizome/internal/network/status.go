@@ -57,6 +57,10 @@ func NewStatusCommand() *cobra.Command {
 			}
 			config.SetGlobal(cfg)
 
+			// The probe honors the node's configured role: a worker never
+			// brings up DHT/relay/NAT infra, even for a status check.
+			cfg.Mesh.ApplyRoleOverrides()
+
 			if timeout <= 0 {
 				timeout = 15 * time.Second
 			}
@@ -269,6 +273,9 @@ func printPeerStatus(peers []mesh.PeerStatus) {
 		fmt.Printf("  - %s", p.PeerID)
 		if p.Trusted {
 			fmt.Print(" (trusted)")
+		}
+		if p.Capability.Role != "" {
+			fmt.Printf(" [%s]", p.Capability.Role)
 		}
 		fmt.Println()
 		for _, c := range p.Conns {

@@ -7,6 +7,7 @@ export interface NetworkPeerCapability {
   active_tasks?: number
   shareable_skills?: string[]
   agent_manifests?: Record<string, string>
+  role?: string
 }
 
 export interface PeerConnInfo {

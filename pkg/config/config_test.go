@@ -3304,6 +3304,77 @@ func TestMeshConfig_RequireSignedCapsDefaultAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMeshConfig_Role(t *testing.T) {
+	// Default is "full" whether the field is absent or explicit.
+	for _, role := range []string{"", MeshRoleFull} {
+		m := MeshConfig{Role: role}
+		if got := m.EffectiveRole(); got != MeshRoleFull {
+			t.Fatalf("role %q → EffectiveRole %q, want full", role, got)
+		}
+		if overridden := m.ApplyRoleOverrides(); overridden != nil {
+			t.Fatalf("role %q overrode %v, want none", role, overridden)
+		}
+		if err := m.Validate(); err != nil {
+			t.Fatalf("role %q rejected: %v", role, err)
+		}
+	}
+
+	// Worker forces the infra services off and reports contradictions.
+	m := DefaultMeshConfig()
+	m.Role = MeshRoleWorker
+	if err := m.Validate(); err != nil {
+		t.Fatalf("worker role rejected: %v", err)
+	}
+	overridden := m.ApplyRoleOverrides()
+	if len(overridden) != 3 {
+		t.Fatalf("worker should override dht_enabled, relay_service, nat_service; got %v", overridden)
+	}
+	if m.DHTEnabled || m.RelayService || m.NATService {
+		t.Fatal("worker role must force dht_enabled, relay_service, nat_service off")
+	}
+
+	// Already-quiet worker config contradicts nothing.
+	m = MeshConfig{Role: MeshRoleWorker}
+	if overridden := m.ApplyRoleOverrides(); len(overridden) != 0 {
+		t.Fatalf("clean worker config should report no overrides, got %v", overridden)
+	}
+
+	// Unknown roles are rejected.
+	m = MeshConfig{Role: "edge"}
+	if err := m.Validate(); err == nil {
+		t.Fatal("mesh.role=edge should fail validation")
+	}
+}
+
+func TestMeshConfig_RoleRoundTrip(t *testing.T) {
+	mustSetupSSHKey(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	if err := os.WriteFile(path,
+		[]byte(`{"version":3,"mesh":{"enabled":true,"role":"worker"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Mesh.EffectiveRole() != MeshRoleWorker {
+		t.Fatalf("role should load as worker, got %q", cfg.Mesh.Role)
+	}
+
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig after SaveConfig: %v", err)
+	}
+	if reloaded.Mesh.EffectiveRole() != MeshRoleWorker {
+		t.Fatal("role=worker must survive SaveConfig/LoadConfig")
+	}
+}
+
 func testChannelsConfigWithTokens() ChannelsConfig {
 	channels := make(ChannelsConfig)
 	type chDef struct {

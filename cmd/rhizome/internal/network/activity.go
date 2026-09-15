@@ -126,6 +126,9 @@ func printPeerDetail(w io.Writer, p *mesh.PeerStatus) {
 	if p.Trusted {
 		fmt.Fprintln(w, "  trusted: yes")
 	}
+	if p.Capability.Role != "" {
+		fmt.Fprintf(w, "  role: %s\n", p.Capability.Role)
+	}
 	if p.LatencyMs > 0 {
 		fmt.Fprintf(w, "  latency: %.1f ms\n", p.LatencyMs)
 	}

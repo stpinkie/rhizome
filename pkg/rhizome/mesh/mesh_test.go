@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,6 +79,51 @@ func TestMeshRemoteCall(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "hello from remote", result.ForLLM)
+}
+
+// TestWorkerRoleAdvertised verifies the worker tier is signed into the
+// capability manifest, survives verifyCapability on the receiving peer, and
+// surfaces through PeerCapabilities → PeerCapability.Role → status output.
+func TestWorkerRoleAdvertised(t *testing.T) {
+	f := newSecurityMeshFixture(t, config.MeshConfig{
+		Enabled:             true,
+		AllowRemoteDelegate: true,
+		RemoteTimeout:       30 * time.Second,
+		Role:                config.MeshRoleWorker,
+	})
+	ctx := context.Background()
+
+	// Local build: full nodes omit the field (wire compat), workers emit it.
+	full := f.meshA.localCapability()
+	assert.Empty(t, full.Role)
+	raw, err := json.Marshal(full)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"role"`)
+
+	worker := f.meshB.localCapability()
+	assert.Equal(t, config.MeshRoleWorker, worker.Role)
+
+	// The signed manifest verifies at the receiving peer and the role is
+	// stored with the capability.
+	announced, err := f.meshA.TrustAndDiscover(ctx, f.nodeB.ID())
+	require.NoError(t, err)
+	assert.Equal(t, config.MeshRoleWorker, announced.Role)
+
+	require.Eventually(t, func() bool {
+		stored, ok := f.meshA.PeerCapabilities(f.nodeB.ID())
+		return ok && stored.Role == config.MeshRoleWorker
+	}, 10*time.Second, 100*time.Millisecond, "stored capability must carry role=worker")
+
+	// Status surface: PeerCapability.Role flows into the peers list.
+	require.Eventually(t, func() bool {
+		status := f.meshA.NetworkStatus(t.TempDir())
+		for _, p := range status.Peers {
+			if p.PeerID == f.nodeB.ID().String() {
+				return p.Capability.Role == config.MeshRoleWorker
+			}
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond)
 }
 
 func TestMeshUntrustedPeer(t *testing.T) {

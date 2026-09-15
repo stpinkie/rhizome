@@ -139,6 +139,11 @@ function PeerDetailSheet({
             {peer?.trusted
               ? t("pages.network.trusted", "Trusted")
               : t("pages.network.untrusted", "Untrusted")}
+            {peer?.capability?.role && (
+              <Badge variant="secondary" className="ml-2">
+                {peer.capability.role}
+              </Badge>
+            )}
           </SheetDescription>
         </SheetHeader>
         {peer && (
@@ -315,6 +320,11 @@ export function PeersPanel({ response, isLoading }: PeersPanelProps) {
                       </span>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
+                      {peer.capability?.role && (
+                        <Badge variant="secondary">
+                          {peer.capability.role}
+                        </Badge>
+                      )}
                       {transports.map((tr) => (
                         <Badge key={tr} variant={transportVariant(tr)}>
                           {tr}

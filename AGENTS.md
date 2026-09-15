@@ -299,6 +299,7 @@ Add a `mesh` section to `config.json`:
 {
   "mesh": {
     "enabled": true,
+    "role": "full",
     "trusted_peers": ["12D3KooW..."],
     "allow_remote_delegate": true,
     "allow_remote_spawn": true,
@@ -325,6 +326,7 @@ Add a `mesh` section to `config.json`:
 }
 ```
 
+- `role` — `"full"` (default) or `"worker"`. Worker nodes join the mesh to serve work but run no routing infrastructure: `role=worker` forces `dht_enabled=false`, `relay_service=false`, and `nat_service=false` (the role wins over those settings; contradictions warn at startup). Pair with `rhizome daemon --no-gateway` for the smallest always-on footprint — the gateway stays a separate flag since some workers still want the local HTTP API. The role is signed into the capability manifest (`role` field, emitted only for `worker` so full nodes stay wire-compatible with older peers) and surfaces in `mesh status`/`mesh peer` output and the dashboard's peer badges.
 - `request_max_skew` — max accepted clock difference for signed request timestamps (replay protection window).
 - `rate_limit_per_peer` / `rate_limit_global` — remote request caps in requests per minute (0 = unlimited).
 - `audit_log` — append-only `~/.rhizome/mesh-audit.jsonl` trail (10 MB × 3 rotation); a `mesh.remote.audit` runtime event is always emitted.

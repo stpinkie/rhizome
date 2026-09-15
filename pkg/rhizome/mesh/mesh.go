@@ -64,6 +64,13 @@ type Capability struct {
 	// signed by the issuing node's Ed25519 identity. The outer capability
 	// signature covers them; each is also independently verified on receipt.
 	AgentManifests []agentmanifest.Manifest `json:"agent_manifests,omitempty"`
+	// Role is the node's mesh participation tier ("worker" when set; absent
+	// means "full"). It is emitted only for non-default roles: the signature
+	// covers the re-marshaled manifest, so unconditionally adding a new field
+	// would fail verification on peers running older builds — a worker simply
+	// cannot be verified by them, which is acceptable because worker-aware
+	// consumers require this version anyway.
+	Role string `json:"role,omitempty"`
 	// Signature covers the canonical encoding of all fields above, proving
 	// the manifest was issued by PeerID. Unsigned manifests are rejected
 	// unless mesh.require_signed_caps is disabled; a mesh.cap.unsigned
@@ -80,6 +87,9 @@ type PeerCapability struct {
 	ShareableSkills []string `json:"shareable_skills,omitempty"`
 	// AgentManifests maps agent id to manifest fingerprint for status output.
 	AgentManifests map[string]string `json:"agent_manifests,omitempty"`
+	// Role mirrors Capability.Role — "worker" when the peer declared the
+	// reduced-footprint tier, empty for full nodes.
+	Role string `json:"role,omitempty"`
 }
 
 // PeerConnInfo describes one live connection to a peer.
@@ -918,6 +928,9 @@ func (m *Mesh) localCapability() Capability {
 	c.Allows["delegate"] = m.cfg.AllowRemoteDelegate
 	c.Allows["spawn"] = m.cfg.AllowRemoteSpawn
 	c.Allows["sync"] = true
+	if m.cfg.EffectiveRole() == config.MeshRoleWorker {
+		c.Role = config.MeshRoleWorker
+	}
 	if m.tasks != nil {
 		c.ActiveTasks = m.tasks.ActiveCount()
 	}
@@ -1282,6 +1295,7 @@ func (m *Mesh) NetworkStatus(identityPath string) NetworkStatus {
 				}
 				pc.ActiveTasks = capability.ActiveTasks
 				pc.AgentManifests = agentManifestIndex(capability)
+				pc.Role = capability.Role
 				ps.Capability = pc
 			}
 			out.Peers = append(out.Peers, ps)
