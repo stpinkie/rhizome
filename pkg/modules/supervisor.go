@@ -303,9 +303,16 @@ func (m *Manager) buildCommand(ctx context.Context, spec ModuleSpec) (*exec.Cmd,
 	values := m.resolvedFields(spec, true)
 	var args []string
 	for _, f := range spec.ConfigFields {
-		if f.Arg != "" && values[f.Key] != "" {
-			args = append(args, "--"+f.Arg+"="+values[f.Key])
+		if f.Arg == "" || values[f.Key] == "" {
+			continue
 		}
+		if f.Flag {
+			if isTruthy(values[f.Key]) {
+				args = append(args, "--"+f.Arg)
+			}
+			continue
+		}
+		args = append(args, "--"+f.Arg+"="+values[f.Key])
 	}
 	for _, tmpl := range spec.Run.ArgsTemplate {
 		arg := expand(tmpl, values)

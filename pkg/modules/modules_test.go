@@ -445,11 +445,18 @@ func TestNimbusCatalogEntry(t *testing.T) {
 			t.Fatalf("platform %s: digest=%q algo=%q", p, d, algo)
 		}
 	}
-	for _, key := range []string{"execution_api_url", "beacon_api_url", "trusted_block_root"} {
+	for _, key := range []string{"execution_api_url", "trusted_block_root"} {
 		f, ok := spec.Field(key)
 		if !ok || !f.Required || f.Arg == "" {
 			t.Fatalf("field %s missing/not required/no arg", key)
 		}
+	}
+	// beacon_api_url is optional — p2p light-client sync is the default.
+	if f, ok := spec.Field("beacon_api_url"); !ok || f.Required || f.Arg == "" {
+		t.Fatal("beacon_api_url should exist as optional arg field")
+	}
+	if f, ok := spec.Field("p2p"); !ok || !f.Flag || f.Arg != "p2p" || f.Default != "true" {
+		t.Fatalf("p2p flag field = %+v, want flag/default-true", f)
 	}
 	if spec.Health.Type != "jsonrpc" || spec.Health.Target != "{listen_url}" {
 		t.Fatalf("health = %+v", spec.Health)
@@ -629,6 +636,8 @@ func TestBuildCommandTemplating(t *testing.T) {
 			{Key: "port", Label: "Port", Default: "8545", Arg: "rpc-port"},
 			{Key: "opt", Label: "Opt"},
 			{Key: "api_url", Label: "API URL", Arg: "api-url", Secret: true},
+			{Key: "fast", Label: "Fast mode", Arg: "fast", Flag: true, Default: "true"},
+			{Key: "slow", Label: "Slow mode", Arg: "slow", Flag: true, Default: "false"},
 		},
 	}
 	registerTestSpec(t, spec)
@@ -648,8 +657,9 @@ func TestBuildCommandTemplating(t *testing.T) {
 	}
 	// Secret-valued args must reach argv (nimbus relies on this) but never
 	// config.json — the Secrets map has no json tag.
+	// Flag fields emit a bare --arg on truthy values and nothing on falsy.
 	want := []string{
-		"--rpc-port=8545", "--api-url=https://key:secret@example.com",
+		"--rpc-port=8545", "--api-url=https://key:secret@example.com", "--fast",
 		"--url=http://localhost:8545", "--verbose",
 	}
 	got := cmd.Args[1:]
