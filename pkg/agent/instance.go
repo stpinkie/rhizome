@@ -46,9 +46,15 @@ type AgentInstance struct {
 	Definition                AgentContextDefinition
 	Subagents                 *config.SubagentsConfig
 	SkillsFilter              []string
-	MCPServerAllowlist        map[string]struct{}
-	Candidates                []providers.FallbackCandidate
-	ImageCandidates           []providers.FallbackCandidate
+	// ACP, when non-nil, binds this agent id to an external Agent Client
+	// Protocol process. Local model/provider resolution still runs (the
+	// instance stays registry-complete for manifests and routing), but
+	// dispatch is intercepted by the ACP spawner/runner before any local
+	// inference happens.
+	ACP                *config.ACPAgentConfig
+	MCPServerAllowlist map[string]struct{}
+	Candidates         []providers.FallbackCandidate
+	ImageCandidates    []providers.FallbackCandidate
 
 	// Router is non-nil when model routing is configured and the light model
 	// was successfully resolved. It scores each incoming message and decides
@@ -183,6 +189,7 @@ func NewAgentInstance(
 	agentName := ""
 	var subagents *config.SubagentsConfig
 	var skillsFilter []string
+	var acpBinding *config.ACPAgentConfig
 
 	if agentCfg != nil {
 		agentID = routing.NormalizeAgentID(agentCfg.ID)
@@ -192,6 +199,7 @@ func NewAgentInstance(
 		}
 		subagents = agentCfg.Subagents
 		skillsFilter = resolveAgentSkillsFilter(agentCfg, definition)
+		acpBinding = agentCfg.ACP
 	}
 	warnOnUnknownAgentMCPServerDeclarations(agentID, workspace, cfg, definition)
 
@@ -348,6 +356,7 @@ func NewAgentInstance(
 		Definition:                definition,
 		Subagents:                 subagents,
 		SkillsFilter:              skillsFilter,
+		ACP:                       acpBinding,
 		MCPServerAllowlist:        agentMCPServerAllowlist,
 		Candidates:                candidates,
 		ImageCandidates:           imageCandidates,

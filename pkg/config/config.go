@@ -615,6 +615,17 @@ type AgentConfig struct {
 	Model     *AgentModelConfig `json:"model,omitempty"`
 	Skills    []string          `json:"skills,omitempty"`
 	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	ACP       *ACPAgentConfig   `json:"acp,omitempty"`
+}
+
+// ACPAgentConfig binds an agent id to an external Agent Client Protocol
+// process instead of the local pipeline. The process is spawned lazily on
+// first use and reused across delegations.
+type ACPAgentConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Cwd     string            `json:"cwd,omitempty"`
 }
 
 type SubagentsConfig struct {

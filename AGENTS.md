@@ -215,9 +215,36 @@ Rhizome as an editor agent). `pkg/acp` contains all
   carried on the exec payloads.
 - **Permissions**: `acp.server.permission_policy` = `prompt` (default:
   `session/request_permission` per tool call, `*_always` cached per
-  session, failures deny) | `allow` | `deny`. Client policy
-  `acp.client.permission_policy` is reserved for the Track 62 ACP client.
+  session, failures deny) | `allow` | `deny`.
 - See `docs/guides/acp.md` for Zed `agent_servers` / JetBrains setup.
+
+### ACP client (external agents)
+
+`agents.list[].acp = {command, args, env, cwd}` binds an external ACP
+agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id:
+
+- `AgentInstance.ACP` marks the binding; `pkg/acp.ClientManager` lazily
+  spawns the child process (plain `exec.Command` — NOT `pkg/isolation`;
+  trust posture documented in the guide), handshakes `initialize`
+  (`fs:{read,write}` + `terminal:false`), and runs one `session/new` +
+  `session/prompt` per delegation, accumulating `session/update` chunks.
+- Spawner chain in `pkg/gateway`: `RemoteSpawner` → `acp.Spawner` → local
+  `AgentLoopSpawner`. `hasLocal(id)` is true for ACP ids (registry
+  membership) so they never route off-box. Without mesh, `acp.Spawner` is
+  installed directly.
+- Remote peers delegating into an ACP id go through
+  `AgentLoop.SetExternalAgentRunner` (`ClientManager.RunRemote`) —
+  `ProcessRemoteDispatch` bypasses the spawner chain, so the seam lives
+  on the loop.
+- `acp_run` tool invokes an ACP id explicitly (`tools.ACPInvoker`
+  interface keeps the SDK out of pkg/tools).
+- `acp.client.permission_policy` = `deny` (default) | `allow-read-only` |
+  `allow` answers the external agent's `session/request_permission`;
+  `fs/*` requests are served through the workspace sandbox
+  (`restrict_to_workspace` + `tools.allow_*_paths`); `terminal/*` is
+  refused. `authMethods` advertised at initialize → clear error.
+- Registry is resolved lazily (`func() *AgentRegistry`) in both the
+  manager and spawner — reload swaps the registry pointer.
 
 ## Web Backend Network API
 
@@ -246,7 +273,7 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 
 - `pkg/browser` — pluggable browser-automation backends (catalog, `AgentBrowserDriver` CLI wrapper, endpoint resolvers, session manager, Cloudflare REST); `pkg/tools/browser` exposes the eight `browser_*` agent tools.
 - `pkg/modules` — companion-module sidecar system (catalog, sha256-verified install, daemon supervision with restart backoff, bounded logs, `module.*` events); `cmd/rhizome/internal/module` exposes the `rhizome module` CLI, `pkg/gateway/moduleapi.go` the `/modules*` daemon endpoints, `web/backend/api/modules.go` the `/api/modules*` launcher routes.
-- `pkg/acp` — ACP (Agent Client Protocol) server bridge: `rhizome acp` exposes the agent loop to editor clients over stdio JSON-RPC via `coder/acp-go-sdk` (all SDK usage isolated here). Sessions map to `agent:<id>:acp:<sid>` keys on channel `acp` through `AgentLoop.ProcessInbound`; streaming via a `bus.StreamDelegate`; tool approvals bridge to `session/request_permission`.
+- `pkg/acp` — ACP (Agent Client Protocol) both ways, all `coder/acp-go-sdk` usage isolated here: **server** (`rhizome acp` exposes the agent loop to editor clients over stdio JSON-RPC; sessions map to `agent:<id>:acp:<sid>` keys on channel `acp` through `AgentLoop.ProcessInbound`; streaming via a `bus.StreamDelegate`; tool approvals bridge to `session/request_permission`) and **client** (`ClientManager` spawns `agents.list[].acp` external agents; `Spawner` intercepts ACP-bound `SubTurn` targets; `RunRemote` backs `ExternalAgentRunner` for mesh dispatch; sandboxed `fs/*` serving + `acp.client.permission_policy` for permission requests).
 - `pkg/redact` — leaf package for secret masking (generic patterns + configured `SecureString` values); used by `pkg/logger` and `Config.FilterSensitiveData`.
 - `pkg/guard` — leaf package for prompt-injection phrase detection; used by shell-command screening, the tool-argument scan, and CLI tool-call extraction.
 - `pkg/rhizome/identity` — BIP39/SLIP-0010 Ed25519 node identity, persistence, and Ed25519 signing; now supports OS keyring and passphrase encryption.

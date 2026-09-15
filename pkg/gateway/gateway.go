@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/acp"
 	"github.com/stpinkie/rhizome/pkg/agent"
 	"github.com/stpinkie/rhizome/pkg/audio/asr"
 	"github.com/stpinkie/rhizome/pkg/audio/tts"
@@ -72,6 +73,7 @@ type services struct {
 	ChannelManager   *channels.Manager
 	DeviceService    *devices.Service
 	HealthServer     *health.Server
+	ACPManager       *acp.ClientManager
 	VoiceAgentCancel context.CancelFunc
 	manualReloadChan chan struct{}
 	reloading        atomic.Bool
@@ -228,11 +230,28 @@ func RunWithMesh(
 	agentLoop.SetMediaStore(mediaStore)
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 
+	// ACP client: when agents.list entries carry acp bindings, install the
+	// process manager as the external runner (mesh dispatch), the acp_run
+	// tool invoker, and the middle link of the sub-turn spawner chain
+	// (remote → acp → local).
+	acpManager := acp.NewClientManager(cfg, agentLoop.GetRegistry)
+	if acpManager != nil {
+		agentLoop.SetExternalAgentRunner(acpManager.RunRemote)
+		agentLoop.SetACPInvoker(acpManager)
+	}
+	localSpawner := agent.NewSubTurnSpawner(agentLoop)
+	spawnerChain := acp.NewSpawner(acpManager, agentLoop.GetRegistry, localSpawner)
+	if rhizomeMesh == nil {
+		if acpManager != nil {
+			agentLoop.SetSubTurnSpawner(spawnerChain)
+		}
+	}
+
 	if rhizomeMesh != nil {
 		if eventBus != nil {
 			rhizomeMesh.SetEventBus(eventBus)
 		}
-		local := agent.NewSubTurnSpawner(agentLoop)
+		local := spawnerChain
 		rhizomeMesh.SetAgentLister(func() []string {
 			return agentLoop.GetRegistry().ListAgentIDs()
 		})
@@ -329,8 +348,12 @@ func RunWithMesh(
 		listenResult,
 	)
 	if err != nil {
+		if acpManager != nil {
+			acpManager.Close()
+		}
 		return err
 	}
+	runningServices.ACPManager = acpManager
 	// All services (channels + shared HTTP server) are up; mark the health
 	// server ready so GET /ready reports "ready". The health endpoints are
 	// mounted on the shared gateway mux, so Health.Server.Start() (which would
@@ -752,6 +775,9 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 		if fms, ok := runningServices.MediaStore.(*media.FileMediaStore); ok {
 			fms.Stop()
 		}
+	}
+	if runningServices.ACPManager != nil {
+		runningServices.ACPManager.Close()
 	}
 }
 

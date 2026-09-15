@@ -86,7 +86,21 @@ type AgentLoop struct {
 	// Optional SubTurnSpawner injected at construction. If nil, the default
 	// AgentLoopSpawner is used.
 	spawner tools.SubTurnSpawner
+
+	// externalRunner executes remote-dispatched tasks on agents bound to an
+	// external runtime (e.g. ACP subprocesses). Set by the gateway when at
+	// least one agents.list entry carries an acp binding.
+	externalRunner ExternalAgentRunner
+
+	// acpInvoker backs the acp_run tool (explicit one-off invocation of an
+	// ACP-bound agent id).
+	acpInvoker tools.ACPInvoker
 }
+
+// ExternalAgentRunner runs a remote-dispatched task against an agent whose
+// backing runtime is external to the local pipeline. It returns the agent's
+// final text output.
+type ExternalAgentRunner func(ctx context.Context, target *AgentInstance, req RemoteDispatchRequest) (string, error)
 
 // subTurnSpawner returns the injected spawner or the default local spawner.
 func (al *AgentLoop) subTurnSpawner() tools.SubTurnSpawner {
@@ -102,6 +116,23 @@ func (al *AgentLoop) SetSubTurnSpawner(spawner tools.SubTurnSpawner) {
 	al.mu.Lock()
 	defer al.mu.Unlock()
 	al.spawner = spawner
+}
+
+// SetExternalAgentRunner installs the runner used for remote-dispatched
+// tasks targeting agents with an external (ACP) binding. Remote dispatch to
+// an ACP-bound id without a runner configured fails explicitly rather than
+// silently falling through to local inference.
+func (al *AgentLoop) SetExternalAgentRunner(fn ExternalAgentRunner) {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	al.externalRunner = fn
+}
+
+// SetACPInvoker installs the invoker backing the acp_run tool.
+func (al *AgentLoop) SetACPInvoker(inv tools.ACPInvoker) {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	al.acpInvoker = inv
 }
 
 // processOptions configures how a message is processed

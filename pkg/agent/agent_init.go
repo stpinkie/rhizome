@@ -428,6 +428,15 @@ func registerSharedTools(
 			agent.Tools.Register(tools.NewSwarmContextTool(cfg.WorkspacePath()))
 		}
 
+		// Register acp_run when the gateway installed an ACP invoker (i.e. at
+		// least one agents.list entry is acp-bound).
+		al.mu.RLock()
+		acpInvoker := al.acpInvoker
+		al.mu.RUnlock()
+		if acpInvoker != nil && cfg.Tools.IsToolEnabled("acp_run") {
+			agent.Tools.Register(tools.NewACPRunTool(acpInvoker))
+		}
+
 		// Register delegate tool for multi-agent setups.
 		// Auto-enabled when multiple agents exist. Delegation uses the SubTurn
 		// mechanism directly (not SubagentManager) and is independent of the
