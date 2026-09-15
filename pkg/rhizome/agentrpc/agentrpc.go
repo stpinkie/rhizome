@@ -205,7 +205,11 @@ func (t *Transport) handleRequestWithCache(from peer.ID, req Request) Response {
 	t.resultsMu.RLock()
 	cached, ok := t.results[key]
 	t.resultsMu.RUnlock()
-	if ok && time.Now().Before(cached.expiresAt) {
+	// A cache hit is only an idempotent retry when the request nonce matches:
+	// same correlation id + fresh nonce is a *new* request (corrID reuse or
+	// collision), and returning a response bound to a different nonce both
+	// leaks stale results and trips the caller's nonce check.
+	if ok && time.Now().Before(cached.expiresAt) && cached.resp.Nonce == req.Nonce {
 		return cached.resp
 	}
 

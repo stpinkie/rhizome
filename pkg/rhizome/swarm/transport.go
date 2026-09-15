@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -42,6 +43,13 @@ type Transport struct {
 	host     host.Host
 	handler  Handler
 	maxBytes int
+
+	// handlerWG tracks in-flight inbound stream handlers so Stop can drain
+	// them; handlers write into the swarm home (audit log, run store) and
+	// must not outlive Stop. handlerMu gates stopping against Adds.
+	handlerMu sync.RWMutex
+	handlerWG sync.WaitGroup
+	stopping  bool
 }
 
 // NewTransport creates a swarm protocol transport. maxBytes bounds a single
@@ -61,9 +69,15 @@ func (t *Transport) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// Stop deregisters the protocol handler without waiting on a context.
+// Stop deregisters the protocol handler and drains in-flight stream
+// handlers: they write into the swarm home (audit log, run store) and must
+// finish before Stop returns, or shutdown races post-test/host teardown.
 func (t *Transport) Stop() {
 	t.host.RemoveStreamHandler(ProtocolID)
+	t.handlerMu.Lock()
+	t.stopping = true
+	t.handlerMu.Unlock()
+	t.handlerWG.Wait()
 }
 
 // Supported reports whether the peer supports the swarm protocol by attempting
@@ -161,6 +175,16 @@ func (t *Transport) Push(ctx context.Context, pid peer.ID, env Envelope) error {
 // signed response, a push frame is dispatched without a reply. Frames larger
 // than maxBytes are dropped before decoding.
 func (t *Transport) handleStream(s network.Stream) {
+	t.handlerMu.RLock()
+	if t.stopping {
+		t.handlerMu.RUnlock()
+		_ = s.Close()
+		return
+	}
+	t.handlerWG.Add(1)
+	t.handlerMu.RUnlock()
+	defer t.handlerWG.Done()
+
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(serverReadTimeout),
 		stream.WithWriteTimeout(pushTimeout))

@@ -145,6 +145,10 @@ type Mesh struct {
 	manifestSource func() []agentmanifest.Input
 	manifestSink   func(agentmanifest.Manifest)
 	manifestMu     sync.RWMutex
+	// manifestInvokeMu serializes source/sink invocation: localCapability runs
+	// concurrently (announce loop, caps stream handler) and sinks are not
+	// required to be goroutine-safe — the gateway sink writes manifest files.
+	manifestInvokeMu sync.Mutex
 
 	skillsLoader   *skills.SkillsLoader
 	skillsLoaderMu sync.RWMutex
@@ -922,6 +926,7 @@ func (m *Mesh) localCapability() Capability {
 	manifestSource, manifestSink := m.manifestSource, m.manifestSink
 	m.manifestMu.RUnlock()
 	if manifestSource != nil {
+		m.manifestInvokeMu.Lock()
 		for _, in := range manifestSource() {
 			mf := agentmanifest.Manifest{AgentID: in.AgentID, Name: in.Name, Persona: in.Persona}
 			if m.cfg.AdvertiseModels {
@@ -941,6 +946,7 @@ func (m *Mesh) localCapability() Capability {
 				manifestSink(mf)
 			}
 		}
+		m.manifestInvokeMu.Unlock()
 	}
 	m.signCapability(&c)
 	return c
@@ -1383,8 +1389,7 @@ func (m *Mesh) verifyRequest(from peer.ID, req agentrpc.Request) error {
 }
 
 func newCorrelationID() string {
-	now := time.Now()
-	return fmt.Sprintf("%d-%d", now.UnixNano(), now.Nanosecond())
+	return randomHexToken()
 }
 
 // signResponse signs the response payload with the local node key.

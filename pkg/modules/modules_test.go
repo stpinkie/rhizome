@@ -634,8 +634,10 @@ func TestBuildCommandTemplating(t *testing.T) {
 	registerTestSpec(t, spec)
 	cfg := &config.Config{Modules: config.ModulesConfig{
 		"m1": {
-			Fields:  map[string]string{"endpoint": "http://localhost:8545"},
-			Secrets: map[string]config.SecureString{"api_url": *config.NewSecureString("https://key:secret@example.com")},
+			Fields: map[string]string{"endpoint": "http://localhost:8545"},
+			Secrets: map[string]config.SecureString{
+				"api_url": *config.NewSecureString("https://key:secret@example.com"),
+			},
 		},
 	}}
 	mgr, _, _ := newTestManager(t, cfg)
