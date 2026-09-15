@@ -101,7 +101,13 @@ type Config struct {
 
 // MeshConfig controls the decentralized Rhizome agent mesh.
 type MeshConfig struct {
-	Enabled              bool          `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
+	// Role selects the node's mesh participation tier: "full" (default)
+	// runs the complete mesh stack; "worker" forces dht_enabled,
+	// relay_service, and nat_service off for a smaller footprint. The role
+	// wins over those individual settings — ApplyRoleOverrides reports the
+	// contradictions so callers can warn at startup.
+	Role                 string        `json:"role,omitempty"`
 	TrustedPeers         []string      `json:"trusted_peers,omitempty"`
 	BootstrapPeers       []string      `json:"bootstrap_peers,omitempty"`
 	AdvertiseModels      bool          `json:"advertise_models,omitempty"`
@@ -263,8 +269,53 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Mesh participation tiers for MeshConfig.Role.
+const (
+	MeshRoleFull   = "full"
+	MeshRoleWorker = "worker"
+)
+
+// EffectiveRole normalizes Role: empty defaults to "full"; any other value
+// is returned as-is (Validate rejects unknown roles).
+func (m *MeshConfig) EffectiveRole() string {
+	if m == nil || m.Role == "" {
+		return MeshRoleFull
+	}
+	return m.Role
+}
+
+// ApplyRoleOverrides forces infrastructure services off when the node runs
+// as a worker: workers join the mesh to serve work, not to route it — no
+// public DHT, relay service, or AutoNAT dial-back. The role wins over the
+// individual settings; the returned names are the fields that were explicitly
+// contradicted, so callers can emit a startup warning.
+func (m *MeshConfig) ApplyRoleOverrides() []string {
+	if m.EffectiveRole() != MeshRoleWorker {
+		return nil
+	}
+	var overridden []string
+	if m.DHTEnabled {
+		m.DHTEnabled = false
+		overridden = append(overridden, "dht_enabled")
+	}
+	if m.RelayService {
+		m.RelayService = false
+		overridden = append(overridden, "relay_service")
+	}
+	if m.NATService {
+		m.NATService = false
+		overridden = append(overridden, "nat_service")
+	}
+	return overridden
+}
+
 // Validate checks the mesh configuration for common errors.
 func (m *MeshConfig) Validate() error {
+	switch m.Role {
+	case "", MeshRoleFull, MeshRoleWorker:
+	default:
+		return fmt.Errorf("mesh.role must be %q or %q", MeshRoleFull, MeshRoleWorker)
+	}
 	if m.TaskRetries < 0 {
 		return fmt.Errorf("mesh.task_retries must not be negative")
 	}
