@@ -10,8 +10,10 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -21,19 +23,29 @@ import (
 )
 
 // installRelease downloads the pinned release for the current platform,
-// verifies its sha256, and extracts it under <modules>/<id>/<version>/.
+// verifies its pinned digest (sha256 or sha512, per the release pin), and
+// extracts it under <modules>/<id>/<version>/.
 func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version string) error {
 	release, ok := spec.Release(version)
 	if !ok {
 		return fmt.Errorf("module %q: no pinned release for version %q", spec.ID, version)
 	}
 	platform := Platform()
-	want, ok := release.SHA256[platform]
-	if !ok || want == "" {
+	want, algo := release.Digest(platform)
+	if want == "" {
 		return fmt.Errorf(
-			"module %q v%s has no sha256 for %s — refusing to install",
+			"module %q v%s has no digest for %s — refusing to install",
 			spec.ID, release.Version, platform,
 		)
+	}
+	var sum hash.Hash
+	switch algo {
+	case "sha256":
+		sum = sha256.New()
+	case "sha512":
+		sum = sha512.New()
+	default:
+		return fmt.Errorf("module %q: unsupported digest algorithm %q", spec.ID, algo)
 	}
 	url := spec.DownloadURL(release)
 	if !strings.HasPrefix(url, "https://") && !isLoopbackURL(url) {
@@ -47,7 +59,6 @@ func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version s
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 
-	sum := sha256.New()
 	if err := m.download(ctx, url, io.MultiWriter(tmp, sum)); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("module %q: download failed: %w", spec.ID, err)
@@ -59,8 +70,8 @@ func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version s
 	got := hex.EncodeToString(sum.Sum(nil))
 	if !strings.EqualFold(got, want) {
 		return fmt.Errorf(
-			"module %q v%s: sha256 mismatch — got %s, want %s (refusing to install)",
-			spec.ID, release.Version, got, want,
+			"module %q v%s: %s mismatch — got %s, want %s (refusing to install)",
+			spec.ID, release.Version, algo, got, want,
 		)
 	}
 
@@ -151,6 +162,13 @@ func extractTarGz(archivePath, dest, binaryName string) error {
 			if hdr.Size > maxMemberBytes {
 				return fmt.Errorf("archive member %q exceeds %d-byte cap", hdr.Name, maxMemberBytes)
 			}
+			base := filepath.Base(name)
+			if base == wantBase || base == wantBase+".exe" {
+				// Flatten the module binary to the version dir root so
+				// binaryPath finds it regardless of archive layout
+				// (e.g. nimbus ships it under build/).
+				target = filepath.Join(dest, base)
+			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				return err
 			}
@@ -175,7 +193,6 @@ func extractTarGz(archivePath, dest, binaryName string) error {
 			if err := out.Close(); err != nil {
 				return err
 			}
-			base := filepath.Base(name)
 			if base == wantBase || base == wantBase+".exe" {
 				//nolint:gosec // G302: the module binary must be executable.
 				_ = os.Chmod(target, 0o755)

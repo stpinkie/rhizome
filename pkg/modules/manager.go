@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/config"
@@ -153,7 +155,16 @@ func (m *Manager) binaryPath(spec ModuleSpec) string {
 	if name == "" {
 		name = spec.ID
 	}
-	return filepath.Join(m.Dir(spec.ID), m.installedVersion(spec.ID), name)
+	dir := filepath.Join(m.Dir(spec.ID), m.installedVersion(spec.ID))
+	if runtime.GOOS == "windows" && !strings.HasSuffix(name, ".exe") {
+		// Archives normally ship the .exe; a bare-name fallback keeps
+		// extensionless members (and tests) working.
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return filepath.Join(dir, name)
+		}
+		name += ".exe"
+	}
+	return filepath.Join(dir, name)
 }
 
 // Info resolves the full status for one module.

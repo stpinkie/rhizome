@@ -57,6 +57,13 @@ type MediaAttachment struct {
 }
 
 func newTaskNonce() string {
+	return randomHexToken()
+}
+
+// randomHexToken returns 128 bits of crypto-randomness hex-encoded. Used for
+// task nonces and correlation ids — timestamp-derived ids collide on
+// coarse-clock platforms (Windows CI) and poison the agentrpc result cache.
+func randomHexToken() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return fmt.Sprintf("%d", time.Now().UnixNano())

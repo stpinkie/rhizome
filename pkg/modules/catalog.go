@@ -46,13 +46,28 @@ type ConfigField struct {
 }
 
 // ReleasePin pins one upstream release: the exact version/build pair used in
-// the asset name plus a per-platform sha256. Upstream asset names and
-// digests change shape per project, so each release is pinned explicitly
-// rather than fetched from a checksums file at install time.
+// the asset name plus per-platform digests. Upstream asset names and digest
+// algorithms change shape per project, so each release is pinned explicitly
+// rather than fetched from a checksums file at install time. A platform must
+// appear in exactly one digest map — SHA512 exists because upstreams like
+// nimbus-eth1 publish sha512, not sha256.
 type ReleasePin struct {
 	Version string            `json:"version"`
-	Build   string            `json:"build,omitempty"` // extra asset-name component (e.g. commit hash)
-	SHA256  map[string]string `json:"sha256"`          // "goos/goarch" → lowercase hex digest
+	Build   string            `json:"build,omitempty"`  // extra asset-name component (e.g. commit hash)
+	SHA256  map[string]string `json:"sha256,omitempty"` // "goos/goarch" → lowercase hex digest
+	SHA512  map[string]string `json:"sha512,omitempty"` // "goos/goarch" → lowercase hex digest
+}
+
+// Digest returns the pinned digest for a platform and its algorithm name
+// ("sha256"/"sha512"), or ("", "") when the platform is not pinned.
+func (r ReleasePin) Digest(platform string) (digest, algo string) {
+	if d := r.SHA256[platform]; d != "" {
+		return d, "sha256"
+	}
+	if d := r.SHA512[platform]; d != "" {
+		return d, "sha512"
+	}
+	return "", ""
 }
 
 // InstallSpec describes how a module binary is obtained.
@@ -68,6 +83,10 @@ type InstallSpec struct {
 	// AssetTemplate builds the asset filename; placeholders: {goos},
 	// {goarch}, {version}, {build}.
 	AssetTemplate string `json:"asset_template,omitempty"`
+	// OSAliases maps GOOS names to the upstream asset naming when they
+	// differ — e.g. {"darwin": "macos"} for projects that label macOS
+	// assets "macos".
+	OSAliases map[string]string `json:"os_aliases,omitempty"`
 	// Releases pins installable versions (newest last). Empty means "no
 	// pinned releases yet" — the module cannot be installed.
 	Releases []ReleasePin `json:"releases,omitempty"`
@@ -194,8 +213,12 @@ func (s ModuleSpec) Tag(r ReleasePin) string {
 
 // Asset resolves the asset filename for a pin and platform.
 func (s ModuleSpec) Asset(r ReleasePin) string {
+	goos := runtime.GOOS
+	if alias, ok := s.Install.OSAliases[goos]; ok {
+		goos = alias
+	}
 	return expand(s.Install.AssetTemplate, map[string]string{
-		"goos":    runtime.GOOS,
+		"goos":    goos,
 		"goarch":  runtime.GOARCH,
 		"version": r.Version,
 		"build":   r.Build,
@@ -217,6 +240,80 @@ func (s ModuleSpec) DownloadURL(r ReleasePin) string {
 // catalog is the static list of companion modules. It is a package variable
 // (not a literal inside Catalog) so tests can register synthetic modules.
 var catalog = []ModuleSpec{
+	{
+		ID: "nimbus-verified-proxy", Name: "Nimbus Verified Proxy",
+		Kind:    KindDaemon,
+		License: "MIT OR Apache-2.0",
+		Description: "Verified Ethereum JSON-RPC: a consensus light client " +
+			"(status-im/nimbus-eth1) that serves execution API responses " +
+			"verified against beacon-chain proofs. You supply an untrusted " +
+			"execution endpoint and a beacon API; the proxy trusts neither.",
+		// Upstream ships linux amd64/arm64, windows amd64, macos arm64.
+		Platforms: []string{"linux/amd64", "linux/arm64", "windows/amd64", "darwin/arm64"},
+		Install: InstallSpec{
+			Method:        "github-release",
+			Repo:          "status-im/nimbus-eth1",
+			TagTemplate:   "v{version}",
+			AssetTemplate: "nimbus_verified_proxy-{goos}-{goarch}-v{version}-{build}.tar.gz",
+			OSAliases:     map[string]string{"darwin": "macos"},
+			Binary:        "nimbus_verified_proxy",
+			Releases: []ReleasePin{
+				{
+					Version: "0.4.1",
+					Build:   "ec214533",
+					SHA512: map[string]string{
+						"linux/amd64":   "0d9589645e5946370341e7084fd9c4b2e177ed42f4f1e74d171ee5370f5b22a2ba83db3130f5a3c1d56f6cfc116e94f3cd161bdb5a5d0251e27b605890225125",
+						"linux/arm64":   "a769c2c54d0fdc74db7a55a9d80783187c913fad3cd1590d826be7191abdc0c131f0344e506b788ad682d2c1e701445464c43ff0d0113d1600cf42e519c74708",
+						"windows/amd64": "28ab4e0dc1e7c01e467c34fec390ebaeb1bcb049f20aa343cc15ea4a17234e8efdd3e7f927aa3ac50c890a387401dd7b9bda08e2e8cfb81359c2a7ee1f1b72a2",
+						"darwin/arm64":  "2d044a5163570e638c4c4eee94e771e5f2d75462748a4f7110857bfe6285408f082306939190325dec5abf813f711376b9e000cd4e04d68f5435d3f9cddb9bad",
+					},
+				},
+			},
+		},
+		Run: RunSpec{Workdir: "."},
+		Health: HealthSpec{
+			Type:   "jsonrpc",
+			Target: "{listen_url}",
+			Method: "eth_chainId",
+		},
+		ConfigFields: []ConfigField{
+			{
+				Key:      "execution_api_url",
+				Label:    "Execution API URL (untrusted EL RPC; may embed an API key)",
+				Arg:      "execution-api-url",
+				Secret:   true,
+				Required: true,
+			},
+			{
+				Key:      "beacon_api_url",
+				Label:    "Beacon API URL (light-client data provider)",
+				Arg:      "beacon-api-url",
+				Secret:   true,
+				Required: true,
+			},
+			{
+				Key:      "trusted_block_root",
+				Label:    "Trusted finalized block root (0x…)",
+				Arg:      "trusted-block-root",
+				Required: true,
+			},
+			{
+				Key:     "network",
+				Label:   "Network (mainnet, sepolia, hoodi…)",
+				Arg:     "network",
+				Default: "mainnet",
+			},
+			{
+				Key:     "listen_url",
+				Label:   "Listen URL for the verified RPC",
+				Arg:     "listen-url",
+				Default: "http://127.0.0.1:8545",
+			},
+		},
+		Notes: "Requires a recent trusted_block_root — fetch one from your " +
+			"beacon API at /eth/v1/beacon/headers/finalized. Syncs the " +
+			"consensus light client on first start; eth_syncing reports progress.",
+	},
 	{
 		ID: "ethereum-rpc", Name: "Ethereum RPC (remote endpoint)",
 		Kind:    KindConfig,
