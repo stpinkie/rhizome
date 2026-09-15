@@ -615,6 +615,24 @@
       "include_payload": false
     }
   },
+  "acp": {
+    "_comment": "Agent Client Protocol. server: tool-permission policy for `rhizome acp` (prompt|allow|deny). client: policy for externally bound agents (deny|allow-read-only|allow).",
+    "server": { "permission_policy": "prompt" },
+    "client": { "permission_policy": "deny" }
+  },
+  "mesh": {
+    "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md",
+    "enabled": false,
+    "role": "full",
+    "trusted_peers": []
+  },
+  "modules": {
+    "_comment": "Companion sidecar modules; `rhizome module list` shows the catalog. Secret fields go to .security.yml via `rhizome module set --secret`.",
+    "ethereum-rpc": {
+      "enabled": false,
+      "fields": { "endpoint_url": "https://mainnet.infura.io/v3/YOUR_KEY" }
+    }
+  },
   "gateway": {
     "_comment": "Default log level is set to 'fatal'. Other available options are 'debug', 'info', 'warn' and 'error'.",
     "host": "localhost",
