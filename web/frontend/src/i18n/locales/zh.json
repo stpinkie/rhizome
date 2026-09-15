@@ -1051,7 +1051,25 @@
       "dht_last_discover": "最后发现",
       "dht_has_provided": "已提供",
       "dht_has_discovered": "已发现",
-      "load_error": "加载网络状态失败。"
+      "load_error": "加载网络状态失败。",
+      "activity": "网格活动",
+      "activity_description": "守护进程观测到的近期网格与蜂群事件。",
+      "activity_live": "实时",
+      "activity_polling": "轮询",
+      "activity_empty": "暂无活动。活动流保存在守护进程内存中 —— 请启动守护进程并启用 mesh。",
+      "activity_waiting": "等待事件…",
+      "peer_quality": "质量",
+      "peer_score": "评分",
+      "score_ok": "成功",
+      "score_failed": "失败",
+      "score_avg": "平均",
+      "latency": "延迟",
+      "last_seen": "最近在线",
+      "bandwidth": "带宽",
+      "connections": "连接",
+      "streams": "流",
+      "opened_at": "开始于",
+      "manifests": "清单指纹"
     }
   },
   "tour": {

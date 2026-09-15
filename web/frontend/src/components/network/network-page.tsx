@@ -8,6 +8,7 @@ import { useNetwork } from "@/hooks/use-network"
 import { useSavedPeers } from "@/hooks/use-saved-peers"
 import { cn } from "@/lib/utils"
 
+import { ActivityPanel } from "./activity-panel"
 import { AuditPanel } from "./audit-panel"
 import { BootstrapInput } from "./bootstrap-input"
 import { DhtPanel } from "./dht-panel"
@@ -101,6 +102,8 @@ export function NetworkPage() {
           <PairPanel />
 
           <SwarmsPanel />
+
+          <ActivityPanel />
 
           <AuditPanel />
         </div>

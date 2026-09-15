@@ -4,6 +4,32 @@ export interface NetworkPeerCapability {
   models?: string[]
   skills?: string[]
   agents?: string[]
+  active_tasks?: number
+  shareable_skills?: string[]
+  agent_manifests?: Record<string, string>
+}
+
+export interface PeerConnInfo {
+  remote_multiaddr: string
+  direction: string
+  transport: string
+  stream_count: number
+  opened_at?: string
+}
+
+export interface PeerScoreView {
+  successes: number
+  failures: number
+  avg_latency_ms: number
+  last_error?: string
+  score: number
+}
+
+export interface BandwidthView {
+  total_in: number
+  total_out: number
+  rate_in: number
+  rate_out: number
 }
 
 export interface NetworkPeer {
@@ -11,6 +37,11 @@ export interface NetworkPeer {
   addrs: string[]
   trusted: boolean
   capability?: NetworkPeerCapability
+  conns?: PeerConnInfo[]
+  latency_ms?: number
+  score?: PeerScoreView
+  last_seen?: string
+  bandwidth?: BandwidthView
 }
 
 export interface DHTStatus {
@@ -36,6 +67,7 @@ export interface NetworkStatusResponse {
   relayed_addrs?: string[]
   peers?: NetworkPeer[]
   dht?: DHTStatus
+  bandwidth?: BandwidthView
 }
 
 export interface SavedPeerCapability {
@@ -394,6 +426,63 @@ export interface MeshAuditResponse {
 export async function getNetworkAudit(tail = 50): Promise<MeshAuditResponse> {
   const params = new URLSearchParams({ tail: String(tail) })
   return request<MeshAuditResponse>(`/api/network/audit?${params.toString()}`)
+}
+
+// --- Mesh activity feed (/api/network/activity + /api/network/events SSE) ---
+
+export interface MeshActivityEntry {
+  time: string
+  kind: string
+  source?: string
+  attrs?: Record<string, unknown>
+}
+
+export interface MeshActivityResponse {
+  events?: MeshActivityEntry[]
+}
+
+export async function getNetworkActivity(
+  tail = 50,
+): Promise<MeshActivityResponse> {
+  const params = new URLSearchParams({ tail: String(tail) })
+  return request<MeshActivityResponse>(
+    `/api/network/activity?${params.toString()}`,
+  )
+}
+
+/**
+ * Open the unified mesh/swarm SSE event stream. Returns null when EventSource
+ * is unavailable; the caller should fall back to polling getNetworkActivity.
+ * Each `data:` frame is one runtime event ({kind, time, source, attrs}).
+ */
+export function openNetworkEventStream(
+  onEvent: (entry: MeshActivityEntry) => void,
+  onError?: () => void,
+): EventSource | null {
+  if (typeof EventSource === "undefined") return null
+  const src = new EventSource("/api/network/events")
+  src.onmessage = (msg) => {
+    try {
+      const raw = JSON.parse(msg.data) as {
+        kind?: string
+        time?: string
+        source?: { component?: string; name?: string }
+        attrs?: Record<string, unknown>
+      }
+      onEvent({
+        time: raw.time ?? "",
+        kind: raw.kind ?? "",
+        source: raw.source
+          ? [raw.source.component, raw.source.name].filter(Boolean).join("/")
+          : undefined,
+        attrs: raw.attrs,
+      })
+    } catch {
+      // ignore malformed frames
+    }
+  }
+  if (onError) src.onerror = onError
+  return src
 }
 
 async function extractErrorMessage(res: Response): Promise<string> {

@@ -271,6 +271,16 @@ func printPeerStatus(peers []mesh.PeerStatus) {
 			fmt.Print(" (trusted)")
 		}
 		fmt.Println()
+		for _, c := range p.Conns {
+			fmt.Printf("      conn: %s %s %d streams\n", c.Direction, c.Transport, c.StreamCount)
+		}
+		if p.LatencyMs > 0 {
+			fmt.Printf("      latency: %.1f ms\n", p.LatencyMs)
+		}
+		if p.Score != nil {
+			fmt.Printf("      score: %.0f (%d ok / %d failed)\n",
+				p.Score.Score, p.Score.Successes, p.Score.Failures)
+		}
 		if len(p.Addrs) > 0 {
 			fmt.Printf("      addrs: %s\n", strings.Join(p.Addrs, ", "))
 		}

@@ -1154,7 +1154,25 @@
       "audit_agent": "Agent",
       "audit_ref": "Ref",
       "audit_duration": "Duration",
-      "audit_detail": "Detail"
+      "audit_detail": "Detail",
+      "activity": "Mesh activity",
+      "activity_description": "Recent mesh and swarm events observed by the daemon.",
+      "activity_live": "live",
+      "activity_polling": "polling",
+      "activity_empty": "No activity yet. The feed is in-memory on the daemon — start the daemon with mesh enabled.",
+      "activity_waiting": "Waiting for events…",
+      "peer_quality": "Quality",
+      "peer_score": "score",
+      "score_ok": "ok",
+      "score_failed": "failed",
+      "score_avg": "avg",
+      "latency": "Latency",
+      "last_seen": "Last seen",
+      "bandwidth": "Bandwidth",
+      "connections": "Connections",
+      "streams": "streams",
+      "opened_at": "since",
+      "manifests": "Manifest fingerprints"
     }
   },
   "tour": {
