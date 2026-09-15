@@ -5,6 +5,7 @@ export interface ModuleConfigField {
   label: string
   env?: string
   arg?: string
+  flag?: boolean
   secret?: boolean
   required?: boolean
   default?: string

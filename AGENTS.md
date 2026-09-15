@@ -169,8 +169,11 @@ growing the base binary. Kinds: `daemon` (supervised, restart-on-exit with
 backoff), `ondemand` (spawned by a consumer), `config` (endpoint descriptor,
 no process). `nimbus-verified-proxy` (status-im/nimbus-eth1 verified
 Ethereum RPC) is the first daemon-kind entry — fields `execution_api_url`,
-`beacon_api_url`, `trusted_block_root` (all required; URLs are secrets),
-`network`, `listen_url`. `ethereum-rpc` is the first config-kind entry.
+`trusted_block_root` (required; URLs are secrets), `p2p` (default true:
+light-client sync over the beacon P2P network), `beacon_api_url` (optional
+REST supplement; required when `p2p=false`), `network`, `listen_url`,
+`p2p_tcp_port`/`p2p_udp_port`/`p2p_max_peers`. `ethereum-rpc` is the first
+config-kind entry.
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.

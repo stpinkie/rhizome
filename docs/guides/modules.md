@@ -66,27 +66,36 @@ Required fields gate `enabled`: a module with missing required config stays
 
 Verified Ethereum JSON-RPC: the [nimbus-eth1](https://github.com/status-im/nimbus-eth1)
 consensus light client serving execution-API responses proven against
-beacon-chain proofs. You supply an untrusted execution endpoint and a beacon
-API — the proxy trusts neither.
+beacon-chain proofs. You supply an untrusted execution endpoint and a
+trusted block root; light-client data syncs over the beacon P2P network by
+default — no beacon REST endpoint needed.
 
 | Field                 | Secret | Required | Default                  |
 | --------------------- | ------ | -------- | ------------------------ |
 | `execution_api_url`   | yes    | yes      | —                        |
-| `beacon_api_url`      | yes    | yes      | —                        |
+| `p2p`                 | no     | no       | `true`                   |
+| `beacon_api_url`      | yes    | no†      | —                        |
 | `trusted_block_root`  | no     | yes      | —                        |
 | `network`             | no     | no       | `mainnet`                |
 | `listen_url`          | no     | no       | `http://127.0.0.1:8545`  |
+| `p2p_tcp_port`        | no     | no       | `9000`                   |
+| `p2p_udp_port`        | no     | no       | `9000`                   |
+| `p2p_max_peers`       | no     | no       | `160`                    |
 
-Fetch a `trusted_block_root` from your beacon API at
-`/eth/v1/beacon/headers/finalized` — it must be recent. The light client
+† `beacon_api_url` is required only when `p2p=false`; with p2p on it acts as
+an optional REST supplement alongside the P2P backend.
+
+Fetch a `trusted_block_root` from a beacon API at
+`/eth/v1/beacon/headers/finalized` (e.g.
+`https://lodestar-mainnet.chainsafe.io`) or from a trusted provider such as
+beaconcha.in — it must be recent. The light client
 syncs on first start; `eth_syncing` reports progress. Platforms:
 linux amd64/arm64, windows amd64, macos arm64 (no darwin-amd64 build).
 
 ```bash
 rhizome module install nimbus-verified-proxy
 rhizome module set --secret nimbus-verified-proxy \
-  execution_api_url=https://mainnet.infura.io/v3/KEY \
-  beacon_api_url=https://your-beacon-node
+  execution_api_url=https://mainnet.infura.io/v3/KEY
 rhizome module set nimbus-verified-proxy trusted_block_root=0x…
 rhizome module enable nimbus-verified-proxy
 rhizome module start nimbus-verified-proxy   # or restart the daemon

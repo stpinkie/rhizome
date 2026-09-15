@@ -254,30 +254,56 @@ export function ModulesPage() {
                                   <span className="text-destructive"> *</span>
                                 )}
                               </Label>
-                              <Input
-                                type={f.secret ? "password" : "text"}
-                                className="h-8 text-xs"
-                                placeholder={
-                                  f.secret
-                                    ? isSecretSet
-                                      ? "(set)"
-                                      : "(unset)"
-                                    : (m.fields?.[f.key] ?? f.default ?? "")
-                                }
-                                value={
-                                  draft[f.key] ??
-                                  (f.secret ? "" : (m.fields?.[f.key] ?? ""))
-                                }
-                                onChange={(e) =>
-                                  setDrafts((prev) => ({
-                                    ...prev,
-                                    [spec.id]: {
-                                      ...prev[spec.id],
-                                      [f.key]: e.target.value,
-                                    },
-                                  }))
-                                }
-                              />
+                              {f.flag ? (
+                                <div className="flex h-8 items-center">
+                                  <input
+                                    type="checkbox"
+                                    className="accent-primary h-4 w-4"
+                                    checked={
+                                      (draft[f.key] ??
+                                        m.fields?.[f.key] ??
+                                        f.default ??
+                                        "false") === "true"
+                                    }
+                                    onChange={(e) =>
+                                      setDrafts((prev) => ({
+                                        ...prev,
+                                        [spec.id]: {
+                                          ...prev[spec.id],
+                                          [f.key]: e.target.checked
+                                            ? "true"
+                                            : "false",
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              ) : (
+                                <Input
+                                  type={f.secret ? "password" : "text"}
+                                  className="h-8 text-xs"
+                                  placeholder={
+                                    f.secret
+                                      ? isSecretSet
+                                        ? "(set)"
+                                        : "(unset)"
+                                      : (m.fields?.[f.key] ?? f.default ?? "")
+                                  }
+                                  value={
+                                    draft[f.key] ??
+                                    (f.secret ? "" : (m.fields?.[f.key] ?? ""))
+                                  }
+                                  onChange={(e) =>
+                                    setDrafts((prev) => ({
+                                      ...prev,
+                                      [spec.id]: {
+                                        ...prev[spec.id],
+                                        [f.key]: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              )}
                             </div>
                           )
                         })}

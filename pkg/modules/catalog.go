@@ -40,6 +40,7 @@ type ConfigField struct {
 	Label    string `json:"label"`              // UI label
 	Env      string `json:"env,omitempty"`      // env var passed to the module process
 	Arg      string `json:"arg,omitempty"`      // CLI flag passed as --<arg>=<value>
+	Flag     bool   `json:"flag,omitempty"`     // with Arg: emit bare --<arg> when value is truthy (true/1/yes/on)
 	Secret   bool   `json:"secret,omitempty"`   // store under secrets, mask in logs/UI
 	Required bool   `json:"required,omitempty"` // required to run/enable the module
 	Default  string `json:"default,omitempty"`  // applied when unset
@@ -202,6 +203,15 @@ func pairs(values map[string]string) []string {
 	return out
 }
 
+// isTruthy reports whether a flag-typed field value means "on".
+func isTruthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "1", "yes", "on":
+		return true
+	}
+	return false
+}
+
 // Tag resolves the release tag for a pin.
 func (s ModuleSpec) Tag(r ReleasePin) string {
 	tmpl := s.Install.TagTemplate
@@ -247,7 +257,8 @@ var catalog = []ModuleSpec{
 		Description: "Verified Ethereum JSON-RPC: a consensus light client " +
 			"(status-im/nimbus-eth1) that serves execution API responses " +
 			"verified against beacon-chain proofs. You supply an untrusted " +
-			"execution endpoint and a beacon API; the proxy trusts neither.",
+			"execution endpoint and a trusted block root; light-client data " +
+			"syncs over the beacon P2P network by default.",
 		// Upstream ships linux amd64/arm64, windows amd64, macos arm64.
 		Platforms: []string{"linux/amd64", "linux/arm64", "windows/amd64", "darwin/arm64"},
 		Install: InstallSpec{
@@ -285,11 +296,17 @@ var catalog = []ModuleSpec{
 				Required: true,
 			},
 			{
-				Key:      "beacon_api_url",
-				Label:    "Beacon API URL (light-client data provider)",
-				Arg:      "beacon-api-url",
-				Secret:   true,
-				Required: true,
+				Key:     "p2p",
+				Label:   "Sync light-client data over the beacon P2P network (no beacon endpoint needed)",
+				Arg:     "p2p",
+				Flag:    true,
+				Default: "true",
+			},
+			{
+				Key:    "beacon_api_url",
+				Label:  "Beacon REST API URL (optional supplement to p2p; required when p2p=false)",
+				Arg:    "beacon-api-url",
+				Secret: true,
 			},
 			{
 				Key:      "trusted_block_root",
@@ -309,10 +326,29 @@ var catalog = []ModuleSpec{
 				Arg:     "listen-url",
 				Default: "http://127.0.0.1:8545",
 			},
+			{
+				Key:     "p2p_tcp_port",
+				Label:   "P2P TCP port",
+				Arg:     "p2p-tcp-port",
+				Default: "9000",
+			},
+			{
+				Key:     "p2p_udp_port",
+				Label:   "P2P UDP port (discovery)",
+				Arg:     "p2p-udp-port",
+				Default: "9000",
+			},
+			{
+				Key:     "p2p_max_peers",
+				Label:   "P2P target peer count",
+				Arg:     "p2p-max-peers",
+				Default: "160",
+			},
 		},
-		Notes: "Requires a recent trusted_block_root — fetch one from your " +
-			"beacon API at /eth/v1/beacon/headers/finalized. Syncs the " +
-			"consensus light client on first start; eth_syncing reports progress.",
+		Notes: "Syncs the consensus light client over the beacon P2P network by " +
+			"default — set p2p=false to use only a beacon REST endpoint. " +
+			"Requires a recent trusted_block_root — fetch one from a beacon API " +
+			"at /eth/v1/beacon/headers/finalized. eth_syncing reports progress.",
 	},
 	{
 		ID: "ethereum-rpc", Name: "Ethereum RPC (remote endpoint)",
