@@ -1568,6 +1568,53 @@ func (c BrowserToolsConfig) IsZero() bool {
 	return true
 }
 
+// Web3ToolsConfig configures the read-only Ethereum JSON-RPC tools
+// (web3_*). Endpoints are operator-configured only — tools never accept
+// URLs at call time. APIKey is a SecureString so it migrates to
+// .security.yml and joins the SensitiveDataReplacer automatically.
+type Web3ToolsConfig struct {
+	ToolConfig `yaml:"-" envPrefix:"RHIZOME_TOOLS_WEB3_"`
+	// Endpoint overrides resolution entirely (e.g. "http://127.0.0.1:8545").
+	// Empty means resolve from module configuration.
+	Endpoint string `json:"endpoint,omitempty" yaml:"-" env:"RHIZOME_TOOLS_WEB3_ENDPOINT"`
+	// APIKey is sent as a Bearer token to the resolved endpoint.
+	APIKey SecureString `json:"api_key,omitzero" yaml:"api_key,omitempty" env:"RHIZOME_TOOLS_WEB3_API_KEY"`
+	// ChainIDs restricts which networks tools will query (decimal IDs).
+	// Empty = any chain. Checked against eth_chainId at resolution.
+	ChainIDs []uint64 `json:"chain_ids,omitempty" yaml:"-"`
+	// MaxLogRange caps the web3_logs block-range width (0 → default 10000).
+	MaxLogRange uint64 `json:"max_log_range,omitempty" yaml:"-"`
+	// TimeoutSeconds bounds each JSON-RPC call (0 → default 30s).
+	TimeoutSeconds int `json:"timeout_seconds,omitempty" yaml:"-"`
+	// AllowPrivateEndpoints permits loopback/private-IP endpoints — the
+	// nimbus-verified-proxy default listen is http://127.0.0.1:8545. Setting
+	// false wires the safe-dial SSRF guard (private/restricted IPs and
+	// DNS-rebinding are blocked at dial time).
+	AllowPrivateEndpoints bool `json:"allow_private_endpoints" yaml:"-"`
+}
+
+// GetMaxLogRange returns the configured log range cap or the default.
+func (c *Web3ToolsConfig) GetMaxLogRange() uint64 {
+	if c.MaxLogRange > 0 {
+		return c.MaxLogRange
+	}
+	return 10000
+}
+
+// GetTimeout returns the configured per-call timeout or the default.
+func (c *Web3ToolsConfig) GetTimeout() time.Duration {
+	if c.TimeoutSeconds > 0 {
+		return time.Duration(c.TimeoutSeconds) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// IsZero lets yaml omitempty drop the `web3:` section from .security.yml
+// when no API key is set — api_key is the only yaml-visible field.
+func (c Web3ToolsConfig) IsZero() bool {
+	return c.APIKey.String() == ""
+}
+
 // ModuleConfig holds per-module settings keyed by catalog module id.
 // Non-secret fields live in Fields (config.json); secret fields live in
 // Secrets and migrate to .security.yml via the SecureString pattern —
@@ -1696,6 +1743,7 @@ type ToolsConfig struct {
 	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SUBAGENT_"`
 	TranscribeAudio ToolConfig         `json:"transcribe_audio"  yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_TRANSCRIBE_AUDIO_"`
 	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WEB_FETCH_"`
+	Web3            Web3ToolsConfig    `json:"web3"              yaml:"web3,omitempty"`
 	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WRITE_FILE_"`
 }
 
@@ -2648,6 +2696,9 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.WriteFile.Enabled
 	case "mcp":
 		return t.MCP.Enabled
+	case "web3", "web3_chain", "web3_balance", "web3_call", "web3_block",
+		"web3_transaction", "web3_logs", "web3_rpc":
+		return t.Web3.Enabled
 	default:
 		return true
 	}

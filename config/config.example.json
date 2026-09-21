@@ -579,6 +579,15 @@
     "web_fetch": {
       "enabled": true
     },
+    "web3": {
+      "_comment": "Read-only Ethereum tools (web3_chain/balance/call/block/transaction/logs/rpc). Endpoint precedence: endpoint override → modules.ethereum-rpc endpoint_url (+ secret api_key) → running nimbus-verified-proxy. api_key goes in .security.yml or RHIZOME_TOOLS_WEB3_API_KEY, never here.",
+      "enabled": false,
+      "endpoint": "",
+      "chain_ids": [],
+      "max_log_range": 10000,
+      "timeout_seconds": 30,
+      "allow_private_endpoints": false
+    },
     "write_file": {
       "enabled": true
     }

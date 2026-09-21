@@ -496,6 +496,12 @@ func DefaultConfig() *Config {
 			WebFetch: ToolConfig{
 				Enabled: true,
 			},
+			Web3: Web3ToolsConfig{
+				ToolConfig:            ToolConfig{Enabled: false}, // Opt-in
+				MaxLogRange:           10000,
+				TimeoutSeconds:        30,
+				AllowPrivateEndpoints: false, // fail closed; nimbus on loopback needs the explicit opt-in
+			},
 			Browser: BrowserToolsConfig{
 				ToolConfig: ToolConfig{
 					Enabled: false, // Opt-in: requires a browser backend install

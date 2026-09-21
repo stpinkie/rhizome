@@ -196,6 +196,33 @@ pid/restarts/last-exit so status works daemonless. Security: HTTPS-only
 downloads, mandatory per-platform digest (sha256 or sha512 — nimbus publishes
 sha512), no user-supplied URLs, module dirs `0700`.
 
+## Web3 Read Tools (v0.11.0, Track 68)
+
+`pkg/web3` is a dependency-free read-only Ethereum JSON-RPC layer; the
+`web3_*` agent tools live in `pkg/tools/web3` and are **disabled by
+default** (`tools.web3.enabled`). No send/sign path exists in this layer —
+`web3_rpc` passthrough is restricted to a hard-coded read-only method
+allowlist (`eth_call`, `eth_get*`, `net_*`, `web3_*`; `eth_accounts` is
+deliberately excluded).
+
+Endpoint resolution (`pkg/web3/endpoint.go`, `Provider`) is
+operator-config only — tools never accept URLs:
+
+1. `tools.web3.endpoint` (+ `tools.web3.api_key` Bearer, a SecureString →
+   `.security.yml` + `SensitiveDataReplacer`)
+2. `modules.ethereum-rpc` `fields.endpoint_url` (+ secret `api_key`)
+3. Running `nimbus-verified-proxy` `listen_url`, probed via `eth_chainId`
+   (probe doubles as the running+healthy check — works daemonless)
+
+Results cache for 30 s. `tools.web3.chain_ids` (decimal list) hard-fails
+on chain mismatch; `max_log_range` (default 10000) caps `web3_logs` block
+width (tag bounds resolve to concrete numbers first); `allow_private_endpoints`
+(default **false** — fail closed) at false routes through
+`utils.CreateSafeHTTPClient`'s safe-dial SSRF guard; nimbus on loopback
+needs the explicit opt-in. Transport errors are unwrapped of `url.Error`
+so endpoint URLs (which can embed path keys) never reach tool output.
+Guide: `docs/guides/web3.md`.
+
 ## ACP (Agent Client Protocol)
 
 `rhizome acp [--agent <id>]` serves ACP over stdio (Zed/JetBrains drive
