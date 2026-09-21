@@ -230,28 +230,28 @@ func TestValidateConfig(t *testing.T) {
 	cfg := &config.Config{Modules: config.ModulesConfig{
 		"bogus": {Enabled: true},
 	}}
-	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "unknown module id") {
+	if err := ValidateConfig(cfg, nil); err == nil || !strings.Contains(err.Error(), "unknown module id") {
 		t.Fatalf("expected unknown-id error, got %v", err)
 	}
 
 	cfg = &config.Config{Modules: config.ModulesConfig{
 		"m1": {Fields: map[string]string{"token": "x"}},
 	}}
-	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "secret field") {
+	if err := ValidateConfig(cfg, nil); err == nil || !strings.Contains(err.Error(), "secret field") {
 		t.Fatalf("expected secret-placement error, got %v", err)
 	}
 
 	cfg = &config.Config{Modules: config.ModulesConfig{
 		"m1": {Enabled: true},
 	}}
-	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "required field") {
+	if err := ValidateConfig(cfg, nil); err == nil || !strings.Contains(err.Error(), "required field") {
 		t.Fatalf("expected required-field error, got %v", err)
 	}
 
 	cfg = &config.Config{Modules: config.ModulesConfig{
 		"m1": {Enabled: true, Fields: map[string]string{"endpoint": "http://x"}},
 	}}
-	if err := ValidateConfig(cfg); err != nil {
+	if err := ValidateConfig(cfg, nil); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 }
@@ -493,7 +493,7 @@ func TestExtractTarGzRejectsTraversal(t *testing.T) {
 	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := extractTarGz(archive, t.TempDir(), ""); err == nil ||
+	if _, err := extractTarGz(archive, t.TempDir(), ""); err == nil ||
 		!strings.Contains(err.Error(), "unsafe path") {
 		t.Fatalf("expected traversal rejection, got %v", err)
 	}

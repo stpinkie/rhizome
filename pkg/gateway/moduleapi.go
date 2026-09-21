@@ -140,6 +140,18 @@ func (h *moduleHandler) action(w http.ResponseWriter, r *http.Request, mgr *modu
 		return
 	}
 
+	if body.Action == "verify" {
+		res, err := mgr.Verify(id)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": err.Error(), "result": res,
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+		return
+	}
+
 	var err error
 	switch body.Action {
 	case "install":

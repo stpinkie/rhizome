@@ -37,7 +37,10 @@ const (
 
 // Info is the catalog + config + state view of one module.
 type Info struct {
-	Spec          ModuleSpec        `json:"spec"`
+	Spec ModuleSpec `json:"spec"`
+	// Source is the catalog provenance: "embedded" (baked-in, trust-rooted)
+	// or "remote" (signed module_index catalog).
+	Source        string            `json:"source"`
 	Status        Status            `json:"status"`
 	Enabled       bool              `json:"enabled"`
 	InstalledPath string            `json:"installed_path,omitempty"`
@@ -87,6 +90,9 @@ func (m *Manager) save() error {
 	}
 	return m.saveFn(m.cfg)
 }
+
+// Config returns the config the manager was built with.
+func (m *Manager) Config() *config.Config { return m.cfg }
 
 // SetSupervisor attaches the supervisor (daemon only) after construction.
 func (m *Manager) SetSupervisor(sup *Supervisor) { m.sup = sup }
@@ -169,7 +175,7 @@ func (m *Manager) binaryPath(spec ModuleSpec) string {
 
 // Info resolves the full status for one module.
 func (m *Manager) Info(id string) (Info, error) {
-	spec, ok := Lookup(id)
+	spec, source, ok := m.lookupSpec(id)
 	if !ok {
 		return Info{}, fmt.Errorf("unknown module %q", id)
 	}
@@ -177,6 +183,7 @@ func (m *Manager) Info(id string) (Info, error) {
 	st := m.loadState(id)
 	info := Info{
 		Spec:    spec,
+		Source:  source,
 		Enabled: mc.Enabled,
 		Version: m.installedVersion(id),
 		Fields:  mc.Fields,
@@ -234,10 +241,10 @@ func (m *Manager) Info(id string) (Info, error) {
 	return info, nil
 }
 
-// List returns Info for every catalog module.
+// List returns Info for every catalog module (embedded + verified remote).
 func (m *Manager) List() ([]Info, error) {
 	var out []Info
-	for _, spec := range Catalog() {
+	for _, spec := range m.specs() {
 		info, err := m.Info(spec.ID)
 		if err != nil {
 			return nil, err
@@ -249,7 +256,7 @@ func (m *Manager) List() ([]Info, error) {
 
 // Enable flips modules.<id>.enabled and persists config.
 func (m *Manager) Enable(id string, enabled bool) error {
-	spec, ok := Lookup(id)
+	spec, _, ok := m.lookupSpec(id)
 	if !ok {
 		return fmt.Errorf("unknown module %q", id)
 	}
@@ -278,7 +285,7 @@ func (m *Manager) Enable(id string, enabled bool) error {
 // SetFields writes non-secret field values for a module and persists config.
 // Unknown or secret-marked keys are rejected — secrets go through SetSecrets.
 func (m *Manager) SetFields(id string, fields map[string]string) error {
-	spec, ok := Lookup(id)
+	spec, _, ok := m.lookupSpec(id)
 	if !ok {
 		return fmt.Errorf("unknown module %q", id)
 	}
@@ -312,7 +319,7 @@ func (m *Manager) SetFields(id string, fields map[string]string) error {
 // SetSecrets writes secret field values for a module; they persist to
 // .security.yml via the SecureString pattern, never to config.json.
 func (m *Manager) SetSecrets(id string, secrets map[string]string) error {
-	spec, ok := Lookup(id)
+	spec, _, ok := m.lookupSpec(id)
 	if !ok {
 		return fmt.Errorf("unknown module %q", id)
 	}
@@ -350,7 +357,7 @@ func (m *Manager) SetSecrets(id string, secrets map[string]string) error {
 // Install resolves a release, downloads, verifies, and extracts the module.
 // version "" means "latest pinned".
 func (m *Manager) Install(ctx context.Context, id, version string) error {
-	spec, ok := Lookup(id)
+	spec, _, ok := m.lookupSpec(id)
 	if !ok {
 		return fmt.Errorf("unknown module %q", id)
 	}
@@ -377,7 +384,7 @@ func (m *Manager) Install(ctx context.Context, id, version string) error {
 // Uninstall removes the module directory. The caller must stop the module
 // first — Uninstall refuses while the supervisor reports it running.
 func (m *Manager) Uninstall(id string) error {
-	if _, ok := Lookup(id); !ok {
+	if _, _, ok := m.lookupSpec(id); !ok {
 		return fmt.Errorf("unknown module %q", id)
 	}
 	if m.sup != nil && m.sup.IsRunning(id) {

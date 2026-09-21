@@ -84,14 +84,18 @@ type Config struct {
 	Mesh      MeshConfig      `json:"mesh,omitempty"      yaml:"-"`
 	Swarm     SwarmConfig     `json:"swarm,omitempty"     yaml:"-"`
 	Modules   ModulesConfig   `json:"modules,omitempty"   yaml:"modules,omitempty"`
-	ACP       ACPConfig       `json:"acp,omitempty"       yaml:"-"`
-	Events    EventsConfig    `json:"events,omitempty"    yaml:"-"`
-	Hooks     HooksConfig     `json:"hooks,omitempty"     yaml:"-"`
-	Tools     ToolsConfig     `json:"tools"               yaml:",inline"`
-	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
-	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
-	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
-	Timeouts  TimeoutsConfig  `json:"timeouts,omitempty"  yaml:"-"`
+	// ModuleIndex configures the optional signed remote module catalog
+	// (Track 70). It is a sibling of Modules — a key inside the modules map
+	// would decode as a module id.
+	ModuleIndex ModuleIndexConfig `json:"module_index,omitempty" yaml:"-"`
+	ACP         ACPConfig         `json:"acp,omitempty"          yaml:"-"`
+	Events      EventsConfig      `json:"events,omitempty"       yaml:"-"`
+	Hooks       HooksConfig       `json:"hooks,omitempty"        yaml:"-"`
+	Tools       ToolsConfig       `json:"tools"                  yaml:",inline"`
+	Heartbeat   HeartbeatConfig   `json:"heartbeat"              yaml:"-"`
+	Devices     DevicesConfig     `json:"devices"                yaml:"-"`
+	Voice       VoiceConfig       `json:"voice"                  yaml:"-"`
+	Timeouts    TimeoutsConfig    `json:"timeouts,omitempty"     yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -1630,6 +1634,17 @@ type ModuleConfig struct {
 // .security.yml onto entries already loaded from config.json instead of
 // replacing them, and MarshalYAML writes only modules that carry secrets.
 type ModulesConfig map[string]ModuleConfig
+
+// ModuleIndexConfig controls the optional curated remote module catalog.
+// When enabled, pkg/modules fetches <url>/catalog.json + catalog.json.sig,
+// verifies the Ed25519 signature against the baked-in release key, caches
+// the verified catalog under <RHIZOME_HOME>/catalog-cache/, and merges it
+// with the embedded catalog (embedded entries always win id collisions).
+// Unsigned or badly-signed catalogs are refused outright.
+type ModuleIndexConfig struct {
+	Enabled bool   `json:"enabled,omitempty"`
+	URL     string `json:"url,omitempty"` // HTTPS base URL serving catalog.json{,.sig}
+}
 
 // UnmarshalYAML overlays secrets from .security.yml onto existing entries.
 // Entries absent from config.json are ignored: a secret-only entry is

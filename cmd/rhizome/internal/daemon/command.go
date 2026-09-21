@@ -219,7 +219,7 @@ func NewDaemonCommand() *cobra.Command {
 			configPath := internal.GetConfigPath()
 			moduleMgr := modules.NewManager(home, cfg, eventBus,
 				func(c *config.Config) error { return config.SaveConfig(configPath, c) })
-			if err := modules.ValidateConfig(cfg); err != nil {
+			if err := modules.ValidateConfig(cfg, moduleMgr.LookupSpec); err != nil {
 				fmt.Fprintf(os.Stderr, "module config warning: %v\n", err)
 			}
 			moduleSup := modules.NewSupervisor(moduleMgr)

@@ -11,9 +11,15 @@
 package modules
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // Kind describes a module's process lifecycle.
@@ -386,4 +392,125 @@ func Lookup(id string) (ModuleSpec, bool) {
 		}
 	}
 	return ModuleSpec{}, false
+}
+
+// ── Signed catalog (Track 70) ────────────────────────────────────────────
+
+// releasePubKeyB64 is the baked-in Ed25519 public key (base64) that signs
+// release catalogs. The matching private key lives only in the
+// MODULE_CATALOG_SIGNING_KEY GitHub secret — see
+// docs/operations/module-catalog-signing.md. It is a variable so tests can
+// substitute their own keypair.
+var releasePubKeyB64 = "Ww3Kz/J38L0ColSCrcOjq6I/3WCzsvZMvecGyyrDQzI="
+
+// catalogVersionSupported is the highest remote-catalog schema version this
+// binary understands. Catalogs carrying a newer version are refused so an
+// old binary never silently misreads a newer wire shape.
+const catalogVersionSupported = 1
+
+// CatalogEnvelope is the signed remote-catalog wire format served at
+// <module_index.url>/catalog.json.
+type CatalogEnvelope struct {
+	CatalogVersion int          `json:"catalog_version"`
+	GeneratedAt    string       `json:"generated_at,omitempty"`
+	Modules        []ModuleSpec `json:"modules"`
+}
+
+// MarshalCatalog renders the catalog in its canonical signed form — the
+// exact bytes release signing covers (json.MarshalIndent is deterministic:
+// struct field order plus sorted map keys).
+func MarshalCatalog() ([]byte, error) {
+	return json.MarshalIndent(CatalogEnvelope{
+		CatalogVersion: catalogVersionSupported,
+		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
+		Modules:        catalog,
+	}, "", "  ")
+}
+
+// catalogPubKey decodes the baked-in release public key.
+func catalogPubKey() (ed25519.PublicKey, error) {
+	if releasePubKeyB64 == "" {
+		return nil, errors.New("no module catalog signing key baked into this build")
+	}
+	raw, err := base64.StdEncoding.DecodeString(releasePubKeyB64)
+	if err != nil {
+		return nil, fmt.Errorf("catalog pubkey: %w", err)
+	}
+	if len(raw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("catalog pubkey: %d bytes, want %d", len(raw), ed25519.PublicKeySize)
+	}
+	return ed25519.PublicKey(raw), nil
+}
+
+// VerifyCatalogSignature checks sigB64 (base64 Ed25519 signature) over the
+// exact catalog bytes as published.
+func VerifyCatalogSignature(data []byte, sigB64 string) error {
+	pub, err := catalogPubKey()
+	if err != nil {
+		return err
+	}
+	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sigB64))
+	if err != nil {
+		return fmt.Errorf("catalog signature: %w", err)
+	}
+	if !ed25519.Verify(pub, data, sig) {
+		return errors.New("catalog signature does not verify")
+	}
+	return nil
+}
+
+// GenerateCatalogKeypair creates a fresh Ed25519 catalog signing keypair.
+// Returns (base64 public key, base64 seed). Backs `rhizome module
+// catalog-keygen`; the seed belongs in the MODULE_CATALOG_SIGNING_KEY
+// GitHub secret, the pubkey in releasePubKeyB64 above.
+func GenerateCatalogKeypair() (pubB64, seedB64 string, err error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return "", "", err
+	}
+	return base64.StdEncoding.EncodeToString(pub),
+		base64.StdEncoding.EncodeToString(priv.Seed()), nil
+}
+
+// SignCatalog signs catalog bytes with a base64-encoded Ed25519 seed and
+// returns the base64 signature. Used by `rhizome module catalog --sign`
+// during release, and by tests.
+func SignCatalog(data []byte, seedB64 string) (string, error) {
+	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(seedB64))
+	if err != nil {
+		return "", fmt.Errorf("catalog signing seed: %w", err)
+	}
+	if len(seed) != ed25519.SeedSize {
+		return "", fmt.Errorf("catalog signing seed: %d bytes, want %d", len(seed), ed25519.SeedSize)
+	}
+	sig := ed25519.Sign(ed25519.NewKeyFromSeed(seed), data)
+	return base64.StdEncoding.EncodeToString(sig), nil
+}
+
+// parseCatalogEnvelope unmarshals and sanity-checks signed catalog bytes.
+func parseCatalogEnvelope(data []byte) ([]ModuleSpec, error) {
+	var env CatalogEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("catalog JSON: %w", err)
+	}
+	if env.CatalogVersion < 1 || env.CatalogVersion > catalogVersionSupported {
+		return nil, fmt.Errorf("unsupported catalog_version %d (this build understands ≤ %d)",
+			env.CatalogVersion, catalogVersionSupported)
+	}
+	seen := map[string]bool{}
+	for i, spec := range env.Modules {
+		if spec.ID == "" || spec.Name == "" {
+			return nil, fmt.Errorf("catalog entry %d: id/name required", i)
+		}
+		switch spec.Kind {
+		case KindDaemon, KindOnDemand, KindConfig:
+		default:
+			return nil, fmt.Errorf("catalog entry %q: unknown kind %q", spec.ID, spec.Kind)
+		}
+		if seen[spec.ID] {
+			return nil, fmt.Errorf("catalog lists %q twice", spec.ID)
+		}
+		seen[spec.ID] = true
+	}
+	return env.Modules, nil
 }

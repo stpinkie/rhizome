@@ -85,6 +85,15 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check module catalog signing key
+        id: catalog_key
+        run: |
+          if [ -n "${{ secrets.MODULE_CATALOG_SIGNING_KEY }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -144,6 +153,21 @@ jobs:
           MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+
+      # Signs the embedded module catalog and attaches catalog.json +
+      # catalog.json.sig to the release — the trust root for the opt-in
+      # remote module index. Skipped when the secret is absent (same gate
+      # pattern as Docker Hub).
+      - name: Sign and upload module catalog
+        if: steps.catalog_key.outputs.available == 'true'
+        env:
+          MODULE_CATALOG_SIGNING_KEY: ${{ secrets.MODULE_CATALOG_SIGNING_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          go run -tags goolm,stdjson ./cmd/rhizome module catalog \
+            --out catalog.json --sign-with-env MODULE_CATALOG_SIGNING_KEY
+          gh release upload "${{ steps.release_tag.outputs.value }}" \
+            catalog.json catalog.json.sig --clobber
 
       # Dispatch-only: on tag-push runs the prerelease flag comes from
       # goreleaser's `prerelease: auto` (semver suffix detection).

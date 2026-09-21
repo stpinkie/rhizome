@@ -206,6 +206,19 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request, id string
 		respondNetworkError(w, http.StatusInternalServerError, "load config: "+err.Error())
 		return
 	}
+	if req.Action == "verify" {
+		// Disk-only: re-hash the installed binary against its install-time
+		// digest record. Runs locally even with no daemon.
+		res, verr := mgr.Verify(id)
+		if verr != nil {
+			writeModuleJSON(w, http.StatusBadRequest, map[string]any{
+				"error": verr.Error(), "result": res,
+			})
+			return
+		}
+		writeModuleJSON(w, http.StatusOK, res)
+		return
+	}
 	switch req.Action {
 	case "install":
 		err = mgr.Install(r.Context(), id, req.Version)

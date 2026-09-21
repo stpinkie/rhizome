@@ -82,7 +82,7 @@ func (s *Supervisor) IsRunning(id string) bool {
 // StartEnabled launches every enabled daemon-kind module. Errors are
 // logged and do not prevent the remaining modules from starting.
 func (s *Supervisor) StartEnabled() {
-	for _, spec := range Catalog() {
+	for _, spec := range s.mgr.specs() {
 		if spec.Kind != KindDaemon {
 			continue
 		}
@@ -101,7 +101,7 @@ func (s *Supervisor) Start(id string) error {
 	if s.closed.Load() {
 		return fmt.Errorf("module supervisor is shut down")
 	}
-	spec, ok := Lookup(id)
+	spec, _, ok := s.mgr.lookupSpec(id)
 	if !ok {
 		return fmt.Errorf("unknown module %q", id)
 	}

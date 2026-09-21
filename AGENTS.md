@@ -191,17 +191,31 @@ config-kind entry.
 - `rhizome module logs <id> [--tail N]` — bounded stdout/stderr logs under the module dir.
 - `rhizome module set <id> key=value…` — write `modules.<id>.fields`; `--secret` writes `.secrets` (`.security.yml`, never config.json).
 - `rhizome module validate` — check the `modules` config section against the catalog.
+- `rhizome module verify <id>` — re-hash the installed binary against its install-time sha256 record (drift detection; daemonless).
+- `rhizome module catalog [--out f] [--sign-with-env VAR]` — emit the embedded catalog as canonical `catalog.json` (+ `.sig`); `rhizome module catalog-keygen` (hidden) generates a signing keypair.
 
 Daemon endpoints (bearer auth): `GET /modules`, `GET /modules/<id>`,
 `GET /modules/<id>/logs?tail=N`, `POST /modules/<id>` `{action,
-version}`, `PUT /modules/<id>/fields`, `PUT /modules/<id>/secrets`.
+version}` (actions include `verify`), `PUT /modules/<id>/fields`,
+`PUT /modules/<id>/secrets`.
 Launcher mirrors them under `/api/modules*` with a local fallback for
-reads/config/install when no daemon runs. Events: `module.installed`,
+reads/config/install/verify when no daemon runs. Events: `module.installed`,
 `module.uninstalled`, `module.started`, `module.stopped`, `module.crashed`,
-`module.enabled`, `module.disabled`. `module-state.json` persists
-pid/restarts/last-exit so status works daemonless. Security: HTTPS-only
-downloads, mandatory per-platform digest (sha256 or sha512 — nimbus publishes
-sha512), no user-supplied URLs, module dirs `0700`.
+`module.enabled`, `module.disabled`, `module.verify.*`, `module.catalog.*`.
+`module-state.json` persists pid/restarts/last-exit so status works
+daemonless. Security: HTTPS-only downloads, mandatory per-platform digest
+(sha256 or sha512 — nimbus publishes sha512), no user-supplied URLs, module
+dirs `0700`.
+
+Remote index (v0.11.0, Track 70): `module_index = {enabled, url}` is a
+sibling of `modules` (a key inside `modules` would decode as a module id).
+When enabled, `<url>/catalog.json` + `.sig` (Ed25519 over the served bytes,
+verified against the baked-in `releasePubKeyB64`) merge into the catalog —
+embedded entries win id collisions; unsigned/bad-sig content is refused
+outright; verified catalogs cache under `<RHIZOME_HOME>/catalog-cache/`
+(1 h TTL, stale-serve on fetch failure only). Releases sign via the
+`MODULE_CATALOG_SIGNING_KEY` secret; see
+`docs/operations/module-catalog-signing.md`.
 
 ## Web3 Read Tools (v0.11.0, Track 68)
 
