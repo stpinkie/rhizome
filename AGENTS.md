@@ -2,6 +2,13 @@
 
 This is a hard fork/rebrand of PicoClaw. Module path: `github.com/stpinkie/rhizome`.
 
+- Remotes: `origin` = `github.com/stpinkie/rhizome` (canonical repo — all PRs,
+  issues, releases live here); `upstream` = `github.com/sipeed/picoclaw` (the
+  project this forked from — sync only, **never open PRs against it**). `gh`
+  resolves the base repo to upstream when both remotes exist, so always pass
+  `--repo stpinkie/rhizome` to `gh` commands (`gh pr create`, `gh pr view`,
+  `gh issue`, …), or run `gh repo set-default stpinkie/rhizome` once per clone.
+
 ## Build & Test
 
 - Always build/test with the tags used in `Makefile`:
