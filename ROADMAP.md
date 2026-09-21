@@ -3,7 +3,7 @@
 
 > **Vision**: A personal AI agent that runs everywhere you already have hardware — secure, autonomous, and cheap enough to leave running. Automate the mundane, unleash your creativity.
 
-> **Re-evaluated post-v0.9.1**: items that shipped are marked with their release; the roadmap now tracks only what's actually open. Work is planned in `.todo.md` sprint tracks (GitHub issues are disabled on this repo); upstream PicoClaw issue numbers from the original roadmap are triaged in `docs/project/upstream-issue-triage.md`.
+> **Re-evaluated post-v0.10.0**: items that shipped are marked with their release; the roadmap now tracks only what's actually open. Work is planned in `.todo.md` sprint tracks (GitHub issues are disabled on this repo); upstream PicoClaw issue numbers from the original roadmap are triaged in `docs/project/upstream-issue-triage.md`. Current sprint: **v0.11.0** (`docs/design/v0.11.0-sprint.md`).
 
 ---
 
@@ -14,8 +14,8 @@
 * **Efficiency as a budget, not a floor**
   * **Goal**: Resident daemon comfortable on 256 MB-class boards and up; one-shot CLI on anything that can exec a Go binary. Idle cost and cold-start time matter more than absolute footprint.
   * ✅ Binary-size regression gate in CI (`scripts/binary-size-baseline.txt` — warn at +15%, fail at +30%).
-  * **Open → v0.10.0 Track 64**: runtime RSS measurement (`scripts/measure-footprint.sh` — three profiles, JSON → `docs/architecture/footprint-audit.md`) + a standing idle-RSS watch per release.
-  * **Open → v0.10.0 Track 64**: **worker-node tier** — a mesh participant that consumes swarm/sync/task services without running infrastructure roles (no public DHT, relay service, AutoNAT service; pairs with `daemon --no-gateway`); `role` on the signed capability manifest is the seam for later role-aware routing.
+  * ✅ Runtime RSS measurement (v0.10.0 Track 64): `scripts/measure-footprint.sh` — three profiles, JSON → `docs/architecture/footprint-audit.md` (worker ≈50 MB / full ≈55 MB steady RSS, 74.5 MB stripped binary); standing idle-RSS watch per release.
+  * ✅ **Worker-node tier** (v0.10.0 Track 64): `mesh.role=worker` joins the mesh without infrastructure roles (no public DHT, relay service, AutoNAT service; pairs with `daemon --no-gateway`); `role` is signed into the capability manifest — the seam for role-aware routing (v0.11.0 Track 73).
   * **Action**: New dependencies must justify their cost; optimize idle CPU and cold start before shaving megabytes.
 
 
@@ -31,10 +31,10 @@
 
 * **Authentication & Secrets**
   * ✅ Identity encryption (v0.9.x era): OS keyring / passphrase (scrypt) / none for `node.json`.
-  * **Open**: OAuth 2.0 flows for providers — deprecate hardcoded API keys.
-  * **Open**: `ChaCha20-Poly1305`-class modern secret storage.
-  * **New → v0.10.0 Track 60**: module supply-chain verification — checksum-pinned companion downloads; signatures (cosign/sigstore) later.
-  * **New (see §9 Stage 2)**: web3 signing safety — transaction send gated behind allowlists, spending caps, and the approval-hook seam.
+  * ✅ OAuth 2.0 provider flows (partial): browser+PKCE login in `pkg/auth/oauth.go` + `pkg/providers/oauth/` (codex/claude/antigravity) + `auth_method` plumbing. **Residual → v0.11.0 Track 74**: headless/device-code path + coverage/docs.
+  * **Open → v0.11.0 Track 74**: `ChaCha20-Poly1305`-class modern secret storage (`enc2://` XChaCha20-Poly1305 alongside `enc://` AES-256-GCM).
+  * ✅ Module supply-chain verification (v0.10.0 Track 60): checksum-pinned companion downloads (sha256/sha512 per platform). **Deepening → v0.11.0 Track 70**: signed catalog + curated remote index.
+  * **New → v0.11.0 Track 69 (see §9 Stage 2)**: web3 signing safety — transaction send gated behind allowlists, spending caps, and an async pending-approval queue (CLI/daemon/UI) layered on the `approve_tool` hook seam.
 
 
 ## 🔌 3. Connectivity: Protocol-First Architecture
@@ -48,14 +48,15 @@
 * **Channel**
   * ✅ Attachment matrix (v0.9.0): inbound + `SendMedia` coverage across the IM fleet — see `docs/channels/media-matrix.md`.
   * IM matrix: QQ, WeChat (Work), DingTalk, Feishu (Lark), Telegram, Discord, WhatsApp, LINE, Slack, Email, KOOK, Signal, IRC ... (incremental).
-  * **Open**: OneBot protocol support.
+  * ✅ OneBot protocol support (`pkg/channels/onebot` + `docs/channels/onebot/`).
 
 * **Agent Interop**
-  * **New → v0.10.0 Tracks 61–62**: **Agent Client Protocol (Zed ACP)** — server (`rhizome acp`: editors like Zed/JetBrains drive Rhizome over stdio JSON-RPC) and client (external ACP agents bound as first-class agent ids — routable via `delegate`, `spawn`, `network route`, and swarm offers).
+  * ✅ **Agent Client Protocol (Zed ACP)** (v0.10.0 Tracks 61–62): server (`rhizome acp`: editors like Zed/JetBrains drive Rhizome over stdio JSON-RPC) and client (external ACP agents bound as first-class agent ids — routable via `delegate`, `spawn`, `network route`, and swarm offers). **Deepening → v0.11.0 Track 72**: `session/load` persistence, per-session MCP passthrough, `terminal` client capability (deny-default).
 
 * **Skill Distribution**
   * ✅ Mesh skill distribution (v0.8.0): `mesh.skill_share` allowlist, `/rhizome/skill/1.0.0` + blob transport, guard-scanned install, mesh provenance.
-  * **Open**: `find_skill` registry discovery (GitHub Skills Repo / other registries).
+  * ✅ Registry discovery: `find_skills`/`install_skill` tools + `pkg/skills` ClawHub/GitHub registries + Hub marketplace UI.
+  * **Open**: curated Rhizome skill index / additional registries (depth, not discovery).
 
 
 ## 🧠 4. Advanced Capabilities: From Chatbot to Agentic AI
@@ -72,8 +73,8 @@
   * ✅ Swarm Mode (v0.7.0): trusted-peer swarms, presence, offer/claim work queue, coordinator election, `swarm run` goal orchestration, optional GossipSub.
   * ✅ Mesh depth (v0.8.0): trust pairing, blob transfer, task attachments, capability-aware claims, DAG orchestration.
   * ✅ Shared context + agent identity (v0.9.0): swarm blackboard + signed AIEOS-style agent manifests.
-  * **New → v0.10.0 Track 63**: **mesh observability** — per-connection transport/direction/RTT details, peer score surfacing, bandwidth counters, activity feed, dashboard panels.
-  * Smart routing deepening (task/cost-aware dispatch) — open.
+  * ✅ **Mesh observability** (v0.10.0 Track 63): per-connection transport/direction/RTT details, peer score surfacing, bandwidth counters, activity feed, dashboard panels.
+  * **New → v0.11.0 Track 73**: role-aware `PickPeer` + role-preferred coordinator election + dashboard topology graph. Task/cost-aware dispatch deferred (Stage 3 territory).
   * AIEOS: continued exploration of AI-native OS interaction paradigms.
 
 
@@ -103,20 +104,21 @@
 
 *The base binary stays lean; optional capabilities ship as managed sidecar binaries installed after the base install. Generalizes the proven `pkg/browser` backend + install-manager pattern beyond browsers.*
 
-* **New → v0.10.0 Track 60**: **companion module system**
-  * Catalog-driven module specs; `daemon` (supervised long-running, e.g. a node) and `on-demand` (spawned per use, e.g. an agent process) lifecycle kinds.
+* ✅ **Companion module system** (v0.10.0 Track 60)
+  * Catalog-driven module specs; `daemon` (supervised long-running, e.g. a node), `on-demand` (spawned per use), and `config` (endpoint descriptor) lifecycle kinds.
   * Checksum-pinned downloads (`github-release`/`npm`/`detect`/`config` install methods); daemon supervision with backoff restart; `module.*` events.
-  * `rhizome module list|status|install|uninstall|enable|disable|start|stop|logs` CLI + a web **Modules** page.
-* **First tenants → v0.10.0 Track 65**: `nimbus-verified-proxy` (verified Ethereum JSON-RPC; ships linux/darwin/**windows**) + `ethereum-rpc` (config-only remote endpoint). Future candidates: `helios` (linux/darwin only — no Windows binary), IPFS node, bundled local-model runtime, ACP agent wrappers.
-* **Later**: cosign/sigstore signature verification; curated module index.
+  * `rhizome module list|status|install|uninstall|enable|disable|start|stop|restart|logs|set|validate` CLI + a web **Modules** page.
+* ✅ **First tenants** (v0.10.0 Track 65): `nimbus-verified-proxy` (verified Ethereum JSON-RPC; linux/darwin/**windows**; P2P light-client sync default) + `ethereum-rpc` (config-only remote endpoint).
+* **New → v0.11.0 Track 70**: module trust — signed catalog (Rhizome Ed25519 release key), opt-in curated remote index (`modules.catalog_url`), `module verify` drift detection.
+* **New → v0.11.0 Track 71**: new tenants — `helios` (linux/darwin), `ipfs-kubo` (needs zip extraction), `llama.cpp` stretch. Future candidates: ACP agent wrappers.
 
 
 ## 🪙 9. Web3 Rails (exploration)
 
 *The Ethereum node option explicitly includes plans for **agentic web3 operations** — staged so the risky parts (signing) only arrive after the safe parts prove out.*
 
-* **Stage 1 — Node availability → v0.10.0 Track 65**: the `nimbus-verified-proxy` module serves a verified local JSON-RPC (default :8545) for the user's own scripts and dapps. No agent tools.
-* **Stage 2 — Agentic web3 operations** (roadmap): `web3_*` agent tools over the module endpoint — chain reads (`eth_call`, balances, ENS, event logs) and contract ABI interaction; wallet/key management reusing the identity-encryption posture (keyring/passphrase); **gated signing** — transaction send behind contract/method allowlists, spending caps, and the approval-hook seam.
+* ✅ **Stage 1 — Node availability** (v0.10.0 Track 65): the `nimbus-verified-proxy` module serves a verified local JSON-RPC (default :8545) for the user's own scripts and dapps. No agent tools.
+* **Stage 2 — Agentic web3 operations → v0.11.0 Tracks 68–69**: `web3_*` agent tools over the module endpoint — chain reads (`eth_call`, balances, blocks, receipts, event logs) and contract ABI interaction; wallet/key management reusing the identity-encryption posture (keyring/passphrase); **gated signing** — transaction send behind contract/method allowlists, spending caps, and an async pending-approval queue on the `approve_tool` hook seam.
 * **Stage 3 — Mesh settlement** (horizon): paying trusted peers for remote task/swarm work over the mesh; exploratory, only after Stage 2 hardening.
 
 
