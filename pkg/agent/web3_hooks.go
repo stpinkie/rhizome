@@ -7,10 +7,22 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	web3tools "github.com/stpinkie/rhizome/pkg/tools/web3"
 )
+
+// web3ConfigPath resolves the active config.json path — RHIZOME_CONFIG
+// first, then <RHIZOME_HOME>/config.json (mirrors cmd internal helpers).
+func web3ConfigPath() string {
+	if p := os.Getenv(config.EnvConfig); p != "" {
+		return p
+	}
+	return filepath.Join(config.GetHome(), "config.json")
+}
 
 // web3ApprovalHook adapts HookManager.ApproveTool into the signing tools'
 // normalized veto pass. The pipeline already vets every tool call by name +

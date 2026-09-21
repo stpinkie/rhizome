@@ -55,6 +55,7 @@ func (h *Handler) web3Daemon(r *http.Request, path string, body []byte) ([]byte,
 
 	u := h.gatewayProxyURL()
 	u.Path = "/web3" + path
+	u.RawQuery = r.URL.RawQuery
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -101,7 +102,7 @@ func (h *Handler) handleWeb3Wallet(w http.ResponseWriter, r *http.Request) {
 		writeModuleJSON(w, code, json.RawMessage(out))
 		return
 	}
-	stack, _, err := h.web3Stack()
+	stack, cfg, err := h.web3Stack()
 	if err != nil {
 		respondNetworkError(w, http.StatusServiceUnavailable, err.Error())
 		return
@@ -112,8 +113,34 @@ func (h *Handler) handleWeb3Wallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	def, _ := stack.Wallets.Default()
+	type addrJSON struct {
+		web3.WalletEntry
+		Default    bool   `json:"default,omitempty"`
+		BalanceWei string `json:"balance_wei,omitempty"`
+	}
+	out := make([]addrJSON, 0, len(entries))
+	var provider *web3.Provider
+	if r.URL.Query().Get("balances") == "true" {
+		provider = web3.NewProvider(cfg)
+	}
+	for _, e := range entries {
+		row := addrJSON{WalletEntry: e, Default: e.Address == def}
+		if provider != nil {
+			raw, err := provider.Call(r.Context(), "eth_getBalance",
+				[]any{e.Address, "latest"})
+			if err == nil {
+				var hexBal string
+				if json.Unmarshal(raw, &hexBal) == nil {
+					if wei, err := web3.ParseQuantity(hexBal); err == nil {
+						row.BalanceWei = wei.String()
+					}
+				}
+			}
+		}
+		out = append(out, row)
+	}
 	writeModuleJSON(w, http.StatusOK, map[string]any{
-		"addresses": entries, "default": def, "count": len(entries),
+		"addresses": out, "default": def, "count": len(out),
 	})
 }
 

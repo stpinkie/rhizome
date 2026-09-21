@@ -276,6 +276,8 @@ func registerSharedTools(
 				Hook:       web3ApprovalHook{hm: al.hooks},
 				ApproveTTL: cfg.Tools.Web3.Signing.GetApprovalTimeout(),
 				Emit:       web3Emit(al),
+				Cfg:        cfg,
+				ConfigPath: web3ConfigPath(),
 			}
 			web3tools.RegisterSigning(agent.Tools, web3Deps)
 			web3tools.RegisterContracts(agent.Tools, web3Deps)

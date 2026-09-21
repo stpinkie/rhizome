@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/tools"
 	"github.com/stpinkie/rhizome/pkg/web3"
 )
@@ -48,6 +49,10 @@ type SigningDeps struct {
 	ApproveTTL time.Duration
 	// Emit publishes a runtime event (web3.*) — nil-safe.
 	Emit func(kind string, attrs map[string]any)
+	// Cfg + ConfigPath let the web3_watch tool persist watch definitions
+	// (tools.web3.watches) back to config.json. Nil Cfg disables mutations.
+	Cfg        *config.Config
+	ConfigPath string
 }
 
 func (d *SigningDeps) emit(kind string, attrs map[string]any) {

@@ -14,6 +14,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers"
+	"github.com/stpinkie/rhizome/pkg/web3"
 )
 
 func (al *AgentLoop) handleCommand(
@@ -279,6 +280,73 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return commands.StopResult{}, fmt.Errorf("process options not available")
 		}
 		return al.stopActiveTurnForSession(opts.Dispatch.SessionKey)
+	}
+	// /web3 channel approvals — only reachable from scopes listed in
+	// tools.web3.approval_channels (checked inside the command handlers).
+	if cfg != nil && cfg.Tools.Web3.Enabled && len(cfg.Tools.Web3.ApprovalChannels) > 0 {
+		rt.ListWeb3Pending = func() ([]commands.Web3PendingInfo, error) {
+			stack, err := web3.OpenSigningStack(config.GetHome(), &cfg.Tools.Web3.Signing)
+			if err != nil {
+				return nil, err
+			}
+			entries, err := stack.Pending.List()
+			if err != nil {
+				return nil, err
+			}
+			out := make([]commands.Web3PendingInfo, 0, len(entries))
+			for _, e := range entries {
+				if e.Status != web3.StatusPending {
+					continue
+				}
+				out = append(out, commands.Web3PendingInfo{
+					ID: e.ID, Kind: string(e.Kind), Summary: e.Summary,
+					From: e.From, To: e.To, ChainID: e.ChainID, ExpiresAt: e.ExpiresAt,
+				})
+			}
+			return out, nil
+		}
+		rt.ResolveWeb3 = func(ctx context.Context, id string, approve bool, by string) (*commands.Web3ResolveResult, error) {
+			if !cfg.Tools.Web3.Signing.Enabled {
+				return nil, fmt.Errorf("web3 signing disabled (tools.web3.signing.enabled)")
+			}
+			stack, err := web3.OpenSigningStack(config.GetHome(), &cfg.Tools.Web3.Signing)
+			if err != nil {
+				return nil, err
+			}
+			e, err := stack.Pending.Resolve(id, approve, by)
+			if err != nil {
+				return nil, err
+			}
+			emit := web3Emit(al)
+			if !approve {
+				emit("web3.rejected", map[string]any{
+					"id": e.ID, "kind": string(e.Kind), "by": by,
+				})
+				return &commands.Web3ResolveResult{ID: e.ID, Status: string(e.Status)}, nil
+			}
+			emit("web3.approved", map[string]any{
+				"id": e.ID, "kind": string(e.Kind), "by": by,
+			})
+			done, execErr := stack.Pending.ExecuteApproved(
+				ctx, id, stack.Wallets, web3.NewProvider(cfg), stack.Ledger)
+			if done != nil {
+				e = done
+			}
+			res := &commands.Web3ResolveResult{
+				ID: e.ID, Status: string(e.Status), TxHash: e.TxHash,
+				Result: e.Result, Error: e.Error,
+			}
+			if execErr != nil {
+				emit("web3.failed", map[string]any{"id": id, "error": execErr.Error()})
+				return res, execErr
+			}
+			kind := "web3.sent"
+			if e.Kind == web3.KindSign {
+				kind = "web3.done"
+			}
+			emit(kind, map[string]any{"id": id, "tx_hash": e.TxHash, "by": by})
+			return res, nil
+		}
 	}
 	if agent != nil && agent.ContextBuilder != nil {
 		rt.ListSkillNames = agent.ContextBuilder.ListSkillNames

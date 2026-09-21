@@ -30,6 +30,19 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+// formatEther renders a wei decimal string as a trimmed ETH amount.
+function formatEther(wei: string): string {
+  try {
+    const n = BigInt(wei)
+    const whole = n / 10n ** 18n
+    const frac = (n % 10n ** 18n).toString().padStart(18, "0").slice(0, 6)
+    const trimmed = frac.replace(/0+$/, "")
+    return `${whole}${trimmed ? "." + trimmed : ""} ETH`
+  } catch {
+    return wei + " wei"
+  }
+}
+
 function statusBadge(status: PendingEntry["status"]) {
   switch (status) {
     case "pending":
@@ -163,6 +176,11 @@ export function Web3Page() {
                     )}
                     {a.label && (
                       <span className="text-muted-foreground">{a.label}</span>
+                    )}
+                    {a.balance_wei != null && (
+                      <span className="text-muted-foreground ml-auto font-sans text-xs">
+                        {formatEther(a.balance_wei)}
+                      </span>
                     )}
                   </li>
                 ))}

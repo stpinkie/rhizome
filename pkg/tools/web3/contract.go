@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/tools"
 	"github.com/stpinkie/rhizome/pkg/web3"
 )
@@ -151,7 +152,24 @@ func ContractTools(deps *SigningDeps) []tools.Tool {
 		}),
 		run: runENS,
 	}
-	return []tools.Tool{call, send, erc20, erc721, ens}
+	watch := &SignTool{
+		deps: deps, name: "web3_watch",
+		desc: "Manage daemon log watches (tools.web3.watches): list shows active " +
+			"watches; add registers a polled eth_getLogs watch emitting web3.event " +
+			"entries; remove deletes one. Changes persist to config.json and take " +
+			"effect on daemon (re)start.",
+		params: obj(map[string]any{
+			"action":   strProp("list|add|remove"),
+			"name":     strProp("Watch name (add/remove)"),
+			"contract": strProp("Contract to watch — 0x address, label, or ENS (add)"),
+			"topics":   arrProp("Optional topic filters, 0x 32-byte values (add)"),
+			"interval_seconds": map[string]any{
+				"type": "number", "description": "Poll interval seconds (floor 30, default 60)",
+			},
+		}, "action"),
+		run: runWatch,
+	}
+	return []tools.Tool{call, send, erc20, erc721, ens, watch}
 }
 
 // RegisterContracts registers the contract/token/ENS tools.
@@ -592,6 +610,88 @@ func runENS(ctx context.Context, d *SigningDeps, args map[string]any) (any, erro
 		return map[string]any{"address": addr, "name": name}, nil
 	}
 	return nil, fmt.Errorf("pass name (forward) or address (reverse)")
+}
+
+// runWatch lists/adds/removes tools.web3.watches entries. add/remove
+// persist through SaveConfig so the daemon picks them up on restart.
+func runWatch(_ context.Context, d *SigningDeps, args map[string]any) (any, error) {
+	action := strings.ToLower(strArg(args, "action"))
+	switch action {
+	case "list":
+		if d.Cfg == nil {
+			return map[string]any{"watches": []any{}}, nil
+		}
+		out := make([]map[string]any, 0, len(d.Cfg.Tools.Web3.Watches))
+		for _, w := range d.Cfg.Tools.Web3.Watches {
+			out = append(out, map[string]any{
+				"name": w.Name, "contract": w.Contract,
+				"topics": w.Topics, "interval_seconds": w.GetInterval().Seconds(),
+			})
+		}
+		return map[string]any{"watches": out, "count": len(out)}, nil
+	case "add", "remove":
+		if d.Cfg == nil || d.ConfigPath == "" {
+			return nil, fmt.Errorf("watch %s needs daemon config context", action)
+		}
+	default:
+		return nil, fmt.Errorf("unknown action %q — list|add|remove", action)
+	}
+	name := strArg(args, "name")
+	if name == "" {
+		return nil, fmt.Errorf("name is required for %s", action)
+	}
+	watches := d.Cfg.Tools.Web3.Watches
+	idx := -1
+	for i, w := range watches {
+		if w.Name == name {
+			idx = i
+			break
+		}
+	}
+	if action == "remove" {
+		if idx < 0 {
+			return nil, fmt.Errorf("no watch named %q", name)
+		}
+		d.Cfg.Tools.Web3.Watches = append(watches[:idx], watches[idx+1:]...)
+	} else {
+		if idx >= 0 {
+			return nil, fmt.Errorf("watch %q already exists — remove it first", name)
+		}
+		if len(watches) >= 8 {
+			return nil, fmt.Errorf("watch cap reached (8)")
+		}
+		contract := strArg(args, "contract")
+		if contract == "" {
+			return nil, fmt.Errorf("contract is required for add")
+		}
+		var topics []string
+		if tv, ok := args["topics"].([]any); ok {
+			for _, t := range tv {
+				s, _ := t.(string)
+				if s != "" && !web3.IsHash32(s) {
+					return nil, fmt.Errorf("topic %q is not a 0x 32-byte value", s)
+				}
+				topics = append(topics, s)
+			}
+		}
+		var interval int
+		if v, ok := args["interval_seconds"].(float64); ok {
+			interval = int(v)
+		}
+		d.Cfg.Tools.Web3.Watches = append(watches, config.Web3WatchConfig{
+			Name: name, Contract: contract, Topics: topics,
+			IntervalSeconds: interval,
+		})
+	}
+	if err := config.SaveConfig(d.ConfigPath, d.Cfg); err != nil {
+		return nil, fmt.Errorf("persist watch: %w", err)
+	}
+	d.emit("web3.watch."+action, map[string]any{"name": name})
+	return map[string]any{
+		"action": action, "name": name,
+		"watches": len(d.Cfg.Tools.Web3.Watches),
+		"note":    "takes effect on daemon restart",
+	}, nil
 }
 
 func firstOf(out []any) any {

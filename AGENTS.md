@@ -319,6 +319,37 @@ everything runs through the minimal ABI codec and the human-approval queue.
   `web3.contract.rejected` — picked up by the activity feed's `web3.*`
   prefix.
 
+## Web3 Wallet Ops, Watches & Channel Approvals (v0.12.0, Track 79)
+
+- **Wallet CLI**: `rhizome wallet set-default <address>` | `rename
+  <address> <label>` | `remove <address>` (with `--confirm`; the default
+  signer is what tools use when `from` is omitted). `GET /web3/wallet`
+  accepts `?balances=true` → per-address `balance_wei`; the launcher
+  proxy preserves query strings and mirrors the behavior daemonless, and
+  the dashboard `/web3` page shows ETH balances.
+- **Log watches** (`pkg/web3/watch.go`): `tools.web3.watches[]` =
+  `{name, contract, topics?, interval_seconds?}` — contract resolves
+  0x/label/ENS at daemon start; daemon-side poller emits `web3.event`
+  runtime events (block/tx/index/topics/data), cursors persist to
+  `<RHIZOME_HOME>/web3/watches.json` so restarts resume rather than
+  replay. Bounds: ≤8 watches, 30s floor / 60s default interval, range
+  capped by `max_log_range`, ≤50 logs per tick, first-run lookback 500
+  blocks. `tools.web3.watch_confirmations` delays emission until logs
+  are N blocks deep (default 0 = at head; cap 64). The `web3_watch`
+  agent tool lists/adds/removes watches — writes persist via
+  `SaveConfig` and take effect on daemon restart; watch lifecycle is
+  tied to daemon start/stop (`Web3WatchCancel`).
+- **Channel approvals**: `tools.web3.approval_channels` scopes where
+  `/web3 pending|approve <id>|reject <id>` builtin commands work —
+  entries are `"channel"` or `"channel:chat_id"`; empty (default)
+  disables channel approvals entirely. Resolutions go through the same
+  durable pending store, recorded `resolved_by` `"channel:<chan>:<chat>"`,
+  and emit the same `web3.approved`/`rejected`/`sent`/`failed` events as
+  CLI/UI. Commands reply "unavailable" from non-allowlisted scopes —
+  the allowlist is checked per-message inside the handlers
+  (`pkg/commands/cmd_web3.go`), and the runtime callbacks are only wired
+  when `tools.web3.enabled` + a non-empty allowlist.
+
 ## ACP (Agent Client Protocol)
 
 `rhizome acp [--agent <id>]` serves ACP over stdio (Zed/JetBrains drive

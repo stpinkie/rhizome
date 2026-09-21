@@ -53,7 +53,74 @@ func NewWalletCommand() *cobra.Command {
 		newImportCommand(),
 		newListCommand(),
 		newRevealCommand(),
+		newSetDefaultCommand(),
+		newRenameCommand(),
+		newRemoveCommand(),
 	)
+	return cmd
+}
+
+func newSetDefaultCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-default <address>",
+		Short: "Mark an address as the default signer",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			s, err := store()
+			if err != nil {
+				fatal(err)
+			}
+			if err := s.SetDefault(args[0]); err != nil {
+				fatal(err)
+			}
+			addr, _ := web3.NormalizeAddress(args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "Default signer: %s\n", addr)
+		},
+	}
+}
+
+func newRenameCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <address> <label>",
+		Short: "Set a human label on a wallet address",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			s, err := store()
+			if err != nil {
+				fatal(err)
+			}
+			if err := s.Rename(args[0], args[1]); err != nil {
+				fatal(err)
+			}
+			addr, _ := web3.NormalizeAddress(args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "Renamed %s → %q\n", addr, args[1])
+		},
+	}
+}
+
+func newRemoveCommand() *cobra.Command {
+	var confirm bool
+	cmd := &cobra.Command{
+		Use:   "remove <address>",
+		Short: "Delete a wallet key (requires --confirm)",
+		Long: "Removes the key from the encrypted store. There is no recovery — " +
+			"export the key first with `rhizome wallet reveal` if it holds funds.",
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			if !confirm {
+				fatal(fmt.Errorf("remove requires --confirm — the key is unrecoverable"))
+			}
+			s, err := store()
+			if err != nil {
+				fatal(err)
+			}
+			if err := s.Remove(args[0]); err != nil {
+				fatal(err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", args[0])
+		},
+	}
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "confirm irreversible key deletion")
 	return cmd
 }
 
