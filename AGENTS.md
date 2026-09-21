@@ -2,6 +2,13 @@
 
 This is a hard fork/rebrand of PicoClaw. Module path: `github.com/stpinkie/rhizome`.
 
+- Remotes: `origin` = `github.com/stpinkie/rhizome` (canonical repo — all PRs,
+  issues, releases live here); `upstream` = `github.com/sipeed/picoclaw` (the
+  project this forked from — sync only, **never open PRs against it**). `gh`
+  resolves the base repo to upstream when both remotes exist, so always pass
+  `--repo stpinkie/rhizome` to `gh` commands (`gh pr create`, `gh pr view`,
+  `gh issue`, …), or run `gh repo set-default stpinkie/rhizome` once per clone.
+
 ## Build & Test
 
 - Always build/test with the tags used in `Makefile`:
@@ -195,6 +202,33 @@ reads/config/install when no daemon runs. Events: `module.installed`,
 pid/restarts/last-exit so status works daemonless. Security: HTTPS-only
 downloads, mandatory per-platform digest (sha256 or sha512 — nimbus publishes
 sha512), no user-supplied URLs, module dirs `0700`.
+
+## Web3 Read Tools (v0.11.0, Track 68)
+
+`pkg/web3` is a dependency-free read-only Ethereum JSON-RPC layer; the
+`web3_*` agent tools live in `pkg/tools/web3` and are **disabled by
+default** (`tools.web3.enabled`). No send/sign path exists in this layer —
+`web3_rpc` passthrough is restricted to a hard-coded read-only method
+allowlist (`eth_call`, `eth_get*`, `net_*`, `web3_*`; `eth_accounts` is
+deliberately excluded).
+
+Endpoint resolution (`pkg/web3/endpoint.go`, `Provider`) is
+operator-config only — tools never accept URLs:
+
+1. `tools.web3.endpoint` (+ `tools.web3.api_key` Bearer, a SecureString →
+   `.security.yml` + `SensitiveDataReplacer`)
+2. `modules.ethereum-rpc` `fields.endpoint_url` (+ secret `api_key`)
+3. Running `nimbus-verified-proxy` `listen_url`, probed via `eth_chainId`
+   (probe doubles as the running+healthy check — works daemonless)
+
+Results cache for 30 s. `tools.web3.chain_ids` (decimal list) hard-fails
+on chain mismatch; `max_log_range` (default 10000) caps `web3_logs` block
+width (tag bounds resolve to concrete numbers first); `allow_private_endpoints`
+(default **false** — fail closed) at false routes through
+`utils.CreateSafeHTTPClient`'s safe-dial SSRF guard; nimbus on loopback
+needs the explicit opt-in. Transport errors are unwrapped of `url.Error`
+so endpoint URLs (which can embed path keys) never reach tool output.
+Guide: `docs/guides/web3.md`.
 
 ## ACP (Agent Client Protocol)
 

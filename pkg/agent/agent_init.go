@@ -22,6 +22,8 @@ import (
 	"github.com/stpinkie/rhizome/pkg/state"
 	"github.com/stpinkie/rhizome/pkg/tools"
 	browsertools "github.com/stpinkie/rhizome/pkg/tools/browser"
+	web3tools "github.com/stpinkie/rhizome/pkg/tools/web3"
+	"github.com/stpinkie/rhizome/pkg/web3"
 )
 
 func NewAgentLoop(
@@ -121,6 +123,14 @@ func registerSharedTools(
 		if ttsProvider == nil {
 			logger.WarnCF("voice-tts", "send_tts enabled but no TTS provider configured", nil)
 		}
+	}
+
+	// Web3 read tools share one endpoint Provider across agents; resolution
+	// is config-derived and cached (30 s) so module endpoints picked up at
+	// runtime need no restart.
+	var web3Provider *web3.Provider
+	if cfg.Tools.IsToolEnabled("web3") {
+		web3Provider = web3.NewProvider(cfg)
 	}
 
 	for _, agentID := range registry.ListAgentIDs() {
@@ -247,6 +257,12 @@ func registerSharedTools(
 				agent.BrowserMgr = browser.NewManager(&cfg.Tools.Browser, agent.Workspace)
 			}
 			browsertools.Register(agent.Tools, agent.BrowserMgr, &cfg.Tools.Browser)
+		}
+
+		// Read-only Ethereum tools (web3_*): endpoint resolution lives in
+		// pkg/web3; the shared provider is nil when tools.web3.enabled=false.
+		if web3Provider != nil {
+			web3tools.Register(agent.Tools, web3Provider, &cfg.Tools.Web3)
 		}
 
 		// Send file tool (outbound media via MediaStore — store injected later by SetMediaStore)
