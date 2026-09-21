@@ -283,6 +283,42 @@ outer gate. Key material never appears in tool output, API responses, or UI.
   `web3.rejected`, `web3.sent`, `web3.done`, `web3.failed` (surfaced in the
   mesh activity feed).
 
+## Web3 Contracts & ENS (v0.12.0, Track 78)
+
+Contract interaction builds on the signing stack — still no go-ethereum,
+everything runs through the minimal ABI codec and the human-approval queue.
+
+- **ABI registry** (`pkg/web3/abireg.go`): `<RHIZOME_HOME>/web3/abi/<label>.json`
+  — `{label, address?, chain_ids?, abi, added_at}`, dir `0700`, ≤200 files,
+  ≤512 KiB each, labels `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`. CLI:
+  `rhizome web3 abi add <label> <file> [--address 0x…] [--chain-ids 1,11155111]`
+  | `list` | `show` | `remove`.
+- **Resolution** (`pkg/web3/resolve.go`): contract args resolve 0x literal →
+  registry label → ENS name (in that order). Literal addresses pick up a
+  registered ABI via `ByAddress`. `chain_ids` on an entry gates resolution
+  to the live endpoint chain.
+- **Tools** (`pkg/tools/web3/contract.go`): `web3_contract_call` (read-only
+  `eth_call`, decodes outputs, not gated), `web3_contract_send` (policy +
+  durable approval; pending `kind:"contract"` carries `selector` and a
+  `label.method(args)` summary), `web3_erc20` (`info|balance|allowance` read;
+  `transfer|approve` write — `amount` is decimals-aware token units or
+  `amount_units` raw base units, `"unlimited"` = uint256 max),
+  `web3_erc721` (`name|symbol|ownerOf|balanceOf|tokenURI` read;
+  `transferFrom|safeTransferFrom` write), `web3_ens` (`name` forward /
+  `address` reverse). ERC helpers ship embedded minimal ABIs — no registry
+  entry needed.
+- **Policy**: `allow_contracts` accepts registry labels (matched against the
+  bound address); `allow_methods` accepts raw `0x` selectors or
+  `label:method` / `0xaddr:method` — a bound label scopes the method to that
+  contract. Unresolvable entries never match.
+- **ENS** (`pkg/web3/ens.go`): canonical registry→resolver→record two-hop
+  via `eth_call` (registry `0x00000000000C2E4eC4a74a1268e2c4358E8D1170` on
+  mainnet/sepolia/holesky/hoodi; other chains fail clearly). Namehash is
+  computed locally. CLI: `rhizome web3 ens <name> [--reverse 0x…]`.
+- Events: `web3.contract.call`, `web3.contract.send`,
+  `web3.contract.rejected` — picked up by the activity feed's `web3.*`
+  prefix.
+
 ## ACP (Agent Client Protocol)
 
 `rhizome acp [--agent <id>]` serves ACP over stdio (Zed/JetBrains drive

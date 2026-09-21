@@ -40,6 +40,9 @@ type SigningPolicy struct {
 	MaxValueWeiPerTx  *big.Int
 	MaxValueWeiPerDay *big.Int
 	ChainIDs          []uint64
+	// Registry resolves "label" / "label:method" / "0xaddr:method" entries
+	// in AllowContracts/AllowMethods at eval time. nil = raw entries only.
+	Registry *ABIRegistry `json:"-"`
 }
 
 // SignRequest is the policy-evaluated view of a signing operation.
@@ -99,16 +102,11 @@ func (p *SigningPolicy) Evaluate(req *SignRequest, ledger *SpendLedger, now time
 			return deny("chain %d not in signing chain_ids %v", req.ChainID, p.ChainIDs)
 		}
 	}
-	if len(req.Data) >= 4 && len(p.AllowContracts) > 0 && !containsFold(p.AllowContracts, req.To) {
+	if len(req.Data) >= 4 && len(p.AllowContracts) > 0 && !p.contractAllowed(req.To) {
 		return deny("contract %s is not in allow_contracts", req.To)
 	}
-	if len(req.Data) >= 4 && len(p.AllowMethods) > 0 {
-		sel := req.SelectorHex()
-		if !containsFold(p.AllowMethods, sel) {
-			// "label:method" entries resolve in Track 78 — unresolvable
-			// entries simply never match a raw selector.
-			return deny("method selector %s is not in allow_methods", sel)
-		}
+	if len(req.Data) >= 4 && len(p.AllowMethods) > 0 && !p.methodAllowed(req) {
+		return deny("method selector %s is not in allow_methods", req.SelectorHex())
 	}
 	value := req.ValueWei
 	if value == nil {
@@ -134,6 +132,68 @@ func containsFold(list []string, v string) bool {
 	for _, item := range list {
 		if strings.EqualFold(strings.TrimSpace(item), v) {
 			return true
+		}
+	}
+	return false
+}
+
+// contractAllowed matches `to` against AllowContracts — entries may be
+// addresses or registry labels (normalized to their bound address).
+func (p *SigningPolicy) contractAllowed(to string) bool {
+	for _, item := range p.AllowContracts {
+		item = strings.TrimSpace(item)
+		if strings.EqualFold(item, to) {
+			return true
+		}
+		if p.Registry == nil || IsAddress(item) {
+			continue
+		}
+		if e, err := p.Registry.Get(item); err == nil &&
+			e.Address != "" && strings.EqualFold(e.Address, to) {
+			return true
+		}
+	}
+	return false
+}
+
+// methodAllowed matches the calldata selector against AllowMethods —
+// entries may be raw "0x…" selectors or "<label-or-addr>:<method-name>"
+// resolved to a selector through the ABI registry.
+func (p *SigningPolicy) methodAllowed(req *SignRequest) bool {
+	sel := req.SelectorHex()
+	for _, item := range p.AllowMethods {
+		item = strings.TrimSpace(item)
+		if strings.EqualFold(item, sel) {
+			return true
+		}
+		name, method, ok := strings.Cut(item, ":")
+		if !ok || p.Registry == nil {
+			continue
+		}
+		var entry *ABIEntry
+		var err error
+		if IsAddress(name) {
+			if !strings.EqualFold(name, req.To) {
+				continue // addr:method only applies to that contract
+			}
+			entry, err = p.Registry.ByAddress(name)
+		} else {
+			entry, err = p.Registry.Get(name)
+			// A bound label scopes the method allowance to that contract —
+			// "usdc:transfer" must not bless transfer() on other addresses.
+			if err == nil && entry != nil && entry.Address != "" &&
+				!strings.EqualFold(entry.Address, req.To) {
+				continue
+			}
+		}
+		if err != nil || entry == nil || entry.ABI == nil {
+			continue
+		}
+		for _, cand := range entry.ABI.Methods {
+			if cand.Name == method &&
+				strings.EqualFold("0x"+hex.EncodeToString(cand.Selector()), sel) {
+				return true
+			}
 		}
 	}
 	return false

@@ -151,3 +151,103 @@ func TestSpendLedger_RoundTripAndRotation(t *testing.T) {
 		t.Fatalf("daily spend = %s, want 300", got)
 	}
 }
+
+// --- Track 78: registry-aware allowlist entries ---
+
+const usdcAddr = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+
+func registryPolicy(t *testing.T) *SigningPolicy {
+	t.Helper()
+	reg := OpenABIRegistry(t.TempDir())
+	if _, err := reg.Add("usdc", testERC20ishABI, usdcAddr, nil); err != nil {
+		t.Fatal(err)
+	}
+	p := testPolicy()
+	p.Registry = reg
+	return p
+}
+
+func transferData() []byte {
+	m, _ := mustABI(testERC20ishABI).Method("transfer", 2)
+	data, _ := m.PackArgs([]any{
+		"0x00000000000000000000000000000000000000ff", "5",
+	})
+	return data
+}
+
+func TestPolicy_LabelContractAllowlist(t *testing.T) {
+	p := registryPolicy(t)
+	p.AllowContracts = []string{"usdc"}
+
+	ok := &SignRequest{
+		Kind: "contract", From: testKeyOneAddr,
+		To: usdcAddr, Data: transferData(),
+	}
+	if d := p.Evaluate(ok, nil, time.Now()); !d.Allowed {
+		t.Fatalf("label-allowlisted contract denied: %s", d.Reason)
+	}
+	bad := &SignRequest{
+		Kind: "contract", From: testKeyOneAddr,
+		To: "0x00000000000000000000000000000000000000ff", Data: transferData(),
+	}
+	if d := p.Evaluate(bad, nil, time.Now()); d.Allowed {
+		t.Fatal("other contract must not match the label")
+	}
+}
+
+func TestPolicy_LabelMethodAllowlist(t *testing.T) {
+	p := registryPolicy(t)
+	p.AllowMethods = []string{"usdc:transfer"}
+
+	ok := &SignRequest{
+		Kind: "contract", From: testKeyOneAddr,
+		To: usdcAddr, Data: transferData(),
+	}
+	if d := p.Evaluate(ok, nil, time.Now()); !d.Allowed {
+		t.Fatalf("label:method should allow: %s", d.Reason)
+	}
+	// Same selector on a different contract must NOT match the bound label.
+	bad := &SignRequest{
+		Kind: "contract", From: testKeyOneAddr,
+		To: "0x00000000000000000000000000000000000000ff", Data: transferData(),
+	}
+	if d := p.Evaluate(bad, nil, time.Now()); d.Allowed {
+		t.Fatal("usdc:transfer must not bless transfer() on other contracts")
+	}
+	// balanceOf is not in the list.
+	bal, _ := mustABI(testERC20ishABI).Method("balanceOf", 1)
+	d2, _ := bal.PackArgs([]any{testKeyOneAddr})
+	other := &SignRequest{
+		Kind: "contract", From: testKeyOneAddr,
+		To: usdcAddr, Data: d2,
+	}
+	if d := p.Evaluate(other, nil, time.Now()); d.Allowed {
+		t.Fatal("balanceOf must not match usdc:transfer")
+	}
+}
+
+func TestPolicy_UnknownLabelEntriesDeny(t *testing.T) {
+	p := testPolicy()
+	p.Registry = OpenABIRegistry(t.TempDir()) // empty registry
+	p.AllowContracts = []string{"ghost"}
+	p.AllowMethods = []string{"ghost:transfer"}
+	req := &SignRequest{
+		Kind: "contract", From: testKeyOneAddr,
+		To: usdcAddr, Data: transferData(),
+	}
+	if d := p.Evaluate(req, nil, time.Now()); d.Allowed {
+		t.Fatal("unresolvable allowlist entries must not pass")
+	}
+}
+
+func TestPolicy_RawSelectorStillWorksWithRegistry(t *testing.T) {
+	p := registryPolicy(t)
+	p.AllowMethods = []string{"0xa9059cbb"}
+	req := &SignRequest{
+		Kind: "contract", From: testKeyOneAddr,
+		To: usdcAddr, Data: transferData(),
+	}
+	if d := p.Evaluate(req, nil, time.Now()); !d.Allowed {
+		t.Fatalf("raw selector entry should still match: %s", d.Reason)
+	}
+}
