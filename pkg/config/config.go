@@ -1595,6 +1595,43 @@ type Web3ToolsConfig struct {
 	// false wires the safe-dial SSRF guard (private/restricted IPs and
 	// DNS-rebinding are blocked at dial time).
 	AllowPrivateEndpoints bool `json:"allow_private_endpoints" yaml:"-"`
+	// Signing gates the write path (web3_send/web3_sign/web3_approve) behind
+	// a second flag plus policy allowlists. Default-off; requires Enabled too.
+	Signing Web3SigningConfig `json:"signing,omitempty" yaml:"-"`
+}
+
+// Web3SigningConfig gates signing/send tools. Disabled by default — when
+// enabled, every operation still requires a durable human approval from the
+// pending queue; this config is a policy pre-filter, not an authorization.
+type Web3SigningConfig struct {
+	// Enabled permits the signing tools to queue approvals.
+	Enabled bool `json:"enabled,omitempty" yaml:"-"`
+	// FromAddresses restricts which wallet addresses may sign. Empty denies
+	// all signing — an explicit signer list is mandatory.
+	FromAddresses []string `json:"from_addresses,omitempty" yaml:"-"`
+	// AllowContracts restricts the `to` address of value/data-bearing sends.
+	// Empty = any contract.
+	AllowContracts []string `json:"allow_contracts,omitempty" yaml:"-"`
+	// AllowMethods restricts calldata 4-byte selectors ("0xa9059cbb").
+	// Empty = any method.
+	AllowMethods []string `json:"allow_methods,omitempty" yaml:"-"`
+	// MaxValueWeiPerTx caps value per transaction (decimal wei string —
+	// uint256 does not fit int64).
+	MaxValueWeiPerTx string `json:"max_value_wei_per_tx,omitempty" yaml:"-"`
+	// MaxValueWeiPerDay caps aggregate value per UTC day (decimal wei).
+	MaxValueWeiPerDay string `json:"max_value_wei_per_day,omitempty" yaml:"-"`
+	// ChainIDs restricts signing to these chains. Empty = any chain.
+	ChainIDs []uint64 `json:"chain_ids,omitempty" yaml:"-"`
+	// ApprovalTimeoutSeconds bounds pending approvals (0 → default 15m).
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds,omitempty" yaml:"-"`
+}
+
+// GetApprovalTimeout returns the configured approval TTL or the default.
+func (c *Web3SigningConfig) GetApprovalTimeout() time.Duration {
+	if c.ApprovalTimeoutSeconds > 0 {
+		return time.Duration(c.ApprovalTimeoutSeconds) * time.Second
+	}
+	return 15 * time.Minute
 }
 
 // GetMaxLogRange returns the configured log range cap or the default.
@@ -2712,8 +2749,11 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 	case "mcp":
 		return t.MCP.Enabled
 	case "web3", "web3_chain", "web3_balance", "web3_call", "web3_block",
-		"web3_transaction", "web3_logs", "web3_rpc":
+		"web3_transaction", "web3_logs", "web3_rpc",
+		"web3_wallet", "web3_pending", "web3_send_status":
 		return t.Web3.Enabled
+	case "web3_signing", "web3_send", "web3_sign", "web3_approve":
+		return t.Web3.Enabled && t.Web3.Signing.Enabled
 	default:
 		return true
 	}

@@ -13,7 +13,8 @@
     "show_more_channels": "Mais",
     "show_less_channels": "Menos",
     "config": "Configuração",
-    "logs": "Logs"
+    "logs": "Logs",
+    "web3": "Web3"
   },
   "launcherLogin": {
     "title": "Entrar",

@@ -134,6 +134,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Companion modules
 	h.registerModuleRoutes(mux)
+
+	// Web3 wallet + signing approvals
+	h.registerWeb3Routes(mux)
 }
 
 // Shutdown gracefully shuts down the handler, stopping the gateway if it was started by this handler.

@@ -13,7 +13,8 @@
     "show_more_channels": "আরও",
     "show_less_channels": "কম",
     "config": "কনফিগ",
-    "logs": "লগ"
+    "logs": "লগ",
+    "web3": "Web3"
   },
   "launcherLogin": {
     "title": "সাইন ইন",
