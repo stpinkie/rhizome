@@ -180,7 +180,12 @@ Ethereum RPC) is the first daemon-kind entry — fields `execution_api_url`,
 light-client sync over the beacon P2P network), `beacon_api_url` (optional
 REST supplement; required when `p2p=false`), `network`, `listen_url`,
 `p2p_tcp_port`/`p2p_udp_port`/`p2p_max_peers`. `ethereum-rpc` is the first
-config-kind entry.
+config-kind entry. Track 71 (v0.11.0) added `helios` (a16z/helios Ethereum
+light client — linux/darwin, env-var config behind the `ethereum`
+subcommand) and `ipfs-kubo` (IPFS node — all platforms; `.zip` extraction,
+`ipfs init` behind `init_marker`, `ipfs config Addresses.*` per launch via
+`setup_args`, `IPFS_PATH`/`repo_dir` under the module dir via the
+`{module_dir}` placeholder; catalog schema v2).
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.

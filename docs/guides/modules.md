@@ -104,6 +104,78 @@ rhizome module start nimbus-verified-proxy   # or restart the daemon
 Once healthy, `listen_url` serves a verified `eth_*` JSON-RPC endpoint for
 your scripts and dapps.
 
+### `helios` (daemon)
+
+[Helios](https://github.com/a16z/helios) — a fast Ethereum light client
+serving a local JSON-RPC endpoint synced from beacon-chain data. It
+complements nimbus-verified-proxy: no Windows build, but it covers
+darwin/amd64 which nimbus lacks.
+
+| Field               | Secret | Required | Default                        |
+| ------------------- | ------ | -------- | ------------------------------ |
+| `execution_api_url` | yes    | yes      | —                              |
+| `checkpoint`        | no     | yes      | —                              |
+| `consensus_rpc_url` | yes    | no       | (upstream: lightclientdata.org)|
+| `fallback`          | yes    | no       | —                              |
+| `network`           | no     | no       | `mainnet`                      |
+| `rpc_bind_ip`       | no     | no       | `127.0.0.1`                    |
+| `rpc_port`          | no     | no       | `8546`                         |
+| `data_dir`          | no     | no       | `{module_dir}/data`            |
+
+All settings reach the `helios ethereum` subcommand through environment
+variables. `checkpoint` is a trusted weak-subjectivity beacon block root —
+fetch a recent one from a beacon API at `/eth/v1/beacon/headers/finalized`
+(same source as nimbus's `trusted_block_root`). Default port `8546` leaves
+`8545` free for nimbus; set `rpc_port=8545` only when nimbus isn't
+installed. `data_dir` stays under the module directory, so
+`module uninstall` removes the checkpoint DB with it. Platforms:
+linux amd64/arm64, darwin amd64/arm64.
+
+```bash
+rhizome module install helios
+rhizome module set --secret helios \
+  execution_api_url=https://mainnet.infura.io/v3/KEY
+rhizome module set helios checkpoint=0x…
+rhizome module enable helios
+```
+
+Health is a `jsonrpc` probe (`eth_chainId`) against `rpc_bind_ip:rpc_port`.
+
+### `ipfs-kubo` (daemon)
+
+[Kubo](https://github.com/ipfs/kubo) — a full IPFS node: pinning, gateway,
+and DHT/libp2p participation.
+
+| Field          | Secret | Required | Default              |
+| -------------- | ------ | -------- | -------------------- |
+| `repo_dir`     | no     | no       | `{module_dir}/repo`  |
+| `profile`      | no     | no       | `default-networking` |
+| `api_port`     | no     | no       | `5001`               |
+| `gateway_port` | no     | no       | `8080`               |
+| `swarm_port`   | no     | no       | `4001`               |
+| `routing`      | no     | no       | `dht`                |
+
+First start runs `ipfs init --profile=<profile>` once (guarded by the
+repo's `config` file existing — it is not re-run on restart). Kubo has no
+daemon address flags, so before every launch the module re-applies
+`api_port`/`gateway_port`/`swarm_port` to the repo config — changing a
+port field takes effect on the next restart. `repo_dir` is exported as
+`IPFS_PATH`; the repo lives under the module directory, so
+`module uninstall` removes it. API and gateway bind loopback only; swarm
+listens on all interfaces (tcp + quic-v1 + webtransport) for DHT
+participation. Platforms: linux amd64/arm64, darwin amd64/arm64, windows
+amd64/arm64 (Windows assets are `.zip` — extraction handles the
+`kubo/ipfs.exe` layout).
+
+```bash
+rhizome module install ipfs-kubo
+rhizome module enable ipfs-kubo
+# API:    http://127.0.0.1:5001/api/v0/…
+# Gateway: http://127.0.0.1:8080/ipfs/<cid>
+```
+
+Health is a TCP probe on the API port.
+
 ### `ethereum-rpc` (config)
 
 A remote Ethereum JSON-RPC endpoint without running a node — the
@@ -126,6 +198,15 @@ rhizome module enable ethereum-rpc
   nimbus ships sha512). Install downloads from the upstream repo, verifies
   the digest, then extracts; tampered or truncated downloads are rejected.
 - No user-supplied download URLs — the catalog is the only source of truth.
+- `.tar.gz` and `.zip` archives extract under traversal/size guards (no
+  `..`/absolute members, no symlinks, per-member size cap); the module
+  binary is flattened to the version-dir root.
+- Catalog `run` blocks may declare one-time `init_args` (guarded by
+  `init_marker`) and per-launch `setup_args` for repo/config writes —
+  kubo uses these for `ipfs init` and `ipfs config Addresses.*`.
+- `{module_dir}` in a catalog field default expands to the module's
+  directory, keeping data paths (helios `data_dir`, kubo `repo_dir`)
+  under module-owned state.
 - Module directories are `0700`; secrets never touch `config.json`.
 - `module-state.json` under the module dir persists last-known status so the
   Modules page and `module list` report accurately when the daemon is down.

@@ -90,6 +90,10 @@ type InstallSpec struct {
 	// AssetTemplate builds the asset filename; placeholders: {goos},
 	// {goarch}, {version}, {build}.
 	AssetTemplate string `json:"asset_template,omitempty"`
+	// AssetTemplates overrides AssetTemplate per GOOS (keyed by the runtime
+	// GOOS name) — e.g. {"windows": "kubo_v{version}_{goos}-{goarch}.zip"}
+	// for projects that ship a different archive format on one OS.
+	AssetTemplates map[string]string `json:"asset_templates,omitempty"`
 	// OSAliases maps GOOS names to the upstream asset naming when they
 	// differ — e.g. {"darwin": "macos"} for projects that label macOS
 	// assets "macos".
@@ -116,6 +120,17 @@ type RunSpec struct {
 	// Workdir is the process working directory relative to the module dir
 	// ("." means the module dir itself).
 	Workdir string `json:"workdir,omitempty"`
+	// InitMarker is a path template; when the expanded path does not exist,
+	// InitArgs run once before the main command (first-run repo/config
+	// creation — e.g. `ipfs init`). InitMarker absent → InitArgs never run.
+	InitMarker string `json:"init_marker,omitempty"`
+	// InitArgs is the argv template run once when InitMarker is absent —
+	// the same binary with these args. Values support {key} substitution.
+	InitArgs []string `json:"init_args,omitempty"`
+	// SetupArgs are argv templates run before EVERY launch — idempotent
+	// config writes that track field changes across restarts (e.g. `ipfs
+	// config Addresses.API …`).
+	SetupArgs [][]string `json:"setup_args,omitempty"`
 }
 
 // HealthSpec describes how a running module's health is probed.
@@ -230,10 +245,14 @@ func (s ModuleSpec) Tag(r ReleasePin) string {
 // Asset resolves the asset filename for a pin and platform.
 func (s ModuleSpec) Asset(r ReleasePin) string {
 	goos := runtime.GOOS
+	tmpl := s.Install.AssetTemplate
+	if t := s.Install.AssetTemplates[goos]; t != "" {
+		tmpl = t
+	}
 	if alias, ok := s.Install.OSAliases[goos]; ok {
 		goos = alias
 	}
-	return expand(s.Install.AssetTemplate, map[string]string{
+	return expand(tmpl, map[string]string{
 		"goos":    goos,
 		"goarch":  runtime.GOARCH,
 		"version": r.Version,
@@ -377,6 +396,197 @@ var catalog = []ModuleSpec{
 		},
 		Notes: "Config-only: pair with the network page or your own scripts.",
 	},
+	{
+		ID: "helios", Name: "Helios (Ethereum light client)",
+		Kind:    KindDaemon,
+		License: "MIT",
+		Description: "Helios (a16z) — a fast Ethereum light client serving a " +
+			"local JSON-RPC endpoint synced from beacon-chain data. " +
+			"Complements nimbus-verified-proxy: linux/darwin only (no " +
+			"Windows build), and it covers darwin/amd64 which nimbus lacks.",
+		// Upstream ships linux amd64/arm64 and darwin amd64/arm64
+		// (helios_{goos}_{goarch}.tar.gz, tag "0.11.1" — no v prefix).
+		Platforms: []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"},
+		Install: InstallSpec{
+			Method:        "github-release",
+			Repo:          "a16z/helios",
+			TagTemplate:   "{version}",
+			AssetTemplate: "helios_{goos}_{goarch}.tar.gz",
+			Binary:        "helios",
+			Releases: []ReleasePin{
+				{
+					Version: "0.11.1",
+					SHA256: map[string]string{
+						"linux/amd64":  "339bf4ce73073c53790e41e3217b6d91f0e5d8571132b9e88689997613162ddb",
+						"linux/arm64":  "20132e1f772af246eac3885bcba3b54c21a98ac24027a5853eca2fb0edc5dab6",
+						"darwin/amd64": "825ba2e16b82fa0b2f38d56717692e1828bbe852067954286ec673faee104651",
+						"darwin/arm64": "fc88981c7fe12e1010115b7bfe61909cfae36f65177325562c57daa0eb30ae8c",
+					},
+				},
+			},
+		},
+		// `helios ethereum <flags>` — the subcommand must lead argv, so all
+		// settings ride env vars (clap env attrs) instead of field args.
+		Run: RunSpec{Workdir: ".", ArgsTemplate: []string{"ethereum"}},
+		Health: HealthSpec{
+			Type:   "jsonrpc",
+			Target: "http://{rpc_bind_ip}:{rpc_port}",
+			Method: "eth_chainId",
+		},
+		ConfigFields: []ConfigField{
+			{
+				Key:      "execution_api_url",
+				Label:    "Execution RPC URL (untrusted EL endpoint; may embed an API key)",
+				Env:      "EXECUTION_RPC",
+				Secret:   true,
+				Required: true,
+			},
+			{
+				Key:      "checkpoint",
+				Label:    "Trusted weak-subjectivity checkpoint (0x… beacon block root)",
+				Env:      "CHECKPOINT",
+				Required: true,
+			},
+			{
+				Key:    "consensus_rpc_url",
+				Label:  "Consensus RPC URL (optional; default https://www.lightclientdata.org)",
+				Env:    "CONSENSUS_RPC",
+				Secret: true,
+			},
+			{
+				Key:    "fallback",
+				Label:  "Checkpoint-sync fallback URL (optional; used when the checkpoint goes stale)",
+				Env:    "FALLBACK",
+				Secret: true,
+			},
+			{
+				Key:     "network",
+				Label:   "Network (mainnet, sepolia, hoodi…)",
+				Env:     "NETWORK",
+				Default: "mainnet",
+			},
+			{
+				Key:     "rpc_bind_ip",
+				Label:   "JSON-RPC bind address",
+				Env:     "RPC_BIND_IP",
+				Default: "127.0.0.1",
+			},
+			{
+				Key:     "rpc_port",
+				Label:   "JSON-RPC port (8546 avoids colliding with nimbus's 8545 default)",
+				Env:     "RPC_PORT",
+				Default: "8546",
+			},
+			{
+				Key:     "data_dir",
+				Label:   "Helios data directory (checkpoint DB)",
+				Env:     "DATA_DIR",
+				Default: "{module_dir}/data",
+			},
+		},
+		Notes: "Requires a recent checkpoint — fetch a finalized beacon block " +
+			"root from a beacon API at /eth/v1/beacon/headers/finalized (same " +
+			"source as nimbus's trusted_block_root). consensus_rpc_url is " +
+			"optional (upstream default: lightclientdata.org). Default port " +
+			"8546 leaves 8545 free for nimbus; set 8545 only when nimbus " +
+			"isn't installed.",
+	},
+	{
+		ID: "ipfs-kubo", Name: "IPFS Kubo",
+		Kind:    KindDaemon,
+		License: "MIT OR Apache-2.0",
+		Description: "Kubo IPFS node — pinning, gateway, and DHT/libp2p " +
+			"participation. The repo lives under the module dir; api/swarm/" +
+			"gateway addresses are written into the repo config before each " +
+			"start (kubo has no address flags — they're repo-config only).",
+		// Upstream ships kubo_v{version}_{goos}-{goarch}.tar.gz for unix and
+		// .zip for windows; archives wrap contents in a kubo/ dir.
+		Platforms: []string{
+			"linux/amd64", "linux/arm64",
+			"darwin/amd64", "darwin/arm64",
+			"windows/amd64", "windows/arm64",
+		},
+		Install: InstallSpec{
+			Method:        "github-release",
+			Repo:          "ipfs/kubo",
+			TagTemplate:   "v{version}",
+			AssetTemplate: "kubo_v{version}_{goos}-{goarch}.tar.gz",
+			AssetTemplates: map[string]string{
+				"windows": "kubo_v{version}_{goos}-{goarch}.zip",
+			},
+			Binary: "ipfs",
+			Releases: []ReleasePin{
+				{
+					Version: "0.43.1",
+					SHA512: map[string]string{
+						"linux/amd64":   "ff53b2428794fc8cca39505d28c15b4cceaef4b90a09284f291f611fcdc8c06399690575fc89cbd4d85ef71f3652581296c6f2e710386f887c8edf36b6e89d71",
+						"linux/arm64":   "70f082584651ef78fb5b07448be53bb0adf141aadcb7eea15ffa59bd9ca78fed46781c2cf5915b3528c591052f97486067fedb0a7a1415abd5bfd44942921501",
+						"darwin/amd64":  "efe0c1561595fbf7b5bdc3fc651863697c2bf388eed5f8c94c163f60d9575201808538abba84f652718f015ad1af6e3c01ced1321ddb2082f934ba8952e4a4ab",
+						"darwin/arm64":  "bc282d781d856736051ce6d216ba47d52bec703f1a54ab5fa20fba26a92e4af3e8fb131e220cdf01f20205f1effb1a5b7bedbdeff15e8edbbe8e5b01923a7cbb",
+						"windows/amd64": "e611cecef25cddb10b7f907145383608d9b31219ad7120041aeacfe2313882da1944f2897fda29bc2d959dd357e4950089ec8f2cbd52b29f2fc472bcae4356d0",
+						"windows/arm64": "a6f2578ad3386a567c437eeebac1646293276b5fb44a26a33195f4310ed7b06cab9dfe0e02e17f33ce8ba1beb4f1ccef45375a861c8cc60192f46da7e0c02166",
+					},
+				},
+			},
+		},
+		Run: RunSpec{
+			Workdir:    ".",
+			InitMarker: "{repo_dir}/config",
+			InitArgs:   []string{"init", "--profile={profile}"},
+			SetupArgs: [][]string{
+				{"config", "Addresses.API", "/ip4/127.0.0.1/tcp/{api_port}"},
+				{"config", "Addresses.Gateway", "/ip4/127.0.0.1/tcp/{gateway_port}"},
+				{
+					"config", "--json", "Addresses.Swarm",
+					`["/ip4/0.0.0.0/tcp/{swarm_port}","/ip6/::/tcp/{swarm_port}",` +
+						`"/ip4/0.0.0.0/udp/{swarm_port}/quic-v1","/ip6/::/udp/{swarm_port}/quic-v1",` +
+						`"/ip4/0.0.0.0/udp/{swarm_port}/quic-v1/webtransport",` +
+						`"/ip6/::/udp/{swarm_port}/quic-v1/webtransport"]`,
+				},
+			},
+			ArgsTemplate: []string{"daemon", "--routing={routing}"},
+		},
+		Health: HealthSpec{Type: "tcp", Target: "127.0.0.1:{api_port}"},
+		ConfigFields: []ConfigField{
+			{
+				Key:     "repo_dir",
+				Label:   "IPFS repo directory (IPFS_PATH)",
+				Env:     "IPFS_PATH",
+				Default: "{module_dir}/repo",
+			},
+			{
+				Key:     "profile",
+				Label:   "Init profile (default-networking, server, lowpower, …)",
+				Default: "default-networking",
+			},
+			{
+				Key:     "api_port",
+				Label:   "API port (loopback only)",
+				Default: "5001",
+			},
+			{
+				Key:     "gateway_port",
+				Label:   "Gateway port (loopback only)",
+				Default: "8080",
+			},
+			{
+				Key:     "swarm_port",
+				Label:   "Swarm listen port (tcp + quic-v1 + webtransport)",
+				Default: "4001",
+			},
+			{
+				Key:     "routing",
+				Label:   "Routing mode (dht, dhtclient, dhtserver, none)",
+				Default: "dht",
+			},
+		},
+		Notes: "First start runs `ipfs init --profile=<profile>` (repo stays " +
+			"under the module dir — uninstall removes it). profile applies at " +
+			"init only; use `server` on public-internet hosts, `lowpower` on " +
+			"constrained ones. Port fields re-apply to the repo config on " +
+			"every start. API/gateway bind loopback; swarm listens on all " +
+			"interfaces for DHT participation.",
+	},
 }
 
 // Catalog returns the static list of companion modules.
@@ -405,8 +615,11 @@ var releasePubKeyB64 = "Ww3Kz/J38L0ColSCrcOjq6I/3WCzsvZMvecGyyrDQzI="
 
 // catalogVersionSupported is the highest remote-catalog schema version this
 // binary understands. Catalogs carrying a newer version are refused so an
-// old binary never silently misreads a newer wire shape.
-const catalogVersionSupported = 1
+// old binary never silently misreads a newer wire shape. v2 adds the
+// RunSpec init_marker/init_args/setup_args and InstallSpec asset_templates
+// fields — a v1 binary would silently drop them and misrun modules that
+// depend on them, so catalogs that use them must declare version 2.
+const catalogVersionSupported = 2
 
 // CatalogEnvelope is the signed remote-catalog wire format served at
 // <module_index.url>/catalog.json.

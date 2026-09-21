@@ -7,6 +7,7 @@ package modules
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -52,7 +53,7 @@ func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version s
 		return fmt.Errorf("module %q: download URL is not HTTPS: %s", spec.ID, url)
 	}
 
-	tmp, err := os.CreateTemp("", "rhizome-module-*.tar.gz")
+	tmp, err := os.CreateTemp("", "rhizome-module-*")
 	if err != nil {
 		return err
 	}
@@ -82,7 +83,7 @@ func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version s
 	if err := os.MkdirAll(dest, 0o700); err != nil {
 		return err
 	}
-	binPath, err := extractTarGz(tmpPath, dest, spec.Install.Binary)
+	binPath, err := extractArchive(tmpPath, dest, spec.Install.Binary, spec.Asset(release))
 	if err != nil {
 		_ = os.RemoveAll(dest)
 		return fmt.Errorf("module %q: extract failed: %w", spec.ID, err)
@@ -148,6 +149,19 @@ func (m *Manager) download(ctx context.Context, url string, w io.Writer) error {
 // maxMemberBytes caps a single archive member — bounded so a hostile or
 // corrupt archive cannot expand without limit (decompression-bomb guard).
 const maxMemberBytes = 512 << 20
+
+// extractArchive dispatches on the resolved asset suffix: .zip → extractZip,
+// .tar.gz/.tgz → extractTarGz, anything else refuses.
+func extractArchive(archivePath, dest, binaryName, assetName string) (string, error) {
+	switch {
+	case strings.HasSuffix(assetName, ".zip"):
+		return extractZip(archivePath, dest, binaryName)
+	case strings.HasSuffix(assetName, ".tar.gz"), strings.HasSuffix(assetName, ".tgz"):
+		return extractTarGz(archivePath, dest, binaryName)
+	default:
+		return "", fmt.Errorf("unsupported archive format: %s", assetName)
+	}
+}
 
 // extractTarGz unpacks a .tar.gz into dest. It finds the module binary by
 // basename (allowing archives that wrap contents in a top-level directory),
@@ -231,6 +245,103 @@ func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 				binaryPath = target
 				foundBinary = true
 			}
+		}
+	}
+	if wantBase != "" && !foundBinary {
+		return "", fmt.Errorf("archive does not contain binary %q", wantBase)
+	}
+	return binaryPath, nil
+}
+
+// extractZip unpacks a .zip into dest with the same guards as
+// extractTarGz: path-traversal rejection, a per-member size cap, the module
+// binary flattened to the version-dir root and marked executable, and a
+// foundBinary error when absent. Windows-built zips may carry
+// File.Mode()==0 — members default to 0600, the binary to 0755. Zip-encoded
+// symlinks are rejected outright (a symlink member followed by a regular
+// member would let content escape dest through the link).
+func extractZip(archivePath, dest, binaryName string) (string, error) {
+	zr, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("invalid zip: %w", err)
+	}
+	defer func() { _ = zr.Close() }()
+
+	wantBase := binaryName
+	destClean := filepath.Clean(dest)
+	binaryPath := ""
+	foundBinary := false
+	for _, f := range zr.File {
+		// Reject anything that would escape dest.
+		name := filepath.Clean(f.Name)
+		if name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) ||
+			filepath.IsAbs(name) {
+			return "", fmt.Errorf("archive contains unsafe path %q", f.Name)
+		}
+		target := filepath.Join(dest, name)
+		// Defense-in-depth: the resolved path must stay under dest.
+		targetClean := filepath.Clean(target)
+		if targetClean != destClean &&
+			!strings.HasPrefix(targetClean, destClean+string(filepath.Separator)) {
+			return "", fmt.Errorf("archive member %q escapes target dir", f.Name)
+		}
+		mode := f.FileInfo().Mode()
+		if mode&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("archive contains symlink %q; symlinks are not allowed", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o700); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if !mode.IsRegular() {
+			continue // device/fifo/etc. members carry no extractable payload
+		}
+		if f.UncompressedSize64 > maxMemberBytes {
+			return "", fmt.Errorf("archive member %q exceeds %d-byte cap", f.Name, maxMemberBytes)
+		}
+		base := filepath.Base(name)
+		isBinary := base == wantBase || base == wantBase+".exe"
+		if isBinary {
+			// Flatten the module binary to the version dir root.
+			target = filepath.Join(dest, base)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return "", err
+		}
+		perm := mode.Perm()
+		if perm == 0 {
+			perm = 0o600
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		//nolint:gosec // G304: target is validated to stay under dest above.
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+		if err != nil {
+			_ = rc.Close()
+			return "", err
+		}
+		n, err := io.CopyN(out, rc, maxMemberBytes+1)
+		_ = rc.Close()
+		if err != nil && err != io.EOF {
+			_ = out.Close()
+			return "", err
+		}
+		if n > maxMemberBytes {
+			_ = out.Close()
+			return "", fmt.Errorf("archive member %q exceeds %d-byte cap", f.Name, maxMemberBytes)
+		}
+		if err := out.Close(); err != nil {
+			return "", err
+		}
+		if isBinary {
+			//nolint:gosec // G302: the module binary must be executable.
+			_ = os.Chmod(target, 0o755)
+			binaryPath = target
+			foundBinary = true
 		}
 	}
 	if wantBase != "" && !foundBinary {
