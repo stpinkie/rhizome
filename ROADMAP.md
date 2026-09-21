@@ -109,7 +109,7 @@
   * Checksum-pinned downloads (`github-release`/`npm`/`detect`/`config` install methods); daemon supervision with backoff restart; `module.*` events.
   * `rhizome module list|status|install|uninstall|enable|disable|start|stop|restart|logs|set|validate` CLI + a web **Modules** page.
 * ✅ **First tenants** (v0.10.0 Track 65): `nimbus-verified-proxy` (verified Ethereum JSON-RPC; linux/darwin/**windows**; P2P light-client sync default) + `ethereum-rpc` (config-only remote endpoint).
-* **New → v0.11.0 Track 70**: module trust — signed catalog (Rhizome Ed25519 release key), opt-in curated remote index (`modules.catalog_url`), `module verify` drift detection.
+* **New → v0.11.0 Track 70**: module trust — signed catalog (Rhizome Ed25519 release key), opt-in curated remote index (`module_index.url`), `module verify` drift detection.
 * **New → v0.11.0 Track 71**: new tenants — `helios` (linux/darwin), `ipfs-kubo` (needs zip extraction), `llama.cpp` stretch. Future candidates: ACP agent wrappers.
 
 
