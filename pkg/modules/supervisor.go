@@ -139,6 +139,12 @@ func (s *Supervisor) launch(spec ModuleSpec, delay time.Duration) error {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
+	if err := s.runSetup(spec, stdout, stderr); err != nil {
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return fmt.Errorf("module %q: setup failed: %w", spec.ID, err)
+	}
+
 	if err := isolation.Start(cmd); err != nil {
 		_ = stdout.Close()
 		_ = stderr.Close()
@@ -166,6 +172,34 @@ func (s *Supervisor) launch(spec ModuleSpec, delay time.Duration) error {
 
 	s.wg.Add(1)
 	go s.monitor(spec, p, stdout, stderr, delay)
+	return nil
+}
+
+// runSetup executes a module's init/setup commands before the main process
+// launches — InitArgs when the InitMarker path is absent (first run), then
+// every SetupArgs entry. Commands run through isolation.Run (same sandbox
+// posture as the module itself) and log into the module's own log files;
+// the whole phase shares one bounded timeout.
+func (s *Supervisor) runSetup(spec ModuleSpec, stdout, stderr *os.File) error {
+	ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+	defer cancel()
+	cmds, err := s.mgr.setupCommands(ctx, spec)
+	if err != nil {
+		return err
+	}
+	for i, cmd := range cmds {
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		if err := isolation.Run(cmd); err != nil {
+			// Report position + subcommand only — argv may carry a
+			// secret field value that must not reach error strings.
+			verb := "setup"
+			if len(cmd.Args) > 1 {
+				verb = cmd.Args[1]
+			}
+			return fmt.Errorf("command %d (%s): %w", i+1, verb, err)
+		}
+	}
 	return nil
 }
 
@@ -282,22 +316,9 @@ func (s *Supervisor) StopAll() {
 // buildCommand resolves the binary, argv, env, and workdir for a module.
 // Secret fields are injected here — they never pass through config.json.
 func (m *Manager) buildCommand(ctx context.Context, spec ModuleSpec) (*exec.Cmd, error) {
-	var bin string
-	switch spec.Install.Method {
-	case "detect":
-		path, err := m.detectBinary(spec)
-		if err != nil {
-			return nil, err
-		}
-		bin = path
-	case "github-release", "npm":
-		bin = m.binaryPath(spec)
-		if _, err := os.Stat(bin); err != nil {
-			return nil, fmt.Errorf("module %q binary not found at %s — run `rhizome module install %s`",
-				spec.ID, bin, spec.ID)
-		}
-	default:
-		return nil, fmt.Errorf("module %q has no runnable binary (method %q)", spec.ID, spec.Install.Method)
+	bin, err := m.resolveBinary(spec)
+	if err != nil {
+		return nil, err
 	}
 
 	values := m.resolvedFields(spec, true)
@@ -314,15 +335,48 @@ func (m *Manager) buildCommand(ctx context.Context, spec ModuleSpec) (*exec.Cmd,
 		}
 		args = append(args, "--"+f.Arg+"="+values[f.Key])
 	}
-	for _, tmpl := range spec.Run.ArgsTemplate {
+	args = append(args, expandArgv(spec.Run.ArgsTemplate, values)...)
+	return m.commandBase(ctx, spec, bin, args, values)
+}
+
+// resolveBinary returns the module's executable path per its install method.
+func (m *Manager) resolveBinary(spec ModuleSpec) (string, error) {
+	switch spec.Install.Method {
+	case "detect":
+		return m.detectBinary(spec)
+	case "github-release", "npm":
+		bin := m.binaryPath(spec)
+		if _, err := os.Stat(bin); err != nil {
+			return "", fmt.Errorf("module %q binary not found at %s — run `rhizome module install %s`",
+				spec.ID, bin, spec.ID)
+		}
+		return bin, nil
+	default:
+		return "", fmt.Errorf("module %q has no runnable binary (method %q)", spec.ID, spec.Install.Method)
+	}
+}
+
+// expandArgv renders one argv template list against resolved field values;
+// entries that expand to empty or still hold a placeholder are dropped.
+func expandArgv(tmpls []string, values map[string]string) []string {
+	var out []string
+	for _, tmpl := range tmpls {
 		arg := expand(tmpl, values)
 		if arg == "" || strings.Contains(arg, "{") {
-			// Empty result or unresolved placeholder — drop the arg.
 			continue
 		}
-		args = append(args, arg)
+		out = append(out, arg)
 	}
+	return out
+}
 
+// commandBase finishes building a *exec.Cmd for bin+argv: the process env
+// (Run.Env templates + per-field Env mappings) and the module workdir.
+// Shared by the main run command and init/setup invocations.
+func (m *Manager) commandBase(
+	ctx context.Context, spec ModuleSpec, bin string,
+	args []string, values map[string]string,
+) (*exec.Cmd, error) {
 	//nolint:gosec // G204: launching catalog binaries is the module system's purpose.
 	cmd := exec.CommandContext(ctx, bin, args...)
 	env := append([]string{}, os.Environ()...)
@@ -345,6 +399,57 @@ func (m *Manager) buildCommand(ctx context.Context, spec ModuleSpec) (*exec.Cmd,
 	}
 	cmd.Dir = dir
 	return cmd, nil
+}
+
+// setupCommands builds the pre-launch commands for a module: InitArgs when
+// the InitMarker path is absent (first-run init), then every SetupArgs
+// entry (idempotent writes applied on each launch so field changes take
+// effect on restart). Returns nil when the module declares no setup work or
+// the marker shows init already ran.
+func (m *Manager) setupCommands(ctx context.Context, spec ModuleSpec) ([]*exec.Cmd, error) {
+	if len(spec.Run.InitArgs) == 0 && len(spec.Run.SetupArgs) == 0 {
+		return nil, nil
+	}
+	values := m.resolvedFields(spec, true)
+	var argvs [][]string
+	if len(spec.Run.InitArgs) > 0 {
+		if spec.Run.InitMarker == "" {
+			return nil, fmt.Errorf("module %q: init_args require init_marker", spec.ID)
+		}
+		marker := expand(spec.Run.InitMarker, values)
+		if marker == "" || strings.Contains(marker, "{") {
+			return nil, fmt.Errorf("module %q: init_marker did not resolve (%q)",
+				spec.ID, spec.Run.InitMarker)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			// Marker exists — init already ran.
+		} else if os.IsNotExist(err) {
+			argvs = append(argvs, spec.Run.InitArgs)
+		} else {
+			return nil, err
+		}
+	}
+	argvs = append(argvs, spec.Run.SetupArgs...)
+	if len(argvs) == 0 {
+		return nil, nil
+	}
+	bin, err := m.resolveBinary(spec)
+	if err != nil {
+		return nil, err
+	}
+	cmds := make([]*exec.Cmd, 0, len(argvs))
+	for _, tmpls := range argvs {
+		argv := expandArgv(tmpls, values)
+		if len(argv) == 0 {
+			continue
+		}
+		cmd, err := m.commandBase(ctx, spec, bin, argv, values)
+		if err != nil {
+			return nil, err
+		}
+		cmds = append(cmds, cmd)
+	}
+	return cmds, nil
 }
 
 // openLogs opens (rotating once when over cap) the module's stdout/stderr

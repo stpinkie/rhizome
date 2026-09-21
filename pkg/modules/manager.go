@@ -124,11 +124,18 @@ func (m *Manager) moduleConfig(id string) config.ModuleConfig {
 // defaults overridden by configured fields. Secret values are NOT included;
 // pass includeSecrets=true to merge them (process launch, health checks
 // needing credentials).
+//
+// "{module_dir}" inside a catalog Default resolves to the module's
+// directory at collection time — e.g. repo_dir defaults to
+// "{module_dir}/repo". The reserved "module_dir" key is also injected into
+// the returned map so run/init/setup templates can use it directly; a field
+// named module_dir cannot shadow it. Only catalog-authored Defaults get
+// the expansion — user-supplied values are never re-expanded.
 func (m *Manager) resolvedFields(spec ModuleSpec, includeSecrets bool) map[string]string {
 	out := make(map[string]string, len(spec.ConfigFields))
 	for _, f := range spec.ConfigFields {
 		if f.Default != "" {
-			out[f.Key] = f.Default
+			out[f.Key] = expand(f.Default, map[string]string{"module_dir": m.Dir(spec.ID)})
 		}
 	}
 	mc := m.moduleConfig(spec.ID)
@@ -140,6 +147,7 @@ func (m *Manager) resolvedFields(spec ModuleSpec, includeSecrets bool) map[strin
 			out[k] = v.String()
 		}
 	}
+	out["module_dir"] = m.Dir(spec.ID)
 	return out
 }
 

@@ -7,6 +7,7 @@ package modules
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -679,5 +680,378 @@ func TestBuildCommandTemplating(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("RPC env var not templated")
+	}
+}
+
+// buildZip produces an in-memory .zip with the given files (mode-less —
+// like a Windows-built archive).
+func buildZip(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestInstallZipVerifyAndExtract(t *testing.T) {
+	spec := testSpec("m1")
+	spec.Install.AssetTemplate = "test-{goos}-{goarch}-v{version}.zip"
+	registerTestSpec(t, spec)
+
+	binName := "testbin"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	// Wrap the binary in a subdirectory like kubo does (kubo/ipfs.exe).
+	asset := buildZip(t, map[string]string{"pkg/" + binName: "binary", "pkg/README": "docs"})
+	sum := sha256.Sum256(asset)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(asset)
+	}))
+	defer srv.Close()
+	old := downloadBaseURL
+	downloadBaseURL = srv.URL
+	t.Cleanup(func() { downloadBaseURL = old })
+
+	spec.Install.Releases[0].SHA256[Platform()] = hex.EncodeToString(sum[:])
+	cfg := &config.Config{}
+	mgr, _, _ := newTestManager(t, cfg)
+	if err := mgr.Install(t.Context(), "m1", ""); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	bin := mgr.binaryPath(spec)
+	if filepath.Base(bin) != binName {
+		t.Fatalf("binary not flattened: %q", bin)
+	}
+	st, err := os.Stat(bin)
+	if err != nil {
+		t.Fatalf("binary missing at %s: %v", bin, err)
+	}
+	if runtime.GOOS != "windows" && st.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("binary not executable: mode %v", st.Mode())
+	}
+	// Non-binary members keep their archive path.
+	if _, err := os.Stat(filepath.Join(mgr.Dir("m1"), "1.0.0", "pkg", "README")); err != nil {
+		t.Fatalf("README missing under version dir: %v", err)
+	}
+	// The install-time digest record enables `module verify`.
+	if _, err := mgr.Verify("m1"); err != nil {
+		t.Fatalf("Verify after zip install: %v", err)
+	}
+}
+
+func TestExtractZipRejectsTraversal(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("../escape")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("x"))
+	_ = zw.Close()
+
+	archive := filepath.Join(t.TempDir(), "evil.zip")
+	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extractZip(archive, t.TempDir(), ""); err == nil ||
+		!strings.Contains(err.Error(), "unsafe path") {
+		t.Fatalf("expected traversal rejection, got %v", err)
+	}
+}
+
+func TestExtractZipRejectsSymlink(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	hdr := &zip.FileHeader{Name: "link", Method: zip.Deflate}
+	hdr.SetMode(0o777 | os.ModeSymlink)
+	w, err := zw.CreateHeader(hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("target"))
+	_ = zw.Close()
+
+	archive := filepath.Join(t.TempDir(), "ln.zip")
+	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extractZip(archive, t.TempDir(), ""); err == nil ||
+		!strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink rejection, got %v", err)
+	}
+}
+
+func TestExtractZipRejectsMissingBinary(t *testing.T) {
+	asset := buildZip(t, map[string]string{"docs/readme": "x"})
+	archive := filepath.Join(t.TempDir(), "a.zip")
+	if err := os.WriteFile(archive, asset, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extractZip(archive, t.TempDir(), "wantedbin"); err == nil ||
+		!strings.Contains(err.Error(), "does not contain binary") {
+		t.Fatalf("expected missing-binary error, got %v", err)
+	}
+}
+
+func TestAssetTemplatesPerGOOS(t *testing.T) {
+	spec := testSpec("m1")
+	spec.Install.AssetTemplates = map[string]string{
+		runtime.GOOS: "override-{goos}-{goarch}-{version}.zip",
+	}
+	r := spec.Install.Releases[0]
+	got := spec.Asset(r)
+	want := "override-" + runtime.GOOS + "-" + runtime.GOARCH + "-1.0.0.zip"
+	if got != want {
+		t.Fatalf("Asset = %q, want %q", got, want)
+	}
+	// A map keyed for a different GOOS leaves the base template alone.
+	spec.Install.AssetTemplates = map[string]string{"plan9": "x.zip"}
+	if got := spec.Asset(r); !strings.HasSuffix(got, ".tar.gz") {
+		t.Fatalf("non-matching override applied: %q", got)
+	}
+	// The kubo entry declares a .zip override for windows.
+	kubo, ok := Lookup("ipfs-kubo")
+	if !ok {
+		t.Fatal("ipfs-kubo not in catalog")
+	}
+	if !strings.HasSuffix(kubo.Install.AssetTemplates["windows"], ".zip") {
+		t.Fatalf("kubo windows asset template = %q, want .zip",
+			kubo.Install.AssetTemplates["windows"])
+	}
+}
+
+// TestModuleDirPlaceholder covers the {module_dir} reserved key: catalog
+// defaults expand it at collection, templates can reference it, and a
+// user-supplied field value cannot shadow it.
+func TestModuleDirPlaceholder(t *testing.T) {
+	spec := testSpec("m1")
+	spec.Install.Method = "detect"
+	spec.Install.Binary = os.Args[0]
+	spec.ConfigFields = append(spec.ConfigFields, ConfigField{
+		Key: "data_dir", Label: "Data dir", Arg: "data-dir",
+		Default: "{module_dir}/data",
+	})
+	registerTestSpec(t, spec)
+	cfg := &config.Config{Modules: config.ModulesConfig{
+		// Bypass SetFields (it would reject the unknown key) — prove the
+		// reserved key wins even when smuggled in directly.
+		"m1": {Fields: map[string]string{
+			"endpoint":   "http://x",
+			"module_dir": "/evil",
+		}},
+	}}
+	mgr, _, _ := newTestManager(t, cfg)
+
+	values := mgr.resolvedFields(spec, true)
+	// Expansion is literal string substitution — no path cleaning, so a
+	// catalog default like "{module_dir}/data" keeps its slash.
+	wantData := mgr.Dir("m1") + "/data"
+	if values["data_dir"] != wantData {
+		t.Fatalf("data_dir = %q, want %q", values["data_dir"], wantData)
+	}
+	if values["module_dir"] != mgr.Dir("m1") {
+		t.Fatalf("module_dir = %q, want %q", values["module_dir"], mgr.Dir("m1"))
+	}
+	// The resolved default flows into argv emission.
+	cmd, err := mgr.buildCommand(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--data-dir=" + wantData
+	found := false
+	for _, a := range cmd.Args[1:] {
+		if a == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("args %v missing %q", cmd.Args[1:], want)
+	}
+}
+
+// TestSetupHelperProcess is the file-writing counterpart of
+// TestHelperProcess: it appends its last argv element ("init"/"setup") to
+// GO_MODULE_SETUP_LOG and, for the init tag, creates the marker file.
+// Only runs when GO_MODULE_SETUP=1.
+func TestSetupHelperProcess(t *testing.T) {
+	if os.Getenv("GO_MODULE_SETUP") != "1" {
+		return
+	}
+	tag := os.Args[len(os.Args)-1]
+	f, err := os.OpenFile(os.Getenv("GO_MODULE_SETUP_LOG"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err == nil {
+		fmt.Fprintln(f, tag)
+		_ = f.Close()
+	}
+	if tag == "init" {
+		if m := os.Getenv("GO_MODULE_SETUP_MARKER"); m != "" {
+			_ = os.WriteFile(m, []byte("done"), 0o600)
+		}
+	}
+}
+
+func TestInitAndSetupCommands(t *testing.T) {
+	dir := t.TempDir()
+	markerPath := filepath.Join(dir, "marker")
+	logPath := filepath.Join(dir, "setup.log")
+	spec := ModuleSpec{
+		ID: "setupmod", Name: "setupmod", Kind: KindDaemon,
+		Install: InstallSpec{Method: "detect", Binary: os.Args[0]},
+		Run: RunSpec{
+			Env: map[string]string{
+				"GO_MODULE_HELPER":       "1",
+				"GO_MODULE_SETUP":        "1",
+				"GO_MODULE_SETUP_LOG":    logPath,
+				"GO_MODULE_SETUP_MARKER": markerPath,
+			},
+			InitMarker: markerPath,
+			InitArgs:   []string{"-test.run=TestSetupHelperProcess", "init"},
+			SetupArgs: [][]string{
+				{"-test.run=TestSetupHelperProcess", "setup"},
+			},
+			ArgsTemplate: []string{"-test.run=TestHelperProcess"},
+		},
+	}
+	registerTestSpec(t, spec)
+
+	cfg := &config.Config{}
+	mgr, _, _ := newTestManager(t, cfg)
+	sup := NewSupervisor(mgr)
+	defer sup.StopAll()
+
+	startStop := func() {
+		if err := sup.Start("setupmod"); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		if err := sup.Stop("setupmod"); err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+	}
+	startStop()
+	startStop()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("setup log missing: %v", err)
+	}
+	got := strings.Fields(string(data))
+	// init once (marker persists), setup once per launch (two launches).
+	want := []string{"init", "setup", "setup"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("setup log = %v, want %v", got, want)
+	}
+}
+
+func TestHeliosCatalogEntry(t *testing.T) {
+	spec, ok := Lookup("helios")
+	if !ok {
+		t.Fatal("helios not in catalog")
+	}
+	if spec.Kind != KindDaemon {
+		t.Fatalf("kind = %q, want daemon", spec.Kind)
+	}
+	r, ok := spec.LatestRelease()
+	if !ok {
+		t.Fatal("no pinned release")
+	}
+	for _, p := range spec.Platforms {
+		if d, algo := r.Digest(p); d == "" || algo != "sha256" {
+			t.Fatalf("platform %s: digest=%q algo=%q", p, d, algo)
+		}
+	}
+	for _, p := range []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"} {
+		if !spec.Supports(p) {
+			t.Fatalf("helios should support %s", p)
+		}
+	}
+	if spec.Supports("windows/amd64") {
+		t.Fatal("helios must not advertise windows — upstream ships none")
+	}
+	// The `ethereum` subcommand must lead argv — all flags ride env vars.
+	if len(spec.Run.ArgsTemplate) != 1 || spec.Run.ArgsTemplate[0] != "ethereum" {
+		t.Fatalf("ArgsTemplate = %v, want [ethereum]", spec.Run.ArgsTemplate)
+	}
+	for _, key := range []string{"execution_api_url", "checkpoint"} {
+		f, ok := spec.Field(key)
+		if !ok || !f.Required || f.Env == "" {
+			t.Fatalf("field %s missing/not required/no env", key)
+		}
+	}
+	if f, ok := spec.Field("data_dir"); !ok || f.Default != "{module_dir}/data" {
+		t.Fatalf("data_dir = %+v", f)
+	}
+	if spec.Health.Type != "jsonrpc" {
+		t.Fatalf("health = %+v", spec.Health)
+	}
+}
+
+func TestKuboCatalogEntry(t *testing.T) {
+	spec, ok := Lookup("ipfs-kubo")
+	if !ok {
+		t.Fatal("ipfs-kubo not in catalog")
+	}
+	if spec.Kind != KindDaemon {
+		t.Fatalf("kind = %q, want daemon", spec.Kind)
+	}
+	r, ok := spec.LatestRelease()
+	if !ok {
+		t.Fatal("no pinned release")
+	}
+	for _, p := range spec.Platforms {
+		if d, algo := r.Digest(p); d == "" || algo != "sha512" {
+			t.Fatalf("platform %s: digest=%q algo=%q", p, d, algo)
+		}
+	}
+	if got := spec.Install.AssetTemplates["windows"]; !strings.HasSuffix(got, ".zip") {
+		t.Fatalf("windows asset template = %q, want .zip", got)
+	}
+	if spec.Run.InitMarker == "" || len(spec.Run.InitArgs) == 0 || len(spec.Run.SetupArgs) == 0 {
+		t.Fatal("kubo needs init marker + init/setup args for repo init and port config")
+	}
+	if f, ok := spec.Field("repo_dir"); !ok || f.Default != "{module_dir}/repo" || f.Env != "IPFS_PATH" {
+		t.Fatalf("repo_dir field = %+v", f)
+	}
+	if spec.Health.Type != "tcp" || spec.Health.Target != "127.0.0.1:{api_port}" {
+		t.Fatalf("health = %+v", spec.Health)
+	}
+}
+
+func TestCatalogVersionBump(t *testing.T) {
+	data, err := MarshalCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env CatalogEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.CatalogVersion != 2 {
+		t.Fatalf("MarshalCatalog emitted catalog_version %d, want 2", env.CatalogVersion)
+	}
+	// v1 catalogs still parse (additive schema), v3 refuses.
+	if _, err := parseCatalogEnvelope(
+		[]byte(`{"catalog_version":1,"modules":[]}`)); err != nil {
+		t.Fatalf("v1 catalog refused: %v", err)
+	}
+	if _, err := parseCatalogEnvelope(data); err != nil {
+		t.Fatalf("v2 catalog refused: %v", err)
+	}
+	if _, err := parseCatalogEnvelope(
+		[]byte(`{"catalog_version":3,"modules":[]}`)); err == nil {
+		t.Fatal("v3 catalog accepted")
 	}
 }

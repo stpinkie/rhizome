@@ -110,7 +110,7 @@
   * `rhizome module list|status|install|uninstall|enable|disable|start|stop|restart|logs|set|validate` CLI + a web **Modules** page.
 * ✅ **First tenants** (v0.10.0 Track 65): `nimbus-verified-proxy` (verified Ethereum JSON-RPC; linux/darwin/**windows**; P2P light-client sync default) + `ethereum-rpc` (config-only remote endpoint).
 * **New → v0.11.0 Track 70**: module trust — signed catalog (Rhizome Ed25519 release key), opt-in curated remote index (`module_index.url`), `module verify` drift detection.
-* **New → v0.11.0 Track 71**: new tenants — `helios` (linux/darwin), `ipfs-kubo` (needs zip extraction), `llama.cpp` stretch. Future candidates: ACP agent wrappers.
+* **New → v0.11.0 Track 71**: new tenants — `helios` (Ethereum light client; linux/darwin amd64+arm64, sha256-pinned), `ipfs-kubo` (IPFS node; adds `.zip` extraction, per-GOOS asset templates, `{module_dir}` placeholder, and marker-gated `init_args`/per-launch `setup_args` — catalog schema v2). `llama.cpp` deferred — needs symlink-safe layout-preserving extraction + a model-weights trust story; design standalone. Future candidates: ACP agent wrappers.
 
 
 ## 🪙 9. Web3 Rails (exploration)
