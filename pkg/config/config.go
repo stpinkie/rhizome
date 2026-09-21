@@ -2750,9 +2750,12 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.MCP.Enabled
 	case "web3", "web3_chain", "web3_balance", "web3_call", "web3_block",
 		"web3_transaction", "web3_logs", "web3_rpc",
-		"web3_wallet", "web3_pending", "web3_send_status":
+		"web3_wallet", "web3_pending", "web3_send_status",
+		"web3_contract_call", "web3_erc20", "web3_erc721", "web3_ens",
+		"web3_watch":
 		return t.Web3.Enabled
-	case "web3_signing", "web3_send", "web3_sign", "web3_approve":
+	case "web3_signing", "web3_send", "web3_sign", "web3_approve",
+		"web3_contract_send":
 		return t.Web3.Enabled && t.Web3.Signing.Enabled
 	default:
 		return true
