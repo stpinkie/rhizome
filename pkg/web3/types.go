@@ -3,11 +3,14 @@
 //
 // Copyright (c) 2026 Rhizome contributors
 
-// Package web3 provides a minimal read-only Ethereum JSON-RPC layer: a
-// stdlib net/http client, an operator-config endpoint resolver, and the
-// hex quantity / block / transaction / receipt / log codecs the web3_*
-// agent tools are built on. Signing and transaction submission live in a
-// separate layer (Track 69) — nothing here can send or sign.
+// Package web3 provides a minimal Ethereum JSON-RPC layer: a stdlib
+// net/http client, an operator-config endpoint resolver, the hex
+// quantity / block / transaction / receipt / log codecs the web3_* read
+// tools are built on, and — gated behind tools.web3.signing — the local
+// wallet (keys.go), ABI codec (abi.go), transaction signing (tx.go),
+// policy engine (policy.go), and pending-approval queue (pending.go).
+// Private keys are AES-256-GCM sealed under a master key in the OS
+// keyring (scrypt passphrase fallback) and never leave the local box.
 package web3
 
 import (
