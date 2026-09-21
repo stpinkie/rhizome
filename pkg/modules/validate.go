@@ -16,7 +16,10 @@ import (
 // ValidateConfig checks cfg.Modules against the catalog. pkg/config cannot
 // do this itself (it must not import the catalog — that would create an
 // import cycle), so validation lives here and is called by the daemon
-// startup path, the CLI, and the web API before applying changes.
+// startup path, the CLI, and the web API before applying changes. lookup
+// resolves module ids — pass a Manager's LookupSpec so modules from a
+// configured remote index validate, or the package-level Lookup for the
+// embedded-only set.
 //
 // Rules:
 //   - every configured id must exist in the catalog
@@ -24,7 +27,10 @@ import (
 //   - non-secret fields go in fields; secret fields go in secrets
 //   - enabled modules must support this platform and have all required
 //     fields set
-func ValidateConfig(cfg *config.Config) error {
+func ValidateConfig(cfg *config.Config, lookup func(string) (ModuleSpec, bool)) error {
+	if lookup == nil {
+		lookup = Lookup
+	}
 	if len(cfg.Modules) == 0 {
 		return nil
 	}
@@ -37,7 +43,7 @@ func ValidateConfig(cfg *config.Config) error {
 
 	for _, id := range ids {
 		mc := cfg.Modules[id]
-		spec, ok := Lookup(id)
+		spec, ok := lookup(id)
 		if !ok {
 			errs = append(errs, fmt.Sprintf("modules.%s: unknown module id", id))
 			continue

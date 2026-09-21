@@ -79,6 +79,9 @@ func NewModuleCommand() *cobra.Command {
 		newLogsCommand(),
 		newSetCommand(),
 		newValidateCommand(),
+		newVerifyCommand(),
+		newCatalogCommand(),
+		newCatalogKeygenCommand(),
 	)
 	return cmd
 }
@@ -147,14 +150,14 @@ func newListCommand() *cobra.Command {
 				printJSON(w, infos)
 				return
 			}
-			fmt.Fprintf(w, "%-24s %-10s %-14s %-8s %s\n", "ID", "KIND", "STATUS", "ENABLED", "NAME")
+			fmt.Fprintf(w, "%-24s %-10s %-14s %-8s %-9s %s\n", "ID", "KIND", "STATUS", "ENABLED", "SOURCE", "NAME")
 			for _, i := range infos {
 				enabled := ""
 				if i.Enabled {
 					enabled = "yes"
 				}
-				fmt.Fprintf(w, "%-24s %-10s %-14s %-8s %s\n",
-					i.Spec.ID, i.Spec.Kind, i.Status, enabled, i.Spec.Name)
+				fmt.Fprintf(w, "%-24s %-10s %-14s %-8s %-9s %s\n",
+					i.Spec.ID, i.Spec.Kind, i.Status, enabled, i.Source, i.Spec.Name)
 			}
 		},
 	}
@@ -180,6 +183,7 @@ func newStatusCommand() *cobra.Command {
 			}
 			fmt.Fprintf(w, "%s — %s\n", info.Spec.ID, info.Spec.Name)
 			fmt.Fprintf(w, "  kind:      %s\n", info.Spec.Kind)
+			fmt.Fprintf(w, "  source:    %s\n", info.Source)
 			fmt.Fprintf(w, "  status:    %s\n", info.Status)
 			fmt.Fprintf(w, "  enabled:   %v\n", info.Enabled)
 			if info.Version != "" {
@@ -441,6 +445,111 @@ func reportSet(w io.Writer, id string, kv map[string]string, secret bool) {
 	}
 }
 
+// newVerifyCommand re-hashes an installed module binary against its catalog
+// digest pin — drift detection. Local-only: the re-hash never mutates state,
+// so there is no daemon proxy (same posture as `module logs`).
+func newVerifyCommand() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "verify <module-id>",
+		Short: "Re-hash the installed binary against its install-time digest record",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			mgr, err := manager()
+			if err != nil {
+				fatal(err)
+			}
+			res, err := mgr.Verify(args[0])
+			if err != nil {
+				// When verification ran far enough to compare digests, the
+				// JSON result carries the evidence even on failure.
+				if asJSON && res.Path != "" {
+					printJSON(w, res)
+				}
+				fatal(err)
+			}
+			if asJSON {
+				printJSON(w, res)
+				return
+			}
+			fmt.Fprintf(w, "OK %s v%s — %s digest matches the install-time record\n  path: %s\n  %s: %s\n",
+				res.Module, res.Version, res.Algorithm, res.Path, res.Algorithm, res.Got)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
+	return cmd
+}
+
+// newCatalogCommand emits the embedded catalog in its canonical signed form
+// — the exact bytes release signing covers. With --sign it also writes
+// catalog.json.sig, signing with the MODULE_CATALOG_SIGNING_KEY env var
+// (base64 Ed25519 seed) so the key never appears in argv or shell history.
+func newCatalogCommand() *cobra.Command {
+	var out, signEnv string
+	cmd := &cobra.Command{
+		Use:   "catalog",
+		Short: "Emit the embedded module catalog as canonical catalog.json",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			w := cmd.OutOrStdout()
+			data, err := modules.MarshalCatalog()
+			if err != nil {
+				fatal(err)
+			}
+			if out == "" {
+				fmt.Fprintln(w, string(data))
+				return
+			}
+			if err := os.WriteFile(out, data, 0o600); err != nil {
+				fatal(err)
+			}
+			fmt.Fprintf(w, "wrote %s (%d bytes)\n", out, len(data))
+			if signEnv != "" {
+				seed := os.Getenv(signEnv)
+				if seed == "" {
+					fatal(fmt.Errorf("env var %s is empty — cannot sign catalog", signEnv))
+				}
+				sig, err := modules.SignCatalog(data, seed)
+				if err != nil {
+					fatal(err)
+				}
+				sigPath := out + ".sig"
+				if err := os.WriteFile(sigPath, []byte(sig+"\n"), 0o600); err != nil {
+					fatal(err)
+				}
+				fmt.Fprintf(w, "wrote %s\n", sigPath)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&out, "out", "", "Write catalog.json to this path instead of stdout")
+	cmd.Flags().
+		StringVar(&signEnv, "sign-with-env", "", "Also write <out>.sig signed with this env var's base64 Ed25519 seed")
+	return cmd
+}
+
+// newCatalogKeygenCommand generates a fresh Ed25519 catalog signing keypair.
+// Hidden: release infrastructure, not a user command.
+func newCatalogKeygenCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:    "catalog-keygen",
+		Short:  "Generate a module-catalog Ed25519 signing keypair",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			w := cmd.OutOrStdout()
+			pub, seed, err := modules.GenerateCatalogKeypair()
+			if err != nil {
+				fatal(err)
+			}
+			fmt.Fprintf(w, "public:  %s\n", pub)
+			fmt.Fprintf(w, "private: %s\n", seed)
+			fmt.Fprintln(w, "\nBake the public key into pkg/modules/catalog.go (releasePubKeyB64)")
+			fmt.Fprintln(w, "and store the private key as the MODULE_CATALOG_SIGNING_KEY GitHub secret.")
+		},
+	}
+}
+
 func newValidateCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate",
@@ -448,11 +557,11 @@ func newValidateCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			w := cmd.OutOrStdout()
-			cfg, err := internal.LoadConfig()
+			mgr, err := manager()
 			if err != nil {
 				fatal(err)
 			}
-			if err := modules.ValidateConfig(cfg); err != nil {
+			if err := modules.ValidateConfig(mgr.Config(), mgr.LookupSpec); err != nil {
 				fatal(err)
 			}
 			fmt.Fprintln(w, "Module configuration OK")

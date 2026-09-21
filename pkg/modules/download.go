@@ -82,11 +82,41 @@ func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version s
 	if err := os.MkdirAll(dest, 0o700); err != nil {
 		return err
 	}
-	if err := extractTarGz(tmpPath, dest, spec.Install.Binary); err != nil {
+	binPath, err := extractTarGz(tmpPath, dest, spec.Install.Binary)
+	if err != nil {
 		_ = os.RemoveAll(dest)
 		return fmt.Errorf("module %q: extract failed: %w", spec.ID, err)
 	}
+	// Record the extracted binary's digest so `module verify` can detect
+	// post-install drift offline. The artifact digest was verified above, so
+	// this records what a trusted install produced.
+	if binPath != "" {
+		if err := recordBinaryDigest(binPath, dest); err != nil {
+			_ = os.RemoveAll(dest)
+			return fmt.Errorf("module %q: %w", spec.ID, err)
+		}
+	}
 	return m.markInstalled(spec.ID, release.Version)
+}
+
+// binaryDigestFile is the per-version record of the installed binary's
+// sha256, written at install time for `module verify` drift detection.
+const binaryDigestFile = ".binary-digest"
+
+// recordBinaryDigest hashes binPath (sha256) and writes the hex digest to
+// <dest>/.binary-digest.
+func recordBinaryDigest(binPath, dest string) error {
+	f, err := os.Open(binPath) //nolint:gosec // G304: path is the just-extracted module binary.
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	sum := sha256.New()
+	if _, err := io.Copy(sum, f); err != nil {
+		return err
+	}
+	digest := hex.EncodeToString(sum.Sum(nil)) + "\n"
+	return os.WriteFile(filepath.Join(dest, binaryDigestFile), []byte(digest), 0o600)
 }
 
 // isLoopbackURL reports whether a URL targets loopback — the one case where
@@ -121,22 +151,24 @@ const maxMemberBytes = 512 << 20
 
 // extractTarGz unpacks a .tar.gz into dest. It finds the module binary by
 // basename (allowing archives that wrap contents in a top-level directory),
-// marks it executable, and refuses path-traversal entries.
-func extractTarGz(archivePath, dest, binaryName string) error {
+// marks it executable, refuses path-traversal entries, and returns the path
+// of the extracted binary ("" when binaryName is empty).
+func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 	//nolint:gosec // G304: archivePath is the download temp file just written.
 	f, err := os.Open(archivePath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = gz.Close() }()
 
 	wantBase := binaryName
 	tr := tar.NewReader(gz)
+	binaryPath := ""
 	foundBinary := false
 	for {
 		hdr, err := tr.Next()
@@ -144,23 +176,23 @@ func extractTarGz(archivePath, dest, binaryName string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return "", err
 		}
 		// Reject anything that would escape dest.
 		name := filepath.Clean(hdr.Name)
 		if name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) ||
 			filepath.IsAbs(name) {
-			return fmt.Errorf("archive contains unsafe path %q", hdr.Name)
+			return "", fmt.Errorf("archive contains unsafe path %q", hdr.Name)
 		}
 		target := filepath.Join(dest, name)
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o700); err != nil {
-				return err
+				return "", err
 			}
 		case tar.TypeReg:
 			if hdr.Size > maxMemberBytes {
-				return fmt.Errorf("archive member %q exceeds %d-byte cap", hdr.Name, maxMemberBytes)
+				return "", fmt.Errorf("archive member %q exceeds %d-byte cap", hdr.Name, maxMemberBytes)
 			}
 			base := filepath.Base(name)
 			if base == wantBase || base == wantBase+".exe" {
@@ -170,7 +202,7 @@ func extractTarGz(archivePath, dest, binaryName string) error {
 				target = filepath.Join(dest, base)
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-				return err
+				return "", err
 			}
 			mode := hdr.FileInfo().Mode().Perm()
 			if mode == 0 {
@@ -179,31 +211,32 @@ func extractTarGz(archivePath, dest, binaryName string) error {
 			//nolint:gosec // G304: target is validated to stay under dest above.
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 			if err != nil {
-				return err
+				return "", err
 			}
 			n, err := io.CopyN(out, tr, maxMemberBytes+1)
 			if err != nil && err != io.EOF {
 				_ = out.Close()
-				return err
+				return "", err
 			}
 			if n > maxMemberBytes {
 				_ = out.Close()
-				return fmt.Errorf("archive member %q exceeds %d-byte cap", hdr.Name, maxMemberBytes)
+				return "", fmt.Errorf("archive member %q exceeds %d-byte cap", hdr.Name, maxMemberBytes)
 			}
 			if err := out.Close(); err != nil {
-				return err
+				return "", err
 			}
 			if base == wantBase || base == wantBase+".exe" {
 				//nolint:gosec // G302: the module binary must be executable.
 				_ = os.Chmod(target, 0o755)
+				binaryPath = target
 				foundBinary = true
 			}
 		}
 	}
 	if wantBase != "" && !foundBinary {
-		return fmt.Errorf("archive does not contain binary %q", wantBase)
+		return "", fmt.Errorf("archive does not contain binary %q", wantBase)
 	}
-	return nil
+	return binaryPath, nil
 }
 
 // detectBinary resolves a "detect"-method module by finding its binary on

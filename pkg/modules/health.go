@@ -19,7 +19,7 @@ import (
 // supported=false means the module defines no health check — callers should
 // treat that as "unknown", not "unhealthy".
 func (m *Manager) HealthCheck(ctx context.Context, id string) (bool, bool) {
-	spec, ok := Lookup(id)
+	spec, _, ok := m.lookupSpec(id)
 	if !ok || spec.Health.Type == "" {
 		return false, false
 	}
