@@ -151,6 +151,11 @@ jobs:
         run: go build -tags goolm,stdjson ./...
         env:
           CGO_ENABLED: '0'
+          # Green Tea GC's AVX-512 span-scan faults on parts of the
+          # windows-latest fleet (golang/go#79871, fixed in Go 1.27) —
+          # retries rerun on the same VM so they can never pass. Remove
+          # once go.mod pins a fixed toolchain.
+          GOEXPERIMENT: 'nogreenteagc'
 
       - name: Run go test
         shell: bash
@@ -179,6 +184,8 @@ jobs:
           exit $rc
         env:
           CGO_ENABLED: '0'
+          # See "Run go build" above — golang/go#79871.
+          GOEXPERIMENT: 'nogreenteagc'
 
   test-web:
     name: Web Tests
