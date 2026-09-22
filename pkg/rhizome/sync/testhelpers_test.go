@@ -133,24 +133,43 @@ func currentHead(s *Syncer) (plumbing.Hash, error) {
 // convergePeers alternates commit+announce between the two syncers until their
 // HEADs match or the deadline passes. Announce→pull convergence is
 // asynchronous and divergent histories can take a couple of exchange rounds to
-// settle on a single merge commit.
+// settle on a single merge commit. Each op gets its own bounded context: an
+// explicit PullFrom can otherwise block on the dedup join for the full
+// duration of a hung announce-triggered pull, eating the deadline in a single
+// round. Errors are logged per round so a CI flake shows which op failed.
 func convergePeers(t *testing.T, ctx context.Context, sA *Syncer, nA *network.Node, sB *Syncer, nB *network.Node) {
 	t.Helper()
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		_, _ = sA.PushTo(ctx, nB.ID())
-		_ = sA.PullFrom(ctx, nB.ID())
-		time.Sleep(200 * time.Millisecond)
-		_, _ = sB.PushTo(ctx, nA.ID())
-		_ = sB.PullFrom(ctx, nA.ID())
-		time.Sleep(200 * time.Millisecond)
+	deadline := time.Now().Add(120 * time.Second)
+	for round := 0; time.Now().Before(deadline); round++ {
 		hA, errA := currentHead(sA)
 		hB, errB := currentHead(sB)
 		if errA == nil && errB == nil && hA == hB {
 			return
 		}
+		if _, err := sA.PushTo(ctx, nB.ID()); err != nil {
+			t.Logf("converge round %d: A push: %v", round, err)
+		}
+		if err := pullBounded(ctx, sA, nB.ID()); err != nil {
+			t.Logf("converge round %d: A pull: %v", round, err)
+		}
+		time.Sleep(200 * time.Millisecond)
+		if _, err := sB.PushTo(ctx, nA.ID()); err != nil {
+			t.Logf("converge round %d: B push: %v", round, err)
+		}
+		if err := pullBounded(ctx, sB, nA.ID()); err != nil {
+			t.Logf("converge round %d: B pull: %v", round, err)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	hA, _ := currentHead(sA)
 	hB, _ := currentHead(sB)
 	t.Fatalf("peers did not converge: %s head=%s, %s head=%s", nA.PeerID(), hA, nB.PeerID(), hB)
+}
+
+// pullBounded runs PullFrom under a 15s cap so a slow or dedup-joined pull
+// cannot starve the convergence loop.
+func pullBounded(ctx context.Context, s *Syncer, pid peer.ID) error {
+	pctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return s.PullFrom(pctx, pid)
 }
