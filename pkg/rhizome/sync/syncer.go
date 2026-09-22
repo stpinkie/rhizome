@@ -41,6 +41,7 @@ type SyncStatus struct {
 type pullState struct {
 	done chan struct{}
 	err  error
+	head plumbing.Hash // remote head fetched/merged by this pull
 }
 
 // Syncer owns the workspace git repository and coordinates P2P sync.
@@ -334,7 +335,19 @@ func (s *Syncer) PullFrom(ctx context.Context, pid peer.ID) (err error) {
 			return ctx.Err()
 		case <-state.done:
 		}
-		return state.err
+		if state.err != nil {
+			return state.err
+		}
+		// The joined pull fetched the head announced when it started. If the
+		// peer announced something newer while it ran, that announce was
+		// swallowed by this dedup — pull again so the newer head is not lost.
+		s.peerHeadsMu.RLock()
+		announced := s.peerHeads[pid]
+		s.peerHeadsMu.RUnlock()
+		if announced == plumbing.ZeroHash || announced == state.head {
+			return nil
+		}
+		return s.PullFrom(ctx, pid)
 	}
 
 	state := &pullState{done: make(chan struct{})}
@@ -358,7 +371,7 @@ func (s *Syncer) PullFrom(ctx context.Context, pid peer.ID) (err error) {
 		return err
 	}
 
-	return s.pullFromLocked(ctx, pid)
+	return s.pullFromLocked(ctx, pid, state)
 }
 
 func (s *Syncer) waitForPeerConnection(ctx context.Context, pid peer.ID, timeout time.Duration) bool {
@@ -378,7 +391,7 @@ func (s *Syncer) waitForPeerConnection(ctx context.Context, pid peer.ID, timeout
 	return false
 }
 
-func (s *Syncer) pullFromLocked(ctx context.Context, pid peer.ID) error {
+func (s *Syncer) pullFromLocked(ctx context.Context, pid peer.ID, state *pullState) error {
 	s.mu.Lock()
 	head, err := Head(s.repo)
 	s.mu.Unlock()
@@ -406,6 +419,7 @@ func (s *Syncer) pullFromLocked(ctx context.Context, pid peer.ID) error {
 		case <-time.After(s.fetchRetryDelay(i)):
 		}
 	}
+	state.head = remoteHead
 
 	if _, changed := s.setPeerHead(pid, remoteHead); changed {
 		s.saveSyncStatus()
