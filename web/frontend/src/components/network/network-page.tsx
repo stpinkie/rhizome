@@ -18,6 +18,7 @@ import { PeersPanel } from "./peers-panel"
 import { SavedPeersPanel } from "./saved-peers-panel"
 import { SwarmsPanel } from "./swarms-panel"
 import { TasksPanel } from "./tasks-panel"
+import { TopologyPanel } from "./topology-panel"
 
 export function NetworkPage() {
   const { t } = useTranslation()
@@ -87,6 +88,11 @@ export function NetworkPage() {
               isLoading={statusQuery.isLoading}
             />
           </div>
+
+          <TopologyPanel
+            response={statusQuery.data}
+            isLoading={statusQuery.isLoading}
+          />
 
           <SavedPeersPanel
             peers={savedPeersQuery.data?.saved_peers ?? []}

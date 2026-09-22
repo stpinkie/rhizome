@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as Web3RouteImport } from './routes/web3'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as NetworkRouteImport } from './routes/network'
 import { Route as ModulesRouteImport } from './routes/modules'
@@ -28,6 +29,11 @@ import { Route as AgentToolsRouteImport } from './routes/agent/tools'
 import { Route as AgentSkillsRouteImport } from './routes/agent/skills'
 import { Route as AgentHubRouteImport } from './routes/agent/hub'
 
+const Web3Route = Web3RouteImport.update({
+  id: '/web3',
+  path: '/web3',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SetupRoute = SetupRouteImport.update({
   id: '/setup',
   path: '/setup',
@@ -133,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/modules': typeof ModulesRoute
   '/network': typeof NetworkRoute
   '/setup': typeof SetupRoute
+  '/web3': typeof Web3Route
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByTo {
   '/modules': typeof ModulesRoute
   '/network': typeof NetworkRoute
   '/setup': typeof SetupRoute
+  '/web3': typeof Web3Route
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
@@ -174,6 +182,7 @@ export interface FileRoutesById {
   '/modules': typeof ModulesRoute
   '/network': typeof NetworkRoute
   '/setup': typeof SetupRoute
+  '/web3': typeof Web3Route
   '/agent/hub': typeof AgentHubRoute
   '/agent/skills': typeof AgentSkillsRoute
   '/agent/tools': typeof AgentToolsRoute
@@ -196,6 +205,7 @@ export interface FileRouteTypes {
     | '/modules'
     | '/network'
     | '/setup'
+    | '/web3'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
@@ -216,6 +226,7 @@ export interface FileRouteTypes {
     | '/modules'
     | '/network'
     | '/setup'
+    | '/web3'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
@@ -236,6 +247,7 @@ export interface FileRouteTypes {
     | '/modules'
     | '/network'
     | '/setup'
+    | '/web3'
     | '/agent/hub'
     | '/agent/skills'
     | '/agent/tools'
@@ -257,10 +269,18 @@ export interface RootRouteChildren {
   ModulesRoute: typeof ModulesRoute
   NetworkRoute: typeof NetworkRoute
   SetupRoute: typeof SetupRoute
+  Web3Route: typeof Web3Route
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/web3': {
+      id: '/web3'
+      path: '/web3'
+      fullPath: '/web3'
+      preLoaderRoute: typeof Web3RouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/setup': {
       id: '/setup'
       path: '/setup'
@@ -441,6 +461,7 @@ const rootRouteChildren: RootRouteChildren = {
   ModulesRoute: ModulesRoute,
   NetworkRoute: NetworkRoute,
   SetupRoute: SetupRoute,
+  Web3Route: Web3Route,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

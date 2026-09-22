@@ -1,10 +1,11 @@
 # Web3 — Ethereum Tools, Wallet & Gated Signing
 
 Rhizome ships Ethereum JSON-RPC tools (`web3_*`) backed by the
-companion-module system. Read tools are **disabled by default**; the write
-path (wallet keys, signing, contract sends) is gated a second time behind
-`tools.web3.signing` and a durable human-approval queue — no agent can
-broadcast a transaction without an operator's explicit approve.
+companion-module system, plus an optional wallet + human-approval signing
+path. All of it is **disabled by default**: `tools.web3.enabled` gates the
+read tools, and signing additionally requires `tools.web3.signing.enabled`
+plus `from_addresses` — every send/sign still waits for a durable human
+approval before a key touches a transaction.
 
 **Start on a testnet.** Point the endpoint at sepolia (`chain_ids:
 [11155111]`) while you tune policy; only loosen `from_addresses`/caps for
@@ -200,6 +201,93 @@ the `web3_watch` tool (`list`/`add`/`remove` — persisted to
 - Signing is double-gated (`tools.web3.enabled` + `tools.web3.signing.enabled`)
   and every write still waits on a human; `from_addresses` empty =
   deny-all. Keys never leave `keys.json`; tool output masks them.
+
+## Wallet & signing (optional)
+
+Signing is a second gate on top of `tools.web3.enabled`:
+
+```json
+"tools": {
+  "web3": {
+    "enabled": true,
+    "signing": {
+      "enabled": true,
+      "from_addresses": ["0xYourAddress"],
+      "allow_contracts": [],
+      "allow_methods": [],
+      "max_value_wei": "100000000000000000",
+      "max_daily_wei": "500000000000000",
+      "chain_ids": [1],
+      "approval_timeout_seconds": 86400
+    }
+  }
+}
+```
+
+- `rhizome wallet create|import|list|reveal|set-default|rename|remove` —
+  encrypted secp256k1 keystore under `<RHIZOME_HOME>/web3/` (keyring or
+  passphrase encryption; `reveal`/`remove` require `--confirm`).
+- Agent tools `web3_send`, `web3_sign`, `web3_approve` never sign inline.
+  Each call checks the policy allowlists, runs the approval-hook veto,
+  enqueues a durable pending entry (`web3-pending.json`, survives daemon
+  restarts), then waits for a human: `rhizome web3 pending`,
+  `rhizome web3 approve|reject <id>`, the dashboard `/web3` page, or the
+  `/web3` channel commands (below). Execution re-validates the live chain
+  before broadcasting.
+- `from_addresses` empty denies all signing — an explicit signer list is
+  mandatory. `allow_contracts`/`allow_methods` scope what calldata may
+  carry; `max_value_wei`/`max_daily_wei` are decimal-string caps enforced
+  by a spend ledger (`web3-ledger.jsonl`).
+
+## Contracts, tokens & ENS
+
+```json
+"web3": { "enabled": true }
+```
+
+- **ABI registry**: `rhizome web3 abi add usdc ./usdc.json --address 0xA0b8…
+  --chain-ids 1` stores a parsed ABI at `<RHIZOME_HOME>/web3/abi/usdc.json`.
+  `rhizome web3 abi list|show|remove` manage entries.
+- **Contract args** resolve `0x` literals → registry labels → ENS names,
+  in that order.
+- **Tools**: `web3_contract_call` (read `eth_call`, decoded outputs),
+  `web3_contract_send` (approval-gated write), `web3_erc20`
+  (`info|balance|allowance` reads; `transfer|approve` writes),
+  `web3_erc721` (`ownerOf|tokenURI|…` reads; `transferFrom` writes),
+  `web3_ens` (`name` forward / `address` reverse). ERC helpers ship
+  embedded ABIs — no registry entry needed.
+- **Policy integration**: `allow_contracts` accepts registry labels;
+  `allow_methods` accepts `0x` selectors, `label:method`, or
+  `0xaddr:method` — a bound label scopes the selector to that contract.
+- **CLI**: `rhizome web3 ens vitalik.eth` / `--reverse 0x…`.
+
+## Log watches & channel approvals (optional stretches)
+
+```json
+"tools": {
+  "web3": {
+    "enabled": true,
+    "watches": [
+      {"name": "usdc-in", "contract": "usdc",
+       "topics": ["0xddf252ad…"], "interval_seconds": 60}
+    ],
+    "watch_confirmations": 3,
+    "approval_channels": ["telegram:123456"]
+  }
+}
+```
+
+- **Watches** are daemon-polled `eth_getLogs` subscriptions (the nimbus
+  proxy has no subscription RPC). Each match emits a `web3.event` runtime
+  event into the activity feed. Cursors persist across restarts;
+  `watch_confirmations` adds reorg depth (default 0 = emit at head).
+  The `web3_watch` agent tool lists/adds/removes entries — changes land
+  in `config.json` and apply on daemon restart.
+- **`approval_channels`** scopes where `/web3 pending`, `/web3 approve
+  <id>`, `/web3 reject <id>` work: `"telegram"` (whole channel) or
+  `"telegram:123456"` (one chat). Empty disables channel approvals —
+  the safe default. Resolutions record `resolved_by` as
+  `channel:<chan>:<chat>`.
 
 ## Pairing with nimbus-verified-proxy
 

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
+
+	"github.com/stpinkie/rhizome/pkg/tools"
 )
 
 // PermissionPolicy controls how tool-approval requests are bridged to the
@@ -28,6 +30,7 @@ const (
 type acpSession struct {
 	id        acpsdk.SessionId
 	key       string
+	cwd       string
 	createdAt time.Time
 
 	mu       sync.Mutex
@@ -36,6 +39,23 @@ type acpSession struct {
 	deny     map[string]bool
 	closed   bool
 	promptAt time.Time
+
+	// mcp is the per-session MCP manager (nil when the session declared no
+	// servers). toolNames are the session-scoped names registered on
+	// toolRegistry; both are torn down on close.
+	mcp          sessionMCPConn
+	toolRegistry *tools.ToolRegistry
+	toolNames    []string
+
+	// onDecisions persists cached always-decisions (set by the server when a
+	// session store is configured).
+	onDecisions func(allow, deny []string)
+}
+
+// sessionMCPConn is the seam between a session and its MCP manager — the
+// real implementation is *mcp.Manager; tests substitute a fake.
+type sessionMCPConn interface {
+	Close() error
 }
 
 func newACPSession(id acpsdk.SessionId, sessionKey string) *acpSession {
@@ -58,6 +78,28 @@ func (s *acpSession) close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
+}
+
+// teardown releases session resources: the per-session MCP manager and the
+// session-scoped tool registrations. Idempotent.
+func (s *acpSession) teardown() {
+	s.mu.Lock()
+	mgr := s.mcp
+	s.mcp = nil
+	reg := s.toolRegistry
+	names := s.toolNames
+	s.toolRegistry = nil
+	s.toolNames = nil
+	s.mu.Unlock()
+
+	if mgr != nil {
+		_ = mgr.Close()
+	}
+	if reg != nil {
+		for _, name := range names {
+			reg.Unregister(name)
+		}
+	}
 }
 
 func (s *acpSession) markPromptStart() {
@@ -102,10 +144,46 @@ func (s *acpSession) cachedDecision(tool string) (approved bool, ok bool) {
 
 func (s *acpSession) cacheDecision(tool string, approved bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	cb := s.onDecisions
 	if approved {
 		s.allow[tool] = true
-		return
+	} else {
+		s.deny[tool] = true
 	}
-	s.deny[tool] = true
+	var allow, deny []string
+	if cb != nil {
+		allow = make([]string, 0, len(s.allow))
+		for k := range s.allow {
+			allow = append(allow, k)
+		}
+		deny = make([]string, 0, len(s.deny))
+		for k := range s.deny {
+			deny = append(deny, k)
+		}
+	}
+	s.mu.Unlock()
+	if cb != nil {
+		cb(allow, deny)
+	}
+}
+
+// restoreDecisions seeds the always-decision caches from a persisted record.
+func (s *acpSession) restoreDecisions(allow, deny []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range allow {
+		s.allow[t] = true
+	}
+	for _, t := range deny {
+		s.deny[t] = true
+	}
+}
+
+// setMCP wires the session's MCP manager + tool registrations for teardown.
+func (s *acpSession) setMCP(mgr sessionMCPConn, reg *tools.ToolRegistry, names []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mcp = mgr
+	s.toolRegistry = reg
+	s.toolNames = names
 }

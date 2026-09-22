@@ -1,7 +1,8 @@
 # Credential Encryption
 
 Rhizome supports encrypting `api_key`/`api_keys` values in `model_list` configuration entries.
-Encrypted keys are stored as `enc://<base64>` strings and decrypted automatically at startup.
+Encrypted keys are stored as `enc2://<base64>` strings and decrypted automatically at startup.
+Legacy `enc://` values (AES-256-GCM) still decrypt transparently.
 
 ---
 
@@ -17,10 +18,10 @@ export RHIZOME_KEY_PASSPHRASE="your-passphrase"
 
 Run `rhizome onboard` — it prompts for your passphrase and generates the SSH key,
 then automatically re-encrypts any plaintext `api_key` entries in your config on
-the next `SaveConfig` call. The resulting `enc://` value will look like:
+the next `SaveConfig` call. The resulting `enc2://` value will look like:
 
 ```
-enc://AAAA...base64...
+enc2://AAAA...base64...
 ```
 
 **3. Paste the output into your config**
@@ -31,7 +32,7 @@ enc://AAAA...base64...
     {
       "model_name": "gpt-4o",
       "model": "openai/gpt-4o",
-      // "api_keys": ["enc://AAAA...base64..."] move to .security.yml
+      // "api_keys": ["enc2://AAAA...base64..."] move to .security.yml
       "api_base": "https://api.openai.com/v1"
     }
   ]
@@ -48,7 +49,8 @@ The same formats apply to both `api_key` (singular) and individual elements in t
 |--------|---------|-----------|
 | Plaintext | `sk-abc123` | Used as-is |
 | File reference | `file://openai.key` | Content read from the same directory as the config file |
-| Encrypted | `enc://<base64>` | Decrypted at startup using `RHIZOME_KEY_PASSPHRASE` |
+| Encrypted | `enc2://<base64>` | XChaCha20-Poly1305, decrypted at startup (current write format) |
+| Encrypted (legacy) | `enc://<base64>` | AES-256-GCM, decrypted at startup; re-encrypted to `enc2://` on next save |
 | Empty | `""` | Passed through unchanged (used with `auth_method: oauth`) |
 
 ---
@@ -58,32 +60,49 @@ The same formats apply to both `api_key` (singular) and individual elements in t
 ### Key Derivation
 
 Encryption uses **HKDF-SHA256** with an SSH private key as a second factor.
+The HKDF `info` field is versioned per scheme (`rhizome-credential-v1` for
+`enc://`, `rhizome-credential-v2` for `enc2://`), so keys derived for one
+scheme can never decrypt the other.
 
 ```
 sshHash = SHA256(ssh_private_key_file_bytes)
 ikm     = HMAC-SHA256(key=sshHash, message=passphrase)
-aes_key = HKDF-SHA256(ikm, salt, info="rhizome-credential-v1", 32 bytes)
+aeadKey = HKDF-SHA256(ikm, salt, info="rhizome-credential-v2", 32 bytes)
 ```
 
 ### Encryption
 
 ```
-AES-256-GCM(key=aes_key, nonce=random[12], plaintext=api_key)
+XChaCha20-Poly1305(key=aeadKey, nonce=random[24], plaintext=api_key)
 ```
 
 ### Wire Format
 
 ```
-enc://<base64( salt[16] + nonce[12] + ciphertext )>
+enc2://<base64( salt[16] + nonce[24] + ciphertext )>
 ```
 
 | Field | Size | Description |
 |-------|------|-------------|
 | `salt` | 16 bytes | Random per encryption; fed into HKDF |
-| `nonce` | 12 bytes | Random per encryption; AES-GCM IV |
-| `ciphertext` | variable | AES-256-GCM ciphertext + 16-byte authentication tag |
+| `nonce` | 24 bytes | Random per encryption; XChaCha20 extended nonce |
+| `ciphertext` | variable | XChaCha20-Poly1305 ciphertext + 16-byte authentication tag |
 
-The GCM authentication tag is appended to the ciphertext automatically. Any tampering causes decryption to fail with an error rather than returning corrupt plaintext.
+The Poly1305 authentication tag is appended to the ciphertext automatically.
+Any tampering causes decryption to fail with an error rather than returning
+corrupt plaintext. XChaCha20's 192-bit nonce makes random-nonce reuse
+cryptographically negligible, removing the birthday-bound concern that
+applies to 96-bit GCM nonces at scale.
+
+### Legacy `enc://` (v1)
+
+Pre-v0.12.0 blobs are `enc://<base64( salt[16] + nonce[12] + AES-256-GCM ct )>`
+with `info="rhizome-credential-v1"`. Decryption is transparent — the resolver
+dispatches on the scheme prefix. New writes are always `enc2://`; this is a
+**one-way door**: once a value is re-saved it is `enc2://` and older Rhizome
+versions (< v0.12.0) cannot read it. To roll a whole config forward, set the
+passphrase and re-save (`SaveConfig` re-encrypts any `enc://` values it
+encounters via `SecureString.MarshalYAML`).
 
 ### Performance
 
@@ -119,7 +138,7 @@ This means a leaked config file alone is not sufficient to recover the API key, 
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `RHIZOME_KEY_PASSPHRASE` | Yes (for `enc://`) | Passphrase used for key derivation |
+| `RHIZOME_KEY_PASSPHRASE` | Yes (for `enc://`/`enc2://`) | Passphrase used for key derivation |
 | `RHIZOME_SSH_KEY_PATH` | No | Path to SSH private key. If not set, auto-detects from `~/.ssh/rhizome_ed25519.key` |
 
 ### SSH Key Auto-Detection
@@ -156,4 +175,4 @@ No re-encryption is needed.
 - **Both passphrase and SSH key are required.** The SSH key acts as a second factor — without it, encryption/decryption will fail. Run `rhizome onboard` to generate the key if it doesn't exist.
 - **The SSH key is read-only at runtime.** Rhizome never writes to or modifies the SSH key file.
 - **Plaintext keys remain supported.** Existing configs without `enc://` are unaffected.
-- **The `enc://` format is versioned** via the HKDF `info` field (`rhizome-credential-v1`), allowing future algorithm upgrades without breaking existing encrypted values.
+- **The format is versioned** via the HKDF `info` field (`rhizome-credential-v1`/`-v2`) and the `enc://`/`enc2://` scheme prefix — algorithm upgrades never break existing encrypted values, but downgrading rhizome below v0.12.0 loses access to `enc2://` entries.

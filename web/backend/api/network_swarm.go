@@ -38,6 +38,7 @@ type swarmMember struct {
 	Source      string `json:"source,omitempty"`
 	CapDigest   string `json:"cap_digest,omitempty"`
 	ActiveTasks int    `json:"active_tasks,omitempty"`
+	Role        string `json:"role,omitempty"`
 }
 
 type swarmInfo struct {

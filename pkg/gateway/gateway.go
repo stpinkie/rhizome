@@ -58,6 +58,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/state"
 	"github.com/stpinkie/rhizome/pkg/tools"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
+	"github.com/stpinkie/rhizome/pkg/web3"
 )
 
 const (
@@ -75,6 +76,7 @@ type services struct {
 	HealthServer     *health.Server
 	ACPManager       *acp.ClientManager
 	VoiceAgentCancel context.CancelFunc
+	Web3WatchCancel  context.CancelFunc
 	manualReloadChan chan struct{}
 	reloading        atomic.Bool
 	authToken        string
@@ -730,6 +732,43 @@ func setupAndStartServices(
 		}
 	}
 
+	web3Handler := newWeb3Handler(authToken, cfg, homePath, agentLoop.RuntimeEventBus())
+	for _, path := range []string{"/web3", "/web3/"} {
+		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, web3Handler); err != nil {
+			return nil, fmt.Errorf("error registering web3 handler %s: %w", path, err)
+		}
+	}
+
+	// Log watches poll eth_getLogs into web3.event runtime events.
+	if cfg.Tools.Web3.Enabled && len(cfg.Tools.Web3.Watches) > 0 {
+		stack, werr := web3.OpenSigningStack(homePath, &cfg.Tools.Web3.Signing)
+		if werr == nil {
+			bus := agentLoop.RuntimeEventBus()
+			runner := web3.NewWatchRunner(
+				web3.NewProvider(cfg), stack.Registry, cfg.Tools.Web3.Watches,
+				web3.WalletDir(homePath), cfg.Tools.Web3.GetMaxLogRange(),
+				cfg.Tools.Web3.WatchConfirmations,
+				func(kind string, attrs map[string]any) {
+					if bus == nil {
+						return
+					}
+					bus.PublishNonBlocking(runtimeevents.Event{
+						Kind:     runtimeevents.Kind(kind),
+						Source:   runtimeevents.Source{Component: "web3"},
+						Severity: runtimeevents.SeverityInfo,
+						Attrs:    attrs,
+					})
+				})
+			if runner.Len() > 0 {
+				watchCtx, watchCancel := context.WithCancel(context.Background())
+				runningServices.Web3WatchCancel = watchCancel
+				go runner.Run(watchCtx)
+				logger.InfoCF("web3", "log watches started",
+					map[string]any{"count": runner.Len()})
+			}
+		}
+	}
+
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
 	}
@@ -775,6 +814,9 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	}
 	if runningServices.VoiceAgentCancel != nil {
 		runningServices.VoiceAgentCancel()
+	}
+	if runningServices.Web3WatchCancel != nil {
+		runningServices.Web3WatchCancel()
 	}
 	if runningServices.DeviceService != nil {
 		runningServices.DeviceService.Stop()

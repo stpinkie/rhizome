@@ -12,12 +12,16 @@ import {
   IconSettings,
   IconSparkles,
   IconTools,
+  IconWallet,
   IconWorld,
 } from "@tabler/icons-react"
+import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
+import { getWeb3Pending } from "@/api/web3"
+import { Badge } from "@/components/ui/badge"
 import {
   Collapsible,
   CollapsibleContent,
@@ -42,6 +46,7 @@ interface NavItem {
   url: string
   icon: React.ComponentType<{ className?: string }>
   translateTitle?: boolean
+  badge?: number
 }
 
 interface NavGroup {
@@ -88,6 +93,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     language: (i18n.resolvedLanguage ?? i18n.language ?? "").toLowerCase(),
     t,
   })
+
+  // Pending web3 signing approvals — badge count on the nav item. Stops
+  // polling once the endpoint errors (web3 disabled → 503).
+  const web3PendingQuery = useQuery({
+    queryKey: ["web3", "pending"],
+    queryFn: getWeb3Pending,
+    refetchInterval: (query) => (query.state.error ? false : 15000),
+    staleTime: 5000,
+    retry: 0,
+  })
+  const web3PendingCount = (web3PendingQuery.data?.pending ?? []).filter(
+    (e) => e.status === "pending",
+  ).length
 
   const handleNavItemClick = React.useCallback(() => {
     if (isMobile) {
@@ -180,6 +198,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             icon: IconPuzzle,
             translateTitle: true,
           },
+          {
+            title: "navigation.web3",
+            url: "/web3",
+            icon: IconWallet,
+            translateTitle: true,
+            badge: web3PendingCount,
+          },
         ],
       },
       {
@@ -200,7 +225,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         ],
       },
     ]
-  }, [channelItems])
+  }, [channelItems, web3PendingCount])
 
   return (
     <Sidebar
@@ -253,6 +278,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                   ? item.title
                                   : t(item.title)}
                               </span>
+                              {item.badge != null && item.badge > 0 && (
+                                <Badge
+                                  variant="destructive"
+                                  className="ml-auto h-5 min-w-5 px-1.5 text-xs"
+                                >
+                                  {item.badge}
+                                </Badge>
+                              )}
                             </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>

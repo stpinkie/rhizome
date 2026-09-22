@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -15,21 +16,40 @@ type pingPayload struct {
 	CapDigest string `json:"cap_digest,omitempty"`
 	// ActiveTasks is the member's current non-terminal remote task count.
 	ActiveTasks int `json:"active_tasks,omitempty"`
+	// Role is the member's mesh participation tier ("full"/"worker").
+	// Additive — older peers ignore it; absent means "full".
+	Role string `json:"role,omitempty"`
 }
 
-// capProbeFunc reports the local node's capability digest and active task
-// count for heartbeat payloads. The daemon wires it to the mesh.
-type capProbeFunc func() (digest string, activeTasks int)
+// capProbeFunc reports the local node's capability digest, active task
+// count, and mesh role for heartbeat payloads. The daemon wires it to
+// the mesh.
+type capProbeFunc func() (digest string, activeTasks int, role string)
 
 // SetCapProbe registers the local capability probe used in PING heartbeats.
-func (s *Swarm) SetCapProbe(fn func() (digest string, activeTasks int)) {
-	s.presence.capProbe = capProbeFunc(fn)
+// May be called after Start (the gateway wires it during agent setup), so
+// the pointer is atomic — heartbeat/coordinator/queue goroutines read it.
+func (s *Swarm) SetCapProbe(fn func() (digest string, activeTasks int, role string)) {
+	if fn == nil {
+		s.presence.capProbe.Store(nil)
+		return
+	}
+	f := capProbeFunc(fn)
+	s.presence.capProbe.Store(&f)
+}
+
+// probe returns the registered capability probe, or nil.
+func (s *Swarm) probe() capProbeFunc {
+	if p := s.presence.capProbe.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // presence tracks swarm liveness: it heartbeats the local membership and
 // evicts members that stay silent past expire_after.
 type presence struct {
-	capProbe capProbeFunc
+	capProbe atomic.Pointer[capProbeFunc]
 }
 
 // startPresence launches the heartbeat and expiry loops. Called from Start.
@@ -59,8 +79,8 @@ func (s *Swarm) heartbeatLoop(ctx context.Context) {
 
 func (s *Swarm) heartbeatOnce(ctx context.Context) {
 	var payload pingPayload
-	if s.presence.capProbe != nil {
-		payload.CapDigest, payload.ActiveTasks = s.presence.capProbe()
+	if probe := s.probe(); probe != nil {
+		payload.CapDigest, payload.ActiveTasks, payload.Role = probe()
 	}
 	data, err := encodePayload(payload)
 	if err != nil {
@@ -147,11 +167,15 @@ func (s *Swarm) notePing(from peer.ID, env Envelope) {
 	pidStr := from.String()
 	m, seen := swarm.Members[pidStr]
 	isNew := !seen
+	// A role learned (or changed) after the join still affects election —
+	// treat it as a membership change so the coordinator is re-picked.
+	roleChanged := seen && m.Role != p.Role
 	m.PeerID = pidStr
 	m.LastSeen = time.Now()
 	m.Source = "direct"
 	m.CapDigest = p.CapDigest
 	m.ActiveTasks = p.ActiveTasks
+	m.Role = p.Role
 	swarm.Members[pidStr] = m
 	s.mu.Unlock()
 	if isNew {
@@ -161,6 +185,9 @@ func (s *Swarm) notePing(from peer.ID, env Envelope) {
 			"peer_id":  pidStr,
 			"source":   "direct",
 		})
+		s.afterMembershipChange(env.SwarmID)
+	} else if roleChanged {
+		s.save()
 		s.afterMembershipChange(env.SwarmID)
 	}
 }

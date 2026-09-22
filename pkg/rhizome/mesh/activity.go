@@ -83,10 +83,13 @@ func (f *activityFeed) tail(n int) []ActivityEntry {
 	return ordered
 }
 
-// matchMeshSwarmKind matches mesh.* and swarm.* runtime events.
+// matchMeshSwarmKind matches mesh.*/swarm.*/web3.* runtime events — the feed
+// also surfaces signing-approval lifecycle so pending requests are visible
+// to operators watching activity.
 func matchMeshSwarmKind(evt runtimeevents.Event) bool {
 	k := evt.Kind.String()
-	return strings.HasPrefix(k, "mesh.") || strings.HasPrefix(k, "swarm.")
+	return strings.HasPrefix(k, "mesh.") || strings.HasPrefix(k, "swarm.") ||
+		strings.HasPrefix(k, "web3.")
 }
 
 // startActivityFeed subscribes the feed to the runtime event bus. Called by

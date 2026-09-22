@@ -16,7 +16,8 @@
     "logs": "日志",
     "network_group": "网络",
     "network": "网络",
-    "modules": "模块"
+    "modules": "模块",
+    "web3": "Web3"
   },
   "launcherLogin": {
     "title": "登录",

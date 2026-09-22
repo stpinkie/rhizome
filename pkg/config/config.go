@@ -194,6 +194,19 @@ type MeshConfig struct {
 	// scanner flags as suspicious. Defaults to false; suspicious bundles are
 	// rejected unless this is true or the caller passes an explicit override.
 	SkillPullAllowSuspicious bool `json:"skill_pull_allow_suspicious,omitempty"`
+
+	// Routing tunes peer selection and coordinator election.
+	Routing MeshRoutingConfig `json:"routing"`
+}
+
+// MeshRoutingConfig controls role-aware peer ranking.
+type MeshRoutingConfig struct {
+	// RoleAware gives worker peers a ranking bonus for task ops
+	// (delegate/spawn) and full peers the same bonus for infra ops in
+	// Mesh.PickPeer. Defaults to true — not omitempty so an explicit false
+	// survives config write-back. (Swarm coordinator election always
+	// prefers full members; it is not gated by this flag.)
+	RoleAware bool `json:"role_aware"`
 }
 
 // MeshACLRule authorizes a single peer for remote execution. Nil/empty fields
@@ -904,6 +917,10 @@ type ACPConfig struct {
 // "allow", or "deny".
 type ACPPolicyConfig struct {
 	PermissionPolicy string `json:"permission_policy,omitempty"`
+	// TerminalPolicy (client side only) gates the terminal/* ACP capability:
+	// "deny" (default) refuses all terminal methods; "allow" serves them via
+	// the guarded exec-tool shell path. Ignored under acp.server.
+	TerminalPolicy string `json:"terminal_policy,omitempty"`
 }
 
 func (c StreamingConfig) IsZero() bool {
@@ -1595,6 +1612,79 @@ type Web3ToolsConfig struct {
 	// false wires the safe-dial SSRF guard (private/restricted IPs and
 	// DNS-rebinding are blocked at dial time).
 	AllowPrivateEndpoints bool `json:"allow_private_endpoints" yaml:"-"`
+	// Signing gates the write path (web3_send/web3_sign/web3_approve) behind
+	// a second flag plus policy allowlists. Default-off; requires Enabled too.
+	Signing Web3SigningConfig `json:"signing,omitempty" yaml:"-"`
+	// Watches are daemon-polled eth_getLogs subscriptions → web3.event
+	// runtime events (the nimbus proxy has no subscription support, so
+	// polling is the only option). Bounded at 8 watches.
+	Watches []Web3WatchConfig `json:"watches,omitempty" yaml:"-"`
+	// WatchConfirmations delays watch emission until a log is this many
+	// blocks deep (reorg protection). 0 = emit at head. Capped at 64.
+	WatchConfirmations uint64 `json:"watch_confirmations,omitempty" yaml:"-"`
+	// ApprovalChannels allows `/web3 pending|approve|reject` channel
+	// commands from these scopes: "channel" or "channel:chat_id". Empty =
+	// channel approvals disabled (the safe default).
+	ApprovalChannels []string `json:"approval_channels,omitempty" yaml:"-"`
+}
+
+// Web3WatchConfig is one polled log watch. Contract accepts a 0x address,
+// an ABI-registry label, or an ENS name (resolved at daemon start).
+type Web3WatchConfig struct {
+	// Name identifies the watch (used in state and events).
+	Name string `json:"name"`
+	// Contract is the address/label/ENS to filter logs by.
+	Contract string `json:"contract"`
+	// Topics optionally narrows the eth_getLogs filter (0x32-byte values;
+	// null entries can't be expressed — omit a position instead).
+	Topics []string `json:"topics,omitempty"`
+	// IntervalSeconds is the poll cadence (0 → default 60s; floor 30s).
+	IntervalSeconds int `json:"interval_seconds,omitempty"`
+}
+
+// GetInterval returns the watch's poll cadence with the floor applied.
+func (w *Web3WatchConfig) GetInterval() time.Duration {
+	if w.IntervalSeconds <= 0 {
+		return 60 * time.Second
+	}
+	if w.IntervalSeconds < 30 {
+		return 30 * time.Second
+	}
+	return time.Duration(w.IntervalSeconds) * time.Second
+}
+
+// Web3SigningConfig gates signing/send tools. Disabled by default — when
+// enabled, every operation still requires a durable human approval from the
+// pending queue; this config is a policy pre-filter, not an authorization.
+type Web3SigningConfig struct {
+	// Enabled permits the signing tools to queue approvals.
+	Enabled bool `json:"enabled,omitempty" yaml:"-"`
+	// FromAddresses restricts which wallet addresses may sign. Empty denies
+	// all signing — an explicit signer list is mandatory.
+	FromAddresses []string `json:"from_addresses,omitempty" yaml:"-"`
+	// AllowContracts restricts the `to` address of value/data-bearing sends.
+	// Empty = any contract.
+	AllowContracts []string `json:"allow_contracts,omitempty" yaml:"-"`
+	// AllowMethods restricts calldata 4-byte selectors ("0xa9059cbb").
+	// Empty = any method.
+	AllowMethods []string `json:"allow_methods,omitempty" yaml:"-"`
+	// MaxValueWeiPerTx caps value per transaction (decimal wei string —
+	// uint256 does not fit int64).
+	MaxValueWeiPerTx string `json:"max_value_wei_per_tx,omitempty" yaml:"-"`
+	// MaxValueWeiPerDay caps aggregate value per UTC day (decimal wei).
+	MaxValueWeiPerDay string `json:"max_value_wei_per_day,omitempty" yaml:"-"`
+	// ChainIDs restricts signing to these chains. Empty = any chain.
+	ChainIDs []uint64 `json:"chain_ids,omitempty" yaml:"-"`
+	// ApprovalTimeoutSeconds bounds pending approvals (0 → default 15m).
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds,omitempty" yaml:"-"`
+}
+
+// GetApprovalTimeout returns the configured approval TTL or the default.
+func (c *Web3SigningConfig) GetApprovalTimeout() time.Duration {
+	if c.ApprovalTimeoutSeconds > 0 {
+		return time.Duration(c.ApprovalTimeoutSeconds) * time.Second
+	}
+	return 15 * time.Minute
 }
 
 // GetMaxLogRange returns the configured log range cap or the default.
@@ -1937,6 +2027,11 @@ type MCPServerConfig struct {
 	URL string `json:"url,omitempty"`
 	// Headers are HTTP headers to send with requests (sse/http only)
 	Headers map[string]string `json:"headers,omitempty"`
+	// EnvOnly restricts the child process to the declared env (plus a minimal
+	// system base) instead of inheriting the daemon's full environment. Used
+	// for ACP session-declared servers; operator-configured servers keep the
+	// inherited environment.
+	EnvOnly bool `json:"env_only,omitempty"`
 }
 
 // MCPConfig defines configuration for all MCP servers
@@ -2611,7 +2706,7 @@ func collapseMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 
 // mergeAPIKeyEntries concatenates the primary's APIKeys with each virtual
 // entry's single key, deduplicating by resolved value while preserving each
-// SecureString's raw form (enc://, file://, or plaintext).
+// SecureString's raw form (enc://, enc2://, file://, or plaintext).
 func mergeAPIKeyEntries(primary SecureStrings, virtuals []*ModelConfig) SecureStrings {
 	merged := make(SecureStrings, 0, len(primary)+len(virtuals))
 	seen := make(map[string]struct{}, len(primary)+len(virtuals))
@@ -2712,8 +2807,14 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 	case "mcp":
 		return t.MCP.Enabled
 	case "web3", "web3_chain", "web3_balance", "web3_call", "web3_block",
-		"web3_transaction", "web3_logs", "web3_rpc":
+		"web3_transaction", "web3_logs", "web3_rpc",
+		"web3_wallet", "web3_pending", "web3_send_status",
+		"web3_contract_call", "web3_erc20", "web3_erc721", "web3_ens",
+		"web3_watch":
 		return t.Web3.Enabled
+	case "web3_signing", "web3_send", "web3_sign", "web3_approve",
+		"web3_contract_send":
+		return t.Web3.Enabled && t.Web3.Signing.Enabled
 	default:
 		return true
 	}

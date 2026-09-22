@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	acpsdk "github.com/coder/acp-go-sdk"
@@ -26,7 +27,9 @@ import (
 	"github.com/stpinkie/rhizome/pkg/agent"
 	"github.com/stpinkie/rhizome/pkg/bus"
 	"github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/mcp"
 	"github.com/stpinkie/rhizome/pkg/media"
+	"github.com/stpinkie/rhizome/pkg/providers"
 )
 
 // ChannelName is the internal channel label ACP turns run under. It is only
@@ -66,6 +69,9 @@ type Options struct {
 	Media media.MediaStore
 	// Version is reported as the agent's implementation version.
 	Version string
+	// Sessions is the persisted ACP session index. When non-nil the server
+	// advertises loadSession and records new sessions for session/load.
+	Sessions *SessionStore
 	// Logger receives diagnostics; defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -78,6 +84,11 @@ type Server struct {
 	agentID string
 	version string
 	log     *slog.Logger
+	store   *SessionStore
+
+	// newMCPManager builds the per-session MCP manager — overridable in
+	// tests.
+	newMCPManager func() sessionMCPManager
 
 	mu       sync.Mutex
 	conn     ClientConn
@@ -99,15 +110,18 @@ func NewServer(runner AgentRunner, opts Options) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{
+	s := &Server{
 		runner:   runner,
 		media:    opts.Media,
 		policy:   policy,
 		agentID:  opts.AgentID,
 		version:  opts.Version,
+		store:    opts.Sessions,
 		log:      log,
 		sessions: make(map[acpsdk.SessionId]*acpSession),
 	}
+	s.newMCPManager = func() sessionMCPManager { return mcp.NewManager() }
+	return s
 }
 
 // Bind attaches the live client connection. Call after
@@ -151,14 +165,22 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Close tears down the event subscription; the caller owns the connection.
+// Close tears down the event subscription and every live session's MCP
+// resources; the caller owns the connection.
 func (s *Server) Close() {
 	s.mu.Lock()
 	cancel := s.evCancel
 	done := s.evDone
+	sessions := make([]*acpSession, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		sessions = append(sessions, sess)
+	}
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	for _, sess := range sessions {
+		sess.teardown()
 	}
 	if done != nil {
 		<-done
@@ -230,7 +252,7 @@ func (s *Server) Initialize(
 			Version: s.version,
 		},
 		AgentCapabilities: acpsdk.AgentCapabilities{
-			LoadSession: false,
+			LoadSession: s.store != nil,
 			PromptCapabilities: acpsdk.PromptCapabilities{
 				Image:           s.media != nil,
 				EmbeddedContext: false,
@@ -243,7 +265,7 @@ func (s *Server) Initialize(
 // NewSession allocates an ACP session bound to a Rhizome agent-scoped
 // session key, so history persists across prompts within the session.
 func (s *Server) NewSession(
-	_ context.Context,
+	ctx context.Context,
 	params acpsdk.NewSessionRequest,
 ) (acpsdk.NewSessionResponse, error) {
 	agentID, err := s.resolveAgentID()
@@ -253,13 +275,136 @@ func (s *Server) NewSession(
 
 	sid := acpsdk.SessionId(uuid.NewString())
 	sess := newACPSession(sid, fmt.Sprintf("agent:%s:acp:%s", agentID, sid))
+	sess.cwd = params.Cwd
+	sess.onDecisions = s.decisionPersister(sid)
 
 	s.mu.Lock()
 	s.sessions[sid] = sess
 	s.mu.Unlock()
 
+	s.sessionMCPTools(ctx, sess, agentID, params.McpServers)
+	s.persistSession(sess, agentID)
+
 	s.log.Info("acp: session created", "session_id", string(sid), "agent", agentID)
 	return acpsdk.NewSessionResponse{SessionId: sid}, nil
+}
+
+// LoadSession implements acpsdk.AgentLoader: it re-registers a persisted
+// ACP session and replays its stored history as session/update chunks.
+func (s *Server) LoadSession(
+	ctx context.Context,
+	params acpsdk.LoadSessionRequest,
+) (acpsdk.LoadSessionResponse, error) {
+	if s.store == nil {
+		return acpsdk.LoadSessionResponse{}, acpsdk.NewMethodNotFound("session/load")
+	}
+	rec, ok := s.store.GetSession(string(params.SessionId))
+	if !ok {
+		return acpsdk.LoadSessionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "unknown session",
+		})
+	}
+	// When an agent is pinned via --agent, refuse loads bound to another.
+	if s.agentID != "" && rec.AgentID != s.agentID {
+		return acpsdk.LoadSessionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "session belongs to a different agent",
+		})
+	}
+
+	sid := acpsdk.SessionId(rec.SessionID)
+	sess := newACPSession(sid, rec.SessionKey)
+	sess.cwd = rec.Cwd
+	sess.restoreDecisions(rec.AllowAlways, rec.DenyAlways)
+	sess.onDecisions = s.decisionPersister(sid)
+
+	s.mu.Lock()
+	displaced := s.sessions[sid]
+	s.sessions[sid] = sess
+	s.mu.Unlock()
+	if displaced != nil {
+		displaced.close()
+		displaced.teardown()
+	}
+
+	s.sessionMCPTools(ctx, sess, rec.AgentID, params.McpServers)
+	s.replayHistory(ctx, sess)
+
+	s.log.Info("acp: session loaded",
+		"session_id", string(sid), "agent", rec.AgentID, "session_key", rec.SessionKey)
+	return acpsdk.LoadSessionResponse{}, nil
+}
+
+// replayHistory resends stored user/assistant messages as session/update
+// notifications so the client renders prior turns. Bounded to the newest
+// maxReplayMessages.
+func (s *Server) replayHistory(ctx context.Context, sess *acpSession) {
+	const maxReplayMessages = 200
+	reg := s.runner.GetRegistry()
+	if reg == nil {
+		return
+	}
+	// The session key embeds the agent id — find the owning agent's store.
+	var history []providers.Message
+	for _, id := range reg.ListAgentIDs() {
+		inst, ok := reg.GetAgent(id)
+		if !ok || inst == nil || inst.Sessions == nil {
+			continue
+		}
+		if h := inst.Sessions.GetHistory(sess.key); len(h) > 0 {
+			history = h
+			break
+		}
+	}
+	if len(history) > maxReplayMessages {
+		history = history[len(history)-maxReplayMessages:]
+	}
+	for _, m := range history {
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		var upd acpsdk.SessionUpdate
+		switch m.Role {
+		case "user":
+			upd = acpsdk.UpdateUserMessageText(m.Content)
+		case "assistant":
+			upd = acpsdk.UpdateAgentMessageText(m.Content)
+		default:
+			continue
+		}
+		if err := s.notify(ctx, sess.id, upd); err != nil {
+			s.log.Warn("acp: history replay failed", "session_id", string(sess.id), "error", err)
+			return
+		}
+	}
+}
+
+// persistSession records the session in the store (no-op when unconfigured).
+func (s *Server) persistSession(sess *acpSession, agentID string) {
+	if s.store == nil {
+		return
+	}
+	if err := s.store.PutSession(SessionRecord{
+		SessionID:  string(sess.id),
+		AgentID:    agentID,
+		SessionKey: sess.key,
+		Cwd:        sess.cwd,
+		CreatedAt:  sess.createdAt,
+	}); err != nil {
+		s.log.Warn("acp: failed to persist session record", "session_id", string(sess.id), "error", err)
+	}
+}
+
+// decisionPersister returns the onDecisions callback bound to a session id.
+func (s *Server) decisionPersister(sid acpsdk.SessionId) func(allow, deny []string) {
+	if s.store == nil {
+		return nil
+	}
+	return func(allow, deny []string) {
+		if err := s.store.UpdateDecisions(string(sid), allow, deny); err != nil {
+			s.log.Warn("acp: failed to persist session decisions",
+				"session_id", string(sid), "error", err)
+		}
+	}
 }
 
 // Prompt runs one ACP turn through the normal Rhizome inbound pipeline.
@@ -411,7 +556,8 @@ func (s *Server) Cancel(_ context.Context, _ acpsdk.CancelNotification) error {
 	return nil
 }
 
-// CloseSession marks a session closed and drops it from the registry.
+// CloseSession marks a session closed and drops it from the registry. The
+// persisted record is kept so a later session/load can resurrect it.
 func (s *Server) CloseSession(
 	_ context.Context,
 	params acpsdk.CloseSessionRequest,
@@ -422,6 +568,7 @@ func (s *Server) CloseSession(
 	s.mu.Unlock()
 	if ok {
 		sess.close()
+		sess.teardown()
 	}
 	return acpsdk.CloseSessionResponse{}, nil
 }
@@ -440,7 +587,7 @@ func (s *Server) ListSessions(
 		}
 		resp.Sessions = append(resp.Sessions, acpsdk.SessionInfo{
 			SessionId: sess.id,
-			Cwd:       "",
+			Cwd:       sess.cwd,
 		})
 	}
 	return resp, nil

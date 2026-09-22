@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
@@ -1563,6 +1564,52 @@ func TestLoadConfig_LoadImageCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestWeb3SigningToolsDefaultOff(t *testing.T) {
+	cfg := DefaultConfig()
+	for _, name := range []string{"web3_send", "web3_sign", "web3_approve", "web3_signing"} {
+		if cfg.Tools.IsToolEnabled(name) {
+			t.Fatalf("IsToolEnabled(%s) should default false", name)
+		}
+	}
+	// Read-side web3 wallet tools follow tools.web3.enabled (off by default).
+	for _, name := range []string{"web3_wallet", "web3_pending", "web3_send_status"} {
+		if cfg.Tools.IsToolEnabled(name) {
+			t.Fatalf("IsToolEnabled(%s) should default false", name)
+		}
+	}
+}
+
+func TestWeb3SigningRequiresBothGates(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Tools.Web3.Enabled = true
+	if cfg.Tools.IsToolEnabled("web3_send") {
+		t.Fatal("web3_send must stay off when signing.enabled is false")
+	}
+	if !cfg.Tools.IsToolEnabled("web3_wallet") {
+		t.Fatal("web3_wallet should follow tools.web3.enabled")
+	}
+	cfg.Tools.Web3.Signing.Enabled = true
+	if !cfg.Tools.IsToolEnabled("web3_send") {
+		t.Fatal("web3_send should be on when both gates are true")
+	}
+	// Signing without the outer gate stays off.
+	cfg.Tools.Web3.Enabled = false
+	if cfg.Tools.IsToolEnabled("web3_send") {
+		t.Fatal("web3_send must stay off when tools.web3.enabled is false")
+	}
+}
+
+func TestWeb3SigningApprovalTimeoutDefault(t *testing.T) {
+	c := &Web3SigningConfig{}
+	if c.GetApprovalTimeout() != 15*time.Minute {
+		t.Fatalf("default approval timeout = %v, want 15m", c.GetApprovalTimeout())
+	}
+	c.ApprovalTimeoutSeconds = 60
+	if c.GetApprovalTimeout() != time.Minute {
+		t.Fatalf("approval timeout = %v, want 1m", c.GetApprovalTimeout())
+	}
+}
+
 func TestDefaultConfig_MessageMediaDisabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Tools.Message.Enabled {
@@ -2296,7 +2343,7 @@ func TestLoadConfig_WarnsForPlaintextAPIKey(t *testing.T) {
 	}
 }
 
-// TestSaveConfig_EncryptsPlaintextAPIKey verifies that SaveConfig writes enc:// ciphertext
+// TestSaveConfig_EncryptsPlaintextAPIKey verifies that SaveConfig writes enc2:// ciphertext
 // to disk and that a subsequent LoadConfig decrypts it back to the original plaintext.
 func TestSaveConfig_EncryptsPlaintextAPIKey(t *testing.T) {
 	dir := t.TempDir()
@@ -2315,11 +2362,11 @@ func TestSaveConfig_EncryptsPlaintextAPIKey(t *testing.T) {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 
-	// Disk must contain enc://, not the raw key.
+	// Disk must contain enc2://, not the raw key.
 	secPath := filepath.Join(dir, SecurityConfigFile)
 	raw, _ := os.ReadFile(secPath)
-	if !strings.Contains(string(raw), "enc://") {
-		t.Errorf("saved file should contain enc://, got:\n%s", string(raw))
+	if !strings.Contains(string(raw), "enc2://") {
+		t.Errorf("saved file should contain enc2://, got:\n%s", string(raw))
 	}
 	if strings.Contains(string(raw), "sk-plaintext") {
 		t.Errorf("saved file must not contain the plaintext key")
@@ -2353,13 +2400,13 @@ func TestLoadConfig_NoSealWithoutPassphrase(t *testing.T) {
 	}
 
 	raw, _ := os.ReadFile(cfgPath)
-	if strings.Contains(string(raw), "enc://") {
+	if strings.Contains(string(raw), "enc2://") {
 		t.Error("config file must not be modified when no passphrase is set")
 	}
 }
 
 // TestLoadConfig_FileRefNotSealed verifies that file:// api_key references are not
-// converted to enc:// values (they are resolved at runtime by the Resolver).
+// converted to encrypted values (they are resolved at runtime by the Resolver).
 func TestLoadConfig_FileRefNotSealed(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
@@ -2391,13 +2438,13 @@ func TestLoadConfig_FileRefNotSealed(t *testing.T) {
 	if !strings.Contains(string(raw), "file://openai.key") {
 		t.Error("file:// reference should be preserved unchanged in the config file")
 	}
-	if strings.Contains(string(raw), "enc://") {
-		t.Error("file:// reference must not be converted to enc://")
+	if strings.Contains(string(raw), "enc2://") {
+		t.Error("file:// reference must not be converted to an encrypted ref")
 	}
 }
 
 // TestSaveConfig_MixedKeys verifies that SaveConfig encrypts only plaintext api_keys
-// and leaves already-encrypted (enc://) and file:// entries unchanged.
+// and leaves already-encrypted (enc2://) and file:// entries unchanged.
 func TestSaveConfig_MixedKeys(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
@@ -2405,7 +2452,7 @@ func TestSaveConfig_MixedKeys(t *testing.T) {
 	t.Setenv("RHIZOME_KEY_PASSPHRASE", "test-passphrase")
 	mustSetupSSHKey(t)
 
-	// Pre-encrypt one key so we have a genuine enc:// value to put in the config.
+	// Pre-encrypt one key so we have a genuine enc2:// value to put in the config.
 	if err := SaveConfig(cfgPath, &Config{
 		ModelList: []*ModelConfig{
 			{ModelName: "pre", Model: "openai/gpt-4", APIKeys: SimpleSecureStrings("sk-already-plain")},
@@ -2414,7 +2461,7 @@ func TestSaveConfig_MixedKeys(t *testing.T) {
 		t.Fatalf("setup SaveConfig: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, SecurityConfigFile))
-	// Extract the enc:// value from the saved file.
+	// Extract the enc2:// value from the saved file.
 	var tmp struct {
 		ModelList map[string]struct {
 			APIKeys []string `yaml:"api_keys"`
@@ -2424,13 +2471,13 @@ func TestSaveConfig_MixedKeys(t *testing.T) {
 		t.Fatalf("setup: could not parse saved config: %v", err)
 	}
 	alreadyEncrypted := tmp.ModelList["pre:0"].APIKeys[0]
-	if !strings.HasPrefix(alreadyEncrypted, "enc://") {
-		t.Fatalf("setup: expected enc:// key, got %q", alreadyEncrypted)
+	if !strings.HasPrefix(alreadyEncrypted, "enc2://") {
+		t.Fatalf("setup: expected enc2:// key, got %q", alreadyEncrypted)
 	}
 
 	// Build a config with three models:
 	//   1. plaintext   → must be encrypted by SaveConfig
-	//   2. enc://      → must be left unchanged (already encrypted)
+	//   2. enc2://     → must be left unchanged (already encrypted)
 	//   3. file://     → must be left unchanged (file reference)
 	keyFile := filepath.Join(dir, "api.key")
 	if err := os.WriteFile(keyFile, []byte("sk-from-file"), 0o600); err != nil {
@@ -2470,9 +2517,9 @@ func TestSaveConfig_MixedKeys(t *testing.T) {
 	if strings.Contains(s, "sk-new-plaintext") {
 		t.Error("plaintext key must not appear in saved file")
 	}
-	// 2. The pre-existing enc:// value must still be present (byte-for-byte unchanged).
+	// 2. The pre-existing enc2:// value must still be present (byte-for-byte unchanged).
 	if !strings.Contains(s, alreadyEncrypted) {
-		t.Error("pre-existing enc:// entry must be preserved unchanged")
+		t.Error("pre-existing enc2:// entry must be preserved unchanged")
 	}
 	// 3. file:// must be preserved.
 	if !strings.Contains(s, "file://api.key") {
@@ -2500,13 +2547,13 @@ func TestSaveConfig_MixedKeys(t *testing.T) {
 }
 
 // TestLoadConfig_MixedKeys_NoPassphrase verifies that when RHIZOME_KEY_PASSPHRASE
-// is not set, enc:// entries cause LoadConfig to return an error, while plaintext
+// is not set, enc2:// entries cause LoadConfig to return an error, while plaintext
 // and file:// entries in the same config are not affected.
 func TestLoadConfig_MixedKeys_NoPassphrase(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
 
-	// First encrypt a key so we have a real enc:// value.
+	// First encrypt a key so we have a real enc2:// value.
 	t.Setenv("RHIZOME_KEY_PASSPHRASE", "test-passphrase")
 	mustSetupSSHKey(t)
 	if err := SaveConfig(cfgPath, &Config{
@@ -2521,9 +2568,9 @@ func TestLoadConfig_MixedKeys_NoPassphrase(t *testing.T) {
 	assert.NoError(t, err)
 	encValue := raw.ModelList[0].APIKeys[0].raw
 	assert.NotEmpty(t, encValue)
-	assert.Equal(t, "enc://", encValue[:6])
+	assert.Equal(t, "enc2://", encValue[:7])
 
-	// Write a mixed config: enc:// + plaintext + file://
+	// Write a mixed config: enc2:// + plaintext + file://
 	keyFile := filepath.Join(dir, "api.key")
 	if err = os.WriteFile(keyFile, []byte("sk-from-file"), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -2589,7 +2636,7 @@ func TestSaveConfig_UsesPassphraseProvider(t *testing.T) {
 	}
 
 	raw, _ := os.ReadFile(filepath.Join(dir, SecurityConfigFile))
-	if !strings.Contains(string(raw), "enc://") {
+	if !strings.Contains(string(raw), "enc2://") {
 		t.Errorf(
 			"SaveConfig should have encrypted plaintext key via PassphraseProvider; got:\n%s",
 			raw,

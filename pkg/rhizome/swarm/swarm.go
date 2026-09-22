@@ -30,6 +30,9 @@ type Member struct {
 	CapDigest string `json:"cap_digest,omitempty"`
 	// ActiveTasks is the member's last advertised non-terminal task count.
 	ActiveTasks int `json:"active_tasks,omitempty"`
+	// Role is the member's mesh participation tier ("full"/"worker"),
+	// learned from heartbeats; absent means "full".
+	Role string `json:"role,omitempty"`
 }
 
 // swarmState is the per-swarm runtime registry entry.
@@ -49,6 +52,7 @@ type MemberInfo struct {
 	Source      string    `json:"source,omitempty"`
 	CapDigest   string    `json:"cap_digest,omitempty"`
 	ActiveTasks int       `json:"active_tasks,omitempty"`
+	Role        string    `json:"role,omitempty"`
 }
 
 // Compile-time guard: if Member or MemberInfo fields diverge, this fails.
@@ -444,7 +448,13 @@ func (s *Swarm) addMember(swarmID string, pid peer.ID, source string) {
 	if seen && existing.Source == "direct" {
 		source = "direct"
 	}
-	swarm.Members[pidStr] = Member{PeerID: pidStr, LastSeen: time.Now(), Source: source}
+	// Merge rather than overwrite — reannounce/gossip must not wipe the
+	// capability digest, task count, or role learned from heartbeats.
+	m := existing
+	m.PeerID = pidStr
+	m.LastSeen = time.Now()
+	m.Source = source
+	swarm.Members[pidStr] = m
 	s.mu.Unlock()
 	s.save()
 	if isNew {

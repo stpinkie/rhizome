@@ -193,6 +193,48 @@ func (r *ToolRegistry) HasRegistered(name string) bool {
 	return ok
 }
 
+// SessionScoper is implemented by tools bound to a single chat/session
+// scope (e.g. ACP session MCP passthrough). A scoped tool is advertised to
+// providers only for turns whose chat id matches, and is expected to refuse
+// Execute calls from other scopes itself.
+type SessionScoper interface {
+	SessionChatID() string
+}
+
+// Unregister removes a tool by name. Returns false when absent. Used by
+// session-scoped integrations to tear down per-session tools.
+func (r *ToolRegistry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.tools[name]; !ok {
+		return false
+	}
+	delete(r.tools, name)
+	r.version.Add(1)
+	return true
+}
+
+// scopedChatID returns the tool's bound chat id, or "" when unscoped.
+func scopedChatID(t Tool) string {
+	if s, ok := t.(SessionScoper); ok {
+		return s.SessionChatID()
+	}
+	return ""
+}
+
+// toolVisibleToChat reports whether a registered tool may be advertised to a
+// turn running under chatID. Unscoped tools are always visible; scoped tools
+// only within their own session.
+func toolVisibleToChat(entry *ToolEntry, chatID string) bool {
+	if !entry.IsCore && entry.TTL <= 0 {
+		return false
+	}
+	if scope := scopedChatID(entry.Tool); scope != "" && scope != chatID {
+		return false
+	}
+	return true
+}
+
 // HiddenToolSnapshot holds a consistent snapshot of hidden tools and the
 // registry version at which it was taken. Used by BM25SearchTool cache.
 type HiddenToolSnapshot struct {
@@ -397,6 +439,10 @@ func (r *ToolRegistry) GetDefinitions() []map[string]any {
 			continue
 		}
 
+		if !entry.IsCore && entry.TTL <= 0 {
+			continue
+		}
+
 		definitions = append(definitions, ToolToSchema(r.tools[name].Tool))
 	}
 	return definitions
@@ -405,6 +451,13 @@ func (r *ToolRegistry) GetDefinitions() []map[string]any {
 // ToProviderDefs converts tool definitions to provider-compatible format.
 // This is the format expected by LLM provider APIs.
 func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
+	return r.ToProviderDefsForChat("")
+}
+
+// ToProviderDefsForChat is ToProviderDefs filtered to the given chat scope:
+// tools implementing SessionScoper are only included when their bound chat
+// id matches. Passing "" yields only unscoped tools.
+func (r *ToolRegistry) ToProviderDefsForChat(chatID string) []providers.ToolDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -413,7 +466,7 @@ func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
 	for _, name := range sorted {
 		entry := r.tools[name]
 
-		if !entry.IsCore && entry.TTL <= 0 {
+		if !toolVisibleToChat(entry, chatID) {
 			continue
 		}
 

@@ -45,8 +45,8 @@ func wireSwarm(sw *swarm.Swarm, m *mesh.Mesh, agentLoop *agent.AgentLoop, cfg *c
 		_, err := m.CancelRemoteTask(ctx, pid, taskID)
 		return err
 	})
-	sw.SetCapProbe(func() (string, int) {
-		return "", m.ActiveTaskCount()
+	sw.SetCapProbe(func() (string, int, string) {
+		return "", m.ActiveTaskCount(), m.Role()
 	})
 	sw.SetOfferEvaluator(func(swarmID string, o swarm.Offer) bool {
 		_, ok := agentLoop.GetRegistry().GetAgent(o.AgentID)

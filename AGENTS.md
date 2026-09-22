@@ -224,12 +224,12 @@ outright; verified catalogs cache under `<RHIZOME_HOME>/catalog-cache/`
 
 ## Web3 Read Tools (v0.11.0, Track 68)
 
-`pkg/web3` is a dependency-free read-only Ethereum JSON-RPC layer; the
-`web3_*` agent tools live in `pkg/tools/web3` and are **disabled by
-default** (`tools.web3.enabled`). No send/sign path exists in this layer —
-`web3_rpc` passthrough is restricted to a hard-coded read-only method
-allowlist (`eth_call`, `eth_get*`, `net_*`, `web3_*`; `eth_accounts` is
-deliberately excluded).
+`pkg/web3` is a dependency-free Ethereum JSON-RPC layer; the `web3_*`
+agent tools live in `pkg/tools/web3` and are **disabled by default**
+(`tools.web3.enabled`). `web3_rpc` passthrough stays read-only via a
+hard-coded method allowlist (`eth_call`, `eth_get*`, `net_*`, `web3_*`;
+`eth_accounts` is deliberately excluded) — the signing path added in
+v0.12.0 lives in separate, double-gated tools (see next section).
 
 Endpoint resolution (`pkg/web3/endpoint.go`, `Provider`) is
 operator-config only — tools never accept URLs:
@@ -248,6 +248,107 @@ width (tag bounds resolve to concrete numbers first); `allow_private_endpoints`
 needs the explicit opt-in. Transport errors are unwrapped of `url.Error`
 so endpoint URLs (which can embed path keys) never reach tool output.
 Guide: `docs/guides/web3.md`.
+
+## Web3 Wallet & Signing (v0.12.0, Track 77)
+
+`pkg/web3` also holds the write side: secp256k1 wallet keystore
+(`keys.go` — AES-256-GCM per key, OS keyring master key, scrypt fallback via
+`RHIZOME_WALLET_PASSPHRASE`, `RHIZOME_WALLET_KEYSOURCE` override), minimal
+ABI/RLP codecs, EIP-1559+legacy tx signing (`tx.go`), EIP-191 message
+signing, a policy engine (`policy.go` — from/contract/method allowlists,
+per-tx and per-UTC-day wei caps) with an append-only spend ledger at
+`<RHIZOME_HOME>/web3-ledger.jsonl`, and a durable pending-approval queue
+(`pending.go` — `<RHIZOME_HOME>/web3/web3-pending.json`, bounded 100,
+15 min TTL, expiry denies).
+
+Signing is **double-gated**: `tools.web3.enabled` and
+`tools.web3.signing.enabled` (both default false). `web3_send`/`web3_sign`/
+`web3_approve` (in `pkg/tools/web3/signing.go`) never sign inline — they
+evaluate policy, run the `ApproveTool` hook veto pass (normalized
+`Web3ApprovalAction`, adapted in `pkg/agent/web3_hooks.go`), then enqueue a
+`PendingEntry`; a human resolves it, and `PendingStore.ExecuteApproved`
+signs+broadcasts (chain re-verified against the live endpoint at execution).
+`web3_wallet`/`web3_pending`/`web3_send_status` are read-only under the
+outer gate. Key material never appears in tool output, API responses, or UI.
+
+- `rhizome wallet create|import|list|reveal` — daemonless keystore ops;
+  `reveal` needs `--confirm` (+ `--show` for unmasked output).
+- `rhizome web3 pending|approve <id>|reject <id>` — queue ops; proxies to
+  the daemon when live, resolves locally otherwise.
+- Daemon endpoints (bearer auth): `GET /web3/pending[/<id>]`,
+  `GET /web3/wallet`, `POST /web3/approvals/<id>` `{action}`. Launcher
+  mirrors them under `/api/web3/*` with daemonless fallback. The dashboard
+  `/web3` page lists the wallet and resolves approvals; a sidebar badge
+  shows the pending count. Events: `web3.pending`, `web3.approved`,
+  `web3.rejected`, `web3.sent`, `web3.done`, `web3.failed` (surfaced in the
+  mesh activity feed).
+
+## Web3 Contracts & ENS (v0.12.0, Track 78)
+
+Contract interaction builds on the signing stack — still no go-ethereum,
+everything runs through the minimal ABI codec and the human-approval queue.
+
+- **ABI registry** (`pkg/web3/abireg.go`): `<RHIZOME_HOME>/web3/abi/<label>.json`
+  — `{label, address?, chain_ids?, abi, added_at}`, dir `0700`, ≤200 files,
+  ≤512 KiB each, labels `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`. CLI:
+  `rhizome web3 abi add <label> <file> [--address 0x…] [--chain-ids 1,11155111]`
+  | `list` | `show` | `remove`.
+- **Resolution** (`pkg/web3/resolve.go`): contract args resolve 0x literal →
+  registry label → ENS name (in that order). Literal addresses pick up a
+  registered ABI via `ByAddress`. `chain_ids` on an entry gates resolution
+  to the live endpoint chain.
+- **Tools** (`pkg/tools/web3/contract.go`): `web3_contract_call` (read-only
+  `eth_call`, decodes outputs, not gated), `web3_contract_send` (policy +
+  durable approval; pending `kind:"contract"` carries `selector` and a
+  `label.method(args)` summary), `web3_erc20` (`info|balance|allowance` read;
+  `transfer|approve` write — `amount` is decimals-aware token units or
+  `amount_units` raw base units, `"unlimited"` = uint256 max),
+  `web3_erc721` (`name|symbol|ownerOf|balanceOf|tokenURI` read;
+  `transferFrom|safeTransferFrom` write), `web3_ens` (`name` forward /
+  `address` reverse). ERC helpers ship embedded minimal ABIs — no registry
+  entry needed.
+- **Policy**: `allow_contracts` accepts registry labels (matched against the
+  bound address); `allow_methods` accepts raw `0x` selectors or
+  `label:method` / `0xaddr:method` — a bound label scopes the method to that
+  contract. Unresolvable entries never match.
+- **ENS** (`pkg/web3/ens.go`): canonical registry→resolver→record two-hop
+  via `eth_call` (registry `0x00000000000C2E4eC4a74a1268e2c4358E8D1170` on
+  mainnet/sepolia/holesky/hoodi; other chains fail clearly). Namehash is
+  computed locally. CLI: `rhizome web3 ens <name> [--reverse 0x…]`.
+- Events: `web3.contract.call`, `web3.contract.send`,
+  `web3.contract.rejected` — picked up by the activity feed's `web3.*`
+  prefix.
+
+## Web3 Wallet Ops, Watches & Channel Approvals (v0.12.0, Track 79)
+
+- **Wallet CLI**: `rhizome wallet set-default <address>` | `rename
+  <address> <label>` | `remove <address>` (with `--confirm`; the default
+  signer is what tools use when `from` is omitted). `GET /web3/wallet`
+  accepts `?balances=true` → per-address `balance_wei`; the launcher
+  proxy preserves query strings and mirrors the behavior daemonless, and
+  the dashboard `/web3` page shows ETH balances.
+- **Log watches** (`pkg/web3/watch.go`): `tools.web3.watches[]` =
+  `{name, contract, topics?, interval_seconds?}` — contract resolves
+  0x/label/ENS at daemon start; daemon-side poller emits `web3.event`
+  runtime events (block/tx/index/topics/data), cursors persist to
+  `<RHIZOME_HOME>/web3/watches.json` so restarts resume rather than
+  replay. Bounds: ≤8 watches, 30s floor / 60s default interval, range
+  capped by `max_log_range`, ≤50 logs per tick, first-run lookback 500
+  blocks. `tools.web3.watch_confirmations` delays emission until logs
+  are N blocks deep (default 0 = at head; cap 64). The `web3_watch`
+  agent tool lists/adds/removes watches — writes persist via
+  `SaveConfig` and take effect on daemon restart; watch lifecycle is
+  tied to daemon start/stop (`Web3WatchCancel`).
+- **Channel approvals**: `tools.web3.approval_channels` scopes where
+  `/web3 pending|approve <id>|reject <id>` builtin commands work —
+  entries are `"channel"` or `"channel:chat_id"`; empty (default)
+  disables channel approvals entirely. Resolutions go through the same
+  durable pending store, recorded `resolved_by` `"channel:<chan>:<chat>"`,
+  and emit the same `web3.approved`/`rejected`/`sent`/`failed` events as
+  CLI/UI. Commands reply "unavailable" from non-allowlisted scopes —
+  the allowlist is checked per-message inside the handlers
+  (`pkg/commands/cmd_web3.go`), and the runtime callbacks are only wired
+  when `tools.web3.enabled` + a non-empty allowlist.
 
 ## ACP (Agent Client Protocol)
 
@@ -273,6 +374,22 @@ Rhizome as an editor agent). `pkg/acp` contains all
 - **Permissions**: `acp.server.permission_policy` = `prompt` (default:
   `session/request_permission` per tool call, `*_always` cached per
   session, failures deny) | `allow` | `deny`.
+- **Session persistence** (v0.12.0): `acp-sessions.json` under
+  `RHIZOME_HOME` records `session_id → {agent_id, session_key, cwd,
+  allow_always, deny_always}` (0600, atomic, 256-entry FIFO). When the
+  store opens, `initialize` advertises `loadSession` and `session/load`
+  re-registers the session, replays `SessionStore.GetHistory` as
+  `session/update` chunks (newest 200, user/assistant text only), and
+  restores cached always-decisions. `--agent` pins refuse loads bound to
+  other agents.
+- **MCP passthrough**: `session/new` + `session/load` `mcpServers` stdio
+  entries spawn per-session `pkg/mcp` managers (max 4 servers, 30 s
+  connect bound, `env_only` so children get a minimal base + declared env
+  only — never the daemon env). Tools register on the agent's registry as
+  `mcp_acp-<sid8>-<server>_<tool>` wrapped in `SessionScoper` +
+  `ToolChatID` guards: only the owning session sees or can execute them,
+  and `ToolRegistry.Unregister` + manager `Close` run on session close /
+  server shutdown. http/sse/acp entries are refused per-entry.
 - See `docs/guides/acp.md` for Zed `agent_servers` / JetBrains setup.
 
 ### ACP client (external agents)
@@ -283,8 +400,9 @@ agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id:
 - `AgentInstance.ACP` marks the binding; `pkg/acp.ClientManager` lazily
   spawns the child process (plain `exec.Command` — NOT `pkg/isolation`;
   trust posture documented in the guide), handshakes `initialize`
-  (`fs:{read,write}` + `terminal:false`), and runs one `session/new` +
-  `session/prompt` per delegation, accumulating `session/update` chunks.
+  (`fs:{read,write}` + `terminal` per `acp.client.terminal_policy`), and
+  runs one `session/new` + `session/prompt` per delegation, accumulating
+  `session/update` chunks.
 - Spawner chain in `pkg/gateway`: `RemoteSpawner` → `acp.Spawner` → local
   `AgentLoopSpawner`. `hasLocal(id)` is true for ACP ids (registry
   membership) so they never route off-box. Without mesh, `acp.Spawner` is
@@ -298,8 +416,15 @@ agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id:
 - `acp.client.permission_policy` = `deny` (default) | `allow-read-only` |
   `allow` answers the external agent's `session/request_permission`;
   `fs/*` requests are served through the workspace sandbox
-  (`restrict_to_workspace` + `tools.allow_*_paths`); `terminal/*` is
-  refused. `authMethods` advertised at initialize → clear error.
+  (`restrict_to_workspace` + `tools.allow_*_paths`).
+  `authMethods` advertised at initialize → clear error.
+- `acp.client.terminal_policy` = `deny` (default) | `allow` (v0.12.0):
+  when `allow`, `terminal/*` requests bridge onto a private
+  `tools.SessionManager` under a dedicated `ExecTool` — same deny
+  patterns, workspace-restricted cwd, and bounded output buffers as the
+  exec tool; terminal ids are bound to the requesting session id and
+  killed when the agent process drops. When `deny`, the capability is
+  not advertised and methods return method-not-found.
 - Registry is resolved lazily (`func() *AgentRegistry`) in both the
   manager and spawner — reload swaps the registry pointer.
 
@@ -334,6 +459,7 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 - `pkg/modules` — companion-module sidecar system (catalog, sha256-verified install, daemon supervision with restart backoff, bounded logs, `module.*` events); `cmd/rhizome/internal/module` exposes the `rhizome module` CLI, `pkg/gateway/moduleapi.go` the `/modules*` daemon endpoints, `web/backend/api/modules.go` the `/api/modules*` launcher routes.
 - `pkg/acp` — ACP (Agent Client Protocol) both ways, all `coder/acp-go-sdk` usage isolated here: **server** (`rhizome acp` exposes the agent loop to editor clients over stdio JSON-RPC; sessions map to `agent:<id>:acp:<sid>` keys on channel `acp` through `AgentLoop.ProcessInbound`; streaming via a `bus.StreamDelegate`; tool approvals bridge to `session/request_permission`) and **client** (`ClientManager` spawns `agents.list[].acp` external agents; `Spawner` intercepts ACP-bound `SubTurn` targets; `RunRemote` backs `ExternalAgentRunner` for mesh dispatch; sandboxed `fs/*` serving + `acp.client.permission_policy` for permission requests).
 - `pkg/redact` — leaf package for secret masking (generic patterns + configured `SecureString` values); used by `pkg/logger` and `Config.FilterSensitiveData`.
+- `pkg/credential` — `SecureString` value resolution (`file://` refs, `enc://`/`enc2://` encrypted blobs) + passphrase/SSH-key keygen. Writes are `enc2://` (XChaCha20-Poly1305, `salt(16)|nonce(24)|ct`, HKDF info `rhizome-credential-v2`); legacy `enc://` (AES-256-GCM, info `-v1`) decrypts transparently — re-save re-encrypts to `enc2://` (one-way). `IsCredentialRef`/`IsEncryptedRef` are the only prefix checks — anything that detects references must accept both schemes.
 - `pkg/guard` — leaf package for prompt-injection phrase detection; used by shell-command screening, the tool-argument scan, and CLI tool-call extraction.
 - `pkg/rhizome/identity` — BIP39/SLIP-0010 Ed25519 node identity, persistence, and Ed25519 signing; now supports OS keyring and passphrase encryption.
 - `pkg/rhizome/network` — libp2p host, mDNS discovery, bootstrap, ping, and public DHT discovery.
@@ -368,6 +494,7 @@ Add a `mesh` section to `config.json`:
     "blob_enabled": true,
     "blob_max_bytes": 67108864,
     "blob_ttl": "24h",
+    "routing": { "role_aware": true },
     "acl": [
       {
         "peer_id": "12D3KooW...",
@@ -383,6 +510,7 @@ Add a `mesh` section to `config.json`:
 ```
 
 - `role` — `"full"` (default) or `"worker"`. Worker nodes join the mesh to serve work but run no routing infrastructure: `role=worker` forces `dht_enabled=false`, `relay_service=false`, and `nat_service=false` (the role wins over those settings; contradictions warn at startup). Pair with `rhizome daemon --no-gateway` for the smallest always-on footprint — the gateway stays a separate flag since some workers still want the local HTTP API. The role is signed into the capability manifest (`role` field, emitted only for `worker` so full nodes stay wire-compatible with older peers) and surfaces in `mesh status`/`mesh peer` output and the dashboard's peer badges.
+- `routing.role_aware` (v0.12.0, Track 80; default `true`) — `Mesh.PickPeer` gives a `1<<19` role bonus: task ops (`delegate`/`spawn`) prefer `worker` peers, infra ops (`sync`, …) prefer `full`. The bonus sits below the `1<<20` direct-connection term so it breaks ties rather than overriding connectivity, and a saturated worker still loses to a healthy full node. Set `false` to restore flat ranking.
 - `request_max_skew` — max accepted clock difference for signed request timestamps (replay protection window).
 - `rate_limit_per_peer` / `rate_limit_global` — remote request caps in requests per minute (0 = unlimited).
 - `audit_log` — append-only `~/.rhizome/mesh-audit.jsonl` trail (10 MB × 3 rotation); a `mesh.remote.audit` runtime event is always emitted.
@@ -438,7 +566,8 @@ of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
 - `context` — the shared-context blackboard (v0.9.0). Members append notes to per-author shards at `swarm/<id>/notes/<peer-id>.jsonl` in the synced workspace (conflict-free under git sync); the coordinator curates `swarm/<id>/context.md`. `swarm run` injects a blackboard digest (curated doc + newest notes, capped at `digest_bytes`) into the decomposer prompt. Posted notes also propagate live via `MsgNote` envelopes on `/rhizome/swarm/1.0.0`; remote writes are signature-attributed to the sender's shard. The `swarm_context` agent tool (read/list/post/set_context) is registered when swarm is enabled. Events: `swarm.context.note`, `swarm.context.written`.
 - Daemon API: `GET /network/swarms`, `GET /network/swarms/<id>[/{members,offers}]`, `POST /network/swarms` (`{"swarm","action":"join|leave"}`), `POST /network/swarms/<id>/offers`, `POST /network/swarms/<id>/offers/cancel`, `POST /network/swarms/<id>/run`, `GET /network/swarms/<id>/runs` (`?run=<id>` for one), `GET|POST /network/swarms/<id>/context` (`?since=<rfc3339>` filters notes; POST `{"action":"note"|"set_context","kind","key","content","ttl_seconds"}`), `GET /network/swarms/events` (SSE). The launcher proxies them under `/api/network/swarms*` with file/config fallbacks for reads and join/leave.
 - The gateway wires swarm seams (`SetTaskSubmitter`, `SetTaskCanceller`, `SetOfferEvaluator`, `SetCapMatcher`, `SetCapProbe`, `SetStateWriter`, `SetContextDirFunc`, `SetDecomposer`, `SetSynthesizer`, `SetResultFetcher`) in `pkg/gateway/swarm.go`; the daemon registers the instance via `gateway.SetSwarm`.
-- The Network dashboard has a **Swarms** panel (roster, coordinator, offers, goal runs) fed by `/api/network/swarms*` and the swarm SSE stream.
+- The Network dashboard has a **Swarms** panel (roster, coordinator, offers, goal runs) fed by `/api/network/swarms*` and the swarm SSE stream, and a **Topology** panel (v0.12.0) — a hand-rolled SVG radial fed by `network status` `peers[].conns`: direction → arrow/dash, transport → edge color, latency → thickness, `role` → node label; click-through opens the shared peer-detail Sheet.
+- **Role-aware election** (v0.12.0, Track 80): `pingPayload` carries `role` (additive — older peers ignore it), `Member`/`MemberInfo` persist it, and `reelectLocked` sorts candidates by `(roleRank, peerID)` — `full` members coordinate before `worker`s. The local node's role comes from the same `capProbeFunc` that fills heartbeats (signature extended to return the role; wired to `Mesh.Role()` in `pkg/gateway/swarm.go`). A member's role arriving via its first heartbeat triggers re-election; mixed-version flapping is transient and advisory-only. `swarm members` prints the role column.
 
 ## DHT Configuration
 
@@ -474,6 +603,24 @@ By default `rhizome network onboard` prompts for an encryption method. You can a
 To load an encrypted identity in a non-interactive environment, set `RHIZOME_IDENTITY_PASSPHRASE`. When the keyring is unavailable, `rhizome daemon` and the `network`/`sync` commands will fall back to the passphrase.
 
 Legacy unencrypted `node.json` files continue to load without any changes.
+
+## Provider Authentication (`rhizome auth`)
+
+`rhizome auth login --provider <p>` supports `openai`, `anthropic`, and
+`google-antigravity`/`antigravity`. Headless matrix (all flows work
+without a browser on the host):
+
+| Provider      | Headless path                                                        |
+| ------------- | -------------------------------------------------------------------- |
+| `openai`      | `--device-code` (device authorization) or `--no-browser` + paste URL |
+| `anthropic`   | `--setup-token` or paste an API key at the prompt (stdin-only)       |
+| `antigravity` | `--no-browser` → open URL elsewhere, paste the redirect URL/code     |
+
+Flags are provider-scoped and validated (`--device-code` → openai only,
+`--setup-token` → anthropic only, `--no-browser` → browser flows only);
+unsupported combinations fail with a clear error rather than being
+silently ignored. `auth status`/`auth logout` inspect and clear stored
+credentials (`pkg/auth`, `<RHIZOME_HOME>/auth.json`).
 
 ## BIP39 Onboarding
 
@@ -520,7 +667,7 @@ The swarm integration test builds `rhizome`, starts two daemons joined to a shar
 
 ## MCP Presets (v0.8.0, Track 40)
 
-- `tools.mcp.presets.<name>` wires first-class hosted MCP servers. Currently `context7` (`{enabled, api_key}`) expands to an `http` server at `https://mcp.context7.com/mcp` with a `CONTEXT7_API_KEY` header; `api_key` is a `SecureString` (persists via `config.security.yml`, supports `file://`/`enc://` refs) and falls back to the `CONTEXT7_API_KEY` env var.
+- `tools.mcp.presets.<name>` wires first-class hosted MCP servers. Currently `context7` (`{enabled, api_key}`) expands to an `http` server at `https://mcp.context7.com/mcp` with a `CONTEXT7_API_KEY` header; `api_key` is a `SecureString` (persists via `config.security.yml`, supports `file://`/`enc://`/`enc2://` refs) and falls back to the `CONTEXT7_API_KEY` env var.
 - `MCPConfig.EffectiveServers()` merges `servers` + expanded presets — explicit `servers.<name>` always wins.
 - CLI: `rhizome mcp preset context7 --key <k> --enable`; `mcp list` shows preset-expanded servers.
 - Web: `GET /api/tools/mcp-presets`, `PUT /api/tools/mcp-presets/<name>`; a presets card on the Tools page handles enable + key entry (keys never echoed back).
