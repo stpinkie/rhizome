@@ -15,7 +15,7 @@ import (
 
 // ENS registry address — deployed at the same address on every chain that
 // has it (mainnet, sepolia, holesky, hoodi).
-const ensRegistryAddr = "0x00000000000C2E4eC4a74a1268e2c4358E8D1170"
+const ensRegistryAddr = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
 
 // ensChains lists chains with the canonical ENS registry deployment.
 var ensChains = map[uint64]bool{

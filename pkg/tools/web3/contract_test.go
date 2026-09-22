@@ -316,7 +316,7 @@ func TestENSToolForward(t *testing.T) {
 			}
 			_ = json.Unmarshal(req.Params, &raw)
 			_ = json.Unmarshal(raw[0], &call)
-			if strings.EqualFold(call.To, "0x00000000000C2E4eC4a74a1268e2c4358E8D1170") {
+			if strings.EqualFold(call.To, "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e") {
 				resp["result"] = "0x" + strings.Repeat("0", 24) + resolver[2:]
 			} else {
 				resp["result"] = "0x" + strings.Repeat("0", 24) + want[2:]
