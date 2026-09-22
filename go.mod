@@ -21,6 +21,7 @@ require (
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/creack/pty v1.1.24
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/ergochat/irc-go v0.6.0
 	github.com/ergochat/readline v0.1.3
@@ -106,7 +107,6 @@ require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.0 // indirect
