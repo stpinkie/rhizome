@@ -189,7 +189,7 @@ func (s *SecureStrings) UnmarshalJSON(value []byte) error {
 //nolint:recvcheck
 type SecureString struct {
 	resolved string // Decrypted/resolved value returned by String()
-	raw      string // Persisted raw value (enc://, file://, or plaintext)
+	raw      string // Persisted raw value (enc://, enc2://, file://, or plaintext)
 }
 
 func callerFromYaml() bool {
@@ -250,12 +250,12 @@ func (s *SecureString) UnmarshalJSON(value []byte) error {
 }
 
 func (s SecureString) MarshalYAML() (any, error) {
-	// Preserve raw value if it is already a reference (enc:// or file://)
-	if strings.HasPrefix(s.raw, credential.EncScheme) || strings.HasPrefix(s.raw, credential.FileScheme) {
+	// Preserve raw value if it is already a reference (enc://, enc2://, file://)
+	if credential.IsCredentialRef(s.raw) {
 		return s.raw, nil
 	}
 	// If resolved is a reference format (e.g. set via Set), copy back to raw
-	if strings.HasPrefix(s.resolved, credential.EncScheme) || strings.HasPrefix(s.resolved, credential.FileScheme) {
+	if credential.IsCredentialRef(s.resolved) {
 		s.raw = s.resolved
 		return s.raw, nil
 	}
@@ -305,7 +305,7 @@ func resolveKey(v string) (string, error) {
 	if resolver == nil {
 		resolver = credential.NewResolver("")
 	}
-	if strings.HasPrefix(v, "enc://") || strings.HasPrefix(v, "file://") {
+	if credential.IsCredentialRef(v) {
 		decrypted, err := resolver.Resolve(v)
 		if err != nil {
 			logger.Errorf("Resolve error: %v", err)
