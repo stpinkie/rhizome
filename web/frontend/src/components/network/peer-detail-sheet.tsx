@@ -2,8 +2,6 @@ import { useTranslation } from "react-i18next"
 
 import type { NetworkPeer } from "@/api/network"
 import { Badge } from "@/components/ui/badge"
-
-import { formatBytes, transportVariant } from "./format"
 import {
   Sheet,
   SheetContent,
@@ -11,6 +9,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+
+import { formatBytes, transportVariant } from "./format"
 
 export function PeerPill({
   label,

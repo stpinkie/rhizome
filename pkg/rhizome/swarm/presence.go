@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -26,14 +27,29 @@ type pingPayload struct {
 type capProbeFunc func() (digest string, activeTasks int, role string)
 
 // SetCapProbe registers the local capability probe used in PING heartbeats.
+// May be called after Start (the gateway wires it during agent setup), so
+// the pointer is atomic — heartbeat/coordinator/queue goroutines read it.
 func (s *Swarm) SetCapProbe(fn func() (digest string, activeTasks int, role string)) {
-	s.presence.capProbe = capProbeFunc(fn)
+	if fn == nil {
+		s.presence.capProbe.Store(nil)
+		return
+	}
+	f := capProbeFunc(fn)
+	s.presence.capProbe.Store(&f)
+}
+
+// probe returns the registered capability probe, or nil.
+func (s *Swarm) probe() capProbeFunc {
+	if p := s.presence.capProbe.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // presence tracks swarm liveness: it heartbeats the local membership and
 // evicts members that stay silent past expire_after.
 type presence struct {
-	capProbe capProbeFunc
+	capProbe atomic.Pointer[capProbeFunc]
 }
 
 // startPresence launches the heartbeat and expiry loops. Called from Start.
@@ -63,8 +79,8 @@ func (s *Swarm) heartbeatLoop(ctx context.Context) {
 
 func (s *Swarm) heartbeatOnce(ctx context.Context) {
 	var payload pingPayload
-	if s.presence.capProbe != nil {
-		payload.CapDigest, payload.ActiveTasks, payload.Role = s.presence.capProbe()
+	if probe := s.probe(); probe != nil {
+		payload.CapDigest, payload.ActiveTasks, payload.Role = probe()
 	}
 	data, err := encodePayload(payload)
 	if err != nil {

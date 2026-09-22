@@ -68,8 +68,8 @@ func (s *Swarm) reelectLocked(swarmID string) bool {
 	}
 	if swarm.Joined {
 		selfRole := ""
-		if s.presence.capProbe != nil {
-			_, _, selfRole = s.presence.capProbe()
+		if probe := s.probe(); probe != nil {
+			_, _, selfRole = probe()
 		}
 		candidates = append(candidates,
 			candidate{s.host.ID().String(), roleRank(selfRole)})

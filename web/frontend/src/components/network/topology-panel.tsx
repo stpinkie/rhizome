@@ -149,10 +149,7 @@ export function TopologyPanel({ response, isLoading }: TopologyPanelProps) {
                     strokeDasharray={relayed || inbound ? "5 4" : undefined}
                     markerEnd={inbound ? undefined : "url(#topo-arrow-out)"}
                     markerStart={inbound ? "url(#topo-arrow-in)" : undefined}
-                    className={cn(
-                      edgeColorClass(transport),
-                      "opacity-70",
-                    )}
+                    className={cn(edgeColorClass(transport), "opacity-70")}
                   />
                 )
               })}
@@ -186,7 +183,7 @@ export function TopologyPanel({ response, isLoading }: TopologyPanelProps) {
                   <circle
                     r={10}
                     className={cn(
-                      "stroke-background transition-all hover:r-12",
+                      "stroke-background hover:r-12 transition-all",
                       peer.trusted ? "fill-sky-500" : "fill-muted-foreground",
                     )}
                     strokeWidth={2}
