@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/spf13/cobra"
@@ -124,11 +125,24 @@ func run(agentID string) error {
 	mediaStore := media.NewFileMediaStore()
 	agentLoop.SetMediaStore(mediaStore)
 
+	// The ACP session index lives under RHIZOME_HOME so session/load can
+	// resurrect sessions across restarts.
+	var sessionStore *acpbridge.SessionStore
+	store, storeErr := acpbridge.OpenSessionStore(
+		filepath.Join(config.GetHome(), "acp-sessions.json"))
+	if storeErr != nil {
+		slog.Warn("acp: session store unavailable — session/load disabled",
+			"error", storeErr)
+	} else {
+		sessionStore = store
+	}
+
 	srv := acpbridge.NewServer(agentLoop, acpbridge.Options{
-		AgentID: agentID,
-		Policy:  policy,
-		Media:   mediaStore,
-		Version: config.FormatVersion(),
+		AgentID:  agentID,
+		Policy:   policy,
+		Media:    mediaStore,
+		Version:  config.FormatVersion(),
+		Sessions: sessionStore,
 	})
 	if err := srv.Start(); err != nil {
 		return err

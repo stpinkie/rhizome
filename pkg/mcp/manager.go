@@ -408,10 +408,23 @@ func connectServer(
 		// Use a map to ensure config variables override file variables
 		envMap := make(map[string]string)
 
-		// Start with parent process environment
-		for _, e := range cmd.Environ() {
-			if idx := strings.Index(e, "="); idx > 0 {
-				envMap[e[:idx]] = e[idx+1:]
+		if cfg.EnvOnly {
+			// ACP session-declared servers get only a minimal system base plus
+			// their declared env — never the daemon's full environment.
+			for _, k := range []string{
+				"PATH", "HOME", "USER", "USERPROFILE", "TMPDIR", "TEMP", "TMP",
+				"SystemRoot", "SYSTEMROOT", "COMSPEC", "PATHEXT",
+			} {
+				if v, ok := os.LookupEnv(k); ok {
+					envMap[k] = v
+				}
+			}
+		} else {
+			// Start with parent process environment
+			for _, e := range cmd.Environ() {
+				if idx := strings.Index(e, "="); idx > 0 {
+					envMap[e[:idx]] = e[idx+1:]
+				}
 			}
 		}
 

@@ -904,3 +904,66 @@ func TestToolRegistry_ExecuteWithContext_SanitizesInlineMediaWithoutStore(t *tes
 		t.Fatalf("expected inline media omission note, got %q", result.ForLLM)
 	}
 }
+
+// scopedTool is a SessionScoper test double.
+type scopedTool struct {
+	mockRegistryTool
+	sid string
+}
+
+func (t *scopedTool) SessionChatID() string { return t.sid }
+
+func TestToolRegistry_Unregister(t *testing.T) {
+	r := NewToolRegistry()
+	r.Register(&mockRegistryTool{name: "ephemeral", desc: "d", params: map[string]any{}})
+	if !r.HasRegistered("ephemeral") {
+		t.Fatal("tool should be registered")
+	}
+	v0 := r.Version()
+	if !r.Unregister("ephemeral") {
+		t.Fatal("Unregister should return true")
+	}
+	if r.HasRegistered("ephemeral") {
+		t.Fatal("tool should be gone")
+	}
+	if r.Unregister("ephemeral") {
+		t.Fatal("second Unregister should return false")
+	}
+	if r.Version() <= v0 {
+		t.Fatal("version should bump on unregister")
+	}
+}
+
+func TestToolRegistry_ScopedToolDefs(t *testing.T) {
+	r := NewToolRegistry()
+	r.Register(&mockRegistryTool{name: "global_tool", desc: "d", params: map[string]any{}})
+	r.Register(&scopedTool{
+		mockRegistryTool: mockRegistryTool{name: "sess_tool", desc: "d", params: map[string]any{}},
+		sid:              "chat-a",
+	})
+
+	has := func(defs []providers.ToolDefinition, name string) bool {
+		for _, d := range defs {
+			if d.Function.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	own := r.ToProviderDefsForChat("chat-a")
+	if !has(own, "sess_tool") || !has(own, "global_tool") {
+		t.Fatal("owning chat should see both tools")
+	}
+	other := r.ToProviderDefsForChat("chat-b")
+	if has(other, "sess_tool") {
+		t.Fatal("scoped tool leaked into foreign defs")
+	}
+	if !has(other, "global_tool") {
+		t.Fatal("unscoped tool missing from foreign defs")
+	}
+	unscoped := r.ToProviderDefs()
+	if has(unscoped, "sess_tool") {
+		t.Fatal("scoped tool leaked into unscoped defs")
+	}
+}

@@ -273,6 +273,22 @@ Rhizome as an editor agent). `pkg/acp` contains all
 - **Permissions**: `acp.server.permission_policy` = `prompt` (default:
   `session/request_permission` per tool call, `*_always` cached per
   session, failures deny) | `allow` | `deny`.
+- **Session persistence** (v0.12.0): `acp-sessions.json` under
+  `RHIZOME_HOME` records `session_id → {agent_id, session_key, cwd,
+  allow_always, deny_always}` (0600, atomic, 256-entry FIFO). When the
+  store opens, `initialize` advertises `loadSession` and `session/load`
+  re-registers the session, replays `SessionStore.GetHistory` as
+  `session/update` chunks (newest 200, user/assistant text only), and
+  restores cached always-decisions. `--agent` pins refuse loads bound to
+  other agents.
+- **MCP passthrough**: `session/new` + `session/load` `mcpServers` stdio
+  entries spawn per-session `pkg/mcp` managers (max 4 servers, 30 s
+  connect bound, `env_only` so children get a minimal base + declared env
+  only — never the daemon env). Tools register on the agent's registry as
+  `mcp_acp-<sid8>-<server>_<tool>` wrapped in `SessionScoper` +
+  `ToolChatID` guards: only the owning session sees or can execute them,
+  and `ToolRegistry.Unregister` + manager `Close` run on session close /
+  server shutdown. http/sse/acp entries are refused per-entry.
 - See `docs/guides/acp.md` for Zed `agent_servers` / JetBrains setup.
 
 ### ACP client (external agents)
@@ -283,8 +299,9 @@ agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id:
 - `AgentInstance.ACP` marks the binding; `pkg/acp.ClientManager` lazily
   spawns the child process (plain `exec.Command` — NOT `pkg/isolation`;
   trust posture documented in the guide), handshakes `initialize`
-  (`fs:{read,write}` + `terminal:false`), and runs one `session/new` +
-  `session/prompt` per delegation, accumulating `session/update` chunks.
+  (`fs:{read,write}` + `terminal` per `acp.client.terminal_policy`), and
+  runs one `session/new` + `session/prompt` per delegation, accumulating
+  `session/update` chunks.
 - Spawner chain in `pkg/gateway`: `RemoteSpawner` → `acp.Spawner` → local
   `AgentLoopSpawner`. `hasLocal(id)` is true for ACP ids (registry
   membership) so they never route off-box. Without mesh, `acp.Spawner` is
@@ -298,8 +315,15 @@ agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id:
 - `acp.client.permission_policy` = `deny` (default) | `allow-read-only` |
   `allow` answers the external agent's `session/request_permission`;
   `fs/*` requests are served through the workspace sandbox
-  (`restrict_to_workspace` + `tools.allow_*_paths`); `terminal/*` is
-  refused. `authMethods` advertised at initialize → clear error.
+  (`restrict_to_workspace` + `tools.allow_*_paths`).
+  `authMethods` advertised at initialize → clear error.
+- `acp.client.terminal_policy` = `deny` (default) | `allow` (v0.12.0):
+  when `allow`, `terminal/*` requests bridge onto a private
+  `tools.SessionManager` under a dedicated `ExecTool` — same deny
+  patterns, workspace-restricted cwd, and bounded output buffers as the
+  exec tool; terminal ids are bound to the requesting session id and
+  killed when the agent process drops. When `deny`, the capability is
+  not advertised and methods return method-not-found.
 - Registry is resolved lazily (`func() *AgentRegistry`) in both the
   manager and spawner — reload swaps the registry pointer.
 

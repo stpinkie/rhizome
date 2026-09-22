@@ -48,7 +48,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	messages = resolveMediaRefsMode(messages, p.MediaStore, maxMediaSize, currentTurnStart, inlineMode)
 
 	if !ts.opts.NoHistory {
-		toolDefs := filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefs(), ts.profile)
+		toolDefs := filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefsForChat(ts.chatID), ts.profile)
 		if isOverContextBudget(ts.agent.ContextWindow, messages, toolDefs, ts.agent.MaxTokens) {
 			logger.WarnCF("agent", "Proactive compression: context budget exceeded before LLM call",
 				map[string]any{"session_key": ts.sessionKey})
