@@ -224,12 +224,12 @@ outright; verified catalogs cache under `<RHIZOME_HOME>/catalog-cache/`
 
 ## Web3 Read Tools (v0.11.0, Track 68)
 
-`pkg/web3` is a dependency-free read-only Ethereum JSON-RPC layer; the
-`web3_*` agent tools live in `pkg/tools/web3` and are **disabled by
-default** (`tools.web3.enabled`). No send/sign path exists in this layer —
-`web3_rpc` passthrough is restricted to a hard-coded read-only method
-allowlist (`eth_call`, `eth_get*`, `net_*`, `web3_*`; `eth_accounts` is
-deliberately excluded).
+`pkg/web3` is a dependency-free Ethereum JSON-RPC layer; the `web3_*`
+agent tools live in `pkg/tools/web3` and are **disabled by default**
+(`tools.web3.enabled`). `web3_rpc` passthrough stays read-only via a
+hard-coded method allowlist (`eth_call`, `eth_get*`, `net_*`, `web3_*`;
+`eth_accounts` is deliberately excluded) — the signing path added in
+v0.12.0 lives in separate, double-gated tools (see next section).
 
 Endpoint resolution (`pkg/web3/endpoint.go`, `Provider`) is
 operator-config only — tools never accept URLs:
@@ -248,6 +248,40 @@ width (tag bounds resolve to concrete numbers first); `allow_private_endpoints`
 needs the explicit opt-in. Transport errors are unwrapped of `url.Error`
 so endpoint URLs (which can embed path keys) never reach tool output.
 Guide: `docs/guides/web3.md`.
+
+## Web3 Wallet & Signing (v0.12.0, Track 77)
+
+`pkg/web3` also holds the write side: secp256k1 wallet keystore
+(`keys.go` — AES-256-GCM per key, OS keyring master key, scrypt fallback via
+`RHIZOME_WALLET_PASSPHRASE`, `RHIZOME_WALLET_KEYSOURCE` override), minimal
+ABI/RLP codecs, EIP-1559+legacy tx signing (`tx.go`), EIP-191 message
+signing, a policy engine (`policy.go` — from/contract/method allowlists,
+per-tx and per-UTC-day wei caps) with an append-only spend ledger at
+`<RHIZOME_HOME>/web3-ledger.jsonl`, and a durable pending-approval queue
+(`pending.go` — `<RHIZOME_HOME>/web3/web3-pending.json`, bounded 100,
+15 min TTL, expiry denies).
+
+Signing is **double-gated**: `tools.web3.enabled` and
+`tools.web3.signing.enabled` (both default false). `web3_send`/`web3_sign`/
+`web3_approve` (in `pkg/tools/web3/signing.go`) never sign inline — they
+evaluate policy, run the `ApproveTool` hook veto pass (normalized
+`Web3ApprovalAction`, adapted in `pkg/agent/web3_hooks.go`), then enqueue a
+`PendingEntry`; a human resolves it, and `PendingStore.ExecuteApproved`
+signs+broadcasts (chain re-verified against the live endpoint at execution).
+`web3_wallet`/`web3_pending`/`web3_send_status` are read-only under the
+outer gate. Key material never appears in tool output, API responses, or UI.
+
+- `rhizome wallet create|import|list|reveal` — daemonless keystore ops;
+  `reveal` needs `--confirm` (+ `--show` for unmasked output).
+- `rhizome web3 pending|approve <id>|reject <id>` — queue ops; proxies to
+  the daemon when live, resolves locally otherwise.
+- Daemon endpoints (bearer auth): `GET /web3/pending[/<id>]`,
+  `GET /web3/wallet`, `POST /web3/approvals/<id>` `{action}`. Launcher
+  mirrors them under `/api/web3/*` with daemonless fallback. The dashboard
+  `/web3` page lists the wallet and resolves approvals; a sidebar badge
+  shows the pending count. Events: `web3.pending`, `web3.approved`,
+  `web3.rejected`, `web3.sent`, `web3.done`, `web3.failed` (surfaced in the
+  mesh activity feed).
 
 ## ACP (Agent Client Protocol)
 

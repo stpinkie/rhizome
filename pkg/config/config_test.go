@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
@@ -1560,6 +1561,52 @@ func TestLoadConfig_LoadImageCanBeDisabled(t *testing.T) {
 	}
 	if cfg.Tools.IsToolEnabled("load_image") {
 		t.Fatal("LoadConfig().Tools.IsToolEnabled(load_image) should be false")
+	}
+}
+
+func TestWeb3SigningToolsDefaultOff(t *testing.T) {
+	cfg := DefaultConfig()
+	for _, name := range []string{"web3_send", "web3_sign", "web3_approve", "web3_signing"} {
+		if cfg.Tools.IsToolEnabled(name) {
+			t.Fatalf("IsToolEnabled(%s) should default false", name)
+		}
+	}
+	// Read-side web3 wallet tools follow tools.web3.enabled (off by default).
+	for _, name := range []string{"web3_wallet", "web3_pending", "web3_send_status"} {
+		if cfg.Tools.IsToolEnabled(name) {
+			t.Fatalf("IsToolEnabled(%s) should default false", name)
+		}
+	}
+}
+
+func TestWeb3SigningRequiresBothGates(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Tools.Web3.Enabled = true
+	if cfg.Tools.IsToolEnabled("web3_send") {
+		t.Fatal("web3_send must stay off when signing.enabled is false")
+	}
+	if !cfg.Tools.IsToolEnabled("web3_wallet") {
+		t.Fatal("web3_wallet should follow tools.web3.enabled")
+	}
+	cfg.Tools.Web3.Signing.Enabled = true
+	if !cfg.Tools.IsToolEnabled("web3_send") {
+		t.Fatal("web3_send should be on when both gates are true")
+	}
+	// Signing without the outer gate stays off.
+	cfg.Tools.Web3.Enabled = false
+	if cfg.Tools.IsToolEnabled("web3_send") {
+		t.Fatal("web3_send must stay off when tools.web3.enabled is false")
+	}
+}
+
+func TestWeb3SigningApprovalTimeoutDefault(t *testing.T) {
+	c := &Web3SigningConfig{}
+	if c.GetApprovalTimeout() != 15*time.Minute {
+		t.Fatalf("default approval timeout = %v, want 15m", c.GetApprovalTimeout())
+	}
+	c.ApprovalTimeoutSeconds = 60
+	if c.GetApprovalTimeout() != time.Minute {
+		t.Fatalf("approval timeout = %v, want 1m", c.GetApprovalTimeout())
 	}
 }
 

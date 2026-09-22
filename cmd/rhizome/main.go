@@ -36,6 +36,8 @@ import (
 	swarmcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/swarm"
 	synccmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/sync"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/version"
+	"github.com/stpinkie/rhizome/cmd/rhizome/internal/wallet"
+	web3cmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/web3"
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/updater"
 )
@@ -151,6 +153,8 @@ rhizome --no-color status`,
 		meshcmd.NewMeshCommand(),
 		swarmcmd.NewSwarmCommand(),
 		modulecmd.NewModuleCommand(),
+		wallet.NewWalletCommand(),
+		web3cmd.NewWeb3Command(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
 		updater.NewUpdateCommand("rhizome"),

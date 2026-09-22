@@ -730,6 +730,13 @@ func setupAndStartServices(
 		}
 	}
 
+	web3Handler := newWeb3Handler(authToken, cfg, homePath, agentLoop.RuntimeEventBus())
+	for _, path := range []string{"/web3", "/web3/"} {
+		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, web3Handler); err != nil {
+			return nil, fmt.Errorf("error registering web3 handler %s: %w", path, err)
+		}
+	}
+
 	if err = runningServices.ChannelManager.StartAll(context.Background()); err != nil {
 		return nil, fmt.Errorf("error starting channels: %w", err)
 	}
