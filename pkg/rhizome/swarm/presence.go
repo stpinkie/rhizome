@@ -15,14 +15,18 @@ type pingPayload struct {
 	CapDigest string `json:"cap_digest,omitempty"`
 	// ActiveTasks is the member's current non-terminal remote task count.
 	ActiveTasks int `json:"active_tasks,omitempty"`
+	// Role is the member's mesh participation tier ("full"/"worker").
+	// Additive — older peers ignore it; absent means "full".
+	Role string `json:"role,omitempty"`
 }
 
-// capProbeFunc reports the local node's capability digest and active task
-// count for heartbeat payloads. The daemon wires it to the mesh.
-type capProbeFunc func() (digest string, activeTasks int)
+// capProbeFunc reports the local node's capability digest, active task
+// count, and mesh role for heartbeat payloads. The daemon wires it to
+// the mesh.
+type capProbeFunc func() (digest string, activeTasks int, role string)
 
 // SetCapProbe registers the local capability probe used in PING heartbeats.
-func (s *Swarm) SetCapProbe(fn func() (digest string, activeTasks int)) {
+func (s *Swarm) SetCapProbe(fn func() (digest string, activeTasks int, role string)) {
 	s.presence.capProbe = capProbeFunc(fn)
 }
 
@@ -60,7 +64,7 @@ func (s *Swarm) heartbeatLoop(ctx context.Context) {
 func (s *Swarm) heartbeatOnce(ctx context.Context) {
 	var payload pingPayload
 	if s.presence.capProbe != nil {
-		payload.CapDigest, payload.ActiveTasks = s.presence.capProbe()
+		payload.CapDigest, payload.ActiveTasks, payload.Role = s.presence.capProbe()
 	}
 	data, err := encodePayload(payload)
 	if err != nil {
@@ -147,11 +151,15 @@ func (s *Swarm) notePing(from peer.ID, env Envelope) {
 	pidStr := from.String()
 	m, seen := swarm.Members[pidStr]
 	isNew := !seen
+	// A role learned (or changed) after the join still affects election —
+	// treat it as a membership change so the coordinator is re-picked.
+	roleChanged := seen && m.Role != p.Role
 	m.PeerID = pidStr
 	m.LastSeen = time.Now()
 	m.Source = "direct"
 	m.CapDigest = p.CapDigest
 	m.ActiveTasks = p.ActiveTasks
+	m.Role = p.Role
 	swarm.Members[pidStr] = m
 	s.mu.Unlock()
 	if isNew {
@@ -161,6 +169,9 @@ func (s *Swarm) notePing(from peer.ID, env Envelope) {
 			"peer_id":  pidStr,
 			"source":   "direct",
 		})
+		s.afterMembershipChange(env.SwarmID)
+	} else if roleChanged {
+		s.save()
 		s.afterMembershipChange(env.SwarmID)
 	}
 }

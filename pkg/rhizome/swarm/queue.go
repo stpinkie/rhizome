@@ -510,7 +510,7 @@ func (q *workQueue) onOffer(swarmID string, env Envelope, o Offer) {
 
 	claim := Claim{OfferID: o.OfferID, Claimant: q.s.host.ID().String(), Attempt: o.Attempt}
 	if q.s.presence.capProbe != nil {
-		claim.CapDigest, claim.ActiveTasks = q.s.presence.capProbe()
+		claim.CapDigest, claim.ActiveTasks, _ = q.s.presence.capProbe()
 	}
 	offerer, err := peer.Decode(o.Offerer)
 	if err != nil {

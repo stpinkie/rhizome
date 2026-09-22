@@ -368,6 +368,7 @@ Add a `mesh` section to `config.json`:
     "blob_enabled": true,
     "blob_max_bytes": 67108864,
     "blob_ttl": "24h",
+    "routing": { "role_aware": true },
     "acl": [
       {
         "peer_id": "12D3KooW...",
@@ -383,6 +384,7 @@ Add a `mesh` section to `config.json`:
 ```
 
 - `role` — `"full"` (default) or `"worker"`. Worker nodes join the mesh to serve work but run no routing infrastructure: `role=worker` forces `dht_enabled=false`, `relay_service=false`, and `nat_service=false` (the role wins over those settings; contradictions warn at startup). Pair with `rhizome daemon --no-gateway` for the smallest always-on footprint — the gateway stays a separate flag since some workers still want the local HTTP API. The role is signed into the capability manifest (`role` field, emitted only for `worker` so full nodes stay wire-compatible with older peers) and surfaces in `mesh status`/`mesh peer` output and the dashboard's peer badges.
+- `routing.role_aware` (v0.12.0, Track 80; default `true`) — `Mesh.PickPeer` gives a `1<<19` role bonus: task ops (`delegate`/`spawn`) prefer `worker` peers, infra ops (`sync`, …) prefer `full`. The bonus sits below the `1<<20` direct-connection term so it breaks ties rather than overriding connectivity, and a saturated worker still loses to a healthy full node. Set `false` to restore flat ranking.
 - `request_max_skew` — max accepted clock difference for signed request timestamps (replay protection window).
 - `rate_limit_per_peer` / `rate_limit_global` — remote request caps in requests per minute (0 = unlimited).
 - `audit_log` — append-only `~/.rhizome/mesh-audit.jsonl` trail (10 MB × 3 rotation); a `mesh.remote.audit` runtime event is always emitted.
@@ -438,7 +440,8 @@ of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
 - `context` — the shared-context blackboard (v0.9.0). Members append notes to per-author shards at `swarm/<id>/notes/<peer-id>.jsonl` in the synced workspace (conflict-free under git sync); the coordinator curates `swarm/<id>/context.md`. `swarm run` injects a blackboard digest (curated doc + newest notes, capped at `digest_bytes`) into the decomposer prompt. Posted notes also propagate live via `MsgNote` envelopes on `/rhizome/swarm/1.0.0`; remote writes are signature-attributed to the sender's shard. The `swarm_context` agent tool (read/list/post/set_context) is registered when swarm is enabled. Events: `swarm.context.note`, `swarm.context.written`.
 - Daemon API: `GET /network/swarms`, `GET /network/swarms/<id>[/{members,offers}]`, `POST /network/swarms` (`{"swarm","action":"join|leave"}`), `POST /network/swarms/<id>/offers`, `POST /network/swarms/<id>/offers/cancel`, `POST /network/swarms/<id>/run`, `GET /network/swarms/<id>/runs` (`?run=<id>` for one), `GET|POST /network/swarms/<id>/context` (`?since=<rfc3339>` filters notes; POST `{"action":"note"|"set_context","kind","key","content","ttl_seconds"}`), `GET /network/swarms/events` (SSE). The launcher proxies them under `/api/network/swarms*` with file/config fallbacks for reads and join/leave.
 - The gateway wires swarm seams (`SetTaskSubmitter`, `SetTaskCanceller`, `SetOfferEvaluator`, `SetCapMatcher`, `SetCapProbe`, `SetStateWriter`, `SetContextDirFunc`, `SetDecomposer`, `SetSynthesizer`, `SetResultFetcher`) in `pkg/gateway/swarm.go`; the daemon registers the instance via `gateway.SetSwarm`.
-- The Network dashboard has a **Swarms** panel (roster, coordinator, offers, goal runs) fed by `/api/network/swarms*` and the swarm SSE stream.
+- The Network dashboard has a **Swarms** panel (roster, coordinator, offers, goal runs) fed by `/api/network/swarms*` and the swarm SSE stream, and a **Topology** panel (v0.12.0) — a hand-rolled SVG radial fed by `network status` `peers[].conns`: direction → arrow/dash, transport → edge color, latency → thickness, `role` → node label; click-through opens the shared peer-detail Sheet.
+- **Role-aware election** (v0.12.0, Track 80): `pingPayload` carries `role` (additive — older peers ignore it), `Member`/`MemberInfo` persist it, and `reelectLocked` sorts candidates by `(roleRank, peerID)` — `full` members coordinate before `worker`s. The local node's role comes from the same `capProbeFunc` that fills heartbeats (signature extended to return the role; wired to `Mesh.Role()` in `pkg/gateway/swarm.go`). A member's role arriving via its first heartbeat triggers re-election; mixed-version flapping is transient and advisory-only. `swarm members` prints the role column.
 
 ## DHT Configuration
 

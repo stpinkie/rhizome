@@ -20,6 +20,7 @@ type persistedView struct {
 			PeerID   string `json:"peer_id"`
 			LastSeen string `json:"last_seen"`
 			Source   string `json:"source"`
+			Role     string `json:"role,omitempty"`
 		} `json:"members"`
 	} `json:"swarms"`
 }
@@ -107,7 +108,11 @@ func newMembersCommand() *cobra.Command {
 			}
 			fmt.Fprintf(w, "Members of %q:\n", args[0])
 			for _, m := range sw.Members {
-				fmt.Fprintf(w, "  - %s (last seen %s, %s)\n", m.PeerID, m.LastSeen, m.Source)
+				role := m.Role
+				if role == "" {
+					role = "full"
+				}
+				fmt.Fprintf(w, "  - %s (last seen %s, %s, %s)\n", m.PeerID, m.LastSeen, m.Source, role)
 			}
 		},
 	}

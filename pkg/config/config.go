@@ -194,6 +194,19 @@ type MeshConfig struct {
 	// scanner flags as suspicious. Defaults to false; suspicious bundles are
 	// rejected unless this is true or the caller passes an explicit override.
 	SkillPullAllowSuspicious bool `json:"skill_pull_allow_suspicious,omitempty"`
+
+	// Routing tunes peer selection and coordinator election.
+	Routing MeshRoutingConfig `json:"routing"`
+}
+
+// MeshRoutingConfig controls role-aware peer ranking.
+type MeshRoutingConfig struct {
+	// RoleAware gives worker peers a ranking bonus for task ops
+	// (delegate/spawn) and full peers the same bonus for infra ops in
+	// Mesh.PickPeer. Defaults to true — not omitempty so an explicit false
+	// survives config write-back. (Swarm coordinator election always
+	// prefers full members; it is not gated by this flag.)
+	RoleAware bool `json:"role_aware"`
 }
 
 // MeshACLRule authorizes a single peer for remote execution. Nil/empty fields

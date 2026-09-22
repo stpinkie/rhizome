@@ -1380,6 +1380,14 @@ func detectTransport(remoteAddr string) string {
 	}
 }
 
+// Role reports the node's mesh participation tier ("full" or "worker").
+func (m *Mesh) Role() string {
+	if m == nil {
+		return config.MeshRoleFull
+	}
+	return m.cfg.EffectiveRole()
+}
+
 // PeerScore returns the recorded quality score for a peer.
 func (m *Mesh) PeerScore(pid peer.ID) (PeerScore, bool) {
 	if m == nil || m.scoreStore == nil {
@@ -1454,6 +1462,11 @@ func (m *Mesh) rankedCandidates(agentID, op string, exclude map[peer.ID]bool) []
 		if m.node.Connectedness(pid) == libnet.Connected {
 			score += 1 << 20
 		}
+		// Role bonus sits below the direct-connection term so a down or
+		// saturated worker still loses to a healthy full node.
+		if m.cfg.Routing.RoleAware {
+			score += roleScoreBonus(op, c.Role)
+		}
 		score -= int64(c.ActiveTasks)
 		if m.scoreStore != nil {
 			if sc, ok := m.scoreStore.Get(pid); ok {
@@ -1471,6 +1484,23 @@ func (m *Mesh) rankedCandidates(agentID, op string, exclude map[peer.ID]bool) []
 		return out[i].PID.String() < out[j].PID.String()
 	})
 	return out
+}
+
+// roleScoreBonus returns the role-aware ranking bump for a candidate: task
+// ops (delegate/spawn) prefer workers, infra ops (sync, …) prefer full
+// nodes. The bonus stays below the 1<<20 direct-connection term so it
+// breaks ties rather than overriding connectivity.
+func roleScoreBonus(op, role string) int64 {
+	const bonus = 1 << 19
+	taskOp := op == "delegate" || op == "spawn"
+	// Manifests omit role for full nodes — normalize to "full".
+	if role == "" {
+		role = config.MeshRoleFull
+	}
+	if taskOp == (role == config.MeshRoleWorker) {
+		return bonus
+	}
+	return 0
 }
 
 // capabilityServes reports whether a manifest allows the op and lists the
