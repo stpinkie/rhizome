@@ -9,7 +9,7 @@ import (
 // well-known hosted MCP servers without hand-editing mcp.servers.
 //
 //	api_key marshals as "[NOT_HERE]" in config.json; the resolved value lives
-//	in config.security.yml (or an enc:// / file:// reference, or the preset's
+//	in config.security.yml (or an enc:// / enc2:// / file:// reference, or the preset's
 //	fallback environment variable).
 type MCPPresetConfig struct {
 	Enabled bool         `json:"enabled"          yaml:"enabled"`

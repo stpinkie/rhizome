@@ -22,6 +22,18 @@ const (
 )
 
 func authLoginCmd(provider string, useDeviceCode bool, useOauth bool, noBrowser bool) error {
+	// Flag/provider matrix — unsupported combinations fail fast with a
+	// clear error instead of being silently ignored.
+	if useDeviceCode && provider != "openai" {
+		return fmt.Errorf("--device-code is only supported for openai (device authorization flow)")
+	}
+	if useOauth && provider != "anthropic" {
+		return fmt.Errorf("--setup-token is only supported for anthropic (from `claude setup-token`)")
+	}
+	if noBrowser && provider == "anthropic" {
+		return fmt.Errorf("--no-browser has no effect for anthropic (no browser flow; use --setup-token for headless)")
+	}
+
 	switch provider {
 	case "openai":
 		return authLoginOpenAI(useDeviceCode, noBrowser)

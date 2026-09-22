@@ -17,7 +17,8 @@
     "network_group": "Network",
     "network": "Network",
     "browser": "Browser",
-    "modules": "Modules"
+    "modules": "Modules",
+    "web3": "Web3"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -1196,5 +1197,21 @@
       "title": "View Documentation",
       "description": "Need more help? Click the documentation button in the top right corner to view detailed guides and configuration docs."
     }
+  },
+  "web3": {
+    "title": "Web3",
+    "wallet": "Wallet",
+    "wallet_desc": "Local signing keys — private material never leaves the keystore.",
+    "no_keys": "No keys yet — run `rhizome wallet create`.",
+    "approvals": "Pending approvals",
+    "approvals_desc": "Agent-requested signatures — approving signs and broadcasts immediately.",
+    "none_pending": "Nothing awaiting approval.",
+    "approve": "Approve",
+    "reject": "Reject",
+    "expires": "expires",
+    "history": "Recent",
+    "confirm_title": "Approve and broadcast?",
+    "confirm_body": "This signs with the wallet key and broadcasts to the network. It cannot be undone.",
+    "disabled_hint": "Web3 tools are disabled. Set tools.web3.enabled and tools.web3.signing.enabled in config, then restart the daemon."
   }
 }

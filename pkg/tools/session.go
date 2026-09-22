@@ -157,6 +157,24 @@ func (s *ProcessSession) Read() string {
 	return data
 }
 
+// PeekOutput returns the buffered output without draining it — the ACP
+// terminal/output method reports cumulative output.
+func (s *ProcessSession) PeekOutput() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.outputBuffer == nil {
+		return ""
+	}
+	return s.outputBuffer.String()
+}
+
+// OutputTruncated reports whether the output buffer hit its cap.
+func (s *ProcessSession) OutputTruncated() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.outputTruncated
+}
+
 func (s *ProcessSession) ToSessionInfo() SessionInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()

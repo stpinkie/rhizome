@@ -246,6 +246,23 @@ Notes that matter:
 - The default TTS request uses `voice: alloy` and `response_format: opus`.
 - Override those defaults with `extra_body` when your selected TTS model requires different values.
 
+#### OAuth Login (`rhizome auth login`)
+
+Three providers authenticate via OAuth instead of a pasted API key. All
+flows work headless (SSH/VPS/CI):
+
+| Provider flag                      | Interactive flow                          | Headless flow                                                        |
+| ---------------------------------- | ----------------------------------------- | -------------------------------------------------------------------- |
+| `openai` (Codex)                   | Browser → localhost callback              | `--device-code` (device authorization) or `--no-browser` + paste URL |
+| `anthropic`                        | Menu: setup-token (recommended) / API key | `--setup-token` or paste the key at the prompt (no browser needed)   |
+| `google-antigravity`/`antigravity` | Browser → localhost callback              | `--no-browser` → open URL on another machine, paste the redirect URL |
+
+Flags are validated per provider — `--device-code` only applies to
+`openai`, `--setup-token` only to `anthropic`, and `--no-browser` only to
+the browser-callback flows; unsupported combinations fail with a clear
+error. `rhizome auth status` shows credential state and expiry;
+`rhizome auth logout --provider <name>` removes one.
+
 #### Vendor-Specific Examples
 
 **OpenAI**

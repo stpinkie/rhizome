@@ -140,6 +140,33 @@ func TestSwarmCoordinatorElection(t *testing.T) {
 	assert.Equal(t, expected, swarmA.Coordinator("coord"))
 }
 
+func TestSwarmCoordinatorPrefersFull(t *testing.T) {
+	swarmA, swarmB := newTestPair(t, fastPresenceConfig(), t.TempDir(), t.TempDir())
+
+	// A declares the worker tier, B stays full — B must coordinate on
+	// both sides regardless of peer-id ordering.
+	swarmA.SetCapProbe(func() (string, int, string) { return "", 0, "worker" })
+	swarmB.SetCapProbe(func() (string, int, string) { return "", 0, "full" })
+
+	require.NoError(t, swarmA.Join(context.Background(), "roles"))
+	require.NoError(t, swarmB.Join(context.Background(), "roles"))
+
+	// A's member entry on B should learn the worker role via heartbeats.
+	require.Eventually(t, func() bool {
+		for _, m := range swarmB.Members("roles") {
+			if m.PeerID == swarmA.PeerID() {
+				return m.Role == "worker"
+			}
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond, "B should learn A's worker role")
+
+	require.Eventually(t, func() bool {
+		return swarmA.Coordinator("roles") == swarmB.PeerID() &&
+			swarmB.Coordinator("roles") == swarmB.PeerID()
+	}, 10*time.Second, 100*time.Millisecond, "the full node should coordinate")
+}
+
 func TestSwarmACLRejectsOffer(t *testing.T) {
 	cfg := fastPresenceConfig()
 	deny := false

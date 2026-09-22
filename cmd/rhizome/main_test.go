@@ -57,6 +57,8 @@ func TestNewRhizomeCommand(t *testing.T) {
 		"sync",
 		"update",
 		"version",
+		"wallet",
+		"web3",
 	}
 
 	subcommands := cmd.Commands()

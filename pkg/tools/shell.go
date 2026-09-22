@@ -509,15 +509,105 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 }
 
 func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEnabled bool) *ToolResult {
+	session, err := t.startBackground(command, cwd, nil, ptyEnabled)
+	if err != nil {
+		return ErrorResult(err.Error())
+	}
+
+	resp := ExecResponse{
+		SessionID: session.ID,
+		Status:    "running",
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return ErrorResult(err.Error())
+	}
+	return &ToolResult{
+		ForLLM:  string(data),
+		ForUser: fmt.Sprintf("Session %s started", session.ID),
+		IsError: false,
+	}
+}
+
+// SetSessionManager swaps the tool's session store. Used by callers that
+// need an isolated session pool (e.g. the ACP terminal bridge) instead of
+// the global exec pool.
+func (t *ExecTool) SetSessionManager(sm *SessionManager) {
+	t.sessionManager = sm
+}
+
+// SpawnTerminal validates command/cwd through the same guard as `run` and
+// starts it as a background ProcessSession on this tool's SessionManager.
+// It performs no channel check — the caller's own policy is the gate (the
+// ACP bridge gates on acp.client.terminal_policy). env entries in KEY=VALUE
+// form are appended to the process environment when non-empty.
+func (t *ExecTool) SpawnTerminal(command, cwd string, env []string) (*ProcessSession, error) {
+	if strings.TrimSpace(command) == "" {
+		return nil, fmt.Errorf("command is required")
+	}
+
+	resolved := cwd
+	if resolved == "" {
+		resolved = t.workingDir
+	}
+	if resolved != "" && t.restrictToWorkspace && t.workingDir != "" {
+		validated, err := validatePathWithAllowPaths(resolved, t.workingDir, true, t.allowedPathPatterns)
+		if err != nil {
+			return nil, fmt.Errorf("command blocked by safety guard (%v)", err)
+		}
+		resolved = validated
+	}
+	if resolved == "" {
+		if wd, err := os.Getwd(); err == nil {
+			resolved = wd
+		}
+	}
+
+	if guardError := t.guardCommand(command, resolved); guardError != "" {
+		return nil, errors.New(guardError)
+	}
+
+	if t.restrictToWorkspace && t.workingDir != "" && resolved != t.workingDir {
+		evald, err := filepath.EvalSymlinks(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("command blocked by safety guard (path resolution failed: %v)", err)
+		}
+		if isAllowedPath(evald, t.allowedPathPatterns) {
+			resolved = evald
+		} else {
+			absWorkspace, _ := filepath.Abs(t.workingDir)
+			wsResolved, _ := filepath.EvalSymlinks(absWorkspace)
+			if wsResolved == "" {
+				wsResolved = absWorkspace
+			}
+			rel, err := filepath.Rel(wsResolved, evald)
+			if err != nil || !filepath.IsLocal(rel) {
+				return nil, fmt.Errorf("command blocked by safety guard (working directory escaped workspace)")
+			}
+			resolved = evald
+		}
+	}
+
+	return t.startBackground(command, resolved, env, false)
+}
+
+// startBackground spawns a background ProcessSession. env entries in
+// KEY=VALUE form are appended to the inherited environment when non-nil.
+func (t *ExecTool) startBackground(
+	command, cwd string,
+	env []string,
+	ptyEnabled bool,
+) (*ProcessSession, error) {
 	sessionID := generateSessionID()
 	session := &ProcessSession{
-		ID:         sessionID,
-		Command:    command,
-		PTY:        ptyEnabled,
-		Background: true,
-		StartTime:  time.Now().Unix(),
-		Status:     "running",
-		ptyKeyMode: PtyKeyModeCSI,
+		ID:           sessionID,
+		Command:      command,
+		PTY:          ptyEnabled,
+		Background:   true,
+		StartTime:    time.Now().Unix(),
+		Status:       "running",
+		ptyKeyMode:   PtyKeyModeCSI,
+		outputBuffer: &bytes.Buffer{},
 	}
 
 	var cmd *exec.Cmd
@@ -529,6 +619,9 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	prepareCommandForTermination(cmd)
 
@@ -539,7 +632,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	if ptyEnabled {
 		ptmx, tty, err := pty.Open()
 		if err != nil {
-			return ErrorResult(fmt.Sprintf("failed to create PTY: %v", err))
+			return nil, fmt.Errorf("failed to create PTY: %v", err)
 		}
 
 		cmd.Stdin = tty
@@ -555,15 +648,15 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		var err error
 		stdoutReader, err = cmd.StdoutPipe()
 		if err != nil {
-			return ErrorResult(fmt.Sprintf("failed to create stdout pipe: %v", err))
+			return nil, fmt.Errorf("failed to create stdout pipe: %v", err)
 		}
 		stderrReader, err = cmd.StderrPipe()
 		if err != nil {
-			return ErrorResult(fmt.Sprintf("failed to create stderr pipe: %v", err))
+			return nil, fmt.Errorf("failed to create stderr pipe: %v", err)
 		}
 		stdinWriter, err = cmd.StdinPipe()
 		if err != nil {
-			return ErrorResult(fmt.Sprintf("failed to create stdin pipe: %v", err))
+			return nil, fmt.Errorf("failed to create stdin pipe: %v", err)
 		}
 		session.stdoutPipe = io.MultiReader(stdoutReader, stderrReader)
 		session.stdinWriter = stdinWriter
@@ -575,13 +668,11 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		if session.ptyMaster != nil {
 			_ = session.ptyMaster.Close()
 		}
-		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
+		return nil, fmt.Errorf("failed to start command: %v", err)
 	}
 
 	session.PID = cmd.Process.Pid
 	t.sessionManager.Add(session)
-
-	session.outputBuffer = &bytes.Buffer{}
 
 	// PTY mode: read from ptyMaster and wait for process
 	// Note: On Linux, closing ptyMaster doesn't interrupt blocking Read() calls,
@@ -715,19 +806,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		}()
 	}
 
-	resp := ExecResponse{
-		SessionID: sessionID,
-		Status:    "running",
-	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return ErrorResult(err.Error())
-	}
-	return &ToolResult{
-		ForLLM:  string(data),
-		ForUser: fmt.Sprintf("Session %s started", sessionID),
-		IsError: false,
-	}
+	return session, nil
 }
 
 func (t *ExecTool) executeList() *ToolResult {

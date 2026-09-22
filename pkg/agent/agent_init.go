@@ -129,8 +129,15 @@ func registerSharedTools(
 	// is config-derived and cached (30 s) so module endpoints picked up at
 	// runtime need no restart.
 	var web3Provider *web3.Provider
+	var web3Stack *web3.SigningStack
 	if cfg.Tools.IsToolEnabled("web3") {
 		web3Provider = web3.NewProvider(cfg)
+		stack, err := web3.OpenSigningStack(config.GetHome(), &cfg.Tools.Web3.Signing)
+		if err != nil {
+			logger.ErrorCF("agent", "Failed to open web3 signing stack", map[string]any{"error": err.Error()})
+		} else {
+			web3Stack = stack
+		}
 	}
 
 	for _, agentID := range registry.ListAgentIDs() {
@@ -263,6 +270,17 @@ func registerSharedTools(
 		// pkg/web3; the shared provider is nil when tools.web3.enabled=false.
 		if web3Provider != nil {
 			web3tools.Register(agent.Tools, web3Provider, &cfg.Tools.Web3)
+			web3Deps := &web3tools.SigningDeps{
+				Provider:   web3Provider,
+				Stack:      web3Stack,
+				Hook:       web3ApprovalHook{hm: al.hooks},
+				ApproveTTL: cfg.Tools.Web3.Signing.GetApprovalTimeout(),
+				Emit:       web3Emit(al),
+				Cfg:        cfg,
+				ConfigPath: web3ConfigPath(),
+			}
+			web3tools.RegisterSigning(agent.Tools, web3Deps)
+			web3tools.RegisterContracts(agent.Tools, web3Deps)
 		}
 
 		// Send file tool (outbound media via MediaStore — store injected later by SetMediaStore)

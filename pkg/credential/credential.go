@@ -9,9 +9,12 @@
 //   - Plaintext:   "sk-abc123"          → returned as-is
 //   - File ref:    "file://filename.key" → content read from configDir/filename.key
 //   - Encrypted:   "enc://<base64>"     → AES-256-GCM decrypt via RHIZOME_KEY_PASSPHRASE
+//   - Encrypted:   "enc2://<base64>"    → XChaCha20-Poly1305 decrypt (current write format)
 //   - Empty:       ""                   → returned as-is (auth_method=oauth etc.)
 //
-// Encryption uses AES-256-GCM with HKDF-SHA256 key derivation (< 1ms, safe for embedded Linux).
+// Encryption uses XChaCha20-Poly1305 with HKDF-SHA256 key derivation (< 1ms,
+// safe for embedded Linux). Legacy enc:// blobs (AES-256-GCM) still decrypt
+// transparently; Encrypt only writes enc2:// — a one-way upgrade.
 // An SSH private key is required for both encryption and decryption.
 // Key derivation:
 //
@@ -38,6 +41,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // PassphraseEnvVar is the environment variable that holds the encryption passphrase.
@@ -57,14 +62,16 @@ var PassphraseProvider func() string = func() string {
 	return os.Getenv(PassphraseEnvVar)
 }
 
-// ErrPassphraseRequired is returned when an enc:// credential is encountered but
-// no passphrase is available from PassphraseProvider. Callers can detect this
-// with errors.Is to distinguish a missing-passphrase condition from other errors.
-var ErrPassphraseRequired = errors.New("credential: enc:// passphrase required")
+// ErrPassphraseRequired is returned when an enc:// or enc2:// credential is
+// encountered but no passphrase is available from PassphraseProvider. Callers
+// can detect this with errors.Is to distinguish a missing-passphrase condition
+// from other errors.
+var ErrPassphraseRequired = errors.New("credential: encrypted credential passphrase required")
 
-// ErrDecryptionFailed is returned when an enc:// credential cannot be decrypted,
-// indicating a wrong passphrase or SSH key. Callers can detect this with errors.Is.
-var ErrDecryptionFailed = errors.New("credential: enc:// decryption failed (wrong passphrase or SSH key?)")
+// ErrDecryptionFailed is returned when an enc:// or enc2:// credential cannot
+// be decrypted, indicating a wrong passphrase or SSH key. Callers can detect
+// this with errors.Is.
+var ErrDecryptionFailed = errors.New("credential: decryption failed (wrong passphrase or SSH key?)")
 
 // SSHKeyPathEnvVar is the environment variable that specifies the path to the
 // SSH private key used for enc:// credential encryption and decryption.
@@ -77,12 +84,31 @@ const rhizomeHome = "RHIZOME_HOME"
 const (
 	FileScheme = "file://"
 	EncScheme  = "enc://"
+	// Enc2Scheme is the current write format: XChaCha20-Poly1305 with a
+	// 24-byte nonce. blob = salt(16) | nonce(24) | ciphertext.
+	Enc2Scheme = "enc2://"
 
-	hkdfInfo = "rhizome-credential-v1"
-	saltLen  = 16
-	nonceLen = 12
-	keyLen   = 32
+	hkdfInfo   = "rhizome-credential-v1"
+	hkdfInfoV2 = "rhizome-credential-v2"
+	saltLen    = 16
+	nonceLen   = 12
+	nonceLenV2 = chacha20poly1305.NonceSizeX // 24
+	keyLen     = 32
 )
+
+// IsEncryptedRef reports whether raw is an encrypted credential reference
+// (enc:// or enc2://). Callers deciding whether to decrypt — or whether a
+// persisted value is already a reference — must accept both schemes so
+// enc2:// values are never double-encrypted on re-save.
+func IsEncryptedRef(raw string) bool {
+	return strings.HasPrefix(raw, EncScheme) || strings.HasPrefix(raw, Enc2Scheme)
+}
+
+// IsCredentialRef reports whether raw is any non-plaintext credential
+// reference (enc://, enc2://, or file://).
+func IsCredentialRef(raw string) bool {
+	return IsEncryptedRef(raw) || strings.HasPrefix(raw, FileScheme)
+}
 
 // Resolver resolves raw credential strings for model_list api_key fields.
 // File references are resolved relative to the directory of the config file.
@@ -145,7 +171,7 @@ func (r *Resolver) Resolve(raw string) (string, error) {
 		return value, nil
 	}
 
-	if strings.HasPrefix(raw, EncScheme) {
+	if IsEncryptedRef(raw) {
 		return resolveEncrypted(raw)
 	}
 
@@ -153,7 +179,8 @@ func (r *Resolver) Resolve(raw string) (string, error) {
 	return raw, nil
 }
 
-// resolveEncrypted decrypts an enc:// credential using PassphraseProvider.
+// resolveEncrypted decrypts an enc:// or enc2:// credential using
+// PassphraseProvider.
 func resolveEncrypted(raw string) (string, error) {
 	passphrase := PassphraseProvider()
 	if passphrase == "" {
@@ -162,7 +189,14 @@ func resolveEncrypted(raw string) (string, error) {
 
 	sshKeyPath := pickSSHKeyPath("") // override="": consult env then auto-detect
 
-	b64 := strings.TrimPrefix(raw, EncScheme)
+	if strings.HasPrefix(raw, Enc2Scheme) {
+		return decryptV2(passphrase, sshKeyPath, strings.TrimPrefix(raw, Enc2Scheme))
+	}
+	return decryptV1(passphrase, sshKeyPath, strings.TrimPrefix(raw, EncScheme))
+}
+
+// decryptV1 decrypts a legacy enc:// blob: salt(16) | nonce(12) | AES-256-GCM ct.
+func decryptV1(passphrase, sshKeyPath, b64 string) (string, error) {
 	blob, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return "", fmt.Errorf("credential: enc:// invalid base64: %w", err)
@@ -175,7 +209,7 @@ func resolveEncrypted(raw string) (string, error) {
 	nonce := blob[saltLen : saltLen+nonceLen]
 	ciphertext := blob[saltLen+nonceLen:]
 
-	key, err := deriveKey(passphrase, sshKeyPath, salt)
+	key, err := deriveKey(passphrase, sshKeyPath, salt, hkdfInfo)
 	if err != nil {
 		return "", err
 	}
@@ -195,7 +229,39 @@ func resolveEncrypted(raw string) (string, error) {
 	return string(plaintext), nil
 }
 
-// Encrypt encrypts plaintext and returns an enc:// credential string.
+// decryptV2 decrypts an enc2:// blob: salt(16) | nonce(24) | XChaCha20-Poly1305 ct.
+func decryptV2(passphrase, sshKeyPath, b64 string) (string, error) {
+	blob, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return "", fmt.Errorf("credential: enc2:// invalid base64: %w", err)
+	}
+	if len(blob) < saltLen+nonceLenV2+1 {
+		return "", fmt.Errorf("credential: enc2:// payload too short")
+	}
+
+	salt := blob[:saltLen]
+	nonce := blob[saltLen : saltLen+nonceLenV2]
+	ciphertext := blob[saltLen+nonceLenV2:]
+
+	key, err := deriveKey(passphrase, sshKeyPath, salt, hkdfInfoV2)
+	if err != nil {
+		return "", err
+	}
+	aead, err := chacha20poly1305.NewX(key)
+	if err != nil {
+		return "", fmt.Errorf("credential: enc2:// cipher init: %w", err)
+	}
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrDecryptionFailed, err)
+	}
+	return string(plaintext), nil
+}
+
+// Encrypt encrypts plaintext and returns an enc2:// credential string
+// (XChaCha20-Poly1305). Existing enc:// values still decrypt via Resolve —
+// re-encrypting them is a one-way upgrade performed automatically the next
+// time the credential is written.
 //
 // passphrase is required (RHIZOME_KEY_PASSPHRASE value).
 // sshKeyPath is the SSH private key file to use; pass "" to auto-detect via
@@ -212,7 +278,43 @@ func Encrypt(passphrase, sshKeyPath, plaintext string) (string, error) {
 		return "", fmt.Errorf("credential: failed to generate salt: %w", err)
 	}
 
-	key, err := deriveKey(passphrase, sshKeyPath, salt)
+	key, err := deriveKey(passphrase, sshKeyPath, salt, hkdfInfoV2)
+	if err != nil {
+		return "", err
+	}
+	aead, err := chacha20poly1305.NewX(key)
+	if err != nil {
+		return "", fmt.Errorf("credential: enc2 cipher init: %w", err)
+	}
+
+	nonce := make([]byte, nonceLenV2)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("credential: failed to generate nonce: %w", err)
+	}
+
+	ciphertext := aead.Seal(nil, nonce, []byte(plaintext), nil)
+	blob := make([]byte, 0, saltLen+nonceLenV2+len(ciphertext))
+	blob = append(blob, salt...)
+	blob = append(blob, nonce...)
+	blob = append(blob, ciphertext...)
+	return Enc2Scheme + base64.StdEncoding.EncodeToString(blob), nil
+}
+
+// encryptV1 produces a legacy enc:// blob (AES-256-GCM, nonce 12). Retained
+// for tests that verify transparent dual-scheme decryption; production code
+// always writes enc2://.
+func encryptV1(passphrase, sshKeyPath, plaintext string) (string, error) {
+	if passphrase == "" {
+		return "", fmt.Errorf("credential: passphrase must not be empty")
+	}
+	sshKeyPath = pickSSHKeyPath(sshKeyPath)
+
+	salt := make([]byte, saltLen)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return "", fmt.Errorf("credential: failed to generate salt: %w", err)
+	}
+
+	key, err := deriveKey(passphrase, sshKeyPath, salt, hkdfInfo)
 	if err != nil {
 		return "", err
 	}
@@ -279,12 +381,13 @@ func allowedSSHKeyPath(path string) bool {
 	return false
 }
 
-// deriveKey derives a 32-byte AES-256 key from passphrase and SSH private key.
+// deriveKey derives a 32-byte AEAD key from passphrase and SSH private key.
 //
 // ikm = HMAC-SHA256(key=SHA256(sshKeyBytes), msg=passphrase)
-// Final key: HKDF-SHA256(ikm, salt, info="rhizome-credential-v1", 32 bytes)
+// Final key: HKDF-SHA256(ikm, salt, info, 32 bytes) — info is the scheme's
+// version tag ("rhizome-credential-v1" for enc://, "-v2" for enc2://).
 // sshKeyPath must be non-empty; returns an error otherwise.
-func deriveKey(passphrase, sshKeyPath string, salt []byte) ([]byte, error) {
+func deriveKey(passphrase, sshKeyPath string, salt []byte, info string) ([]byte, error) {
 	if sshKeyPath == "" {
 		return nil, fmt.Errorf(
 			"credential: SSH private key is required but not found" +
@@ -305,7 +408,7 @@ func deriveKey(passphrase, sshKeyPath string, salt []byte) ([]byte, error) {
 	mac.Write([]byte(passphrase))
 	ikm := mac.Sum(nil)
 
-	key, err := hkdf.Key(sha256.New, ikm, salt, hkdfInfo, keyLen)
+	key, err := hkdf.Key(sha256.New, ikm, salt, info, keyLen)
 	if err != nil {
 		return nil, fmt.Errorf("credential: HKDF expand failed: %w", err)
 	}

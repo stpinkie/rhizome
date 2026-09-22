@@ -24,7 +24,7 @@ func newPresetCommand() *cobra.Command {
 			"`context7` expands to the hosted Context7 server " +
 			"(https://mcp.context7.com/mcp) with the CONTEXT7_API_KEY header. " +
 			"The key is stored as a SecureString (config.security.yml, " +
-			"or a file:// / enc:// reference) and falls back to the " +
+			"or a file:// / enc2:// reference) and falls back to the " +
 			"CONTEXT7_API_KEY environment variable.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

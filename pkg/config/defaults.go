@@ -672,6 +672,7 @@ func DefaultMeshConfig() MeshConfig {
 		BlobEnabled:          true,
 		BlobMaxBytes:         64 << 20,
 		BlobTTL:              24 * time.Hour,
+		Routing:              MeshRoutingConfig{RoleAware: true},
 	}
 }
 

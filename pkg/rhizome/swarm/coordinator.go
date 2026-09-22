@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 )
 
@@ -57,12 +58,21 @@ func (s *Swarm) reelectLocked(swarmID string) bool {
 		delete(s.coordinators, swarmID)
 		return true
 	}
-	candidates := make([]string, 0, len(swarm.Members)+1)
-	for pid := range swarm.Members {
-		candidates = append(candidates, pid)
+	type candidate struct {
+		pid  string
+		rank int // roleRank — full members coordinate before workers
+	}
+	candidates := make([]candidate, 0, len(swarm.Members)+1)
+	for pid, m := range swarm.Members {
+		candidates = append(candidates, candidate{pid, roleRank(m.Role)})
 	}
 	if swarm.Joined {
-		candidates = append(candidates, s.host.ID().String())
+		selfRole := ""
+		if probe := s.probe(); probe != nil {
+			_, _, selfRole = probe()
+		}
+		candidates = append(candidates,
+			candidate{s.host.ID().String(), roleRank(selfRole)})
 	}
 	if len(candidates) == 0 {
 		if _, had := s.coordinators[swarmID]; !had {
@@ -71,8 +81,16 @@ func (s *Swarm) reelectLocked(swarmID string) bool {
 		delete(s.coordinators, swarmID)
 		return true
 	}
-	sort.Strings(candidates)
-	winner := candidates[0]
+	// Deterministic election: lowest (roleRank, peerID) wins. Stable sort
+	// keeps behavior identical to the previous lexicographic pick when all
+	// members report the same role.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].rank != candidates[j].rank {
+			return candidates[i].rank < candidates[j].rank
+		}
+		return candidates[i].pid < candidates[j].pid
+	})
+	winner := candidates[0].pid
 	if s.coordinators == nil {
 		s.coordinators = make(map[string]string)
 	}
@@ -81,6 +99,16 @@ func (s *Swarm) reelectLocked(swarmID string) bool {
 	}
 	s.coordinators[swarmID] = winner
 	return true
+}
+
+// roleRank orders coordinator candidacy by mesh participation tier: full
+// nodes coordinate before workers. Absent/unknown roles rank as full —
+// older peers that never send a role keep their previous eligibility.
+func roleRank(role string) int {
+	if role == config.MeshRoleWorker {
+		return 1
+	}
+	return 0
 }
 
 // afterMembershipChange reelects the coordinator outside the lock and emits

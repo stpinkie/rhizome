@@ -35,9 +35,10 @@ const (
 // answered by acp.client.permission_policy. Treat acp-bound agents like
 // running the agent's own CLI yourself.
 type ClientManager struct {
-	cfg      *config.Config
-	registry func() *agent.AgentRegistry // resolved lazily: registry swaps on config reload
-	policy   string
+	cfg        *config.Config
+	registry   func() *agent.AgentRegistry // resolved lazily: registry swaps on config reload
+	policy     string
+	termPolicy string
 
 	mu    sync.Mutex
 	procs map[string]*agentProcess
@@ -65,10 +66,11 @@ func NewClientManager(cfg *config.Config, getRegistry func() *agent.AgentRegistr
 		return nil
 	}
 	m := &ClientManager{
-		cfg:      cfg,
-		registry: getRegistry,
-		policy:   normalizeClientPolicy(cfg.ACP.Client.PermissionPolicy),
-		procs:    make(map[string]*agentProcess),
+		cfg:        cfg,
+		registry:   getRegistry,
+		policy:     normalizeClientPolicy(cfg.ACP.Client.PermissionPolicy),
+		termPolicy: normalizeTerminalPolicy(cfg.ACP.Client.TerminalPolicy),
+		procs:      make(map[string]*agentProcess),
 	}
 	m.dial = m.spawn
 	return m
@@ -218,6 +220,9 @@ func (m *ClientManager) dropProcess(agentID string, p *agentProcess) {
 	}
 	if !p.closed {
 		p.closed = true
+		if p.handler != nil && p.handler.term != nil {
+			p.handler.term.close()
+		}
 		if p.kill != nil {
 			p.kill()
 		}
@@ -229,9 +234,14 @@ func (m *ClientManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, p := range m.procs {
-		if !p.closed && p.kill != nil {
+		if !p.closed {
 			p.closed = true
-			p.kill()
+			if p.handler != nil && p.handler.term != nil {
+				p.handler.term.close()
+			}
+			if p.kill != nil {
+				p.kill()
+			}
 		}
 		delete(m.procs, id)
 	}
@@ -291,6 +301,20 @@ func (m *ClientManager) spawn(
 		allowWr:   toolfs.CompilePatterns(m.cfg.Tools.AllowWritePaths),
 		sessions:  make(map[acpsdk.SessionId]*sessionBuffer),
 	}
+	if m.termPolicy == TerminalPolicyAllow {
+		bridge, err := newTerminalBridge(
+			handler.workspace,
+			handler.restrict,
+			m.cfg,
+			handler.allowWr,
+		)
+		if err != nil {
+			logger.WarnCF("acp", "terminal bridge unavailable for agent",
+				map[string]any{"agent_id": agentID, "error": err})
+		} else {
+			handler.term = bridge
+		}
+	}
 
 	conn := acpsdk.NewClientSideConnection(handler, stdin, stdout)
 	proc := &agentProcess{
@@ -315,7 +339,7 @@ func (m *ClientManager) spawn(
 				ReadTextFile:  true,
 				WriteTextFile: m.policy != ClientPolicyAllowReadOnly,
 			},
-			Terminal: false,
+			Terminal: handler.term != nil,
 		},
 	})
 	if err != nil {
