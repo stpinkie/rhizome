@@ -49,7 +49,12 @@ In the AI/agent settings, register a custom ACP agent with command
 
 - **Sessions** — `session/new` maps to a Rhizome session key
   `agent:<agent-id>:acp:<session-id>`, so history persists across prompts
-  within the session. `session/load` is not supported.
+  within the session. `session/load` resurrects a persisted session after
+  a restart: session metadata lives in
+  `<RHIZOME_HOME>/acp-sessions.json` (0600), prior turns replay as
+  `session/update` chunks, and cached `allow_always`/`reject_always`
+  permission decisions are restored. `--agent <id>` refuses loads bound
+  to a different agent.
 - **Streaming** — model streaming is force-enabled inside the `acp` process
   for every configured model. Providers without streaming support fall back
   to a normal response delivered as one chunk.
@@ -79,6 +84,20 @@ In the AI/agent settings, register a custom ACP agent with command
 
 If the client disconnects or cancels a permission request, the tool call
 fails closed (denied).
+
+## Session MCP servers
+
+`session/new` and `session/load` accept client-declared `mcpServers`.
+Only **stdio** entries are honoured (http/sse/acp variants are refused);
+each session gets its own MCP manager, at most 4 servers, and a 30 s
+connect bound. Tools surface to the agent as
+`mcp_acp-<session>-<server>_<tool>` and are scoped to the owning session —
+other sessions (and other channels) neither see nor can execute them, and
+everything is torn down on `session/close` or server shutdown.
+
+Session-declared servers run **env-only**: the child receives a minimal
+system base (PATH, HOME, temp dirs, …) plus exactly the `env` entries the
+client declared — the daemon's environment is never inherited.
 
 ## Diagnostics
 
@@ -139,12 +158,12 @@ Rhizome answers client-bound ACP requests like this:
 | `fs/read_text_file`    | Served through the workspace sandbox (`agents.defaults.restrict_to_workspace` + `tools.allow_read_paths`), 64 KiB cap. |
 | `fs/write_text_file`   | Served through the same sandbox (`tools.allow_write_paths`); **disabled** under `allow-read-only`. |
 | `session/request_permission` | Answered by `acp.client.permission_policy` (below).                                   |
-| `terminal/*`           | Not supported (`terminal:false`); rhizome never proxies shells into external agents.        |
+| `terminal/*`           | Refused by default; see `acp.client.terminal_policy` below.                            |
 
 ```json
 {
   "acp": {
-    "client": { "permission_policy": "deny" }
+    "client": { "permission_policy": "deny", "terminal_policy": "deny" }
   }
 }
 ```
@@ -154,6 +173,16 @@ Rhizome answers client-bound ACP requests like this:
 | `deny`            | *(default)* reject every permission request.                          |
 | `allow-read-only` | allow `read`/`search`/`think`/`fetch` tool kinds; reject the rest.    |
 | `allow`           | allow every permission request.                                        |
+
+`terminal_policy` gates the `terminal/*` capability:
+
+| Policy  | Behaviour                                                                     |
+| ------- | ----------------------------------------------------------------------------- |
+| `deny`  | *(default)* capability not advertised; every `terminal/*` method fails.       |
+| `allow` | terminals spawn through the guarded exec path — the same deny patterns, workspace-restricted cwd, and bounded output as the `exec` tool. |
+
+Terminal ids are bound to the requesting session and killed when the
+external agent process exits.
 
 Authentication: if the external agent advertises `authMethods` during
 `initialize`, the connection fails — Rhizome does not perform ACP auth.

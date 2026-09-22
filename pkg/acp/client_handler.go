@@ -30,7 +30,8 @@ type sessionBuffer struct {
 
 // clientHandler implements acpsdk.Client for one external agent process:
 // collects streamed output, answers fs.* requests through the workspace
-// sandbox, resolves permission requests by policy, and refuses terminals.
+// sandbox, resolves permission requests by policy, and bridges terminal/*
+// onto the guarded exec path only when acp.client.terminal_policy=allow.
 type clientHandler struct {
 	agentID   string
 	policy    string
@@ -38,6 +39,7 @@ type clientHandler struct {
 	restrict  bool
 	allowRead []*regexp.Regexp
 	allowWr   []*regexp.Regexp
+	term      *terminalBridge // nil when terminal_policy=deny
 
 	mu       sync.Mutex
 	sessions map[acpsdk.SessionId]*sessionBuffer
@@ -239,41 +241,57 @@ func sliceLines(content string, line, limit *int) string {
 	return strings.Join(lines, "\n")
 }
 
-// Terminal capabilities are not supported: rhizome runs its own tools and
-// never proxies shells into external agents.
+// Terminal methods bridge onto the guarded exec path only when
+// acp.client.terminal_policy=allow; otherwise they report method-not-found
+// and ClientCapabilities.Terminal is never advertised.
 func (h *clientHandler) CreateTerminal(
-	_ context.Context,
-	_ acpsdk.CreateTerminalRequest,
+	ctx context.Context,
+	params acpsdk.CreateTerminalRequest,
 ) (acpsdk.CreateTerminalResponse, error) {
-	return acpsdk.CreateTerminalResponse{}, acpsdk.NewMethodNotFound("terminal/create")
+	if h.term == nil {
+		return acpsdk.CreateTerminalResponse{}, acpsdk.NewMethodNotFound("terminal/create")
+	}
+	return h.term.create(ctx, params)
 }
 
 func (h *clientHandler) KillTerminal(
-	_ context.Context,
-	_ acpsdk.KillTerminalRequest,
+	ctx context.Context,
+	params acpsdk.KillTerminalRequest,
 ) (acpsdk.KillTerminalResponse, error) {
-	return acpsdk.KillTerminalResponse{}, acpsdk.NewMethodNotFound("terminal/kill")
+	if h.term == nil {
+		return acpsdk.KillTerminalResponse{}, acpsdk.NewMethodNotFound("terminal/kill")
+	}
+	return h.term.kill(ctx, params)
 }
 
 func (h *clientHandler) TerminalOutput(
-	_ context.Context,
-	_ acpsdk.TerminalOutputRequest,
+	ctx context.Context,
+	params acpsdk.TerminalOutputRequest,
 ) (acpsdk.TerminalOutputResponse, error) {
-	return acpsdk.TerminalOutputResponse{}, acpsdk.NewMethodNotFound("terminal/output")
+	if h.term == nil {
+		return acpsdk.TerminalOutputResponse{}, acpsdk.NewMethodNotFound("terminal/output")
+	}
+	return h.term.output(ctx, params)
 }
 
 func (h *clientHandler) ReleaseTerminal(
-	_ context.Context,
-	_ acpsdk.ReleaseTerminalRequest,
+	ctx context.Context,
+	params acpsdk.ReleaseTerminalRequest,
 ) (acpsdk.ReleaseTerminalResponse, error) {
-	return acpsdk.ReleaseTerminalResponse{}, acpsdk.NewMethodNotFound("terminal/release")
+	if h.term == nil {
+		return acpsdk.ReleaseTerminalResponse{}, acpsdk.NewMethodNotFound("terminal/release")
+	}
+	return h.term.release(ctx, params)
 }
 
 func (h *clientHandler) WaitForTerminalExit(
-	_ context.Context,
-	_ acpsdk.WaitForTerminalExitRequest,
+	ctx context.Context,
+	params acpsdk.WaitForTerminalExitRequest,
 ) (acpsdk.WaitForTerminalExitResponse, error) {
-	return acpsdk.WaitForTerminalExitResponse{}, acpsdk.NewMethodNotFound("terminal/wait_for_exit")
+	if h.term == nil {
+		return acpsdk.WaitForTerminalExitResponse{}, acpsdk.NewMethodNotFound("terminal/wait_for_exit")
+	}
+	return h.term.waitForExit(ctx, params)
 }
 
 // drainStderr forwards the child agent's stderr to the file logger.

@@ -30,7 +30,7 @@ func promptBuildRequestForTurn(
 	}
 	hasCallableTools := true
 	if ts.profile.Enabled {
-		hasCallableTools = turnProfileHasCallableTools(ts.profile, ts.agent.Tools.ToProviderDefs()) ||
+		hasCallableTools = turnProfileHasCallableTools(ts.profile, ts.agent.Tools.ToProviderDefsForChat(ts.chatID)) ||
 			turnProfileNativeSearchCallable(cfg, ts.profile, ts.agent)
 	}
 	if turnProfileSystemPromptOff(ts.profile) {
@@ -94,7 +94,7 @@ func promptBuildRequestForProcessOptions(
 	profile := opts.TurnProfile
 	hasCallableTools := true
 	if profile.Enabled && agent != nil {
-		hasCallableTools = turnProfileHasCallableTools(profile, agent.Tools.ToProviderDefs())
+		hasCallableTools = turnProfileHasCallableTools(profile, agent.Tools.ToProviderDefsForChat(opts.ChatID))
 	}
 	if turnProfileSystemPromptOff(profile) {
 		req.SuppressDefaultSystemPrompt = true

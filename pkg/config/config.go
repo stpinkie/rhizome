@@ -917,6 +917,10 @@ type ACPConfig struct {
 // "allow", or "deny".
 type ACPPolicyConfig struct {
 	PermissionPolicy string `json:"permission_policy,omitempty"`
+	// TerminalPolicy (client side only) gates the terminal/* ACP capability:
+	// "deny" (default) refuses all terminal methods; "allow" serves them via
+	// the guarded exec-tool shell path. Ignored under acp.server.
+	TerminalPolicy string `json:"terminal_policy,omitempty"`
 }
 
 func (c StreamingConfig) IsZero() bool {
@@ -2023,6 +2027,11 @@ type MCPServerConfig struct {
 	URL string `json:"url,omitempty"`
 	// Headers are HTTP headers to send with requests (sse/http only)
 	Headers map[string]string `json:"headers,omitempty"`
+	// EnvOnly restricts the child process to the declared env (plus a minimal
+	// system base) instead of inheriting the daemon's full environment. Used
+	// for ACP session-declared servers; operator-configured servers keep the
+	// inherited environment.
+	EnvOnly bool `json:"env_only,omitempty"`
 }
 
 // MCPConfig defines configuration for all MCP servers
