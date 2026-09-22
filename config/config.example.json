@@ -622,9 +622,9 @@
     }
   },
   "acp": {
-    "_comment": "Agent Client Protocol. server: tool-permission policy for `rhizome acp` (prompt|allow|deny). client: policy for externally bound agents (deny|allow-read-only|allow).",
+    "_comment": "Agent Client Protocol. server: tool-permission policy for `rhizome acp` (prompt|allow|deny). client: policy for externally bound agents (deny|allow-read-only|allow); terminal_policy gates the ACP terminal/* bridge onto the guarded shell path — deny (default) advertises no terminal capability.",
     "server": { "permission_policy": "prompt" },
-    "client": { "permission_policy": "deny" }
+    "client": { "permission_policy": "deny", "terminal_policy": "deny" }
   },
   "mesh": {
     "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md",
