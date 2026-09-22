@@ -137,15 +137,13 @@ func currentHead(s *Syncer) (plumbing.Hash, error) {
 // explicit PullFrom can otherwise block on the dedup join for the full
 // duration of a hung announce-triggered pull, eating the deadline in a single
 // round. Errors are logged per round so a CI flake shows which op failed.
+// The head check runs after each exchange, never up front: fresh workspaces
+// share the deterministic initial commit, so equal heads at entry do not mean
+// pending writes have been committed and exchanged.
 func convergePeers(t *testing.T, ctx context.Context, sA *Syncer, nA *network.Node, sB *Syncer, nB *network.Node) {
 	t.Helper()
 	deadline := time.Now().Add(120 * time.Second)
 	for round := 0; time.Now().Before(deadline); round++ {
-		hA, errA := currentHead(sA)
-		hB, errB := currentHead(sB)
-		if errA == nil && errB == nil && hA == hB {
-			return
-		}
 		if _, err := sA.PushTo(ctx, nB.ID()); err != nil {
 			t.Logf("converge round %d: A push: %v", round, err)
 		}
@@ -160,6 +158,11 @@ func convergePeers(t *testing.T, ctx context.Context, sA *Syncer, nA *network.No
 			t.Logf("converge round %d: B pull: %v", round, err)
 		}
 		time.Sleep(200 * time.Millisecond)
+		hA, errA := currentHead(sA)
+		hB, errB := currentHead(sB)
+		if errA == nil && errB == nil && hA == hB {
+			return
+		}
 	}
 	hA, _ := currentHead(sA)
 	hB, _ := currentHead(sB)
