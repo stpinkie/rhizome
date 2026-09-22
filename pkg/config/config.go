@@ -1598,6 +1598,42 @@ type Web3ToolsConfig struct {
 	// Signing gates the write path (web3_send/web3_sign/web3_approve) behind
 	// a second flag plus policy allowlists. Default-off; requires Enabled too.
 	Signing Web3SigningConfig `json:"signing,omitempty" yaml:"-"`
+	// Watches are daemon-polled eth_getLogs subscriptions → web3.event
+	// runtime events (the nimbus proxy has no subscription support, so
+	// polling is the only option). Bounded at 8 watches.
+	Watches []Web3WatchConfig `json:"watches,omitempty" yaml:"-"`
+	// WatchConfirmations delays watch emission until a log is this many
+	// blocks deep (reorg protection). 0 = emit at head. Capped at 64.
+	WatchConfirmations uint64 `json:"watch_confirmations,omitempty" yaml:"-"`
+	// ApprovalChannels allows `/web3 pending|approve|reject` channel
+	// commands from these scopes: "channel" or "channel:chat_id". Empty =
+	// channel approvals disabled (the safe default).
+	ApprovalChannels []string `json:"approval_channels,omitempty" yaml:"-"`
+}
+
+// Web3WatchConfig is one polled log watch. Contract accepts a 0x address,
+// an ABI-registry label, or an ENS name (resolved at daemon start).
+type Web3WatchConfig struct {
+	// Name identifies the watch (used in state and events).
+	Name string `json:"name"`
+	// Contract is the address/label/ENS to filter logs by.
+	Contract string `json:"contract"`
+	// Topics optionally narrows the eth_getLogs filter (0x32-byte values;
+	// null entries can't be expressed — omit a position instead).
+	Topics []string `json:"topics,omitempty"`
+	// IntervalSeconds is the poll cadence (0 → default 60s; floor 30s).
+	IntervalSeconds int `json:"interval_seconds,omitempty"`
+}
+
+// GetInterval returns the watch's poll cadence with the floor applied.
+func (w *Web3WatchConfig) GetInterval() time.Duration {
+	if w.IntervalSeconds <= 0 {
+		return 60 * time.Second
+	}
+	if w.IntervalSeconds < 30 {
+		return 30 * time.Second
+	}
+	return time.Duration(w.IntervalSeconds) * time.Second
 }
 
 // Web3SigningConfig gates signing/send tools. Disabled by default — when

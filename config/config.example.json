@@ -580,13 +580,27 @@
       "enabled": true
     },
     "web3": {
-      "_comment": "Read-only Ethereum tools (web3_chain/balance/call/block/transaction/logs/rpc). Endpoint precedence: endpoint override → modules.ethereum-rpc endpoint_url (+ secret api_key) → running nimbus-verified-proxy. api_key goes in .security.yml or RHIZOME_TOOLS_WEB3_API_KEY, never here.",
+      "_comment": "Ethereum tools. Reads (web3_chain/balance/call/block/transaction/logs/rpc) gate on enabled; writes (web3_send/sign/contract_send/erc20/erc721) additionally need signing.enabled + from_addresses and still wait on a human approval. Endpoint precedence: endpoint override → modules.ethereum-rpc endpoint_url (+ secret api_key) → running nimbus-verified-proxy. api_key goes in .security.yml or RHIZOME_TOOLS_WEB3_API_KEY, never here. watches: [{name, contract (0x/label/ENS), topics?, interval_seconds?}] — daemon-polled eth_getLogs → web3.event runtime events (≤8, interval floor 30s; manage live via web3_watch); watch_confirmations delays emission N blocks for reorg safety (0–64). approval_channels: [\"channel\" or \"channel:chat_id\"] scopes allowed to run /web3 pending|approve|reject — empty = disabled.",
       "enabled": false,
       "endpoint": "",
       "chain_ids": [],
       "max_log_range": 10000,
       "timeout_seconds": 30,
-      "allow_private_endpoints": false
+      "allow_private_endpoints": false,
+      "signing": {
+        "_comment": "Policy pre-filter for queued writes — empty from_addresses denies all signing. allow_methods accepts 0x selectors or label:method (label must resolve to the tx's to-address). Values are decimal wei strings. Testnet-first: pin chain_ids to e.g. [11155111].",
+        "enabled": false,
+        "from_addresses": [],
+        "allow_contracts": [],
+        "allow_methods": [],
+        "max_value_wei_per_tx": "0",
+        "max_value_wei_per_day": "0",
+        "chain_ids": [],
+        "approval_timeout_seconds": 900
+      },
+      "watches": [],
+      "watch_confirmations": 0,
+      "approval_channels": []
     },
     "write_file": {
       "enabled": true

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"time"
 
 	"github.com/stpinkie/rhizome/pkg/config"
 )
@@ -64,4 +65,29 @@ type Runtime struct {
 	ClearHistory       func() error
 	ReloadConfig       func() error
 	StopActiveTurn     func() (StopResult, error)
+	// Web3 approval queue (scope-gated by tools.web3.approval_channels).
+	ListWeb3Pending func() ([]Web3PendingInfo, error)
+	// ResolveWeb3 resolves a pending id; `by` records the resolver
+	// ("channel:<chan>:<chat>"). approve executes sign+broadcast.
+	ResolveWeb3 func(ctx context.Context, id string, approve bool, by string) (*Web3ResolveResult, error)
+}
+
+// Web3PendingInfo is the channel-command view of a queued signing request.
+type Web3PendingInfo struct {
+	ID        string
+	Kind      string
+	Summary   string
+	From      string
+	To        string
+	ChainID   uint64
+	ExpiresAt time.Time
+}
+
+// Web3ResolveResult is the resolved entry's outcome.
+type Web3ResolveResult struct {
+	ID     string
+	Status string // pending|sent|done|rejected|failed|expired
+	TxHash string
+	Result string
+	Error  string
 }

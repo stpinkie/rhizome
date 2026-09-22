@@ -85,7 +85,7 @@ func (h *web3Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case parts[0] == "approvals" && r.Method == http.MethodPost:
 		h.approve(w, r, stack, parts)
 	case parts[0] == "wallet" && r.Method == http.MethodGet:
-		h.wallet(w, stack)
+		h.wallet(w, r, stack)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error": "use GET /web3/pending, GET /web3/wallet, POST /web3/approvals/<id>",
@@ -181,14 +181,43 @@ func (h *web3Handler) approve(
 	writeJSON(w, http.StatusOK, e)
 }
 
-func (h *web3Handler) wallet(w http.ResponseWriter, stack *web3.SigningStack) {
+func (h *web3Handler) wallet(
+	w http.ResponseWriter, r *http.Request, stack *web3.SigningStack,
+) {
 	entries, err := stack.Wallets.List()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	def, _ := stack.Wallets.Default()
+	type addrJSON struct {
+		web3.WalletEntry
+		Default    bool   `json:"default,omitempty"`
+		BalanceWei string `json:"balance_wei,omitempty"`
+	}
+	out := make([]addrJSON, 0, len(entries))
+	withBalances := r.URL.Query().Get("balances") == "true"
+	var provider *web3.Provider
+	if withBalances {
+		provider = web3.NewProvider(h.cfg)
+	}
+	for _, e := range entries {
+		row := addrJSON{WalletEntry: e, Default: e.Address == def}
+		if provider != nil {
+			raw, err := provider.Call(r.Context(), "eth_getBalance",
+				[]any{e.Address, "latest"})
+			if err == nil {
+				var hexBal string
+				if json.Unmarshal(raw, &hexBal) == nil {
+					if wei, err := web3.ParseQuantity(hexBal); err == nil {
+						row.BalanceWei = wei.String()
+					}
+				}
+			}
+		}
+		out = append(out, row)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"addresses": entries, "default": def, "count": len(entries),
+		"addresses": out, "default": def, "count": len(out),
 	})
 }

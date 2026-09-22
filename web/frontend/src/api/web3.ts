@@ -4,6 +4,8 @@ export interface WalletAddress {
   address: string
   label?: string
   created_at?: string
+  default?: boolean
+  balance_wei?: string
 }
 
 export interface PendingEntry {
@@ -65,7 +67,7 @@ export async function getWeb3Pending(): Promise<PendingListResponse> {
 }
 
 export async function getWeb3Wallet(): Promise<WalletResponse> {
-  return request<WalletResponse>("/api/web3/wallet")
+  return request<WalletResponse>("/api/web3/wallet?balances=true")
 }
 
 export async function resolveWeb3Approval(
