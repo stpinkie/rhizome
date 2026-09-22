@@ -3,7 +3,7 @@
 
 > **Vision**: A personal AI agent that runs everywhere you already have hardware — secure, autonomous, and cheap enough to leave running. Automate the mundane, unleash your creativity.
 
-> **Re-evaluated post-v0.11.0**: items that shipped are marked with their release; the roadmap now tracks only what's actually open. Work is planned in `.todo.md` sprint tracks (GitHub issues are disabled on this repo); upstream PicoClaw issue numbers from the original roadmap are triaged in `docs/project/upstream-issue-triage.md`. Current sprint: **v0.12.0** (`docs/design/v0.12.0-sprint.md`).
+> **Re-evaluated post-v0.11.0**: items that shipped are marked with their release; the roadmap now tracks only what's actually open. Work is planned in `.todo.md` sprint tracks (GitHub issues are disabled on this repo); upstream PicoClaw issue numbers from the original roadmap are triaged in `docs/project/upstream-issue-triage.md`. Current sprint: **v0.12.0** (`docs/design/v0.12.0-sprint.md`); next: **v0.13.0** (`docs/design/v0.13.0-sprint.md`).
 
 ---
 
@@ -51,12 +51,12 @@
   * ✅ OneBot protocol support (`pkg/channels/onebot` + `docs/channels/onebot/`).
 
 * **Agent Interop**
-  * ✅ **Agent Client Protocol (Zed ACP)** (v0.10.0 Tracks 61–62): server (`rhizome acp`: editors like Zed/JetBrains drive Rhizome over stdio JSON-RPC) and client (external ACP agents bound as first-class agent ids — routable via `delegate`, `spawn`, `network route`, and swarm offers). **Deepening → v0.12.0 Track 81**: `session/load` persistence, per-session MCP passthrough, `terminal` client capability (deny-default).
+  * ✅ **Agent Client Protocol (Zed ACP)** (v0.10.0 Tracks 61–62): server (`rhizome acp`: editors like Zed/JetBrains drive Rhizome over stdio JSON-RPC) and client (external ACP agents bound as first-class agent ids — routable via `delegate`, `spawn`, `network route`, and swarm offers). **Deepening → v0.12.0 Track 81**: `session/load` persistence, per-session MCP passthrough, `terminal` client capability (deny-default). **Further → v0.13.0 Tracks 85–88**: `session/set_mode` per-session permission posture, `session/set_config_option` model picker, external-agent `authMethods`, persistent sessions + media passthrough.
 
 * **Skill Distribution**
   * ✅ Mesh skill distribution (v0.8.0): `mesh.skill_share` allowlist, `/rhizome/skill/1.0.0` + blob transport, guard-scanned install, mesh provenance.
   * ✅ Registry discovery: `find_skills`/`install_skill` tools + `pkg/skills` ClawHub/GitHub registries + Hub marketplace UI.
-  * **Open**: curated Rhizome skill index / additional registries (depth, not discovery).
+  * **Open → v0.13.0 Track 90**: signed curated Rhizome skill index (Ed25519-verified, module-catalog pattern); additional registries remain open (depth, not discovery).
 
 
 ## 🧠 4. Advanced Capabilities: From Chatbot to Agentic AI
@@ -64,7 +64,7 @@
 *Beyond conversation—focusing on action and collaboration.*
 
 * **Operations**
-  * ✅ MCP support (v0.8.0): `tools.mcp` servers + `tools.mcp.presets` (context7).
+  * ✅ MCP support (v0.8.0): `tools.mcp` servers + `tools.mcp.presets` (context7). **→ v0.13.0 Track 89**: `rhizome mcp serve` — expose allowlisted Rhizome tools as an MCP server (deny-all default).
   * ✅ Browser automation (v0.7.1 backends + v0.8.0 native Go CDP client).
   * **Blocked**: Android device control — no test hardware.
 
@@ -91,13 +91,13 @@
 *Born from Vibe Coding, we continue to use AI to accelerate development.*
 
 * ✅ AI-assisted development loop: code review, lint sweeps, validation reports (`.rhizome-tests/`).
-* **Open**: formalized bot triage/labeling and noise reduction in CI.
+* **Open → v0.13.0 Track 91**: formalized bot triage/labeling and noise reduction in CI.
 
 
 ## 🎨 7. Brand & Community
 
 * **Blocked**: Logo design (needs a real asset — no art pipeline): Mantis Shrimp concept, "Small but Mighty, Lightning Fast Strikes."
-* **Open**: translated-README rebrand tail (PicoClaw mascot/slogan/emoji removal across 9 locales).
+* **Open → v0.13.0 Track 92**: translated-README rebrand tail (PicoClaw mascot/slogan/emoji removal across 9 locales).
 
 
 ## 🧩 8. Extensibility: Companion Modules
