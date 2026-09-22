@@ -627,10 +627,11 @@
     "client": { "permission_policy": "deny" }
   },
   "mesh": {
-    "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md",
+    "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md. routing.role_aware (default true): workers get a ranking bonus for task ops (delegate/spawn), fulls for infra ops (sync); also feeds role-preferred swarm coordinator election.",
     "enabled": false,
     "role": "full",
-    "trusted_peers": []
+    "trusted_peers": [],
+    "routing": { "role_aware": true }
   },
   "modules": {
     "ethereum-rpc": {
