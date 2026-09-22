@@ -22,7 +22,6 @@ import { useTranslation } from "react-i18next"
 
 import { getWeb3Pending } from "@/api/web3"
 import { Badge } from "@/components/ui/badge"
-
 import {
   Collapsible,
   CollapsibleContent,

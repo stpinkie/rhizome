@@ -70,8 +70,13 @@ export function Web3Page() {
   })
 
   const resolveMut = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "approve" | "reject" }) =>
-      resolveWeb3Approval(id, action),
+    mutationFn: ({
+      id,
+      action,
+    }: {
+      id: string
+      action: "approve" | "reject"
+    }) => resolveWeb3Approval(id, action),
     onSuccess: (entry) => {
       setMessage(
         entry.status === "sent"
@@ -109,9 +114,7 @@ export function Web3Page() {
         </Button>
       </PageHeader>
       <div className="flex-1 space-y-4 overflow-auto p-6">
-        {message && (
-          <p className="text-muted-foreground text-sm">{message}</p>
-        )}
+        {message && <p className="text-muted-foreground text-sm">{message}</p>}
         {unavailable && (
           <Card>
             <CardContent className="pt-6">
@@ -285,7 +288,9 @@ export function Web3Page() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel", "Cancel")}</AlertDialogCancel>
+            <AlertDialogCancel>
+              {t("common.cancel", "Cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() =>
                 confirming &&
