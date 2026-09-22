@@ -2611,7 +2611,7 @@ func collapseMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 
 // mergeAPIKeyEntries concatenates the primary's APIKeys with each virtual
 // entry's single key, deduplicating by resolved value while preserving each
-// SecureString's raw form (enc://, file://, or plaintext).
+// SecureString's raw form (enc://, enc2://, file://, or plaintext).
 func mergeAPIKeyEntries(primary SecureStrings, virtuals []*ModelConfig) SecureStrings {
 	merged := make(SecureStrings, 0, len(primary)+len(virtuals))
 	seen := make(map[string]struct{}, len(primary)+len(virtuals))

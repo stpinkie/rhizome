@@ -334,6 +334,7 @@ Both endpoints require a valid node identity and use the launcher's `RHIZOME_HOM
 - `pkg/modules` — companion-module sidecar system (catalog, sha256-verified install, daemon supervision with restart backoff, bounded logs, `module.*` events); `cmd/rhizome/internal/module` exposes the `rhizome module` CLI, `pkg/gateway/moduleapi.go` the `/modules*` daemon endpoints, `web/backend/api/modules.go` the `/api/modules*` launcher routes.
 - `pkg/acp` — ACP (Agent Client Protocol) both ways, all `coder/acp-go-sdk` usage isolated here: **server** (`rhizome acp` exposes the agent loop to editor clients over stdio JSON-RPC; sessions map to `agent:<id>:acp:<sid>` keys on channel `acp` through `AgentLoop.ProcessInbound`; streaming via a `bus.StreamDelegate`; tool approvals bridge to `session/request_permission`) and **client** (`ClientManager` spawns `agents.list[].acp` external agents; `Spawner` intercepts ACP-bound `SubTurn` targets; `RunRemote` backs `ExternalAgentRunner` for mesh dispatch; sandboxed `fs/*` serving + `acp.client.permission_policy` for permission requests).
 - `pkg/redact` — leaf package for secret masking (generic patterns + configured `SecureString` values); used by `pkg/logger` and `Config.FilterSensitiveData`.
+- `pkg/credential` — `SecureString` value resolution (`file://` refs, `enc://`/`enc2://` encrypted blobs) + passphrase/SSH-key keygen. Writes are `enc2://` (XChaCha20-Poly1305, `salt(16)|nonce(24)|ct`, HKDF info `rhizome-credential-v2`); legacy `enc://` (AES-256-GCM, info `-v1`) decrypts transparently — re-save re-encrypts to `enc2://` (one-way). `IsCredentialRef`/`IsEncryptedRef` are the only prefix checks — anything that detects references must accept both schemes.
 - `pkg/guard` — leaf package for prompt-injection phrase detection; used by shell-command screening, the tool-argument scan, and CLI tool-call extraction.
 - `pkg/rhizome/identity` — BIP39/SLIP-0010 Ed25519 node identity, persistence, and Ed25519 signing; now supports OS keyring and passphrase encryption.
 - `pkg/rhizome/network` — libp2p host, mDNS discovery, bootstrap, ping, and public DHT discovery.
@@ -475,6 +476,24 @@ To load an encrypted identity in a non-interactive environment, set `RHIZOME_IDE
 
 Legacy unencrypted `node.json` files continue to load without any changes.
 
+## Provider Authentication (`rhizome auth`)
+
+`rhizome auth login --provider <p>` supports `openai`, `anthropic`, and
+`google-antigravity`/`antigravity`. Headless matrix (all flows work
+without a browser on the host):
+
+| Provider      | Headless path                                                        |
+| ------------- | -------------------------------------------------------------------- |
+| `openai`      | `--device-code` (device authorization) or `--no-browser` + paste URL |
+| `anthropic`   | `--setup-token` or paste an API key at the prompt (stdin-only)       |
+| `antigravity` | `--no-browser` → open URL elsewhere, paste the redirect URL/code     |
+
+Flags are provider-scoped and validated (`--device-code` → openai only,
+`--setup-token` → anthropic only, `--no-browser` → browser flows only);
+unsupported combinations fail with a clear error rather than being
+silently ignored. `auth status`/`auth logout` inspect and clear stored
+credentials (`pkg/auth`, `<RHIZOME_HOME>/auth.json`).
+
 ## BIP39 Onboarding
 
 `rhizome network onboard --generate` creates a fresh 24-word BIP39 mnemonic. The `--non-interactive` and `--yes` flags allow fully scripted onboarding:
@@ -520,7 +539,7 @@ The swarm integration test builds `rhizome`, starts two daemons joined to a shar
 
 ## MCP Presets (v0.8.0, Track 40)
 
-- `tools.mcp.presets.<name>` wires first-class hosted MCP servers. Currently `context7` (`{enabled, api_key}`) expands to an `http` server at `https://mcp.context7.com/mcp` with a `CONTEXT7_API_KEY` header; `api_key` is a `SecureString` (persists via `config.security.yml`, supports `file://`/`enc://` refs) and falls back to the `CONTEXT7_API_KEY` env var.
+- `tools.mcp.presets.<name>` wires first-class hosted MCP servers. Currently `context7` (`{enabled, api_key}`) expands to an `http` server at `https://mcp.context7.com/mcp` with a `CONTEXT7_API_KEY` header; `api_key` is a `SecureString` (persists via `config.security.yml`, supports `file://`/`enc://`/`enc2://` refs) and falls back to the `CONTEXT7_API_KEY` env var.
 - `MCPConfig.EffectiveServers()` merges `servers` + expanded presets — explicit `servers.<name>` always wins.
 - CLI: `rhizome mcp preset context7 --key <k> --enable`; `mcp list` shows preset-expanded servers.
 - Web: `GET /api/tools/mcp-presets`, `PUT /api/tools/mcp-presets/<name>`; a presets card on the Tools page handles enable + key entry (keys never echoed back).

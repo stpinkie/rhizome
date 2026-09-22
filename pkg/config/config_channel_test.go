@@ -946,10 +946,10 @@ func TestChannel_EncryptedToken(t *testing.T) {
 	const testPassphrase = "test-passphrase-123"
 	const plainToken = "123456:MY-SECRET-TOKEN"
 
-	// Encrypt the token to get an enc:// string
+	// Encrypt the token to get an enc2:// string
 	encrypted, err := credential.Encrypt(testPassphrase, "", plainToken)
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(encrypted, "enc://"), "expected enc:// prefix, got: %s", encrypted)
+	require.True(t, strings.HasPrefix(encrypted, "enc2://"), "expected enc2:// prefix, got: %s", encrypted)
 	t.Logf("encrypted token: %s", encrypted)
 
 	// Replace PassphraseProvider so SecureString.fromRaw can decrypt
@@ -992,7 +992,7 @@ settings:
 	require.NoError(t, err)
 	assert.NotContains(t, string(outJSON), "token")
 	assert.NotContains(t, string(outJSON), plainToken)
-	assert.NotContains(t, string(outJSON), "enc://")
+	assert.NotContains(t, string(outJSON), "enc2://")
 
 	// Step 5: Save security.yml → token preserved as enc://
 	outYAML, err := yaml.Marshal(ch)
@@ -1050,14 +1050,14 @@ func TestChannel_EncryptedTokenInJSON(t *testing.T) {
 	t.Logf("Saved extend.json:\n%s", string(outJSON))
 	assert.NotContains(t, string(outJSON), "token")
 	assert.NotContains(t, string(outJSON), plainToken2)
-	assert.NotContains(t, string(outJSON), "enc://")
+	assert.NotContains(t, string(outJSON), "enc2://")
 
 	// Save YAML → only token, re-encrypted
 	outYAML, err := yaml.Marshal(ch)
 	require.NoError(t, err)
 	t.Logf("Saved security.yml:\n%s", string(outYAML))
 	// MarshalYAML re-encrypts with a new random salt/nonce, so verify via round-trip
-	assert.Contains(t, string(outYAML), "enc://")
+	assert.Contains(t, string(outYAML), "enc2://")
 
 	// Round-trip: unmarshal YAML output through Channel and verify decryption
 	var ch2 Channel
