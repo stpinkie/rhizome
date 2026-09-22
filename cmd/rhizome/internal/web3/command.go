@@ -4,6 +4,7 @@ package web3cmd
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,7 +33,202 @@ func NewWeb3Command() *cobra.Command {
 		newPendingCommand(),
 		newResolveCommand("approve"),
 		newResolveCommand("reject"),
+		newABICommand(),
+		newENSCommand(),
 	)
+	return cmd
+}
+
+// newABICommand returns the `rhizome web3 abi` subcommand group — the
+// operator-managed registry of contract ABIs under <RHIZOME_HOME>/web3/abi.
+func newABICommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "abi",
+		Short: "Manage the contract ABI registry (~/.rhizome/web3/abi)",
+		Long: "Register contract ABIs under a label so agent tools can call " +
+			"methods by name (web3_contract_call/send) and policy allowlists " +
+			"can use \"label:method\" entries.",
+	}
+	cmd.AddCommand(
+		newABIAddCommand(),
+		newABIListCommand(),
+		newABIShowCommand(),
+		newABIRemoveCommand(),
+	)
+	return cmd
+}
+
+func openRegistry() *web3.ABIRegistry {
+	return web3.OpenABIRegistry(web3.WalletDir(internal.GetRhizomeHome()))
+}
+
+func newABIAddCommand() *cobra.Command {
+	var address, chainIDs string
+	cmd := &cobra.Command{
+		Use:   "add <label> <file>",
+		Short: "Register a contract ABI JSON file under a label",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			label, file := args[0], args[1]
+			data, err := os.ReadFile(file) //nolint:gosec // G304: operator-chosen path.
+			if err != nil {
+				fatal(err)
+			}
+			var chains []uint64
+			if chainIDs != "" {
+				for _, part := range strings.Split(chainIDs, ",") {
+					var id uint64
+					if _, err := fmt.Sscanf(strings.TrimSpace(part), "%d", &id); err != nil {
+						fatal(fmt.Errorf("bad chain id %q", part))
+					}
+					chains = append(chains, id)
+				}
+			}
+			e, err := openRegistry().Add(label, string(data), address, chains)
+			if err != nil {
+				fatal(err)
+			}
+			fmt.Printf("Registered %q", e.Label)
+			if e.Address != "" {
+				fmt.Printf(" at %s", e.Address)
+			}
+			fmt.Printf(" (%d methods)\n", len(e.ABI.Methods))
+		},
+	}
+	cmd.Flags().StringVar(&address, "address", "", "bind the label to a contract address (0x…)")
+	cmd.Flags().StringVar(&chainIDs, "chain-ids", "", "restrict the binding to chains (e.g. 1,11155111)")
+	return cmd
+}
+
+func newABIListCommand() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List registered contract ABIs",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			entries, err := openRegistry().List()
+			if err != nil {
+				fatal(err)
+			}
+			if asJSON {
+				printJSON(cmd.OutOrStdout(), map[string]any{"abis": entries})
+				return
+			}
+			if len(entries) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No contract ABIs registered.")
+				return
+			}
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "LABEL\tADDRESS\tCHAINS\tMETHODS")
+			for _, e := range entries {
+				chains := "-"
+				if len(e.ChainIDs) > 0 {
+					cs := make([]string, 0, len(e.ChainIDs))
+					for _, id := range e.ChainIDs {
+						cs = append(cs, fmt.Sprintf("%d", id))
+					}
+					chains = strings.Join(cs, ",")
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\n",
+					e.Label, orDash(e.Address), chains, len(e.ABI.Methods))
+			}
+			w.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "machine-readable output")
+	return cmd
+}
+
+func newABIShowCommand() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "show <label>",
+		Short: "Show a registered ABI's methods",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			e, err := openRegistry().Get(args[0])
+			if err != nil {
+				fatal(err)
+			}
+			if asJSON {
+				printJSON(cmd.OutOrStdout(), e)
+				return
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "%s", e.Label)
+			if e.Address != "" {
+				fmt.Fprintf(out, " at %s", e.Address)
+			}
+			if len(e.ChainIDs) > 0 {
+				fmt.Fprintf(out, " on chains %v", e.ChainIDs)
+			}
+			fmt.Fprintln(out)
+			for _, m := range e.ABI.Methods {
+				fmt.Fprintf(out, "  %-40s %s\n", m.Signature(),
+					"0x"+hex.EncodeToString(m.Selector()))
+			}
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "machine-readable output")
+	return cmd
+}
+
+func newABIRemoveCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <label>",
+		Short: "Remove a registered ABI",
+		Args:  cobra.ExactArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			if err := openRegistry().Remove(args[0]); err != nil {
+				fatal(err)
+			}
+			fmt.Printf("Removed %q\n", args[0])
+		},
+	}
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+// newENSCommand resolves ENS names forward and reverse via the configured
+// endpoint (chain-gated — ENS only lives on a few chains).
+func newENSCommand() *cobra.Command {
+	var reverse string
+	cmd := &cobra.Command{
+		Use:   "ens <name>",
+		Short: "Resolve an ENS name (or --reverse <0x…> for a primary name)",
+		Args:  cobra.MaximumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg, err := internal.LoadConfig()
+			if err != nil {
+				fatal(err)
+			}
+			p := web3.NewProvider(cfg)
+			ctx := context.Background()
+			if reverse != "" {
+				name, err := web3.ENSReverse(ctx, p, reverse)
+				if err != nil {
+					fatal(err)
+				}
+				fmt.Printf("%s → %s\n", reverse, name)
+				return
+			}
+			if len(args) == 0 {
+				fatal(fmt.Errorf("pass an ENS name or --reverse <address>"))
+			}
+			addr, err := web3.ENSResolve(ctx, p, args[0])
+			if err != nil {
+				fatal(err)
+			}
+			fmt.Printf("%s → %s\n", args[0], addr)
+		},
+	}
+	cmd.Flags().StringVar(&reverse, "reverse", "", "reverse-resolve a 0x address to its ENS name")
 	return cmd
 }
 

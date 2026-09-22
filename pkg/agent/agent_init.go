@@ -270,13 +270,15 @@ func registerSharedTools(
 		// pkg/web3; the shared provider is nil when tools.web3.enabled=false.
 		if web3Provider != nil {
 			web3tools.Register(agent.Tools, web3Provider, &cfg.Tools.Web3)
-			web3tools.RegisterSigning(agent.Tools, &web3tools.SigningDeps{
+			web3Deps := &web3tools.SigningDeps{
 				Provider:   web3Provider,
 				Stack:      web3Stack,
 				Hook:       web3ApprovalHook{hm: al.hooks},
 				ApproveTTL: cfg.Tools.Web3.Signing.GetApprovalTimeout(),
 				Emit:       web3Emit(al),
-			})
+			}
+			web3tools.RegisterSigning(agent.Tools, web3Deps)
+			web3tools.RegisterContracts(agent.Tools, web3Deps)
 		}
 
 		// Send file tool (outbound media via MediaStore — store injected later by SetMediaStore)

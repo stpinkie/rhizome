@@ -19,18 +19,20 @@ func WalletDir(rhizomeHome string) string {
 }
 
 // SigningStack bundles the file-backed signing state rooted at
-// <RHIZOME_HOME>/web3 — wallet keys, the pending-approval queue, and the
-// spend ledger — so the agent tools, daemon API, and CLI share one view.
+// <RHIZOME_HOME>/web3 — wallet keys, the pending-approval queue, the
+// spend ledger, and the ABI registry — so the agent tools, daemon API,
+// and CLI share one view.
 type SigningStack struct {
-	Wallets *WalletStore
-	Pending *PendingStore
-	Ledger  *SpendLedger
-	Policy  *SigningPolicy
+	Wallets  *WalletStore
+	Pending  *PendingStore
+	Ledger   *SpendLedger
+	Registry *ABIRegistry
+	Policy   *SigningPolicy
 	// Home is the web3 state dir (<RHIZOME_HOME>/web3).
 	Home string
 }
 
-// OpenSigningStack opens the wallet/pending/ledger stores under
+// OpenSigningStack opens the wallet/pending/ledger/registry stores under
 // WalletDir(rhizomeHome) and builds the signing policy from cfg. The stores
 // are file-backed — opening is cheap and safe even when signing is off.
 func OpenSigningStack(rhizomeHome string, cfg *config.Web3SigningConfig) (*SigningStack, error) {
@@ -39,12 +41,15 @@ func OpenSigningStack(rhizomeHome string, cfg *config.Web3SigningConfig) (*Signi
 		return nil, err
 	}
 	dir := WalletDir(rhizomeHome)
+	reg := OpenABIRegistry(dir)
+	pol.Registry = reg
 	return &SigningStack{
-		Wallets: OpenWalletStore(dir),
-		Pending: OpenPendingStore(dir),
-		Ledger:  OpenSpendLedger(rhizomeHome),
-		Policy:  pol,
-		Home:    dir,
+		Wallets:  OpenWalletStore(dir),
+		Pending:  OpenPendingStore(dir),
+		Ledger:   OpenSpendLedger(rhizomeHome),
+		Registry: reg,
+		Policy:   pol,
+		Home:     dir,
 	}, nil
 }
 
