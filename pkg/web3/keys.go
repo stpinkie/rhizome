@@ -24,6 +24,7 @@ import (
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/zalando/go-keyring"
+	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/scrypt"
 	"golang.org/x/crypto/sha3"
 
@@ -34,8 +35,9 @@ import (
 // a random 32-byte master key lives in the OS keyring (account
 // "web3-wallet"); on hosts without a keyring (headless Linux) the master
 // key is scrypt-derived from RHIZOME_WALLET_PASSPHRASE with a per-wallet
-// salt stored in the file header. Individual keys are AES-256-GCM sealed
-// under the master key with a random nonce each.
+// salt stored in the file header. Individual keys are AEAD-sealed under
+// the master key with a random nonce each — XChaCha20-Poly1305 for new
+// writes, AES-256-GCM readable for legacy entries (see walletKey.Cipher).
 //
 // The store file never holds plaintext key material. Private keys are
 // decrypted on demand for signing and revealed only through the explicit
@@ -56,6 +58,9 @@ const (
 	keySourceEnv    = "RHIZOME_WALLET_KEYSOURCE" // "keyring"|"scrypt" override
 	walletFilePerms = 0o600
 	walletDirPerms  = 0o700
+	// Per-entry AEAD markers — see walletKey. "" = legacy AES-256-GCM.
+	cipherAES256GCM         = "aes-256-gcm"
+	cipherXChaCha20Poly1305 = "xchacha20poly1305"
 )
 
 // ErrWalletLocked is returned when the store is passphrase-protected and
@@ -71,12 +76,19 @@ type WalletEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// walletKey is the on-disk encrypted form of one key.
+// walletKey is the on-disk encrypted form of one key. Cipher is a per-entry
+// AEAD marker: "" means a legacy AES-256-GCM entry, "xchacha20poly1305" is
+// the current write cipher. Entries may mix within one file — the marker is
+// per-entry precisely so a walletFile.Version bump is unnecessary — and
+// legacy entries are re-sealed opportunistically on writes that already hold
+// the master key (addKey). A downgraded binary cannot open migrated entries:
+// the one-way door mirrors the enc://→enc2:// posture.
 type walletKey struct {
 	Address    string    `json:"address"`
 	Label      string    `json:"label,omitempty"`
-	Ciphertext string    `json:"ciphertext"` // base64 AES-256-GCM
-	Nonce      string    `json:"nonce"`      // base64
+	Ciphertext string    `json:"ciphertext"`       // base64 AEAD ct
+	Nonce      string    `json:"nonce"`            // base64
+	Cipher     string    `json:"cipher,omitempty"` // "" = aes-256-gcm legacy
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -265,7 +277,7 @@ func (s *WalletStore) PrivateKey(addr string) (*secp256k1.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode nonce: %w", err)
 	}
-	raw, err := walletDecrypt(nonce, ct, master)
+	raw, err := walletDecrypt(nonce, ct, master, k.Cipher)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt key for %s: %w", k.Address, err)
 	}
@@ -310,11 +322,19 @@ func (s *WalletStore) addKey(raw []byte, label string) (*WalletEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encrypt key: %w", err)
 	}
+	// The master key is already in hand — re-seal legacy entries under the
+	// current cipher so the file migrates on this write. Entries that fail
+	// to open (e.g. a changed passphrase) are left as-is; PrivateKey
+	// surfaces that error at use time.
+	for i := range f.Keys {
+		resealWalletKey(&f.Keys[i], master)
+	}
 	entry := walletKey{
 		Address:    addr,
 		Label:      label,
 		Ciphertext: base64.StdEncoding.EncodeToString(ct),
 		Nonce:      base64.StdEncoding.EncodeToString(nonce),
+		Cipher:     cipherXChaCha20Poly1305,
 		CreatedAt:  time.Now().UTC(),
 	}
 	f.Keys = append(f.Keys, entry)
@@ -458,40 +478,80 @@ func generateWalletKey() ([]byte, error) {
 	return key, nil
 }
 
-// walletEncrypt seals data with AES-256-GCM (nonce prefixed to output).
+// resealWalletKey upgrades a legacy (empty-marker) walletKey to the
+// current write cipher. Best-effort: any decrypt/re-seal failure leaves
+// the entry untouched.
+func resealWalletKey(k *walletKey, master []byte) {
+	if k.Cipher != "" && k.Cipher != cipherAES256GCM {
+		return
+	}
+	ct, err := base64.StdEncoding.DecodeString(k.Ciphertext)
+	if err != nil {
+		return
+	}
+	nonce, err := base64.StdEncoding.DecodeString(k.Nonce)
+	if err != nil {
+		return
+	}
+	raw, err := walletDecrypt(nonce, ct, master, k.Cipher)
+	if err != nil {
+		return
+	}
+	defer zeroBytes(raw)
+	newNonce, newCt, err := walletEncrypt(raw, master)
+	if err != nil {
+		return
+	}
+	k.Ciphertext = base64.StdEncoding.EncodeToString(newCt)
+	k.Nonce = base64.StdEncoding.EncodeToString(newNonce)
+	k.Cipher = cipherXChaCha20Poly1305
+}
+
+// walletEncrypt seals data with the current write cipher
+// (XChaCha20-Poly1305); the nonce is returned separately.
 func walletEncrypt(data, key []byte) (nonce, ciphertext []byte, err error) {
-	gcm, err := newGCM(key)
+	aead, err := newAEAD(key, cipherXChaCha20Poly1305)
 	if err != nil {
 		return nil, nil, err
 	}
-	nonce = make([]byte, gcm.NonceSize())
+	nonce = make([]byte, aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, nil, fmt.Errorf("read nonce: %w", err)
 	}
-	return nonce, gcm.Seal(nil, nonce, data, nil), nil
+	return nonce, aead.Seal(nil, nonce, data, nil), nil
 }
 
-// walletDecrypt opens a walletEncrypt blob (nonce passed separately).
-func walletDecrypt(nonce, ciphertext, key []byte) ([]byte, error) {
-	gcm, err := newGCM(key)
+// walletDecrypt opens a walletEncrypt blob (nonce passed separately),
+// dispatching on the entry's cipher marker ("" = legacy AES-256-GCM).
+func walletDecrypt(nonce, ciphertext, key []byte, cipherName string) ([]byte, error) {
+	aead, err := newAEAD(key, cipherName)
 	if err != nil {
 		return nil, err
 	}
-	if len(nonce) != gcm.NonceSize() {
+	if len(nonce) != aead.NonceSize() {
 		return nil, fmt.Errorf("bad nonce length %d", len(nonce))
 	}
-	return gcm.Open(nil, nonce, ciphertext, nil)
+	return aead.Open(nil, nonce, ciphertext, nil)
 }
 
-func newGCM(key []byte) (cipher.AEAD, error) {
+// newAEAD constructs the AEAD named by cipherName; the empty marker selects
+// the legacy AES-256-GCM read path.
+func newAEAD(key []byte, cipherName string) (cipher.AEAD, error) {
 	if len(key) != walletKeyLen {
 		return nil, fmt.Errorf("master key must be %d bytes, got %d", walletKeyLen, len(key))
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
+	switch cipherName {
+	case "", cipherAES256GCM:
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, err
+		}
+		return cipher.NewGCM(block)
+	case cipherXChaCha20Poly1305:
+		return chacha20poly1305.NewX(key)
+	default:
+		return nil, fmt.Errorf("unknown wallet cipher %q", cipherName)
 	}
-	return cipher.NewGCM(block)
 }
 
 func zeroBytes(b []byte) {

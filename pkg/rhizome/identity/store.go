@@ -37,7 +37,10 @@ type NodeIdentity struct {
 	KeySource  string `json:"key_source,omitempty"` // "keyring" or "scrypt"
 	Salt       string `json:"salt,omitempty"`       // base64, set when KeySource is "scrypt"
 	Nonce      string `json:"nonce,omitempty"`      // base64, set when Encrypted
-	Ciphertext string `json:"ciphertext,omitempty"` // base64, set when Encrypted
+	Ciphertext string `json:"ciphertext,omitempty"` // base64 nonce||ct, set when Encrypted
+	// Cipher names the AEAD that sealed Ciphertext: "" means a legacy
+	// AES-256-GCM record; new writes record "xchacha20poly1305".
+	Cipher string `json:"cipher,omitempty"`
 }
 
 // Save writes the derived identity to identityDir as node.json without
@@ -83,6 +86,7 @@ func SaveEncrypted(identityDir string, d *Derived, name string, provider KeyProv
 		PublicKey: base64.StdEncoding.EncodeToString(d.PublicKey),
 		Encrypted: true,
 		KeySource: keySource,
+		Cipher:    cipherXChaCha20Poly1305,
 	}
 	if salt != nil {
 		ni.Salt = base64.StdEncoding.EncodeToString(salt)
@@ -167,7 +171,7 @@ func LoadWithProvider(identityDir string, provider KeyProvider) (*Derived, strin
 		if err != nil {
 			return nil, "", fmt.Errorf("decode ciphertext: %w", err)
 		}
-		privBytes, err = decrypt(cipherBytes, key)
+		privBytes, err = decrypt(cipherBytes, key, ni.Cipher)
 		if err != nil {
 			return nil, "", fmt.Errorf("decrypt private key: %w", err)
 		}
