@@ -4,7 +4,13 @@ import type { SkillSupportItem } from "@/api/skills"
 
 import type { SkillSortOption } from "./types"
 
-const KNOWN_ORIGIN_ORDER = ["builtin", "curated", "mesh", "third_party", "manual"]
+const KNOWN_ORIGIN_ORDER = [
+  "builtin",
+  "curated",
+  "mesh",
+  "third_party",
+  "manual",
+]
 
 export function compareSkills(
   left: SkillSupportItem,

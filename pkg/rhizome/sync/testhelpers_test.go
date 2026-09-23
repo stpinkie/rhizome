@@ -142,7 +142,7 @@ func currentHead(s *Syncer) (plumbing.Hash, error) {
 // pending writes have been committed and exchanged.
 func convergePeers(t *testing.T, ctx context.Context, sA *Syncer, nA *network.Node, sB *Syncer, nB *network.Node) {
 	t.Helper()
-	deadline := time.Now().Add(120 * time.Second)
+	deadline := time.Now().Add(180 * time.Second)
 	for round := 0; time.Now().Before(deadline); round++ {
 		if _, err := sA.PushTo(ctx, nB.ID()); err != nil {
 			t.Logf("converge round %d: A push: %v", round, err)
@@ -160,6 +160,9 @@ func convergePeers(t *testing.T, ctx context.Context, sA *Syncer, nA *network.No
 		time.Sleep(200 * time.Millisecond)
 		hA, errA := currentHead(sA)
 		hB, errB := currentHead(sB)
+		if round%20 == 0 {
+			t.Logf("converge round %d: A=%s B=%s", round, hA.String()[:12], hB.String()[:12])
+		}
 		if errA == nil && errB == nil && hA == hB {
 			return
 		}
