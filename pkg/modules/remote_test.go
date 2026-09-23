@@ -375,8 +375,9 @@ func TestMarshalCatalogDeterministic(t *testing.T) {
 		t.Fatalf("envelope module count = %d vs %d vs catalog %d",
 			len(ea.Modules), len(eb.Modules), len(catalog))
 	}
-	if ea.CatalogVersion != catalogVersionSupported {
-		t.Fatalf("catalog_version = %d", ea.CatalogVersion)
+	if ea.CatalogVersion != catalogVersionRequired(catalog) {
+		t.Fatalf("catalog_version = %d, want min-required %d",
+			ea.CatalogVersion, catalogVersionRequired(catalog))
 	}
 	// Entries must parse through the schema gate.
 	if _, err := parseCatalogEnvelope(a); err != nil {

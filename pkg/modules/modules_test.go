@@ -1039,10 +1039,13 @@ func TestCatalogVersionBump(t *testing.T) {
 	if err := json.Unmarshal(data, &env); err != nil {
 		t.Fatal(err)
 	}
+	// Emitted version is the lowest covering the content: the embedded
+	// catalog uses v2 fields (asset_templates etc.) but no v3 signature
+	// declarations, so it stays 2 and older binaries keep working.
 	if env.CatalogVersion != 2 {
 		t.Fatalf("MarshalCatalog emitted catalog_version %d, want 2", env.CatalogVersion)
 	}
-	// v1 catalogs still parse (additive schema), v3 refuses.
+	// v1 catalogs still parse (additive schema), v4 refuses.
 	if _, err := parseCatalogEnvelope(
 		[]byte(`{"catalog_version":1,"modules":[]}`)); err != nil {
 		t.Fatalf("v1 catalog refused: %v", err)
@@ -1051,7 +1054,11 @@ func TestCatalogVersionBump(t *testing.T) {
 		t.Fatalf("v2 catalog refused: %v", err)
 	}
 	if _, err := parseCatalogEnvelope(
-		[]byte(`{"catalog_version":3,"modules":[]}`)); err == nil {
-		t.Fatal("v3 catalog accepted")
+		[]byte(`{"catalog_version":3,"modules":[]}`)); err != nil {
+		t.Fatalf("v3 catalog refused: %v", err)
+	}
+	if _, err := parseCatalogEnvelope(
+		[]byte(`{"catalog_version":4,"modules":[]}`)); err == nil {
+		t.Fatal("v4 catalog accepted")
 	}
 }

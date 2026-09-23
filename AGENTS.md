@@ -213,6 +213,20 @@ daemonless. Security: HTTPS-only downloads, mandatory per-platform digest
 (sha256 or sha512 — nimbus publishes sha512), no user-supplied URLs, module
 dirs `0700`.
 
+Release signatures (v0.13.0, Track 95 — catalog schema v3): a release may
+declare `signature {kind, url, key}` — `minisign`, `cosign-blob`, or `gpg`.
+`installRelease` still enforces the pinned digest as the floor; a declared
+signature is then fetched over HTTPS and verified against the downloaded
+archive with the catalog-pinned key (inline in the catalog — a remotely
+fetched key would inherit only TLS trust). Missing signature is fine;
+declared-but-unverifiable is fatal before extraction. Surveyed tenants
+(nimbus v0.4.1, helios 0.11.1, kubo v0.43.1) publish no sigs today, so the
+mechanism is pinned by signed fixtures in `track95_test.go`; the schema
+emits `catalog_version` 3 only when a signature is actually declared.
+`docs/design/llama-cpp-module.md` records the (unscheduled) llama.cpp
+module design: layout-preserving extraction, digest-pinned model weights,
+ondemand shape, GPU field sketch.
+
 Remote index (v0.11.0, Track 70): `module_index = {enabled, url}` is a
 sibling of `modules` (a key inside `modules` would decode as a module id).
 When enabled, `<url>/catalog.json` + `.sig` (Ed25519 over the served bytes,
