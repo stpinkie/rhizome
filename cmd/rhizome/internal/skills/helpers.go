@@ -113,7 +113,7 @@ func skillsInstallFromRegistry(cfg *config.Config, registryName, target string) 
 	installedAt := time.Now().UnixMilli()
 	if err := writeInstalledSkillOriginMeta(targetDir, installedSkillOriginMeta{
 		Version:          1,
-		OriginKind:       "third_party",
+		OriginKind:       skills.OriginKindForRegistry(registry.Name()),
 		Registry:         registry.Name(),
 		Slug:             normalizedSlug,
 		RegistryURL:      registryURL,

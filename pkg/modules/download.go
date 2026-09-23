@@ -21,6 +21,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
 // installRelease downloads the pinned release for the current platform,
@@ -131,9 +133,7 @@ func recordBinaryDigest(binPath, dest string) error {
 // isLoopbackURL reports whether a URL targets loopback — the one case where
 // plain HTTP is acceptable (local test servers, development registries).
 func isLoopbackURL(url string) bool {
-	return strings.HasPrefix(url, "http://127.0.0.1") ||
-		strings.HasPrefix(url, "http://localhost") ||
-		strings.HasPrefix(url, "http://[::1]")
+	return utils.IsLoopbackURL(url)
 }
 
 // download streams a URL into w with the module HTTP client.

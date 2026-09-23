@@ -384,7 +384,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	normalizedSlug, registryURL := skills.BuildInstallMetadataForRegistryInstance(registry, req.Slug, result.Version)
 	if err := persistSkillOriginMeta(stagedTargetDir, installedSkillOriginMeta{
 		Version:          1,
-		OriginKind:       "third_party",
+		OriginKind:       skills.OriginKindForRegistry(registry.Name()),
 		Registry:         registry.Name(),
 		Slug:             normalizedSlug,
 		RegistryURL:      registryURL,
@@ -420,7 +420,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		Path:             validatedSkill.Path,
 		Source:           validatedSkill.Source,
 		Description:      validatedSkill.Description,
-		OriginKind:       "third_party",
+		OriginKind:       skills.OriginKindForRegistry(registry.Name()),
 		RegistryName:     registry.Name(),
 		RegistryURL:      registryURL,
 		InstalledVersion: result.Version,
@@ -698,6 +698,12 @@ func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportIt
 				item.InstalledAt = meta.InstalledAt
 			case "manual":
 				item.OriginKind = "manual"
+				item.InstalledAt = meta.InstalledAt
+			case "curated":
+				item.OriginKind = "curated"
+				item.RegistryName = meta.Registry
+				item.RegistryURL = registrySkillURLFromMeta(cfg, meta)
+				item.InstalledVersion = meta.InstalledVersion
 				item.InstalledAt = meta.InstalledAt
 			case "third_party":
 				item.OriginKind = "third_party"

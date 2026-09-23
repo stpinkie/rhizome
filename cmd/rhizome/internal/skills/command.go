@@ -64,6 +64,7 @@ func NewSkillsCommand() *cobra.Command {
 		newRemoveCommand(),
 		newSearchCommand(),
 		newShowCommand(loaderFn),
+		newIndexCommand(),
 	)
 
 	return cmd

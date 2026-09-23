@@ -251,6 +251,14 @@ func IsObviousPrivateHost(
 	return false
 }
 
+// IsLoopbackURL reports whether a URL targets loopback — the one case where
+// plain HTTP is acceptable (local test servers, development registries).
+func IsLoopbackURL(raw string) bool {
+	return strings.HasPrefix(raw, "http://127.0.0.1") ||
+		strings.HasPrefix(raw, "http://localhost") ||
+		strings.HasPrefix(raw, "http://[::1]")
+}
+
 func IsPrivateOrRestrictedIP(ip net.IP) bool {
 	if ip == nil {
 		return true

@@ -16,6 +16,9 @@ func effectiveRegistryConfigsFromToolsConfig(cfg config.SkillsToolsConfig) []con
 		if resolved.Name == "github" {
 			resolved = applyLegacyGithubRegistryCompatibility(cfg, resolved)
 		}
+		if resolved.Name == "rhizome" {
+			resolved = applyRhizomeRegistryCompatibility(cfg, resolved)
+		}
 		effective = append(effective, resolved)
 		seen[resolved.Name] = struct{}{}
 	}
@@ -51,6 +54,30 @@ func applyLegacyGithubRegistryCompatibility(
 			cfg.Github.BaseURL != "" &&
 			cfg.Github.BaseURL != defaultGitHubRegistryBaseURL) {
 		registryCfg.BaseURL = cfg.Github.BaseURL
+	}
+	if registryCfg.AuthToken.String() == "" {
+		registryCfg.AuthToken = cfg.Github.Token
+	}
+	if _, ok := registryCfg.Param["proxy"]; !ok && cfg.Github.Proxy != "" {
+		registryCfg.Param["proxy"] = cfg.Github.Proxy
+	}
+	return registryCfg
+}
+
+// applyRhizomeRegistryCompatibility lets the curated registry reuse the
+// operator's GitHub credentials for source downloads: auth_token falls back
+// to tools.skills.github.token and param.proxy to tools.skills.github.proxy
+// when not set explicitly. The index base_url itself is never rewritten —
+// it is the signed-index location, not a GitHub endpoint.
+func applyRhizomeRegistryCompatibility(
+	cfg config.SkillsToolsConfig,
+	registryCfg config.SkillRegistryConfig,
+) config.SkillRegistryConfig {
+	if registryCfg.Name != "rhizome" {
+		return registryCfg
+	}
+	if registryCfg.Param == nil {
+		registryCfg.Param = map[string]any{}
 	}
 	if registryCfg.AuthToken.String() == "" {
 		registryCfg.AuthToken = cfg.Github.Token

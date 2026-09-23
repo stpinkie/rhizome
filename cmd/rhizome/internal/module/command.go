@@ -544,7 +544,7 @@ func newCatalogKeygenCommand() *cobra.Command {
 			}
 			fmt.Fprintf(w, "public:  %s\n", pub)
 			fmt.Fprintf(w, "private: %s\n", seed)
-			fmt.Fprintln(w, "\nBake the public key into pkg/modules/catalog.go (releasePubKeyB64)")
+			fmt.Fprintln(w, "\nBake the public key into pkg/sigverify (ReleasePubKeyB64)")
 			fmt.Fprintln(w, "and store the private key as the MODULE_CATALOG_SIGNING_KEY GitHub secret.")
 		},
 	}

@@ -230,12 +230,35 @@ ondemand shape, GPU field sketch.
 Remote index (v0.11.0, Track 70): `module_index = {enabled, url}` is a
 sibling of `modules` (a key inside `modules` would decode as a module id).
 When enabled, `<url>/catalog.json` + `.sig` (Ed25519 over the served bytes,
-verified against the baked-in `releasePubKeyB64`) merge into the catalog —
-embedded entries win id collisions; unsigned/bad-sig content is refused
-outright; verified catalogs cache under `<RHIZOME_HOME>/catalog-cache/`
-(1 h TTL, stale-serve on fetch failure only). Releases sign via the
-`MODULE_CATALOG_SIGNING_KEY` secret; see
+verified against the baked-in `sigverify.ReleasePubKeyB64`) merge into the
+catalog — embedded entries win id collisions; unsigned/bad-sig content is
+refused outright; verified catalogs cache under
+`<RHIZOME_HOME>/catalog-cache/` (1 h TTL, stale-serve on fetch failure
+only). Releases sign via the `MODULE_CATALOG_SIGNING_KEY` secret; see
 `docs/operations/module-catalog-signing.md`.
+
+## Curated Skills Index (v0.13.0, Track 90)
+
+The first-party `rhizome` skills registry (`pkg/skills/rhizome_registry.go`,
+enabled by default) serves a signed curated index: `<base_url>/index.json`
++ `index.json.sig`, verified with the same Ed25519 release key as the
+module catalog (`pkg/sigverify`, private half in
+`MODULE_CATALOG_SIGNING_KEY`). Unsigned/bad-sig/malformed indexes are
+refused outright — signature/schema failures never fall back; fetch
+failures may serve the last verified cache under
+`<RHIZOME_HOME>/skills-index-cache/` (1 h TTL). Default `base_url` is the
+repo's `releases/latest/download` — `release.yml` emits and signs
+`index.json{,.sig}` from the embedded `pkg/skills/curated_index.json`
+via `rhizome skills index --out … --sign-with-env …` (daemonless, skips
+config load). Entries `{slug, display_name, summary, version,
+source.github, sha256?}` install through the existing GitHub installer
+(`owner/repo[@ref][/path]` or URL); optional `sha256` pins the repo's
+auto-generated `.tar.gz` archive (immutable refs only). Installs record
+`origin_kind: "curated"` (teal Hub badge; CLI/agent/web install paths all
+map via `skills.OriginKindForRegistry`). Events:
+`skill.index.merged|rejected|stale` on the runtime bus
+(`RegistryManager.SetEventBus`, wired in `agent_init.go`). See
+`docs/operations/skill-index-signing.md`.
 
 ## Web3 Read Tools (v0.11.0, Track 68)
 

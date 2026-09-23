@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/events"
 )
 
 const (
@@ -95,6 +96,16 @@ func NormalizeInstallTargetForRegistryInstance(registry SkillRegistry, target st
 	return normalized
 }
 
+// OriginKindForRegistry maps a registry name to the .skill-origin.json
+// origin_kind recorded at install time. The first-party signed index earns
+// its own "curated" badge; every other registry install is third-party.
+func OriginKindForRegistry(registryName string) string {
+	if registryName == "rhizome" {
+		return "curated"
+	}
+	return "third_party"
+}
+
 // RegistryConfig holds configuration for all skill registries.
 // This is the input to NewRegistryManagerFromConfig.
 type RegistryConfig struct {
@@ -179,6 +190,20 @@ func (rm *RegistryManager) AddRegistry(r SkillRegistry) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	rm.registries = append(rm.registries, r)
+}
+
+// SetEventBus forwards the daemon's runtime event bus to registries that
+// publish events (the curated rhizome registry emits skill.index.*).
+// Registries without event support are unaffected.
+func (rm *RegistryManager) SetEventBus(bus events.Bus) {
+	rm.mu.RLock()
+	regs := append([]SkillRegistry(nil), rm.registries...)
+	rm.mu.RUnlock()
+	for _, r := range regs {
+		if s, ok := r.(interface{ SetEventBus(bus events.Bus) }); ok {
+			s.SetEventBus(bus)
+		}
+	}
 }
 
 // GetRegistry returns a registry by name, or nil if not found.
