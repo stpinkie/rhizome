@@ -212,9 +212,20 @@ Rhizome answers client-bound ACP requests like this:
 Terminal ids are bound to the requesting session and killed when the
 external agent process exits.
 
-Authentication: if the external agent advertises `authMethods` during
-`initialize`, the connection fails — Rhizome does not perform ACP auth.
-Give the agent its credentials via `env` instead.
+Authentication: when the external agent advertises `authMethods` during
+`initialize`, Rhizome picks a satisfiable method and runs `authenticate`
+before any `session/new`:
+
+- `env_var` — satisfiable when every required variable is set (non-empty)
+  in the binding's `env`; the error names missing vars.
+- `terminal` / `agent` — attempted only under
+  `acp.client.terminal_policy=allow` (the agent may drive `terminal/*`
+  methods during its auth flow); refused clearly under `deny`.
+
+Pin the method explicitly with `agents.list[].acp.auth_method` (matches
+the advertised method id); otherwise the first satisfiable method wins.
+Unsatisfiable or rejected auth kills the process with a descriptive
+error.
 
 ### Trust posture
 

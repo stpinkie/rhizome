@@ -21,12 +21,16 @@ import (
 // --- mock external ACP agent (server side of the pipe) ---
 
 type mockExternalAgent struct {
-	conn      *acpsdk.AgentSideConnection
-	onPrompt  func(ctx context.Context, conn *acpsdk.AgentSideConnection, p acpsdk.PromptRequest) (acpsdk.PromptResponse, error)
-	sessions  []acpsdk.SessionId
-	mu        sync.Mutex
-	sessionN  int
-	initCalls int
+	conn        *acpsdk.AgentSideConnection
+	onPrompt    func(ctx context.Context, conn *acpsdk.AgentSideConnection, p acpsdk.PromptRequest) (acpsdk.PromptResponse, error)
+	sessions    []acpsdk.SessionId
+	mu          sync.Mutex
+	sessionN    int
+	initCalls   int
+	authMethods []acpsdk.AuthMethod
+	authCalls   []string
+	authErr     error
+	authed      bool
 }
 
 func (m *mockExternalAgent) Initialize(
@@ -35,11 +39,12 @@ func (m *mockExternalAgent) Initialize(
 ) (acpsdk.InitializeResponse, error) {
 	m.mu.Lock()
 	m.initCalls++
+	methods := append([]acpsdk.AuthMethod(nil), m.authMethods...)
 	m.mu.Unlock()
 	return acpsdk.InitializeResponse{
 		ProtocolVersion:   acpsdk.ProtocolVersionNumber,
 		AgentCapabilities: acpsdk.AgentCapabilities{},
-		AuthMethods:       nil,
+		AuthMethods:       methods,
 	}, nil
 }
 
@@ -49,6 +54,9 @@ func (m *mockExternalAgent) NewSession(
 ) (acpsdk.NewSessionResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if len(m.authMethods) > 0 && !m.authed {
+		return acpsdk.NewSessionResponse{}, fmt.Errorf("session/new before authenticate")
+	}
 	m.sessionN++
 	sid := acpsdk.SessionId(fmt.Sprintf("ext-sess-%d", m.sessionN))
 	m.sessions = append(m.sessions, sid)
@@ -101,8 +109,15 @@ func (m *mockExternalAgent) ResumeSession(
 
 func (m *mockExternalAgent) Authenticate(
 	_ context.Context,
-	_ acpsdk.AuthenticateRequest,
+	req acpsdk.AuthenticateRequest,
 ) (acpsdk.AuthenticateResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.authCalls = append(m.authCalls, req.MethodId)
+	if m.authErr != nil {
+		return acpsdk.AuthenticateResponse{}, m.authErr
+	}
+	m.authed = true
 	return acpsdk.AuthenticateResponse{}, nil
 }
 
@@ -139,10 +154,11 @@ func pipedManager(
 ) *ClientManager {
 	t.Helper()
 	m := &ClientManager{
-		cfg:      cfg,
-		registry: func() *agent.AgentRegistry { return registry },
-		policy:   normalizeClientPolicy(cfg.ACP.Client.PermissionPolicy),
-		procs:    make(map[string]*agentProcess),
+		cfg:        cfg,
+		registry:   func() *agent.AgentRegistry { return registry },
+		policy:     normalizeClientPolicy(cfg.ACP.Client.PermissionPolicy),
+		termPolicy: normalizeTerminalPolicy(cfg.ACP.Client.TerminalPolicy),
+		procs:      make(map[string]*agentProcess),
 	}
 	m.dial = func(_ context.Context, agentID string, inst *agent.AgentInstance) (*agentProcess, error) {
 		c2aR, c2aW := io.Pipe()
@@ -160,14 +176,20 @@ func pipedManager(
 		}
 		clientConn := acpsdk.NewClientSideConnection(handler, c2aW, a2cR)
 
-		// Perform the same initialize handshake spawn() does.
-		if _, err := clientConn.Initialize(context.Background(), acpsdk.InitializeRequest{
+		// Perform the same initialize + auth handshake spawn() does.
+		initResp, err := clientConn.Initialize(context.Background(), acpsdk.InitializeRequest{
 			ProtocolVersion: acpsdk.ProtocolVersionNumber,
 			ClientCapabilities: acpsdk.ClientCapabilities{
 				Fs: acpsdk.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
 			},
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, fmt.Errorf("init: %w", err)
+		}
+		if err := m.authenticate(context.Background(), agentID, inst, clientConn, initResp.AuthMethods); err != nil {
+			_ = c2aW.Close()
+			_ = a2cW.Close()
+			return nil, err
 		}
 
 		return &agentProcess{
@@ -493,6 +515,15 @@ func TestHelperProcess(t *testing.T) {
 		return
 	}
 	mock := &mockExternalAgent{}
+	// RHIZOME_ACP_MOCK_AUTH=env_var makes the helper advertise an env_var
+	// method requiring MOCK_API_KEY and refuse session/new until the
+	// client authenticates.
+	if os.Getenv("RHIZOME_ACP_MOCK_AUTH") == "env_var" {
+		mock.authMethods = []acpsdk.AuthMethod{{EnvVar: &acpsdk.AuthMethodEnvVarInline{
+			Id: "env", Name: "env", Type: "env_var",
+			Vars: []acpsdk.AuthEnvVar{{Name: "MOCK_API_KEY"}},
+		}}}
+	}
 	conn := acpsdk.NewAgentSideConnection(mock, os.Stdout, os.Stdin)
 	mock.conn = conn
 	<-conn.Done()
