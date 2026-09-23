@@ -1846,27 +1846,33 @@ type ToolsConfig struct {
 	Media           MediaToolsConfig   `json:"media"             yaml:"media,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
 	MCP             MCPConfig          `json:"mcp"               yaml:"mcp,omitempty"`
-	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_APPEND_FILE_"`
-	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_EDIT_FILE_"`
-	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_FIND_SKILLS_"`
-	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_I2C_"`
-	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_INSTALL_SKILL_"`
-	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LIST_DIR_"`
-	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LOAD_IMAGE_"`
-	LoadVideo       ToolConfig         `json:"load_video"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_LOAD_VIDEO_"`
-	Message         MessageToolsConfig `json:"message"           yaml:"-"`
-	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_READ_FILE_"`
-	Serial          ToolConfig         `json:"serial"            yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SERIAL_"`
-	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SEND_FILE_"`
-	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SEND_TTS_"`
-	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPAWN_"`
-	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPAWN_STATUS_"`
-	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SPI_"`
-	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_SUBAGENT_"`
-	TranscribeAudio ToolConfig         `json:"transcribe_audio"  yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_TRANSCRIBE_AUDIO_"`
-	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WEB_FETCH_"`
-	Web3            Web3ToolsConfig    `json:"web3"              yaml:"web3,omitempty"`
-	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"RHIZOME_TOOLS_WRITE_FILE_"`
+	// MCPServer gates `rhizome mcp serve` — Rhizome acting as an MCP
+	// *server* over stdio, exposing allowlisted local tools to any MCP
+	// client. Disabled and deny-all by default; agent-loop-dependent
+	// tools (delegate, acp_run, swarm verbs) are absent from the serve
+	// registry, so the allowlist can only ever name standalone tools.
+	MCPServer       MCPServeConfig     `json:"mcp_server"       yaml:"-"`
+	AppendFile      ToolConfig         `json:"append_file"      yaml:"-"              envPrefix:"RHIZOME_TOOLS_APPEND_FILE_"`
+	EditFile        ToolConfig         `json:"edit_file"        yaml:"-"              envPrefix:"RHIZOME_TOOLS_EDIT_FILE_"`
+	FindSkills      ToolConfig         `json:"find_skills"      yaml:"-"              envPrefix:"RHIZOME_TOOLS_FIND_SKILLS_"`
+	I2C             ToolConfig         `json:"i2c"              yaml:"-"              envPrefix:"RHIZOME_TOOLS_I2C_"`
+	InstallSkill    ToolConfig         `json:"install_skill"    yaml:"-"              envPrefix:"RHIZOME_TOOLS_INSTALL_SKILL_"`
+	ListDir         ToolConfig         `json:"list_dir"         yaml:"-"              envPrefix:"RHIZOME_TOOLS_LIST_DIR_"`
+	LoadImage       ToolConfig         `json:"load_image"       yaml:"-"              envPrefix:"RHIZOME_TOOLS_LOAD_IMAGE_"`
+	LoadVideo       ToolConfig         `json:"load_video"       yaml:"-"              envPrefix:"RHIZOME_TOOLS_LOAD_VIDEO_"`
+	Message         MessageToolsConfig `json:"message"          yaml:"-"`
+	ReadFile        ReadFileToolConfig `json:"read_file"        yaml:"-"              envPrefix:"RHIZOME_TOOLS_READ_FILE_"`
+	Serial          ToolConfig         `json:"serial"           yaml:"-"              envPrefix:"RHIZOME_TOOLS_SERIAL_"`
+	SendFile        ToolConfig         `json:"send_file"        yaml:"-"              envPrefix:"RHIZOME_TOOLS_SEND_FILE_"`
+	SendTTS         ToolConfig         `json:"send_tts"         yaml:"-"              envPrefix:"RHIZOME_TOOLS_SEND_TTS_"`
+	Spawn           ToolConfig         `json:"spawn"            yaml:"-"              envPrefix:"RHIZOME_TOOLS_SPAWN_"`
+	SpawnStatus     ToolConfig         `json:"spawn_status"     yaml:"-"              envPrefix:"RHIZOME_TOOLS_SPAWN_STATUS_"`
+	SPI             ToolConfig         `json:"spi"              yaml:"-"              envPrefix:"RHIZOME_TOOLS_SPI_"`
+	Subagent        ToolConfig         `json:"subagent"         yaml:"-"              envPrefix:"RHIZOME_TOOLS_SUBAGENT_"`
+	TranscribeAudio ToolConfig         `json:"transcribe_audio" yaml:"-"              envPrefix:"RHIZOME_TOOLS_TRANSCRIBE_AUDIO_"`
+	WebFetch        ToolConfig         `json:"web_fetch"        yaml:"-"              envPrefix:"RHIZOME_TOOLS_WEB_FETCH_"`
+	Web3            Web3ToolsConfig    `json:"web3"             yaml:"web3,omitempty"`
+	WriteFile       ToolConfig         `json:"write_file"       yaml:"-"              envPrefix:"RHIZOME_TOOLS_WRITE_FILE_"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -2049,6 +2055,14 @@ type MCPServerConfig struct {
 	// for ACP session-declared servers; operator-configured servers keep the
 	// inherited environment.
 	EnvOnly bool `json:"env_only,omitempty"`
+}
+
+// MCPServeConfig configures `rhizome mcp serve` (Rhizome as MCP server).
+// Allow names registry tools exposed to clients; an empty list exposes
+// nothing even when Enabled — allow-all is intentionally not expressible.
+type MCPServeConfig struct {
+	Enabled bool     `json:"enabled"`
+	Allow   []string `json:"allow,omitempty"`
 }
 
 // MCPConfig defines configuration for all MCP servers

@@ -20,6 +20,7 @@ func NewMCPCommand() *cobra.Command {
 		newTestCommand(),
 		newShowCommand(),
 		newPresetCommand(),
+		newServeCommand(),
 	)
 
 	return cmd

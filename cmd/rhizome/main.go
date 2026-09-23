@@ -186,17 +186,27 @@ const (
 )
 
 // stdioProtocolCommand reports whether argv selects a command that speaks a
-// machine protocol on stdout (currently only `rhizome acp`). For those
+// machine protocol on stdout (`rhizome acp`, `rhizome mcp serve`). For those
 // commands nothing may reach stdout outside the protocol stream — no banner,
 // no env diagnostics.
 func stdioProtocolCommand() bool {
+	positional := make([]string, 0, 2)
 	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "-") {
 			continue // flags (and "--") never name the subcommand
 		}
-		return arg == "acp"
+		positional = append(positional, arg)
+		if len(positional) == 2 {
+			break
+		}
 	}
-	return false
+	if len(positional) == 0 {
+		return false
+	}
+	if positional[0] == "acp" {
+		return true
+	}
+	return positional[0] == "mcp" && len(positional) > 1 && positional[1] == "serve"
 }
 
 func main() {

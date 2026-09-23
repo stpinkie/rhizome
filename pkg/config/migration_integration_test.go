@@ -1108,3 +1108,66 @@ func TestLoadConfig_V2DirectLoad(t *testing.T) {
 		t.Errorf("github registry base_url = %q, want %q", githubRegistry.BaseURL, "https://github.com")
 	}
 }
+
+// TestMigration_SecurityFileToolsSubsectionsFoldBack covers the regression
+// where .security.yml tools.* secrets (stored top-level in the yaml schema)
+// leaked into the merged JSON doc during V0→V3 migration: "web" and "skills"
+// were folded back under "tools" but "mcp", "browser", "media" and "web3"
+// were not, producing "config.json contains unknown field(s): mcp".
+func TestMigration_SecurityFileToolsSubsectionsFoldBack(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	legacyConfig := `{
+		"agents": {"defaults": {"provider": "openai", "model": "gpt-4o"}},
+		"tools": {"mcp_server": {"enabled": true, "allow": ["list_dir"]}}
+	}`
+	if err := os.WriteFile(configPath, []byte(legacyConfig), 0o600); err != nil {
+		t.Fatalf("Failed to write legacy config: %v", err)
+	}
+
+	securityYAML := `mcp:
+  enabled: true
+  servers:
+    ctx:
+      enabled: true
+      command: npx
+browser:
+  enabled: true
+media:
+  vision_mode: "tool"
+web3:
+  enabled: true
+skills:
+  registries: {}
+web:
+  brave:
+    api_keys: ["brave-test-key"]
+`
+	if err := os.WriteFile(securityPath(configPath), []byte(securityYAML), 0o600); err != nil {
+		t.Fatalf("Failed to write security config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.Version != CurrentVersion {
+		t.Errorf("Version = %d, want %d", cfg.Version, CurrentVersion)
+	}
+	if !cfg.Tools.MCP.Enabled {
+		t.Error("tools.mcp.enabled secret fold lost")
+	}
+	if srv, ok := cfg.Tools.MCP.Servers["ctx"]; !ok || srv.Command != "npx" {
+		t.Errorf("tools.mcp.servers fold lost: %+v", cfg.Tools.MCP.Servers)
+	}
+	if !cfg.Tools.Browser.Enabled {
+		t.Error("tools.browser.enabled secret fold lost")
+	}
+	if !cfg.Tools.Web3.Enabled {
+		t.Error("tools.web3.enabled secret fold lost")
+	}
+	if !cfg.Tools.MCPServer.Enabled {
+		t.Error("tools.mcp_server config lost")
+	}
+}
