@@ -74,7 +74,7 @@
   * ✅ Mesh depth (v0.8.0): trust pairing, blob transfer, task attachments, capability-aware claims, DAG orchestration.
   * ✅ Shared context + agent identity (v0.9.0): swarm blackboard + signed AIEOS-style agent manifests.
   * ✅ **Mesh observability** (v0.10.0 Track 63): per-connection transport/direction/RTT details, peer score surfacing, bandwidth counters, activity feed, dashboard panels.
-  * ✅ Role-aware mesh (v0.12.0 Track 80): role-aware `PickPeer` + role-preferred coordinator election + dashboard topology graph. Task/cost-aware dispatch deferred — folded into the mesh-economy module seed (`docs/design/mesh-economy-module.md`).
+  * ✅ Role-aware mesh (v0.12.0 Track 80): role-aware `PickPeer` + role-preferred coordinator election + dashboard topology graph. Task/cost-aware dispatch deferred — folded into the deferred agent-work-market design (`docs/design/mesh-economy-module.md`).
   * **New → v0.13.0 Track 94**: remote-task usage metering — `want_usage`/`usage` wire fields negotiated via the `usage_report` capability advert (`Capability.Allows` map; additive-safe through old builds' re-marshal); task/delegate surfaces + audit fields. Observability only — feeds the future economy module.
   * AIEOS: continued exploration of AI-native OS interaction paradigms.
 
@@ -121,7 +121,7 @@
 
 * ✅ **Stage 1 — Node availability** (v0.10.0 Track 65): the `nimbus-verified-proxy` module serves a verified local JSON-RPC (default :8545) for the user's own scripts and dapps. No agent tools.
 * ✅ **Stage 2 — Agentic web3 operations** (v0.12.0 Tracks 77–79): `web3_*` agent tools over the module endpoint — chain reads (v0.11.0 Track 68); wallet/key management reusing the identity-encryption posture (keyring/passphrase); **gated signing** — transaction send behind contract/method allowlists, spending caps, signer scoping, and an async pending-approval queue on the `approve_tool` hook seam; **contract interaction** — ABI registry, `web3_contract_call`/`web3_contract_send`, ERC-20/721 helpers, ENS; **operations depth** — dashboard wallet/approvals panels, log watches, channel approvals.
-* **Stage 3 — Mesh economy (deferred, optional module)**: pricing/settling remote task/swarm work between trusted peers — re-scoped during v0.12.0 planning as an opt-in module candidate rather than core mesh work; seed doc `docs/design/mesh-economy-module.md`. The usage-reporting primitive lands standalone as v0.13.0 Track 94.
+* **Stage 3 — Open Agent Work Market (deferred, opt-in companion module)**: paid agent work between *mutually untrusted* operators — ACP-executed tasks inside sandboxed/containerised agents (prompts in, results out; buyers never run seller code), on-chain escrow settlement via the Stage-2 web3 machinery, and a signed provider index + DHT for discovery. Ships only as the `rhizome-market` companion module — never in the base package; core carries only generic, inert seams (module stream bridge, module capability adverts, a thin `rhizome market` CLI stub). Design doc `docs/design/mesh-economy-module.md`. The usage-reporting primitive lands standalone as v0.13.0 Track 94 (observability + the receipt's usage shape).
 
 
 ---
