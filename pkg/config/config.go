@@ -694,6 +694,9 @@ type ACPAgentConfig struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Cwd     string            `json:"cwd,omitempty"`
+	// AuthMethod pins which advertised auth method to use when the agent
+	// requires authentication; empty picks the first satisfiable method.
+	AuthMethod string `json:"auth_method,omitempty"`
 }
 
 type SubagentsConfig struct {

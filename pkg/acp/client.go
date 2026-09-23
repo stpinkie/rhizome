@@ -346,12 +346,9 @@ func (m *ClientManager) spawn(
 		proc.kill()
 		return nil, fmt.Errorf("acp initialize failed for agent %q: %w", agentID, err)
 	}
-	if len(initResp.AuthMethods) > 0 {
+	if err := m.authenticate(initCtx, agentID, inst, conn, initResp.AuthMethods); err != nil {
 		proc.kill()
-		return nil, fmt.Errorf(
-			"acp agent %q requires authentication (%d methods advertised); rhizome does not support ACP auth yet",
-			agentID, len(initResp.AuthMethods),
-		)
+		return nil, err
 	}
 
 	logger.InfoCF("acp", "external ACP agent connected",
