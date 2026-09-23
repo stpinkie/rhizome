@@ -169,6 +169,20 @@ jobs:
           gh release upload "${{ steps.release_tag.outputs.value }}" \
             catalog.json catalog.json.sig --clobber
 
+      # Signs the embedded curated skills index and attaches index.json +
+      # index.json.sig to the release — the trust root for the first-party
+      # rhizome skills registry. Same key and secret gate as the catalog.
+      - name: Sign and upload curated skills index
+        if: steps.catalog_key.outputs.available == 'true'
+        env:
+          MODULE_CATALOG_SIGNING_KEY: ${{ secrets.MODULE_CATALOG_SIGNING_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          go run -tags goolm,stdjson ./cmd/rhizome skills index \
+            --out index.json --sign-with-env MODULE_CATALOG_SIGNING_KEY
+          gh release upload "${{ steps.release_tag.outputs.value }}" \
+            index.json index.json.sig --clobber
+
       # Dispatch-only: on tag-push runs the prerelease flag comes from
       # goreleaser's `prerelease: auto` (semver suffix detection).
       - name: Apply release flags

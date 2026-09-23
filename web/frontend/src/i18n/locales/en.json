@@ -705,6 +705,7 @@
         "origin": {
           "all": "All Types",
           "builtin": "Builtin",
+          "curated": "Curated",
           "third_party": "Third-Party",
           "mesh": "Mesh",
           "manual": "Manual"

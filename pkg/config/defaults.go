@@ -402,6 +402,12 @@ func DefaultConfig() *Config {
 				},
 				Registries: SkillsRegistriesConfig{
 					&SkillRegistryConfig{
+						Name:    "rhizome",
+						Enabled: true,
+						BaseURL: "https://github.com/stpinkie/rhizome/releases/latest/download",
+						Param:   map[string]any{},
+					},
+					&SkillRegistryConfig{
 						Name:    "clawhub",
 						Enabled: true,
 						BaseURL: "https://clawhub.ai",

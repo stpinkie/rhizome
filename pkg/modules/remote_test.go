@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/sigverify"
 )
 
 // stubCatalogKey swaps in a throwaway Ed25519 keypair as the catalog trust
@@ -30,9 +31,9 @@ func stubCatalogKey(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := releasePubKeyB64
-	releasePubKeyB64 = base64.StdEncoding.EncodeToString(pub)
-	t.Cleanup(func() { releasePubKeyB64 = old })
+	old := sigverify.ReleasePubKeyB64
+	sigverify.ReleasePubKeyB64 = base64.StdEncoding.EncodeToString(pub)
+	t.Cleanup(func() { sigverify.ReleasePubKeyB64 = old })
 	return base64.StdEncoding.EncodeToString(priv.Seed())
 }
 

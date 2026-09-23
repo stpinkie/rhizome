@@ -1,0 +1,68 @@
+{
+  "index_version": 1,
+  "skills": [
+    {
+      "slug": "agent-browser",
+      "display_name": "Agent Browser",
+      "summary": "Browser automation via agent-browser CLI — navigate websites, fill forms, click buttons, take screenshots, extract data, or test web apps.",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/agent-browser" }
+    },
+    {
+      "slug": "github",
+      "display_name": "GitHub",
+      "summary": "Interact with GitHub using the gh CLI — issues, PRs, CI runs, and advanced queries via gh issue, gh pr, gh run, and gh api.",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/github" }
+    },
+    {
+      "slug": "hardware",
+      "display_name": "Hardware",
+      "summary": "Read and control I2C and SPI peripherals on Sipeed boards (LicheeRV Nano, MaixCAM, NanoKVM).",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/hardware" }
+    },
+    {
+      "slug": "rhizome-agent",
+      "display_name": "Rhizome Agent",
+      "summary": "Configure, extend, debug, or contribute to Rhizome itself — CLI commands, config.json, gateway, auth, models, skills, MCP servers, cron, routing, and sessions.",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/rhizome-agent" }
+    },
+    {
+      "slug": "skill-creator",
+      "display_name": "Skill Creator",
+      "summary": "Create, update, or review Rhizome skills — writing new SKILL.md files, turning repeated workflows into reusable skills, organizing scripts and references.",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/skill-creator" }
+    },
+    {
+      "slug": "stealth-browser",
+      "display_name": "Stealth Browser",
+      "summary": "Stealth browser automation via a Patchright-based MCP server — for sites that block or detect normal automation (bot detection, CAPTCHAs, fingerprinting).",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/stealth-browser" }
+    },
+    {
+      "slug": "summarize",
+      "display_name": "Summarize",
+      "summary": "Summarize or extract text/transcripts from URLs, podcasts, and local files — a great fallback for transcribing YouTube and video content.",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/summarize" }
+    },
+    {
+      "slug": "tmux",
+      "display_name": "tmux",
+      "summary": "Remote-control tmux sessions for interactive CLIs by sending keystrokes and scraping pane output.",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/tmux" }
+    },
+    {
+      "slug": "weather",
+      "display_name": "Weather",
+      "summary": "Get current weather and forecasts with verified location matching — no API key required.",
+      "version": "1.0.0",
+      "source": { "github": "stpinkie/rhizome@main/workspace/skills/weather" }
+    }
+  ]
+}

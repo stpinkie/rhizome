@@ -277,7 +277,7 @@ func writeOriginMeta(targetDir string, registry skills.SkillRegistry, slug, vers
 
 	meta := originMeta{
 		Version:          1,
-		OriginKind:       "third_party",
+		OriginKind:       skills.OriginKindForRegistry(registryName),
 		Registry:         registryName,
 		Slug:             normalizedSlug,
 		RegistryURL:      registryURL,

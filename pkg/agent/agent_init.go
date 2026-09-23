@@ -338,6 +338,7 @@ func registerSharedTools(
 		install_skills_enable := cfg.Tools.IsToolEnabled("install_skill")
 		if skills_enabled && (find_skills_enable || install_skills_enable) {
 			registryMgr := skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills)
+			registryMgr.SetEventBus(al.runtimeEvents)
 
 			if find_skills_enable {
 				searchCache := skills.NewSearchCache(

@@ -11,15 +11,13 @@
 package modules
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/stpinkie/rhizome/pkg/sigverify"
 )
 
 // Kind describes a module's process lifecycle.
@@ -654,13 +652,12 @@ func Lookup(id string) (ModuleSpec, bool) {
 }
 
 // ── Signed catalog (Track 70) ────────────────────────────────────────────
-
-// releasePubKeyB64 is the baked-in Ed25519 public key (base64) that signs
-// release catalogs. The matching private key lives only in the
+//
+// The Ed25519 release-signing trust root lives in pkg/sigverify
+// (sigverify.ReleasePubKeyB64) — it is shared with the curated skills
+// index. The matching private key lives only in the
 // MODULE_CATALOG_SIGNING_KEY GitHub secret — see
-// docs/operations/module-catalog-signing.md. It is a variable so tests can
-// substitute their own keypair.
-var releasePubKeyB64 = "Ww3Kz/J38L0ColSCrcOjq6I/3WCzsvZMvecGyyrDQzI="
+// docs/operations/module-catalog-signing.md.
 
 // catalogVersionSupported is the highest remote-catalog schema version this
 // binary understands. Catalogs carrying a newer version are refused so an
@@ -713,64 +710,25 @@ func MarshalCatalog() ([]byte, error) {
 	}, "", "  ")
 }
 
-// catalogPubKey decodes the baked-in release public key.
-func catalogPubKey() (ed25519.PublicKey, error) {
-	if releasePubKeyB64 == "" {
-		return nil, errors.New("no module catalog signing key baked into this build")
-	}
-	raw, err := base64.StdEncoding.DecodeString(releasePubKeyB64)
-	if err != nil {
-		return nil, fmt.Errorf("catalog pubkey: %w", err)
-	}
-	if len(raw) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("catalog pubkey: %d bytes, want %d", len(raw), ed25519.PublicKeySize)
-	}
-	return ed25519.PublicKey(raw), nil
-}
-
 // VerifyCatalogSignature checks sigB64 (base64 Ed25519 signature) over the
 // exact catalog bytes as published.
 func VerifyCatalogSignature(data []byte, sigB64 string) error {
-	pub, err := catalogPubKey()
-	if err != nil {
-		return err
-	}
-	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sigB64))
-	if err != nil {
-		return fmt.Errorf("catalog signature: %w", err)
-	}
-	if !ed25519.Verify(pub, data, sig) {
-		return errors.New("catalog signature does not verify")
-	}
-	return nil
+	return sigverify.VerifyReleaseSignature(data, sigB64)
 }
 
 // GenerateCatalogKeypair creates a fresh Ed25519 catalog signing keypair.
 // Returns (base64 public key, base64 seed). Backs `rhizome module
 // catalog-keygen`; the seed belongs in the MODULE_CATALOG_SIGNING_KEY
-// GitHub secret, the pubkey in releasePubKeyB64 above.
+// GitHub secret, the pubkey in pkg/sigverify ReleasePubKeyB64.
 func GenerateCatalogKeypair() (pubB64, seedB64 string, err error) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return "", "", err
-	}
-	return base64.StdEncoding.EncodeToString(pub),
-		base64.StdEncoding.EncodeToString(priv.Seed()), nil
+	return sigverify.GenerateKeypair()
 }
 
 // SignCatalog signs catalog bytes with a base64-encoded Ed25519 seed and
 // returns the base64 signature. Used by `rhizome module catalog --sign`
 // during release, and by tests.
 func SignCatalog(data []byte, seedB64 string) (string, error) {
-	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(seedB64))
-	if err != nil {
-		return "", fmt.Errorf("catalog signing seed: %w", err)
-	}
-	if len(seed) != ed25519.SeedSize {
-		return "", fmt.Errorf("catalog signing seed: %d bytes, want %d", len(seed), ed25519.SeedSize)
-	}
-	sig := ed25519.Sign(ed25519.NewKeyFromSeed(seed), data)
-	return base64.StdEncoding.EncodeToString(sig), nil
+	return sigverify.SignRelease(data, seedB64)
 }
 
 // parseCatalogEnvelope unmarshals and sanity-checks signed catalog bytes.
