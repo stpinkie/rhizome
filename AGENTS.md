@@ -682,6 +682,14 @@ The swarm integration test builds `rhizome`, starts two daemons joined to a shar
 - CLI: `rhizome mcp preset context7 --key <k> --enable`; `mcp list` shows preset-expanded servers.
 - Web: `GET /api/tools/mcp-presets`, `PUT /api/tools/mcp-presets/<name>`; a presets card on the Tools page handles enable + key entry (keys never echoed back).
 
+## Rhizome as MCP Server (v0.13.0, Track 89)
+
+- `rhizome mcp serve` runs a daemonless MCP server over stdio: any MCP client (Claude Desktop, Cursor, another agent) can list/call the operator's allowlisted local tools.
+- `tools.mcp_server = {enabled:false, allow:[...]}` — disabled and deny-all by default; `allow` names registry tools to expose (e.g. `["read_file","list_dir","exec"]`). Agent-loop tools (`delegate`, `acp_run`, swarm verbs, `message`, `send_*`, `spawn`) are never in the serve registry, so they can't be allowlisted.
+- The serve registry (`agent.BuildMCPServeToolRegistry`) mirrors the default-agent standalone tool set — files/exec/web/hardware — gated by `tools.<name>.enabled` and the usual workspace/`restrict_to_workspace`/allow-paths rules, against `agents.defaults.workspace`.
+- stdout is the protocol channel: the banner is suppressed via `stdioProtocolCommand`, and `logger.DisableConsole()` + slog→stderr drain runs before config load (same rule as `rhizome acp`). Tool errors return in-band (`isError` + text) so client models can self-correct; unknown-tool calls are protocol errors.
+- Config/migration note: `.security.yml` stores `tools.*` secrets top-level (`web`, `skills`, `mcp`, `browser`, `media`, `web3`); `loadConfigMap` re-nests all of them under `tools` during V0–V2 migrations.
+
 ## Media & Attachments (v0.8.0, Tracks 34-35)
 
 - `tools.media.vision_mode` — `auto` (default) attaches user-sent images inline to the provider request when the model is vision-capable (or an `agents.defaults.image_model` fallback is configured); `tool` keeps path tags only (agent calls `load_image`); `off` disables inline images entirely.

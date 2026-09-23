@@ -432,38 +432,46 @@ func loadConfigMap(path string) (map[string]any, error) {
 	if err = yaml.Unmarshal(data, &m2); err != nil {
 		return nil, fmt.Errorf("failed to parse security config: %w", err)
 	}
-	if m2["web"] != nil || m2["skills"] != nil {
-		m3 := make(map[string]any)
-		if m2["web"] != nil {
-			m3["web"] = m2["web"]
-			delete(m2, "web")
+	// tools.* secrets live at the security file's top level (its yaml schema
+	// flattens ToolsConfig); fold them back under "tools" for the merged JSON
+	// doc. Every yaml-mapped tools subsection must be listed here — a missed
+	// key leaks a top-level field the JSON diagnostics reject.
+	m3 := make(map[string]any)
+	for _, key := range []string{"web", "skills", "mcp", "browser", "media", "web3"} {
+		if m2[key] != nil {
+			m3[key] = m2[key]
+			delete(m2, key)
 		}
-		if m2["skills"] != nil {
-			m3["skills"] = m2["skills"]
-			delete(m2, "skills")
-			if m, ok := m3["skills"].(map[string]any); ok {
-				if m["clawhub"] != nil {
-					m["registries"] = map[string]any{"clawhub": m["clawhub"]}
-					delete(m, "clawhub")
+	}
+	if len(m3) > 0 {
+		if m, ok := m3["skills"].(map[string]any); ok {
+			if m["clawhub"] != nil {
+				m["registries"] = map[string]any{"clawhub": m["clawhub"]}
+				delete(m, "clawhub")
+			}
+			if gh, ok := m["github"].(map[string]any); ok {
+				registries, _ := m["registries"].(map[string]any)
+				if registries == nil {
+					registries = map[string]any{}
 				}
-				if gh, ok := m["github"].(map[string]any); ok {
-					registries, _ := m["registries"].(map[string]any)
-					if registries == nil {
-						registries = map[string]any{}
-					}
-					githubRegistry := map[string]any{}
-					for k, v := range gh {
-						githubRegistry[k] = v
-					}
-					if token, ok := githubRegistry["token"]; ok {
-						githubRegistry["auth_token"] = token
-					}
-					registries["github"] = githubRegistry
-					m["registries"] = registries
+				githubRegistry := map[string]any{}
+				for k, v := range gh {
+					githubRegistry[k] = v
 				}
+				if token, ok := githubRegistry["token"]; ok {
+					githubRegistry["auth_token"] = token
+				}
+				registries["github"] = githubRegistry
+				m["registries"] = registries
 			}
 		}
-		m2["tools"] = m3
+		if existing, ok := m2["tools"].(map[string]any); ok {
+			for k, v := range m3 {
+				existing[k] = v
+			}
+		} else {
+			m2["tools"] = m3
+		}
 	}
 
 	// Handle model_list merging specially: m1 has array format, m2 has map format

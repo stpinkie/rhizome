@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -69,5 +70,28 @@ func TestNewRhizomeCommand(t *testing.T) {
 		assert.True(t, found, "unexpected subcommand %q", subcmd.Name())
 
 		assert.False(t, subcmd.Hidden)
+	}
+}
+
+func TestStdioProtocolCommand(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"rhizome"}, false},
+		{[]string{"rhizome", "acp"}, true},
+		{[]string{"rhizome", "--no-color", "acp"}, true},
+		{[]string{"rhizome", "mcp", "serve"}, true},
+		{[]string{"rhizome", "mcp"}, false},
+		{[]string{"rhizome", "mcp", "list"}, false},
+		{[]string{"rhizome", "serve"}, false},
+		{[]string{"rhizome", "agent"}, false},
+	}
+	for _, tc := range cases {
+		os.Args = tc.args
+		assert.Equal(t, tc.want, stdioProtocolCommand(), "args=%v", tc.args)
 	}
 }
