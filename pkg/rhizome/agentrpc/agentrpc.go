@@ -45,6 +45,10 @@ type Request struct {
 	// The callee resolves each ref through the blob protocol (/rhizome/blob)
 	// into local media refs before running the request.
 	Media []string `json:"media,omitempty"`
+	// WantUsage asks the callee to include a summed usage report on the
+	// response. Callers only set it when the peer's advertised manifest
+	// carries allows.usage_report; callees only populate when set.
+	WantUsage bool `json:"want_usage,omitempty"`
 }
 
 // ToolRef is a lightweight reference to a tool capability advertised by a peer.
@@ -58,11 +62,14 @@ type Response struct {
 	CorrelationID string `json:"correlation_id"`
 	// Nonce echoes the request nonce so the signed response is bound to the
 	// exact request it answers.
-	Nonce     string                 `json:"nonce,omitempty"`
-	Status    string                 `json:"status"`
-	Result    *toolshared.ToolResult `json:"result,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	Signature []byte                 `json:"signature,omitempty"`
+	Nonce  string                 `json:"nonce,omitempty"`
+	Status string                 `json:"status"`
+	Result *toolshared.ToolResult `json:"result,omitempty"`
+	// Usage carries the callee's summed usage report; populated only when
+	// the request set want_usage and the run could be metered.
+	Usage     *toolshared.RemoteUsage `json:"usage,omitempty"`
+	Error     string                  `json:"error,omitempty"`
+	Signature []byte                  `json:"signature,omitempty"`
 }
 
 // maxCachedResults bounds the idempotency cache so a peer cannot grow it

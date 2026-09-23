@@ -18,6 +18,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 func NewPeersCommand() *cobra.Command {
@@ -314,11 +315,13 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		}
 	}
 
+	var usage toolshared.RemoteUsage
 	result, err := m.CallRemote(ctx, pid, mesh.RemoteCall{
 		TargetAgentID: agentID,
 		SystemPrompt:  task,
 		Async:         spawn,
 		Media:         media,
+		UsageSink:     &usage,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
@@ -329,6 +332,9 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		fmt.Println(result.ForUser)
 	} else {
 		fmt.Println(result.ForLLM)
+	}
+	if usage != (toolshared.RemoteUsage{}) {
+		fmt.Printf("Usage:  %s\n", formatUsageLine(&usage))
 	}
 }
 

@@ -120,7 +120,8 @@ func TestNetworkTasksHandlerBadRequests(t *testing.T) {
 }
 
 // newTaskPeerFixture builds two started meshes: a daemon mesh (no runFunc) and
-// a peer mesh that accepts spawn and runs runFunc.
+// a peer mesh that accepts spawn and runs runFunc. runFunc reports no usage;
+// tests that exercise usage reporting can adapt a full-signature func.
 func newTaskPeerFixture(
 	t *testing.T,
 	runFunc func(context.Context, agentrpc.Request) (*toolshared.ToolResult, error),
@@ -157,7 +158,10 @@ func newTaskPeerFixture(
 	}
 	meshB := mesh.NewMesh(nodeB, nil, idB, config.MeshConfig{
 		Enabled: true, AllowRemoteSpawn: true, RemoteTimeout: 30 * time.Second,
-	}, runFunc)
+	}, func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error) {
+		res, err := runFunc(ctx, req)
+		return res, nil, err
+	})
 	if err := meshB.Start(ctx); err != nil {
 		t.Fatalf("mesh B start: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
+	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 )
 
@@ -176,11 +177,7 @@ func printPeerTasks(w io.Writer, peerID string) {
 		return
 	}
 	var resp struct {
-		Tasks []struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-			Task   string `json:"task"`
-		} `json:"tasks"`
+		Tasks []agenttask.TaskInfo `json:"tasks"`
 	}
 	if json.Unmarshal(body, &resp) != nil || len(resp.Tasks) == 0 {
 		return
@@ -189,11 +186,17 @@ func printPeerTasks(w io.Writer, peerID string) {
 	shown := 0
 	for i := len(resp.Tasks) - 1; i >= 0 && shown < 5; i-- {
 		t := resp.Tasks[i]
-		task := t.Task
-		if len(task) > 60 {
-			task = task[:60] + "…"
+		line := fmt.Sprintf("    %s  %s", t.TaskID, t.Status)
+		if t.AgentID != "" {
+			line += fmt.Sprintf("  agent=%s", t.AgentID)
 		}
-		fmt.Fprintf(w, "    %s  %s  %s\n", t.ID, t.Status, task)
+		if t.Error != "" {
+			line += fmt.Sprintf("  error=%s", t.Error)
+		}
+		if t.Usage != nil {
+			line += fmt.Sprintf("  usage=%dtok/%dcalls", t.Usage.TotalTokens, t.Usage.LLMCalls)
+		}
+		fmt.Fprintln(w, line)
 		shown++
 	}
 }

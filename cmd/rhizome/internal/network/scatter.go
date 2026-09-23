@@ -164,6 +164,9 @@ func runScatter(
 			if b.Error != "" {
 				line += fmt.Sprintf("  error=%s", b.Error)
 			}
+			if b.Usage != nil {
+				line += fmt.Sprintf("  usage=%dtok/%dcalls", b.Usage.TotalTokens, b.Usage.LLMCalls)
+			}
 			cmd.Println(line)
 			if b.Result != nil {
 				content := b.Result.ForUser

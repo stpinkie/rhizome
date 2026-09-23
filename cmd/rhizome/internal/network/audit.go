@@ -10,6 +10,7 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 // NewAuditCommand returns the audit command, which prints the tail of the
@@ -49,14 +50,15 @@ func NewAuditCommand() *cobra.Command {
 
 			for _, raw := range entries {
 				var e struct {
-					TS         string `json:"ts"`
-					PeerID     string `json:"peer_id"`
-					Op         string `json:"op"`
-					AgentID    string `json:"agent_id"`
-					Ref        string `json:"ref"`
-					Status     string `json:"status"`
-					DurationMs int64  `json:"duration_ms"`
-					Detail     string `json:"detail"`
+					TS         string                  `json:"ts"`
+					PeerID     string                  `json:"peer_id"`
+					Op         string                  `json:"op"`
+					AgentID    string                  `json:"agent_id"`
+					Ref        string                  `json:"ref"`
+					Status     string                  `json:"status"`
+					DurationMs int64                   `json:"duration_ms"`
+					Detail     string                  `json:"detail"`
+					Usage      *toolshared.RemoteUsage `json:"usage"`
 				}
 				if err := json.Unmarshal(raw, &e); err != nil {
 					continue
@@ -72,6 +74,9 @@ func NewAuditCommand() *cobra.Command {
 					line += fmt.Sprintf("  ref=%s", e.Ref)
 				}
 				line += fmt.Sprintf("  %dms", e.DurationMs)
+				if e.Usage != nil {
+					line += fmt.Sprintf("  usage=%dtok/%dcalls", e.Usage.TotalTokens, e.Usage.LLMCalls)
+				}
 				if e.Detail != "" {
 					line += fmt.Sprintf("  detail=%s", e.Detail)
 				}

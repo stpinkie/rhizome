@@ -15,6 +15,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 // NewRouteCommand returns the route command, which picks the best available
@@ -139,10 +140,12 @@ func runRoute(
 	}
 
 	if syncCall {
+		var usage toolshared.RemoteUsage
 		result, err := m.CallRemote(ctx, pid, mesh.RemoteCall{
 			TargetAgentID: agentID,
 			SystemPrompt:  task,
 			Media:         media,
+			UsageSink:     &usage,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
@@ -152,6 +155,9 @@ func runRoute(
 			fmt.Println(result.ForUser)
 		} else {
 			fmt.Println(result.ForLLM)
+		}
+		if usage != (toolshared.RemoteUsage{}) {
+			fmt.Printf("Usage:  %s\n", formatUsageLine(&usage))
 		}
 		return
 	}
@@ -185,6 +191,9 @@ func runRoute(
 			if content != "" {
 				fmt.Printf("Result:\n%s\n", content)
 			}
+		}
+		if resp.Usage != nil {
+			fmt.Printf("Usage:  %s\n", formatUsageLine(resp.Usage))
 		}
 		return
 	}

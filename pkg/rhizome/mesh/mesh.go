@@ -175,7 +175,7 @@ type Mesh struct {
 	mediaStore media.MediaStore
 	tasks      *TaskStore
 	scoreStore *PeerScoreStore
-	runFunc    func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)
+	runFunc    func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error)
 
 	models   []string
 	modelsMu sync.RWMutex
@@ -220,7 +220,7 @@ func NewMesh(
 	syncer *rsync.Syncer,
 	id *identity.Derived,
 	cfg config.MeshConfig,
-	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error),
+	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error),
 ) *Mesh {
 	m := &Mesh{
 		node:    node,
@@ -423,7 +423,11 @@ func (m *Mesh) Start(ctx context.Context) error {
 
 // SetRunFunc sets the function used to execute remote agent requests.
 // It is typically called by the gateway after the AgentLoop is created.
-func (m *Mesh) SetRunFunc(fn func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error)) {
+// The returned usage report is non-nil only when req.WantUsage is set and
+// the run could be metered locally.
+func (m *Mesh) SetRunFunc(
+	fn func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error),
+) {
 	m.runFunc = fn
 }
 
@@ -597,10 +601,13 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		defer m.releaseMediaScope(scope)
 	}
 
-	result, err := m.runFunc(ctx, req)
+	result, usage, err := m.runFunc(ctx, req)
 	if err == nil {
 		// Publish result artifacts as blob refs the caller can pull.
 		m.publishOutboundMedia(result)
+	}
+	if !req.WantUsage {
+		usage = nil
 	}
 
 	status := "ok"
@@ -634,6 +641,7 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		Nonce:         req.Nonce,
 		Status:        "ok",
 		Result:        result,
+		Usage:         usage,
 	}
 	if err := m.signResponse(&resp); err != nil {
 		return agentrpc.Response{}, fmt.Errorf("sign response: %w", err)
@@ -702,6 +710,10 @@ func (m *Mesh) CallRemote(
 		if i > 0 && !m.cfg.TaskFailover {
 			break
 		}
+
+		// Negotiate usage reporting per candidate: only peers whose stored
+		// manifest advertises allows.usage_report get want_usage.
+		req.WantUsage = m.peerAllowsUsageReport(pid)
 
 		// Push local attachments to this candidate once; the signed request
 		// carries the resulting blob refs bound to that peer.
@@ -784,6 +796,9 @@ func (m *Mesh) CallRemote(
 				"correlation_id": req.CorrelationID,
 				"async":          call.Async,
 			})
+			if resp.Usage != nil && call.UsageSink != nil {
+				*call.UsageSink = *resp.Usage
+			}
 			// Pull blob:// result artifacts into local media refs.
 			m.localizeResultMedia(ctx, resp.Result, "mesh-result:"+req.CorrelationID)
 			return resp.Result, nil
@@ -928,6 +943,10 @@ func (m *Mesh) localCapability() Capability {
 	c.Allows["delegate"] = m.cfg.AllowRemoteDelegate
 	c.Allows["spawn"] = m.cfg.AllowRemoteSpawn
 	c.Allows["sync"] = true
+	// usage_report advertises that this node can meter remote tasks and
+	// will honor want_usage on delegate/spawn requests. A map key (not a
+	// new struct field) so old builds re-marshal manifests unchanged.
+	c.Allows["usage_report"] = true
 	if m.cfg.EffectiveRole() == config.MeshRoleWorker {
 		c.Role = config.MeshRoleWorker
 	}
@@ -1194,6 +1213,14 @@ func (m *Mesh) PeerCapabilities(pid peer.ID) (Capability, bool) {
 	defer m.capsMu.RUnlock()
 	c, ok := m.caps[pid]
 	return c, ok
+}
+
+// peerAllowsUsageReport reports whether the peer's stored capability
+// manifest advertises usage metering (allows.usage_report). Callers only
+// set want_usage when this is true; absent or stale manifests negotiate off.
+func (m *Mesh) peerAllowsUsageReport(pid peer.ID) bool {
+	c, ok := m.PeerCapabilities(pid)
+	return ok && c.Allows["usage_report"]
 }
 
 // agentManifestIndex maps agent id to manifest fingerprint for status views.

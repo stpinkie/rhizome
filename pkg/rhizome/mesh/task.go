@@ -40,6 +40,10 @@ type RemoteCall struct {
 	// (blob://<peer>/<sha256>) are passed through for the callee to pull
 	// from the hosting peer.
 	Media []MediaAttachment
+	// UsageSink, when non-nil, receives the callee's summed usage report on
+	// success — present only when the chosen peer advertised
+	// allows.usage_report and the run could be metered.
+	UsageSink *toolshared.RemoteUsage
 }
 
 // MediaAttachment names one file carried to a remote callee.
@@ -219,6 +223,7 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 	})
 
 	var result *toolshared.ToolResult
+	var usage *toolshared.RemoteUsage
 	var runErr error
 	scope := "mesh:" + task.ID
 	if m.runFunc == nil {
@@ -230,7 +235,7 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 			mediaRefs, runErr = m.fetchInboundMedia(ctx, req.Media, scope)
 		}
 		if runErr == nil {
-			result, runErr = m.runFunc(ctx, agentrpc.Request{
+			result, usage, runErr = m.runFunc(ctx, agentrpc.Request{
 				CorrelationID: task.ID,
 				TargetAgentID: req.TargetAgentID,
 				Model:         req.Model,
@@ -239,8 +244,12 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 				Tools:         toolNamesToRefs(req.Tools),
 				Async:         true,
 				Media:         mediaRefs,
+				WantUsage:     req.WantUsage,
 			})
 		}
+	}
+	if !req.WantUsage {
+		usage = nil
 	}
 	// Publish result artifacts as blob refs the caller can pull back, then
 	// release the inbound media scope (blob files persist under their TTL).
@@ -255,7 +264,7 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 		status = agenttask.StatusError
 		errMsg = runErr.Error()
 	}
-	m.tasks.Finish(task.ID, status, result, errMsg)
+	m.tasks.Finish(task.ID, status, result, errMsg, usage)
 
 	m.publishMeshEvent(runtimeevents.KindMeshTaskUpdate, map[string]any{
 		"peer_id":  task.Owner.String(),
@@ -264,7 +273,7 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 		"status":   string(status),
 		"error":    errMsg,
 	})
-	m.auditMesh(task.Owner, "task.finish", req.TargetAgentID, task.ID, string(status), started, errMsg)
+	m.auditMeshUsage(task.Owner, "task.finish", req.TargetAgentID, task.ID, string(status), started, errMsg, usage)
 }
 
 func (m *Mesh) handleTaskStatus(from peer.ID, req agenttask.Request) agenttask.Response {
@@ -300,6 +309,7 @@ func (m *Mesh) handleTaskResult(from peer.ID, req agenttask.Request) agenttask.R
 		TaskID: task.ID,
 		Status: task.Status,
 		Result: task.Result,
+		Usage:  task.Usage,
 		Error:  task.Err,
 	})
 }
@@ -442,7 +452,10 @@ func (m *Mesh) callRemoteTask(
 		"outgoing": true,
 	})
 
-	result, err := m.pollRemoteTask(ctx, usedPeer, taskID)
+	result, usage, err := m.pollRemoteTask(ctx, usedPeer, taskID)
+	if usage != nil && call.UsageSink != nil {
+		*call.UsageSink = *usage
+	}
 	m.publishMeshEvent(endKind, map[string]any{
 		"peer_id":  usedPeer.String(),
 		"agent_id": call.TargetAgentID,
@@ -460,7 +473,7 @@ func (m *Mesh) pollRemoteTask(
 	ctx context.Context,
 	pid peer.ID,
 	taskID string,
-) (*toolshared.ToolResult, error) {
+) (*toolshared.ToolResult, *toolshared.RemoteUsage, error) {
 	const maxConsecutiveFailures = 5
 	failures := 0
 	for {
@@ -470,16 +483,16 @@ func (m *Mesh) pollRemoteTask(
 				cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				_, _ = m.CancelRemoteTask(cancelCtx, pid, taskID)
 				cancel()
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			}
 			failures++
 			if failures >= maxConsecutiveFailures {
-				return nil, fmt.Errorf("poll task %s: %w", taskID, err)
+				return nil, nil, fmt.Errorf("poll task %s: %w", taskID, err)
 			}
 			m.node.ForceReconnect(ctx, pid)
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			case <-time.After(time.Duration(failures) * 500 * time.Millisecond):
 			}
 			continue
@@ -488,15 +501,15 @@ func (m *Mesh) pollRemoteTask(
 
 		switch resp.Status {
 		case agenttask.StatusDone:
-			return resp.Result, nil
+			return resp.Result, resp.Usage, nil
 		case agenttask.StatusError:
-			return nil, fmt.Errorf("remote task failed: %s", resp.Error)
+			return nil, nil, fmt.Errorf("remote task failed: %s", resp.Error)
 		case agenttask.StatusCancelled:
-			return nil, fmt.Errorf("remote task %s was cancelled", taskID)
+			return nil, nil, fmt.Errorf("remote task %s was cancelled", taskID)
 		case agenttask.StatusNotFound:
-			return nil, fmt.Errorf("remote task %s not found", taskID)
+			return nil, nil, fmt.Errorf("remote task %s not found", taskID)
 		case agenttask.StatusRejected:
-			return nil, fmt.Errorf("remote task rejected: %s", resp.Error)
+			return nil, nil, fmt.Errorf("remote task rejected: %s", resp.Error)
 		default:
 			// accepted/running: keep polling.
 		}
@@ -682,6 +695,9 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 		SystemPrompt:  call.SystemPrompt,
 		Tools:         call.Tools,
 		Timeout:       m.cfg.RemoteTimeout,
+		// Negotiate usage reporting: only peers whose stored manifest
+		// advertises allows.usage_report get want_usage.
+		WantUsage: m.peerAllowsUsageReport(pid),
 	}
 	// Push local attachments to this peer; the signed request carries the
 	// resulting blob refs bound to it.

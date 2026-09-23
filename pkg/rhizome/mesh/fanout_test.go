@@ -72,11 +72,11 @@ func newFanoutTestMeshes(
 
 	// Start worker meshes before connecting them so their protocol handlers
 	// are registered before the libp2p identify exchange with the caller.
-	meshB := NewMesh(nodeB, nil, idB, cfg, runFuncB)
+	meshB := NewMesh(nodeB, nil, idB, cfg, nilUsageRun(runFuncB))
 	require.NoError(t, meshB.Start(ctx))
 	t.Cleanup(func() { _ = meshB.Stop() })
 
-	meshC := NewMesh(nodeC, nil, idC, cfg, runFuncC)
+	meshC := NewMesh(nodeC, nil, idC, cfg, nilUsageRun(runFuncC))
 	require.NoError(t, meshC.Start(ctx))
 	t.Cleanup(func() { _ = meshC.Stop() })
 

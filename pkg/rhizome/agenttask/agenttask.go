@@ -98,6 +98,11 @@ type Request struct {
 	// (/rhizome/blob) into local media refs before running the task.
 	Media []string `json:"media,omitempty"`
 
+	// WantUsage asks the callee to record a summed usage report on the task
+	// so a later result op returns it. Set only on submit when the peer's
+	// advertised manifest carries allows.usage_report.
+	WantUsage bool `json:"want_usage,omitempty"`
+
 	// Wait bounds how long a result request may long-poll for completion.
 	Wait time.Duration `json:"wait,omitempty"`
 
@@ -118,16 +123,21 @@ type TaskInfo struct {
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 	Error     string     `json:"error,omitempty"`
+	// Usage carries the recorded usage report when the submit negotiated it.
+	Usage *toolshared.RemoteUsage `json:"usage,omitempty"`
 }
 
 // Response is returned for every task-protocol request, including rejections.
 type Response struct {
-	TaskID    string                 `json:"task_id,omitempty"`
-	Status    TaskStatus             `json:"status"`
-	Result    *toolshared.ToolResult `json:"result,omitempty"`
-	Tasks     []TaskInfo             `json:"tasks,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	Signature []byte                 `json:"signature,omitempty"`
+	TaskID string                 `json:"task_id,omitempty"`
+	Status TaskStatus             `json:"status"`
+	Result *toolshared.ToolResult `json:"result,omitempty"`
+	// Usage carries the task's recorded usage report when the submit
+	// negotiated it and the run could be metered.
+	Usage     *toolshared.RemoteUsage `json:"usage,omitempty"`
+	Tasks     []TaskInfo              `json:"tasks,omitempty"`
+	Error     string                  `json:"error,omitempty"`
+	Signature []byte                  `json:"signature,omitempty"`
 }
 
 // Handler processes incoming task requests. Returning a Response (rather than

@@ -11,7 +11,20 @@ import (
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
+
+// formatUsageLine renders a remote task's summed usage report for human
+// output. Returns "" for nil reports so callers can print conditionally.
+func formatUsageLine(u *toolshared.RemoteUsage) string {
+	if u == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"%d llm calls, %d prompt + %d completion = %d tokens, %d ms",
+		u.LLMCalls, u.PromptTokens, u.CompletionTokens, u.TotalTokens, u.DurationMS,
+	)
+}
 
 // NewTaskCommand returns the task command group for inspecting asynchronous
 // mesh tasks submitted to a trusted peer.
@@ -144,6 +157,9 @@ func runTaskOp(cmd *cobra.Command, maddrStr, taskID, op string, wait time.Durati
 			fmt.Printf("Result:\n%s\n", content)
 		}
 	}
+	if resp.Usage != nil {
+		fmt.Printf("Usage:  %s\n", formatUsageLine(resp.Usage))
+	}
 }
 
 func printTaskList(cmd *cobra.Command, tasks []agenttask.TaskInfo, asJSON bool) {
@@ -168,6 +184,9 @@ func printTaskList(cmd *cobra.Command, tasks []agenttask.TaskInfo, asJSON bool) 
 		}
 		if t.Error != "" {
 			line += fmt.Sprintf("  error=%s", t.Error)
+		}
+		if t.Usage != nil {
+			line += fmt.Sprintf("  usage=%dtok/%dcalls", t.Usage.TotalTokens, t.Usage.LLMCalls)
 		}
 		cmd.Println(line)
 	}

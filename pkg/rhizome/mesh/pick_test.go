@@ -26,7 +26,7 @@ func TestMeshPickPeer(t *testing.T) {
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
 
-	// No capability advertised yet → nothing to pick.
+	// No capability advertised yet â†’ nothing to pick.
 	_, _, err := meshA.PickPeer("main", "spawn")
 	require.Error(t, err)
 
@@ -73,7 +73,7 @@ func TestMeshPickPeerPrefersLeastLoaded(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeC.Close() })
 
-	meshC := NewMesh(nodeC, nil, idC, cfg, runFunc)
+	meshC := NewMesh(nodeC, nil, idC, cfg, nilUsageRun(runFunc))
 	require.NoError(t, meshC.Start(ctx))
 	t.Cleanup(func() { _ = meshC.Stop() })
 
@@ -85,7 +85,7 @@ func TestMeshPickPeerPrefersLeastLoaded(t *testing.T) {
 	}, 10*time.Second, 50*time.Millisecond)
 	meshA.TrustPeer(nodeC.ID())
 
-	// B is busy, C is idle — both serve the agent.
+	// B is busy, C is idle â€” both serve the agent.
 	// newTaskTestMeshes already connected B; give both manifests.
 	for _, m := range meshA.ConnectedTrustedPeers() {
 		meshA.SetCapability(m, Capability{
@@ -132,7 +132,7 @@ func TestMeshPickPeerRoleAware(t *testing.T) {
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
 
-	// Third node — a full peer connected to A.
+	// Third node â€” a full peer connected to A.
 	idC := testutil.NewIdentity(t)
 	nodeC, err := network.NewNode(ctx, idC.Libp2pPrivKey, network.Config{
 		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
@@ -142,7 +142,7 @@ func TestMeshPickPeerRoleAware(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeC.Close() })
 
-	meshC := NewMesh(nodeC, nil, idC, cfg, runFunc)
+	meshC := NewMesh(nodeC, nil, idC, cfg, nilUsageRun(runFunc))
 	require.NoError(t, meshC.Start(ctx))
 	t.Cleanup(func() { _ = meshC.Stop() })
 
@@ -180,7 +180,7 @@ func TestMeshPickPeerRoleAware(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, nodeC.ID(), pid, "full node should win sync at equal load")
 
-	// role_aware off: identical scores → deterministic peer-id ordering.
+	// role_aware off: identical scores â†’ deterministic peer-id ordering.
 	meshA.cfg.Routing.RoleAware = false
 	ranked := meshA.PickPeerRanked("main", "spawn", nil)
 	require.Len(t, ranked, 2)
