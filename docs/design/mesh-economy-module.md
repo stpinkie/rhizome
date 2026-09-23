@@ -73,8 +73,10 @@ billing: observability of what remote work costs. Sketch:
 ## Open questions when picked up
 
 - Currency semantics: abstract `unit` labels vs concrete assets per rail.
-- Whether metering lands standalone first (observability) or with the
-  economy track.
+- ~~Whether metering lands standalone first (observability) or with the
+  economy track.~~ Resolved: metering lands standalone as **v0.13.0
+  Track 94** (observability-only `want_usage`/`usage` negotiated via the
+  `Allows["usage_report"]` advert); this module's economy work builds on it.
 - Module-with-daemon-seam vs config-gated subsystem (see above).
 - Task/cost-aware dispatch and swarm settlement scope (earlier "Stage 3"
   notes folded here).
