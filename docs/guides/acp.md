@@ -102,6 +102,17 @@ modes clears cached `allow_always`/`reject_always` decisions so approvals
 can't leak across modes, and the mode is persisted in `acp-sessions.json`
 and restored by `session/load`.
 
+## Session config options
+
+Sessions also expose a `category:model` select
+(`session/set_config_option`) listing every enabled `model_list` entry
+plus an **inherit** entry. Picking a model sets a per-session override:
+the next prompt runs on a shallow copy of the agent with the chosen
+model's candidates and providers resolved — the configured agent and its
+session history are untouched. `inherit` clears the override. The choice
+persists in `acp-sessions.json` and is restored by `session/load`; a model
+removed from `model_list` in the meantime falls back to inherit.
+
 ## Session MCP servers
 
 `session/new` and `session/load` accept client-declared `mcpServers`.

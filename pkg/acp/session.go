@@ -74,6 +74,8 @@ type acpSession struct {
 	allow    map[string]bool
 	deny     map[string]bool
 	mode     acpsdk.SessionModeId // "" = inherit the server policy
+	model    string               // "" = inherit the agent's model
+	agentID  string               // bound agent, for model resolution
 	closed   bool
 	promptAt time.Time
 
@@ -255,6 +257,20 @@ func (s *acpSession) effectiveMode(serverPolicy PermissionPolicy) acpsdk.Session
 // effectivePolicy resolves the permission policy in force for this session.
 func (s *acpSession) effectivePolicy(serverPolicy PermissionPolicy) PermissionPolicy {
 	return policyForMode(s.effectiveMode(serverPolicy))
+}
+
+// modelOverride returns the session's model override ("" = inherit the
+// agent's configured model).
+func (s *acpSession) modelOverride() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.model
+}
+
+func (s *acpSession) setModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = model
 }
 
 // setMCP wires the session's MCP manager + tool registrations for teardown.

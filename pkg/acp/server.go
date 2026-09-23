@@ -69,6 +69,9 @@ type Options struct {
 	Media media.MediaStore
 	// Version is reported as the agent's implementation version.
 	Version string
+	// Models lists the model_list names offered in the session's
+	// category:model config option. Empty disables the selector.
+	Models []string
 	// Sessions is the persisted ACP session index. When non-nil the server
 	// advertises loadSession and records new sessions for session/load.
 	Sessions *SessionStore
@@ -83,6 +86,7 @@ type Server struct {
 	policy  PermissionPolicy
 	agentID string
 	version string
+	models  []string
 	log     *slog.Logger
 	store   *SessionStore
 
@@ -116,6 +120,7 @@ func NewServer(runner AgentRunner, opts Options) *Server {
 		policy:   policy,
 		agentID:  opts.AgentID,
 		version:  opts.Version,
+		models:   append([]string(nil), opts.Models...),
 		store:    opts.Sessions,
 		log:      log,
 		sessions: make(map[acpsdk.SessionId]*acpSession),
@@ -276,6 +281,7 @@ func (s *Server) NewSession(
 	sid := acpsdk.SessionId(uuid.NewString())
 	sess := newACPSession(sid, fmt.Sprintf("agent:%s:acp:%s", agentID, sid))
 	sess.cwd = params.Cwd
+	sess.agentID = agentID
 	sess.onDecisions = s.decisionPersister(sid)
 
 	s.mu.Lock()
@@ -286,7 +292,11 @@ func (s *Server) NewSession(
 	s.persistSession(sess, agentID)
 
 	s.log.Info("acp: session created", "session_id", string(sid), "agent", agentID)
-	return acpsdk.NewSessionResponse{SessionId: sid, Modes: s.modeState(sess)}, nil
+	return acpsdk.NewSessionResponse{
+		SessionId:     sid,
+		Modes:         s.modeState(sess),
+		ConfigOptions: s.configOptions(sess),
+	}, nil
 }
 
 // LoadSession implements acpsdk.AgentLoader: it re-registers a persisted
@@ -314,11 +324,17 @@ func (s *Server) LoadSession(
 	sid := acpsdk.SessionId(rec.SessionID)
 	sess := newACPSession(sid, rec.SessionKey)
 	sess.cwd = rec.Cwd
+	sess.agentID = rec.AgentID
 	sess.restoreDecisions(rec.AllowAlways, rec.DenyAlways)
 	// Restore the persisted mode only when the current server policy still
 	// offers it — a record written under prompt must not widen a deny server.
 	if s.modeOffered(acpsdk.SessionModeId(rec.Mode)) {
 		sess.setMode(acpsdk.SessionModeId(rec.Mode))
+	}
+	// Same for the persisted model override: an entry removed from
+	// model_list since the record was written falls back to inherit.
+	if s.modelOffered(rec.Model) {
+		sess.setModel(rec.Model)
 	}
 	sess.onDecisions = s.decisionPersister(sid)
 
@@ -336,7 +352,10 @@ func (s *Server) LoadSession(
 
 	s.log.Info("acp: session loaded",
 		"session_id", string(sid), "agent", rec.AgentID, "session_key", rec.SessionKey)
-	return acpsdk.LoadSessionResponse{Modes: s.modeState(sess)}, nil
+	return acpsdk.LoadSessionResponse{
+		Modes:         s.modeState(sess),
+		ConfigOptions: s.configOptions(sess),
+	}, nil
 }
 
 // availableModes is the session-mode set offered to clients. A deny server
@@ -382,6 +401,76 @@ func (s *Server) modeState(sess *acpSession) *acpsdk.SessionModeState {
 		AvailableModes: s.availableModes(),
 		CurrentModeId:  sess.effectiveMode(s.policy),
 	}
+}
+
+// Session config option ids and reserved select values.
+const (
+	modelConfigID     acpsdk.SessionConfigId      = "model"
+	modelInheritValue acpsdk.SessionConfigValueId = "inherit"
+)
+
+// modelOffered reports whether name is a selectable model for this server.
+func (s *Server) modelOffered(name string) bool {
+	for _, m := range s.models {
+		if m == name {
+			return true
+		}
+	}
+	return false
+}
+
+// agentModel returns the configured model of the session's bound agent.
+func (s *Server) agentModel(sess *acpSession) string {
+	reg := s.runner.GetRegistry()
+	if reg == nil {
+		return ""
+	}
+	inst, ok := reg.GetAgent(sess.agentID)
+	if !ok || inst == nil {
+		return ""
+	}
+	return inst.Model
+}
+
+// configOptions builds the session's config-option list. The only option
+// today is the category:model select over Options.Models plus an "inherit"
+// entry that clears the per-session override.
+func (s *Server) configOptions(sess *acpSession) []acpsdk.SessionConfigOption {
+	if len(s.models) == 0 {
+		return nil
+	}
+	inheritName := "Agent default"
+	if active := s.agentModel(sess); active != "" {
+		inheritName = fmt.Sprintf("Agent default (%s)", active)
+	}
+	values := make([]acpsdk.SessionConfigSelectOption, 0, len(s.models)+1)
+	values = append(values, acpsdk.SessionConfigSelectOption{
+		Name:  inheritName,
+		Value: modelInheritValue,
+	})
+	for _, name := range s.models {
+		values = append(values, acpsdk.SessionConfigSelectOption{
+			Name:  name,
+			Value: acpsdk.SessionConfigValueId(name),
+		})
+	}
+	current := sess.modelOverride()
+	if current == "" {
+		current = s.agentModel(sess)
+	}
+	if current == "" {
+		current = string(modelInheritValue)
+	}
+	ungrouped := acpsdk.SessionConfigSelectOptionsUngrouped(values)
+	return []acpsdk.SessionConfigOption{{
+		Select: &acpsdk.SessionConfigOptionSelect{
+			Id:           modelConfigID,
+			Name:         "Model",
+			Category:     acpsdk.Ptr(acpsdk.SessionConfigOptionCategoryModel),
+			CurrentValue: acpsdk.SessionConfigValueId(current),
+			Options:      acpsdk.SessionConfigSelectOptions{Ungrouped: &ungrouped},
+		},
+	}}
 }
 
 // replayHistory resends stored user/assistant messages as session/update
@@ -454,6 +543,17 @@ func (s *Server) persistMode(sess *acpSession) {
 	}
 }
 
+// persistModel records the session's model override (no-op when
+// unconfigured).
+func (s *Server) persistModel(sess *acpSession) {
+	if s.store == nil {
+		return
+	}
+	if err := s.store.UpdateModel(string(sess.id), sess.modelOverride()); err != nil {
+		s.log.Warn("acp: failed to persist session model", "session_id", string(sess.id), "error", err)
+	}
+}
+
 // decisionPersister returns the onDecisions callback bound to a session id.
 func (s *Server) decisionPersister(sid acpsdk.SessionId) func(allow, deny []string) {
 	if s.store == nil {
@@ -495,6 +595,8 @@ func (s *Server) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsd
 		Media:      mediaRefs,
 		MediaScope: sess.key,
 		SessionKey: sess.key,
+		// Per-session model override (session/set_config_option).
+		ModelOverride: sess.modelOverride(),
 	}
 
 	text, runErr := s.runner.ProcessInbound(ctx, msg)
@@ -717,11 +819,45 @@ func (s *Server) SetSessionMode(
 	return acpsdk.SetSessionModeResponse{}, nil
 }
 
-// SetSessionConfigOption echoes an empty config-option list; Rhizome does
-// not expose client-tunable session config options yet.
+// SetSessionConfigOption applies a client-chosen config option. The only
+// declared option is the category:model select: a value id names a
+// model_list entry and becomes the session's model override; "inherit"
+// clears it. The response carries the full option set per the ACP spec.
 func (s *Server) SetSessionConfigOption(
 	_ context.Context,
-	_ acpsdk.SetSessionConfigOptionRequest,
+	params acpsdk.SetSessionConfigOptionRequest,
 ) (acpsdk.SetSessionConfigOptionResponse, error) {
-	return acpsdk.SetSessionConfigOptionResponse{}, nil
+	// Only the select variant is meaningful — no boolean options exist.
+	if params.ValueId == nil {
+		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "unsupported config option payload",
+		})
+	}
+	req := params.ValueId
+	sess, ok := s.sessionByID(req.SessionId)
+	if !ok || sess.isClosed() {
+		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "unknown or closed session",
+		})
+	}
+	if req.ConfigId != modelConfigID {
+		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error":      fmt.Sprintf("unknown configId %q", req.ConfigId),
+			"candidates": []string{string(modelConfigID)},
+		})
+	}
+	val := string(req.Value)
+	switch {
+	case val == string(modelInheritValue):
+		sess.setModel("")
+	case s.modelOffered(val):
+		sess.setModel(val)
+	default:
+		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error":     fmt.Sprintf("unknown model %q", val),
+			"available": s.models,
+		})
+	}
+	s.persistModel(sess)
+	return acpsdk.SetSessionConfigOptionResponse{ConfigOptions: s.configOptions(sess)}, nil
 }

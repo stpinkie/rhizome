@@ -171,6 +171,18 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		return "", routeErr
 	}
 
+	// A per-message model override (e.g. an ACP session config option)
+	// runs the turn on a shallow copy of the resolved agent — unlike
+	// remote dispatch there is no ephemeral-session swap, so history and
+	// the live instance are untouched.
+	if override := strings.TrimSpace(msg.ModelOverride); override != "" {
+		agentCopy := *agent
+		if err := al.applyModelOverride(agent, &agentCopy, override); err != nil {
+			return "", err
+		}
+		agent = &agentCopy
+	}
+
 	allocation := al.allocateRouteSession(route, msg)
 
 	// Resolve session key from the route allocation, while preserving explicit

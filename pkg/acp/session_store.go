@@ -26,6 +26,9 @@ type SessionRecord struct {
 	// Mode is the session's permission-mode override ("" = inherit the
 	// server policy); restored on session/load.
 	Mode string `json:"mode,omitempty"`
+	// Model is the session's model override ("" = inherit the agent's
+	// configured model); restored on session/load.
+	Model string `json:"model,omitempty"`
 	// AllowAlways/DenyAlways restore cached permission decisions.
 	AllowAlways []string `json:"allow_always,omitempty"`
 	DenyAlways  []string `json:"deny_always,omitempty"`
@@ -116,6 +119,20 @@ func (s *SessionStore) UpdateMode(id string, mode string) error {
 		return nil
 	}
 	r.Mode = mode
+	s.records[id] = r
+	return s.saveLocked()
+}
+
+// UpdateModel stores the session's model override so a later session/load
+// can restore it.
+func (s *SessionStore) UpdateModel(id string, model string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.records[id]
+	if !ok {
+		return nil
+	}
+	r.Model = model
 	s.records[id] = r
 	return s.saveLocked()
 }

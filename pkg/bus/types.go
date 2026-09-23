@@ -42,6 +42,11 @@ type InboundMessage struct {
 	Media      []string       `json:"media,omitempty"`
 	MediaScope string         `json:"media_scope,omitempty"` // media lifecycle scope
 	SessionKey string         `json:"session_key"`
+	// ModelOverride runs this turn on a shallow copy of the routed agent
+	// with the named model applied (e.g. an ACP session config option).
+	// It must resolve to a model_list entry; unconfigured models fail the
+	// turn with an error.
+	ModelOverride string `json:"model_override,omitempty"`
 
 	// Convenience mirrors derived from Context for runtime consumers.
 	Channel   string `json:"channel"`
