@@ -24,6 +24,7 @@ func setClawHubBaseURL(cfg *config.Config, baseURL string) {
 	registryCfg, _ := cfg.Tools.Skills.Registries.Get("clawhub")
 	registryCfg.BaseURL = baseURL
 	cfg.Tools.Skills.Registries.Set("clawhub", registryCfg)
+	disableRhizomeRegistry(cfg)
 }
 
 func setGithubBaseURL(cfg *config.Config, baseURL string) {
@@ -33,6 +34,19 @@ func setGithubBaseURL(cfg *config.Config, baseURL string) {
 	}
 	registryCfg.BaseURL = baseURL
 	cfg.Tools.Skills.Registries.Set("github", registryCfg)
+	disableRhizomeRegistry(cfg)
+}
+
+// disableRhizomeRegistry keeps search/install assertions deterministic: the
+// default-enabled first-party registry serves real signed release indexes,
+// which would add live curated results to count-sensitive tests.
+func disableRhizomeRegistry(cfg *config.Config) {
+	registryCfg, ok := cfg.Tools.Skills.Registries.Get("rhizome")
+	if !ok {
+		return
+	}
+	registryCfg.Enabled = false
+	cfg.Tools.Skills.Registries.Set("rhizome", registryCfg)
 }
 
 func TestHandleListSkills(t *testing.T) {
@@ -1241,6 +1255,7 @@ func TestHandleInstallSkillDefaultsRegistryToGitHub(t *testing.T) {
 	}
 	githubRegistry.BaseURL = server.URL
 	cfg.Tools.Skills.Registries.Set("github", githubRegistry)
+	disableRhizomeRegistry(cfg)
 	if saveErr := config.SaveConfig(configPath, cfg); saveErr != nil {
 		t.Fatalf("SaveConfig() error = %v", saveErr)
 	}
