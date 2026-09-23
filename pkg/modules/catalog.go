@@ -63,6 +63,32 @@ type ReleasePin struct {
 	Build   string            `json:"build,omitempty"`  // extra asset-name component (e.g. commit hash)
 	SHA256  map[string]string `json:"sha256,omitempty"` // "goos/goarch" → lowercase hex digest
 	SHA512  map[string]string `json:"sha512,omitempty"` // "goos/goarch" → lowercase hex digest
+	// Signature optionally declares an upstream cryptographic signature for
+	// the release artifact (catalog schema v3). The pinned digest remains
+	// the mandatory floor — a signature adds provenance, not a replacement
+	// for integrity. Absent is fine; declared-but-unverifiable is fatal.
+	Signature *ReleaseSignature `json:"signature,omitempty"`
+}
+
+// ReleaseSignature declares a detached upstream signature for a release
+// artifact. Key is inline key material pinned inside the (itself signed or
+// embedded) catalog — that is what anchors the check: a remotely fetched
+// key would inherit only TLS trust and could be swapped alongside the
+// artifact it claims to verify.
+type ReleaseSignature struct {
+	// Kind selects the verifier: "minisign" (.minisig files),
+	// "cosign-blob" (raw blob signature + PEM public key), or "gpg"
+	// (detached OpenPGP signature + armored public key).
+	Kind string `json:"kind"`
+	// URL is the signature artifact location; the same placeholders as
+	// asset templates apply ({version}, {build}, {goos}, {goarch}) plus
+	// {asset} for the resolved asset name and {tag} for the release tag.
+	URL string `json:"url"`
+	// Key is the verification key material, per kind:
+	//   minisign:    the .pub file contents or its base64 line
+	//   cosign-blob: PEM public key (ECDSA or Ed25519)
+	//   gpg:         ASCII-armored (or binary) OpenPGP public key
+	Key string `json:"key"`
 }
 
 // Digest returns the pinned digest for a platform and its algorithm name
@@ -270,6 +296,29 @@ func (s ModuleSpec) DownloadURL(r ReleasePin) string {
 		"%s/%s/releases/download/%s/%s",
 		downloadBaseURL, s.Install.Repo, s.Tag(r), s.Asset(r),
 	)
+}
+
+// SignatureURL expands the declared signature URL template for a pin. It
+// applies the same GOOS aliasing as Asset so {goos} resolves identically,
+// plus {asset} and {tag} for publishers that name signatures after the
+// artifact (e.g. "kubo_v{version}_{goos}-{goarch}.tar.gz.minisig" or
+// "{asset}.minisig").
+func (s ModuleSpec) SignatureURL(r ReleasePin) string {
+	if r.Signature == nil {
+		return ""
+	}
+	goos := runtime.GOOS
+	if alias, ok := s.Install.OSAliases[goos]; ok {
+		goos = alias
+	}
+	return expand(r.Signature.URL, map[string]string{
+		"version": r.Version,
+		"build":   r.Build,
+		"goos":    goos,
+		"goarch":  runtime.GOARCH,
+		"asset":   s.Asset(r),
+		"tag":     s.Tag(r),
+	})
 }
 
 // catalog is the static list of companion modules. It is a package variable
@@ -619,7 +668,30 @@ var releasePubKeyB64 = "Ww3Kz/J38L0ColSCrcOjq6I/3WCzsvZMvecGyyrDQzI="
 // RunSpec init_marker/init_args/setup_args and InstallSpec asset_templates
 // fields — a v1 binary would silently drop them and misrun modules that
 // depend on them, so catalogs that use them must declare version 2.
-const catalogVersionSupported = 2
+// v3 adds ReleasePin.signature — a binary that cannot verify a declared
+// signature must not silently skip it, so catalogs declaring one must
+// declare version 3.
+const catalogVersionSupported = 3
+
+// catalogVersionRequired returns the lowest schema version that covers the
+// given module set — MarshalCatalog emits it rather than always emitting
+// the newest version, so older binaries keep working until a catalog
+// actually uses a field they cannot honor.
+func catalogVersionRequired(specs []ModuleSpec) int {
+	v := 1
+	for _, spec := range specs {
+		if len(spec.Install.AssetTemplates) > 0 || spec.Run.InitMarker != "" ||
+			len(spec.Run.InitArgs) > 0 || len(spec.Run.SetupArgs) > 0 {
+			v = 2
+		}
+		for _, r := range spec.Install.Releases {
+			if r.Signature != nil {
+				return 3
+			}
+		}
+	}
+	return v
+}
 
 // CatalogEnvelope is the signed remote-catalog wire format served at
 // <module_index.url>/catalog.json.
@@ -631,10 +703,11 @@ type CatalogEnvelope struct {
 
 // MarshalCatalog renders the catalog in its canonical signed form — the
 // exact bytes release signing covers (json.MarshalIndent is deterministic:
-// struct field order plus sorted map keys).
+// struct field order plus sorted map keys). The emitted catalog_version is
+// the lowest that covers the content (see catalogVersionRequired).
 func MarshalCatalog() ([]byte, error) {
 	return json.MarshalIndent(CatalogEnvelope{
-		CatalogVersion: catalogVersionSupported,
+		CatalogVersion: catalogVersionRequired(catalog),
 		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
 		Modules:        catalog,
 	}, "", "  ")
@@ -720,10 +793,36 @@ func parseCatalogEnvelope(data []byte) ([]ModuleSpec, error) {
 		default:
 			return nil, fmt.Errorf("catalog entry %q: unknown kind %q", spec.ID, spec.Kind)
 		}
+		for _, r := range spec.Install.Releases {
+			if err := validateReleaseSignature(spec.ID, r.Signature); err != nil {
+				return nil, err
+			}
+		}
 		if seen[spec.ID] {
 			return nil, fmt.Errorf("catalog lists %q twice", spec.ID)
 		}
 		seen[spec.ID] = true
 	}
 	return env.Modules, nil
+}
+
+// validateReleaseSignature rejects malformed signature declarations: a
+// present-but-broken declaration must fail closed at the schema gate
+// rather than at install time.
+func validateReleaseSignature(id string, sig *ReleaseSignature) error {
+	if sig == nil {
+		return nil
+	}
+	switch sig.Kind {
+	case "minisign", "cosign-blob", "gpg":
+	default:
+		return fmt.Errorf("catalog entry %q: unsupported signature kind %q", id, sig.Kind)
+	}
+	if sig.URL == "" {
+		return fmt.Errorf("catalog entry %q: signature missing url", id)
+	}
+	if sig.Key == "" {
+		return fmt.Errorf("catalog entry %q: signature missing key", id)
+	}
+	return nil
 }

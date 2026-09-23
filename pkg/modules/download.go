@@ -76,6 +76,14 @@ func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version s
 		)
 	}
 
+	// Digest is the floor; a declared upstream signature adds provenance.
+	// Absent is fine — declared-but-unverifiable is fatal before extraction.
+	if release.Signature != nil {
+		if err := m.verifyUpstreamSignature(ctx, spec, release, tmpPath); err != nil {
+			return fmt.Errorf("module %q v%s: %w", spec.ID, release.Version, err)
+		}
+	}
+
 	dest := filepath.Join(m.Dir(spec.ID), release.Version)
 	if err := os.RemoveAll(dest); err != nil {
 		return err
