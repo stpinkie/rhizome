@@ -173,9 +173,23 @@ The bound id is routable like any other agent:
 ### Lifecycle
 
 The external process is spawned lazily on first use and reused across
-delegations; each delegation creates a fresh `session/new` (prompt text
-only — media attachments are dropped with a warning). On gateway shutdown
-the processes are terminated.
+delegations. Session depth follows `agents.list[].acp.session_mode`:
+
+- `oneshot` *(default)* — each delegation creates a fresh `session/new`
+  and closes it after the prompt.
+- `persistent` — one session per agent id, reused across delegations so
+  the external agent accumulates context. After a process respawn Rhizome
+  tries `session/load` with the remembered id when the agent advertised
+  `loadSession`, else falls back to `session/new`. Sessions are closed on
+  gateway shutdown.
+
+`agents.list[].acp.mode` requests `session/set_mode` after session
+creation when the agent advertised that mode id; an unadvertised id logs
+a warning and continues (agents own their mode vocabularies).
+
+Media attachments (`media://` refs, e.g. mesh task attachments) are sent
+as ACP image blocks when the agent advertises `promptCapabilities.image`;
+anything else degrades to a text reference in the prompt.
 
 ### What the external agent can do
 
@@ -211,6 +225,34 @@ Rhizome answers client-bound ACP requests like this:
 
 Terminal ids are bound to the requesting session and killed when the
 external agent process exits.
+
+Both policies can be overridden per binding — a trusted binding can get
+`allow` while the fleet default stays `deny`:
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "gemini",
+        "acp": {
+          "command": "gemini",
+          "permission_policy": "allow",
+          "terminal_policy": "allow",
+          "session_mode": "persistent",
+          "mode": "plan"
+        }
+      }
+    ]
+  }
+}
+```
+
+MCP servers: enabled `tools.mcp.servers` entries are forwarded to the
+external agent at `session/new` (and `session/load`), filtered by the
+agent's advertised `mcpCapabilities` — stdio entries always forward,
+`http`/`sse` entries are refused with a per-entry error when the agent
+didn't advertise that transport.
 
 Authentication: when the external agent advertises `authMethods` during
 `initialize`, Rhizome picks a satisfiable method and runs `authenticate`

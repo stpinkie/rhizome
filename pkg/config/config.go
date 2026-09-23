@@ -697,6 +697,20 @@ type ACPAgentConfig struct {
 	// AuthMethod pins which advertised auth method to use when the agent
 	// requires authentication; empty picks the first satisfiable method.
 	AuthMethod string `json:"auth_method,omitempty"`
+	// SessionMode selects session lifetime: "oneshot" (default) creates and
+	// closes a session per delegation; "persistent" reuses one session per
+	// agent id so the external agent accumulates context.
+	SessionMode string `json:"session_mode,omitempty"`
+	// PermissionPolicy overrides acp.client.permission_policy for this
+	// binding ("allow", "allow-read-only", or "deny"); empty inherits the
+	// global.
+	PermissionPolicy string `json:"permission_policy,omitempty"`
+	// TerminalPolicy overrides acp.client.terminal_policy for this binding
+	// ("allow" or "deny"); empty inherits the global.
+	TerminalPolicy string `json:"terminal_policy,omitempty"`
+	// Mode requests session/set_mode with this id after session creation
+	// when the agent advertises it; unadvertised ids warn and continue.
+	Mode string `json:"mode,omitempty"`
 }
 
 type SubagentsConfig struct {

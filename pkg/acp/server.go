@@ -258,6 +258,12 @@ func (s *Server) Initialize(
 		},
 		AgentCapabilities: acpsdk.AgentCapabilities{
 			LoadSession: s.store != nil,
+			// MCP transports we can host for session-declared servers:
+			// stdio is implicit in ACP; http/sse/acp stay refused.
+			McpCapabilities: acpsdk.McpCapabilities{
+				Http: false,
+				Sse:  false,
+			},
 			PromptCapabilities: acpsdk.PromptCapabilities{
 				Image:           s.media != nil,
 				EmbeddedContext: false,

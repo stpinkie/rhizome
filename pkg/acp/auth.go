@@ -103,13 +103,13 @@ func (m *ClientManager) checkAuthSatisfiable(inst *agent.AgentInstance, am acpsd
 		}
 		return nil
 	case am.Terminal != nil:
-		if m.termPolicy != TerminalPolicyAllow {
+		if m.termPolicyFor(inst) != TerminalPolicyAllow {
 			return fmt.Errorf("terminal auth requires acp.client.terminal_policy=allow")
 		}
 		return nil
 	case am.Agent != nil:
 		// The agent drives its own flow, which may need terminal methods.
-		if m.termPolicy != TerminalPolicyAllow {
+		if m.termPolicyFor(inst) != TerminalPolicyAllow {
 			return fmt.Errorf("agent-driven auth requires acp.client.terminal_policy=allow")
 		}
 		return nil

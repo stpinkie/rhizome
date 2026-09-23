@@ -31,42 +31,80 @@ type mockExternalAgent struct {
 	authCalls   []string
 	authErr     error
 	authed      bool
+
+	initCaps        acpsdk.AgentCapabilities
+	initReqs        []acpsdk.InitializeRequest
+	modes           *acpsdk.SessionModeState
+	newSessionReqs  []acpsdk.NewSessionRequest
+	loadSessionReqs []acpsdk.LoadSessionRequest
+	loadSessionErr  error
+	setModeCalls    []acpsdk.SetSessionModeRequest
+	setModeErr      error
+	promptReqs      []acpsdk.PromptRequest
+	closeCalls      int
+	knownSessions   map[acpsdk.SessionId]bool
 }
 
 func (m *mockExternalAgent) Initialize(
 	_ context.Context,
-	_ acpsdk.InitializeRequest,
+	req acpsdk.InitializeRequest,
 ) (acpsdk.InitializeResponse, error) {
 	m.mu.Lock()
 	m.initCalls++
+	m.initReqs = append(m.initReqs, req)
 	methods := append([]acpsdk.AuthMethod(nil), m.authMethods...)
+	caps := m.initCaps
 	m.mu.Unlock()
 	return acpsdk.InitializeResponse{
 		ProtocolVersion:   acpsdk.ProtocolVersionNumber,
-		AgentCapabilities: acpsdk.AgentCapabilities{},
+		AgentCapabilities: caps,
 		AuthMethods:       methods,
 	}, nil
 }
 
 func (m *mockExternalAgent) NewSession(
 	_ context.Context,
-	_ acpsdk.NewSessionRequest,
+	req acpsdk.NewSessionRequest,
 ) (acpsdk.NewSessionResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.authMethods) > 0 && !m.authed {
 		return acpsdk.NewSessionResponse{}, fmt.Errorf("session/new before authenticate")
 	}
+	m.newSessionReqs = append(m.newSessionReqs, req)
 	m.sessionN++
 	sid := acpsdk.SessionId(fmt.Sprintf("ext-sess-%d", m.sessionN))
 	m.sessions = append(m.sessions, sid)
-	return acpsdk.NewSessionResponse{SessionId: sid}, nil
+	if m.knownSessions == nil {
+		m.knownSessions = make(map[acpsdk.SessionId]bool)
+	}
+	m.knownSessions[sid] = true
+	return acpsdk.NewSessionResponse{SessionId: sid, Modes: m.modes}, nil
+}
+
+func (m *mockExternalAgent) LoadSession(
+	_ context.Context,
+	req acpsdk.LoadSessionRequest,
+) (acpsdk.LoadSessionResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.loadSessionReqs = append(m.loadSessionReqs, req)
+	if m.loadSessionErr != nil {
+		return acpsdk.LoadSessionResponse{}, m.loadSessionErr
+	}
+	if !m.knownSessions[req.SessionId] {
+		return acpsdk.LoadSessionResponse{}, fmt.Errorf("unknown session %q", req.SessionId)
+	}
+	return acpsdk.LoadSessionResponse{Modes: m.modes}, nil
 }
 
 func (m *mockExternalAgent) Prompt(
 	ctx context.Context,
 	params acpsdk.PromptRequest,
 ) (acpsdk.PromptResponse, error) {
+	m.mu.Lock()
+	m.promptReqs = append(m.promptReqs, params)
+	m.mu.Unlock()
 	if m.onPrompt != nil {
 		return m.onPrompt(ctx, m.conn, params)
 	}
@@ -90,6 +128,9 @@ func (m *mockExternalAgent) CloseSession(
 	_ context.Context,
 	_ acpsdk.CloseSessionRequest,
 ) (acpsdk.CloseSessionResponse, error) {
+	m.mu.Lock()
+	m.closeCalls++
+	m.mu.Unlock()
 	return acpsdk.CloseSessionResponse{}, nil
 }
 
@@ -130,8 +171,14 @@ func (m *mockExternalAgent) Logout(
 
 func (m *mockExternalAgent) SetSessionMode(
 	_ context.Context,
-	_ acpsdk.SetSessionModeRequest,
+	req acpsdk.SetSessionModeRequest,
 ) (acpsdk.SetSessionModeResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setModeCalls = append(m.setModeCalls, req)
+	if m.setModeErr != nil {
+		return acpsdk.SetSessionModeResponse{}, m.setModeErr
+	}
 	return acpsdk.SetSessionModeResponse{}, nil
 }
 
@@ -159,6 +206,7 @@ func pipedManager(
 		policy:     normalizeClientPolicy(cfg.ACP.Client.PermissionPolicy),
 		termPolicy: normalizeTerminalPolicy(cfg.ACP.Client.TerminalPolicy),
 		procs:      make(map[string]*agentProcess),
+		sessions:   make(map[string]acpsdk.SessionId),
 	}
 	m.dial = func(_ context.Context, agentID string, inst *agent.AgentInstance) (*agentProcess, error) {
 		c2aR, c2aW := io.Pipe()
@@ -167,12 +215,20 @@ func pipedManager(
 		agentConn := acpsdk.NewAgentSideConnection(mock, a2cW, c2aR)
 		mock.conn = agentConn
 
+		policy := m.policyFor(inst)
 		handler := &clientHandler{
 			agentID:   agentID,
-			policy:    m.policy,
+			policy:    policy,
 			workspace: m.sessionCwd(inst),
 			restrict:  cfg.Agents.Defaults.RestrictToWorkspace,
 			sessions:  make(map[acpsdk.SessionId]*sessionBuffer),
+		}
+		if m.termPolicyFor(inst) == TerminalPolicyAllow {
+			if bridge, err := newTerminalBridge(
+				handler.workspace, handler.restrict, cfg, nil,
+			); err == nil {
+				handler.term = bridge
+			}
 		}
 		clientConn := acpsdk.NewClientSideConnection(handler, c2aW, a2cR)
 
@@ -180,7 +236,11 @@ func pipedManager(
 		initResp, err := clientConn.Initialize(context.Background(), acpsdk.InitializeRequest{
 			ProtocolVersion: acpsdk.ProtocolVersionNumber,
 			ClientCapabilities: acpsdk.ClientCapabilities{
-				Fs: acpsdk.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
+				Fs: acpsdk.FileSystemCapabilities{
+					ReadTextFile:  true,
+					WriteTextFile: policy != ClientPolicyAllowReadOnly,
+				},
+				Terminal: handler.term != nil,
 			},
 		})
 		if err != nil {
@@ -195,6 +255,7 @@ func pipedManager(
 		return &agentProcess{
 			conn:    clientConn,
 			handler: handler,
+			caps:    initResp.AgentCapabilities,
 			kill:    func() { _ = c2aW.Close(); _ = a2cW.Close() },
 		}, nil
 	}

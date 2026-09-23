@@ -238,6 +238,7 @@ func RunWithMesh(
 	// (remote → acp → local).
 	acpManager := acp.NewClientManager(cfg, agentLoop.GetRegistry)
 	if acpManager != nil {
+		acpManager.SetMediaStore(mediaStore)
 		agentLoop.SetExternalAgentRunner(acpManager.RunRemote)
 		agentLoop.SetACPInvoker(acpManager)
 	}
