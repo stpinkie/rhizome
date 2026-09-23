@@ -3,7 +3,7 @@
 
 > **Vision**: A personal AI agent that runs everywhere you already have hardware — secure, autonomous, and cheap enough to leave running. Automate the mundane, unleash your creativity.
 
-> **Re-evaluated post-v0.11.0**: items that shipped are marked with their release; the roadmap now tracks only what's actually open. Work is planned in `.todo.md` sprint tracks (GitHub issues are disabled on this repo); upstream PicoClaw issue numbers from the original roadmap are triaged in `docs/project/upstream-issue-triage.md`. Current sprint: **v0.12.0** (`docs/design/v0.12.0-sprint.md`); next: **v0.13.0** (`docs/design/v0.13.0-sprint.md`).
+> **Re-evaluated post-v0.11.0**: items that shipped are marked with their release; the roadmap now tracks only what's actually open. Work is planned in `.todo.md` sprint tracks (GitHub issues are disabled on this repo); upstream PicoClaw issue numbers from the original roadmap are triaged in `docs/project/upstream-issue-triage.md`. Current sprint: **v0.13.0** (`docs/design/v0.13.0-sprint.md` — revised pre-implementation: ACP interop tail + remote-task usage metering + module trust + enc2 store migrations; localization demoted). v0.12.0 is tagged; release verification in flight.
 
 ---
 
@@ -31,10 +31,10 @@
 
 * **Authentication & Secrets**
   * ✅ Identity encryption (v0.9.x era): OS keyring / passphrase (scrypt) / none for `node.json`.
-  * ✅ OAuth 2.0 provider flows (partial): browser+PKCE login in `pkg/auth/oauth.go` + `pkg/providers/oauth/` (codex/claude/antigravity) + `auth_method` plumbing. **Residual → v0.12.0 Track 82**: headless/device-code path + coverage/docs.
-  * **Open → v0.12.0 Track 82**: `ChaCha20-Poly1305`-class modern secret storage (`enc2://` XChaCha20-Poly1305 alongside `enc://` AES-256-GCM).
+  * ✅ OAuth 2.0 provider flows: browser+PKCE login in `pkg/auth/oauth.go` + `pkg/providers/oauth/` (codex/claude/antigravity) + `auth_method` plumbing; headless/device-code path + coverage/docs (v0.12.0 Track 82).
+  * ✅ Modern secret storage (v0.12.0 Track 82): `enc2://` XChaCha20-Poly1305 credentials alongside `enc://` AES-256-GCM. **Open → v0.13.0 Track 96**: same AEAD migration for the `node.json` identity store and `web3/keys.json` wallet (`cipher` marker field; keyring/scrypt key sources unchanged).
   * ✅ Module supply-chain verification (v0.10.0 Track 60): checksum-pinned companion downloads (sha256/sha512 per platform). ✅ **Deepened (v0.11.0 Track 70)**: signed catalog + curated remote index + `module verify`.
-  * **New → v0.12.0 Track 77 (see §9 Stage 2)**: web3 signing safety — transaction send gated behind allowlists, spending caps, signer scoping (`from_addresses`), and an async pending-approval queue (CLI/daemon/UI) layered on the `approve_tool` hook seam.
+  * ✅ Web3 signing safety (v0.12.0 Track 77, see §9 Stage 2): transaction send gated behind allowlists, spending caps, signer scoping (`from_addresses`), and an async pending-approval queue (CLI/daemon/UI) layered on the `approve_tool` hook seam.
 
 
 ## 🔌 3. Connectivity: Protocol-First Architecture
@@ -51,7 +51,7 @@
   * ✅ OneBot protocol support (`pkg/channels/onebot` + `docs/channels/onebot/`).
 
 * **Agent Interop**
-  * ✅ **Agent Client Protocol (Zed ACP)** (v0.10.0 Tracks 61–62): server (`rhizome acp`: editors like Zed/JetBrains drive Rhizome over stdio JSON-RPC) and client (external ACP agents bound as first-class agent ids — routable via `delegate`, `spawn`, `network route`, and swarm offers). **Deepening → v0.12.0 Track 81**: `session/load` persistence, per-session MCP passthrough, `terminal` client capability (deny-default). **Further → v0.13.0 Tracks 85–88**: `session/set_mode` per-session permission posture, `session/set_config_option` model picker, external-agent `authMethods`, persistent sessions + media passthrough.
+  * ✅ **Agent Client Protocol (Zed ACP)** (v0.10.0 Tracks 61–62): server (`rhizome acp`: editors like Zed/JetBrains drive Rhizome over stdio JSON-RPC) and client (external ACP agents bound as first-class agent ids — routable via `delegate`, `spawn`, `network route`, and swarm offers). **Deepened → v0.12.0 Track 81**: `session/load` persistence, per-session MCP passthrough, `terminal` client capability (deny-default). **Further → v0.13.0 Tracks 85–88**: `session/set_mode` per-session permission posture, `session/set_config_option` per-session model picker, external-agent `authMethods` (env_var/terminal/agent), persistent sessions + media passthrough + `session/set_mode` forwarding + `mcpCapabilities` honesty.
 
 * **Skill Distribution**
   * ✅ Mesh skill distribution (v0.8.0): `mesh.skill_share` allowlist, `/rhizome/skill/1.0.0` + blob transport, guard-scanned install, mesh provenance.
@@ -74,7 +74,8 @@
   * ✅ Mesh depth (v0.8.0): trust pairing, blob transfer, task attachments, capability-aware claims, DAG orchestration.
   * ✅ Shared context + agent identity (v0.9.0): swarm blackboard + signed AIEOS-style agent manifests.
   * ✅ **Mesh observability** (v0.10.0 Track 63): per-connection transport/direction/RTT details, peer score surfacing, bandwidth counters, activity feed, dashboard panels.
-  * **New → v0.12.0 Track 80**: role-aware `PickPeer` + role-preferred coordinator election + dashboard topology graph. Task/cost-aware dispatch deferred — folded into the mesh-economy module seed (`docs/design/mesh-economy-module.md`).
+  * ✅ Role-aware mesh (v0.12.0 Track 80): role-aware `PickPeer` + role-preferred coordinator election + dashboard topology graph. Task/cost-aware dispatch deferred — folded into the mesh-economy module seed (`docs/design/mesh-economy-module.md`).
+  * **New → v0.13.0 Track 94**: remote-task usage metering — `want_usage`/`usage` wire fields negotiated via the `usage_report` capability advert (`Capability.Allows` map; additive-safe through old builds' re-marshal); task/delegate surfaces + audit fields. Observability only — feeds the future economy module.
   * AIEOS: continued exploration of AI-native OS interaction paradigms.
 
 
@@ -97,7 +98,7 @@
 ## 🎨 7. Brand & Community
 
 * **Blocked**: Logo design (needs a real asset — no art pipeline): Mantis Shrimp concept, "Small but Mighty, Lightning Fast Strikes."
-* **Open → v0.13.0 Track 92**: translated-README rebrand tail (PicoClaw mascot/slogan/emoji removal across 9 locales).
+* **Open → post-v0.13.0**: translated-README rebrand tail (PicoClaw mascot/slogan/emoji removal across 9 locales) — demoted from v0.13.0 Track 92 in the pre-implementation revision.
 
 
 ## 🧩 8. Extensibility: Companion Modules
@@ -110,6 +111,7 @@
   * `rhizome module list|status|install|uninstall|enable|disable|start|stop|restart|logs|set|validate` CLI + a web **Modules** page.
 * ✅ **First tenants** (v0.10.0 Track 65): `nimbus-verified-proxy` (verified Ethereum JSON-RPC; linux/darwin/**windows**; P2P light-client sync default) + `ethereum-rpc` (config-only remote endpoint).
 * ✅ **Module trust** (v0.11.0 Track 70): signed catalog (Rhizome Ed25519 release key), opt-in curated remote index (`module_index.url`), `module verify` drift detection.
+* **Open → v0.13.0 Track 95**: module trust tail — upstream signature verification where tenants publish one (`signature{kind,url}` per release; additive to the mandatory pinned digest) + `docs/design/llama-cpp-module.md` (symlink-safe extraction + model-weights trust story).
 * ✅ **New tenants** (v0.11.0 Track 71): `helios` (Ethereum light client; linux/darwin amd64+arm64, sha256-pinned), `ipfs-kubo` (IPFS node; adds `.zip` extraction, per-GOOS asset templates, `{module_dir}` placeholder, and marker-gated `init_args`/per-launch `setup_args` — catalog schema v2). `llama.cpp` deferred — needs symlink-safe layout-preserving extraction + a model-weights trust story; design standalone. Future candidates: ACP agent wrappers.
 
 
@@ -119,7 +121,7 @@
 
 * ✅ **Stage 1 — Node availability** (v0.10.0 Track 65): the `nimbus-verified-proxy` module serves a verified local JSON-RPC (default :8545) for the user's own scripts and dapps. No agent tools.
 * ✅ **Stage 2 — Agentic web3 operations** (v0.12.0 Tracks 77–79): `web3_*` agent tools over the module endpoint — chain reads (v0.11.0 Track 68); wallet/key management reusing the identity-encryption posture (keyring/passphrase); **gated signing** — transaction send behind contract/method allowlists, spending caps, signer scoping, and an async pending-approval queue on the `approve_tool` hook seam; **contract interaction** — ABI registry, `web3_contract_call`/`web3_contract_send`, ERC-20/721 helpers, ENS; **operations depth** — dashboard wallet/approvals panels, log watches, channel approvals.
-* **Stage 3 — Mesh economy (deferred, optional module)**: pricing/settling remote task/swarm work between trusted peers — re-scoped during v0.12.0 planning as an opt-in module candidate rather than core mesh work; seed doc `docs/design/mesh-economy-module.md`.
+* **Stage 3 — Mesh economy (deferred, optional module)**: pricing/settling remote task/swarm work between trusted peers — re-scoped during v0.12.0 planning as an opt-in module candidate rather than core mesh work; seed doc `docs/design/mesh-economy-module.md`. The usage-reporting primitive lands standalone as v0.13.0 Track 94.
 
 
 ---
