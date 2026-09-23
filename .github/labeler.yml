@@ -1,0 +1,94 @@
+# Path-based PR labels consumed by .github/workflows/labeler.yml
+# (actions/labeler). Issues are disabled on this repo — triage is
+# PR-scoped. Globs follow the action's changed-files syntax; entries in
+# one list are OR'ed.
+
+acp:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pkg/acp/**'
+          - 'cmd/rhizome/internal/acp/**'
+          - 'docs/guides/acp.md'
+
+mesh:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pkg/rhizome/mesh/**'
+          - 'pkg/rhizome/agentrpc/**'
+          - 'pkg/rhizome/agenttask/**'
+          - 'pkg/rhizome/agentmanifest/**'
+          - 'pkg/rhizome/network/**'
+          - 'pkg/rhizome/pair/**'
+          - 'pkg/rhizome/blob/**'
+          - 'pkg/rhizome/stream/**'
+          - 'pkg/rhizome/blackboard/**'
+          - 'cmd/rhizome/internal/mesh/**'
+          - 'cmd/rhizome/internal/network/**'
+          - 'scripts/integration-mesh.*'
+          - 'scripts/flake-hunt.*'
+          - 'docs/**/mesh*'
+          - 'docs/design/mesh-economy-module.md'
+
+swarm:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pkg/rhizome/swarm/**'
+          - 'cmd/rhizome/internal/swarm/**'
+          - 'pkg/gateway/swarm.go'
+          - 'pkg/gateway/networkswarm.go'
+          - 'scripts/integration-swarm.*'
+          - 'web/frontend/src/**/swarm*'
+          - 'docs/**/swarm*'
+
+modules:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pkg/modules/**'
+          - 'cmd/rhizome/internal/module/**'
+          - 'pkg/gateway/moduleapi.go'
+          - 'web/backend/api/modules.go'
+          - 'web/frontend/src/**/module*'
+          - 'docs/**/module*'
+          - 'docs/design/llama-cpp-module.md'
+          - 'docs/operations/module-*'
+
+market:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'cmd/rhizome-market/**'
+          - 'cmd/rhizome/internal/market/**'
+          - 'docs/design/mesh-economy-module.md'
+          - 'docs/design/escrow-survey.md'
+          - 'docs/guides/market.md'
+          - 'docs/operations/market-*'
+
+web3:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pkg/web3/**'
+          - 'pkg/tools/web3/**'
+          - 'cmd/rhizome/internal/web3/**'
+          - 'cmd/rhizome/internal/wallet/**'
+          - 'pkg/gateway/web3api.go'
+          - 'web/backend/api/web3.go'
+          - 'web/frontend/src/components/web3/**'
+          - 'docs/**/web3*'
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - '*.md'
+          - '.todo.md'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'scripts/**'
+          - 'Makefile'
+          - '.golangci.yaml'
+          - '.goreleaser.yaml'
+          - 'docker/**'
+          - 'go.mod'
+          - 'go.sum'

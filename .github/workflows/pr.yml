@@ -3,6 +3,12 @@ name: PR
 on:
   pull_request: { }
 
+# One live run per PR: a new push cancels the superseded run so rapid
+# pushes don't pile up duplicate test matrices.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Linter
