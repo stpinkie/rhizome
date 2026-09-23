@@ -286,7 +286,7 @@ func (s *Server) NewSession(
 	s.persistSession(sess, agentID)
 
 	s.log.Info("acp: session created", "session_id", string(sid), "agent", agentID)
-	return acpsdk.NewSessionResponse{SessionId: sid}, nil
+	return acpsdk.NewSessionResponse{SessionId: sid, Modes: s.modeState(sess)}, nil
 }
 
 // LoadSession implements acpsdk.AgentLoader: it re-registers a persisted
@@ -315,6 +315,11 @@ func (s *Server) LoadSession(
 	sess := newACPSession(sid, rec.SessionKey)
 	sess.cwd = rec.Cwd
 	sess.restoreDecisions(rec.AllowAlways, rec.DenyAlways)
+	// Restore the persisted mode only when the current server policy still
+	// offers it — a record written under prompt must not widen a deny server.
+	if s.modeOffered(acpsdk.SessionModeId(rec.Mode)) {
+		sess.setMode(acpsdk.SessionModeId(rec.Mode))
+	}
 	sess.onDecisions = s.decisionPersister(sid)
 
 	s.mu.Lock()
@@ -331,7 +336,52 @@ func (s *Server) LoadSession(
 
 	s.log.Info("acp: session loaded",
 		"session_id", string(sid), "agent", rec.AgentID, "session_key", rec.SessionKey)
-	return acpsdk.LoadSessionResponse{}, nil
+	return acpsdk.LoadSessionResponse{Modes: s.modeState(sess)}, nil
+}
+
+// availableModes is the session-mode set offered to clients. A deny server
+// only advertises read-only — clients may narrow but never widen the
+// operator's permission policy.
+func (s *Server) availableModes() []acpsdk.SessionMode {
+	readOnly := acpsdk.SessionMode{
+		Id:          modeReadOnly,
+		Name:        "Read-only",
+		Description: acpsdk.Ptr("Reject every tool call — the agent can read and answer but not act"),
+	}
+	if s.policy == PermissionDeny {
+		return []acpsdk.SessionMode{readOnly}
+	}
+	return []acpsdk.SessionMode{
+		{
+			Id:          modeAsk,
+			Name:        "Ask",
+			Description: acpsdk.Ptr("Prompt the client before each tool call"),
+		},
+		{
+			Id:          modeAuto,
+			Name:        "Auto",
+			Description: acpsdk.Ptr("Approve every tool call without prompting"),
+		},
+		readOnly,
+	}
+}
+
+// modeOffered reports whether id is in the advertised set.
+func (s *Server) modeOffered(id acpsdk.SessionModeId) bool {
+	for _, m := range s.availableModes() {
+		if m.Id == id {
+			return true
+		}
+	}
+	return false
+}
+
+// modeState builds the SessionModeState reported on session responses.
+func (s *Server) modeState(sess *acpSession) *acpsdk.SessionModeState {
+	return &acpsdk.SessionModeState{
+		AvailableModes: s.availableModes(),
+		CurrentModeId:  sess.effectiveMode(s.policy),
+	}
 }
 
 // replayHistory resends stored user/assistant messages as session/update
@@ -391,6 +441,16 @@ func (s *Server) persistSession(sess *acpSession, agentID string) {
 		CreatedAt:  sess.createdAt,
 	}); err != nil {
 		s.log.Warn("acp: failed to persist session record", "session_id", string(sess.id), "error", err)
+	}
+}
+
+// persistMode records the session's mode override (no-op when unconfigured).
+func (s *Server) persistMode(sess *acpSession) {
+	if s.store == nil {
+		return
+	}
+	if err := s.store.UpdateMode(string(sess.id), string(sess.sessionMode())); err != nil {
+		s.log.Warn("acp: failed to persist session mode", "session_id", string(sess.id), "error", err)
 	}
 }
 
@@ -623,12 +683,37 @@ func (s *Server) Logout(
 	return acpsdk.LogoutResponse{}, nil
 }
 
-// SetSessionMode accepts mode changes as a no-op; Rhizome does not expose
-// ACP session modes.
+// SetSessionMode switches the session's permission mode. The change clears
+// cached *_always decisions — a mode switch must not inherit approvals
+// granted under a previous mode — persists the mode, and announces it via a
+// current_mode_update notification.
 func (s *Server) SetSessionMode(
-	_ context.Context,
-	_ acpsdk.SetSessionModeRequest,
+	ctx context.Context,
+	params acpsdk.SetSessionModeRequest,
 ) (acpsdk.SetSessionModeResponse, error) {
+	sess, ok := s.sessionByID(params.SessionId)
+	if !ok || sess.isClosed() {
+		return acpsdk.SetSessionModeResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "unknown or closed session",
+		})
+	}
+	if !s.modeOffered(params.ModeId) {
+		return acpsdk.SetSessionModeResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error":     fmt.Sprintf("unknown mode %q", params.ModeId),
+			"available": s.availableModes(),
+		})
+	}
+
+	sess.setMode(params.ModeId)
+	sess.clearDecisions()
+	s.persistMode(sess)
+
+	if err := s.notify(ctx, sess.id, acpsdk.SessionUpdate{
+		CurrentModeUpdate: &acpsdk.SessionCurrentModeUpdate{CurrentModeId: params.ModeId},
+	}); err != nil {
+		s.log.Warn("acp: mode update notification failed",
+			"session_id", string(sess.id), "error", err)
+	}
 	return acpsdk.SetSessionModeResponse{}, nil
 }
 

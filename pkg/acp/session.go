@@ -25,6 +25,42 @@ const (
 	PermissionDeny PermissionPolicy = "deny"
 )
 
+// Session mode ids advertised via SessionModeState (session/set_mode). They
+// map one-to-one onto PermissionPolicy values.
+const (
+	// modeAsk prompts the client per tool call (PermissionPrompt).
+	modeAsk acpsdk.SessionModeId = "ask"
+	// modeAuto approves every tool call (PermissionAllow).
+	modeAuto acpsdk.SessionModeId = "auto"
+	// modeReadOnly rejects every tool call (PermissionDeny).
+	modeReadOnly acpsdk.SessionModeId = "read-only"
+)
+
+// modeForPolicy maps a permission policy onto its session-mode id.
+func modeForPolicy(p PermissionPolicy) acpsdk.SessionModeId {
+	switch p {
+	case PermissionAllow:
+		return modeAuto
+	case PermissionDeny:
+		return modeReadOnly
+	default:
+		return modeAsk
+	}
+}
+
+// policyForMode maps a session-mode id back to its permission policy.
+// Unknown ids fail closed to prompt (still client-gated).
+func policyForMode(id acpsdk.SessionModeId) PermissionPolicy {
+	switch id {
+	case modeAuto:
+		return PermissionAllow
+	case modeReadOnly:
+		return PermissionDeny
+	default:
+		return PermissionPrompt
+	}
+}
+
 // acpSession tracks one ACP session: its Rhizome session key, the per-prompt
 // streamer, cached always-decisions, and lifecycle state.
 type acpSession struct {
@@ -37,6 +73,7 @@ type acpSession struct {
 	stream   *sessionStreamer
 	allow    map[string]bool
 	deny     map[string]bool
+	mode     acpsdk.SessionModeId // "" = inherit the server policy
 	closed   bool
 	promptAt time.Time
 
@@ -177,6 +214,47 @@ func (s *acpSession) restoreDecisions(allow, deny []string) {
 	for _, t := range deny {
 		s.deny[t] = true
 	}
+}
+
+// clearDecisions wipes the cached always-decisions. A mode switch must not
+// inherit approvals granted under a previous mode (fail-closed), so the
+// persisted record is cleared too via onDecisions.
+func (s *acpSession) clearDecisions() {
+	s.mu.Lock()
+	cb := s.onDecisions
+	s.allow = make(map[string]bool)
+	s.deny = make(map[string]bool)
+	s.mu.Unlock()
+	if cb != nil {
+		cb(nil, nil)
+	}
+}
+
+// sessionMode returns the explicit mode override ("" = inherit).
+func (s *acpSession) sessionMode() acpsdk.SessionModeId {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mode
+}
+
+func (s *acpSession) setMode(id acpsdk.SessionModeId) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mode = id
+}
+
+// effectiveMode resolves the mode in force: the session override, else the
+// server policy expressed as a mode id.
+func (s *acpSession) effectiveMode(serverPolicy PermissionPolicy) acpsdk.SessionModeId {
+	if m := s.sessionMode(); m != "" {
+		return m
+	}
+	return modeForPolicy(serverPolicy)
+}
+
+// effectivePolicy resolves the permission policy in force for this session.
+func (s *acpSession) effectivePolicy(serverPolicy PermissionPolicy) PermissionPolicy {
+	return policyForMode(s.effectiveMode(serverPolicy))
 }
 
 // setMCP wires the session's MCP manager + tool registrations for teardown.

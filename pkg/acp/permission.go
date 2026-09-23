@@ -49,13 +49,20 @@ func (a *toolApprover) ApproveTool(
 		return agent.ApprovalDecision{Approved: true}, nil
 	}
 
-	switch a.srv.policy {
+	// The session's mode override (session/set_mode) takes precedence over
+	// the server-wide permission_policy.
+	policy := sess.effectivePolicy(a.srv.policy)
+	switch policy {
 	case PermissionAllow:
 		return agent.ApprovalDecision{Approved: true}, nil
 	case PermissionDeny:
+		reason := "denied by acp.server.permission_policy=deny"
+		if m := sess.sessionMode(); m != "" {
+			reason = fmt.Sprintf("denied by acp session mode %q", m)
+		}
 		return agent.ApprovalDecision{
 			Approved: false,
-			Reason:   "denied by acp.server.permission_policy=deny",
+			Reason:   reason,
 		}, nil
 	}
 
