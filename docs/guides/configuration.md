@@ -170,6 +170,28 @@ For advanced/test setups, you can override the builtin skills root with:
 export RHIZOME_BUILTIN_SKILLS=/path/to/skills
 ```
 
+### Skill Registries
+
+`tools.skills.registries` controls where `find_skills`/`install_skill` and
+`rhizome skills search/install` look for skills:
+
+- **`rhizome`** (first-party, enabled by default) — a signed index of
+  Rhizome-curated skills fetched from release assets
+  (`index.json` + `index.json.sig`), Ed25519-verified against the baked-in
+  release key. Installs record `origin_kind: "curated"` (teal badge in the
+  Hub) and still pass through the normal GitHub-installer guard scans.
+  Verified indexes cache for ~1 h under
+  `<RHIZOME_HOME>/skills-index-cache/`; a stale verified cache is served
+  only when the fetch fails — signature or schema failures never fall back.
+  Signing/rotation details: `docs/operations/skill-index-signing.md`.
+- **`clawhub`** — the ClawHub public registry.
+- **`github`** — direct `owner/repo[@ref][/path]` installs.
+
+Any registry can be disabled per-entry (`"enabled": false`); the `rhizome`
+entry inherits `tools.skills.github` credentials/proxy for source-archive
+downloads only — index fetches are always the unsigned-credential HTTPS
+path.
+
 ### Using Skills From Chat Channels
 
 Once skills are installed, and MCP servers are configured, you can inspect and force them directly from a chat channel:

@@ -168,6 +168,26 @@ Because the only secret material is `RHIZOME_KEY_PASSPHRASE` and the SSH private
 
 No re-encryption is needed.
 
+## Key-Store AEAD Migration (v0.13.0)
+
+The same v1→v2 cipher upgrade applies to the two other sealed stores:
+
+- `<RHIZOME_HOME>/node.json` (mesh identity private key)
+- `<RHIZOME_HOME>/web3/keys.json` (Web3 wallet keys)
+
+Both files record a `cipher` marker per encrypted entry
+(`"aes-256-gcm"` legacy, `"xchacha20poly1305"` current). Loading accepts
+either; **new writes always emit `xchacha20poly1305`**, so a file migrates
+entry-by-entry on the next save — mixed-cipher files are valid and
+expected during the transition. The `cipher` field is `omitempty`: entries
+written by pre-v0.13.0 builds have no marker and decode as aes-256-gcm.
+
+Downgrade caveat: a binary older than v0.13.0 cannot open
+`xchacha20poly1305` entries — downgrading after a store has been re-saved
+loses access to it until you upgrade again (the file itself is not
+corrupted). Key derivation sources (keyring / scrypt passphrase / SSH key)
+are unchanged; no operator action is needed.
+
 ---
 
 ## Security Considerations

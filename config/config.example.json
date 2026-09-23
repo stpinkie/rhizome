@@ -19,7 +19,25 @@
         "max_args_length": 300,
         "separate_messages": false
       }
-    }
+    },
+    "list": [
+      {
+        "_comment": "agents.list entry bound to an external ACP agent (command+args spawn the subprocess lazily; env satisfies env_var auth methods; session_mode persistent reuses one ACP session; mode forwards session/set_mode when advertised; permission_policy/terminal_policy override acp.client for this binding)",
+        "id": "gemini",
+        "name": "Gemini (external ACP)",
+        "acp": {
+          "command": "gemini",
+          "args": ["--acp"],
+          "env": {},
+          "cwd": "",
+          "auth_method": "",
+          "session_mode": "oneshot",
+          "permission_policy": "",
+          "terminal_policy": "",
+          "mode": ""
+        }
+      }
+    ]
   },
   "evolution": {
     "enabled": false,
@@ -493,6 +511,11 @@
         }
       }
     },
+    "mcp_server": {
+      "_comment": "`rhizome mcp serve`: expose allowlisted Rhizome tools as a stdio MCP server for external clients. allow names registry tools; empty = deny-all. Agent-loop tools (delegate/acp_run/spawn/swarm verbs) are never exposable.",
+      "enabled": false,
+      "allow": ["list_dir", "read_file"]
+    },
     "exec": {
       "enabled": true,
       "enable_deny_patterns": true,
@@ -502,6 +525,13 @@
     "skills": {
       "enabled": true,
       "registries": {
+        "rhizome": {
+          "_comment": "First-party signed skills index: index.json + index.json.sig from release assets, Ed25519-verified against the baked-in release key. Installs record origin_kind 'curated'. auth_token/param.proxy fall back to tools.skills.github creds for source downloads only.",
+          "enabled": true,
+          "base_url": "https://github.com/stpinkie/rhizome/releases/latest/download",
+          "auth_token": "",
+          "param": {"cache_ttl_seconds": 3600}
+        },
         "clawhub": {
           "enabled": true,
           "base_url": "https://clawhub.ai",
@@ -649,10 +679,15 @@
   },
   "modules": {
     "ethereum-rpc": {
-      "_comment": "Companion sidecar modules; `rhizome module list` shows the catalog. Secret fields go to .security.yml via `rhizome module set --secret`.",
+      "_comment": "Companion sidecar modules; `rhizome module list` shows the catalog. Secret fields go to .security.yml via `rhizome module set --secret`. Catalog schema v3 adds optional upstream signature declarations (cosign-blob/minisign/gpg) verified at install when present.",
       "enabled": false,
       "fields": { "endpoint_url": "https://mainnet.infura.io/v3/YOUR_KEY" }
     }
+  },
+  "module_index": {
+    "_comment": "Optional signed remote module catalog (sibling of modules — not a module id). Fetches <url>/catalog.json + .sig, Ed25519-verified against the baked-in release key, 1h verified cache; embedded entries win collisions, unsigned/bad-sig refused outright.",
+    "enabled": false,
+    "url": "https://github.com/stpinkie/rhizome/releases/latest/download"
   },
   "gateway": {
     "_comment": "Default log level is set to 'fatal'. Other available options are 'debug', 'info', 'warn' and 'error'.",
