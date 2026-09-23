@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/zalando/go-keyring"
+	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/scrypt"
 )
 
@@ -21,6 +22,18 @@ const (
 	scryptR        = 8
 	scryptP        = 1
 	keyLen         = 32
+)
+
+// At-rest AEAD markers recorded in NodeIdentity.Cipher. An empty marker
+// means the record predates the marker field and is AES-256-GCM; new writes
+// always seal with XChaCha20-Poly1305 (the same AEAD pkg/credential uses for
+// enc2:// — here it is an algorithm swap, not the enc2:// format, since key
+// derivation is KeyProvider, not passphrase+SSH-key HKDF). Records written by
+// this build are unreadable by binaries that predate the marker — a one-way
+// door, matching the enc://→enc2:// migration posture.
+const (
+	cipherAES256GCM         = "aes-256-gcm"
+	cipherXChaCha20Poly1305 = "xchacha20poly1305"
 )
 
 // KeyProvider supplies the 32-byte symmetric key needed to decrypt an
@@ -110,42 +123,52 @@ func (s *ScryptProvider) Key(ni *NodeIdentity) ([]byte, error) {
 	return scrypt.Key([]byte(s.Passphrase), salt, scryptN, scryptR, scryptP, keyLen)
 }
 
-// encrypt seals the private key with AES-256-GCM and returns the nonce and
-// ciphertext separately.
+// encrypt seals the private key with the current write cipher
+// (XChaCha20-Poly1305) and returns the nonce and nonce-prefixed ciphertext.
 func encrypt(privateKey, key []byte) (nonce, ciphertext []byte, err error) {
-	block, err := aes.NewCipher(key)
+	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
 		return nil, nil, fmt.Errorf("new cipher: %w", err)
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, nil, fmt.Errorf("new gcm: %w", err)
-	}
-	nonce = make([]byte, gcm.NonceSize())
+	nonce = make([]byte, aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, nil, fmt.Errorf("read nonce: %w", err)
 	}
-	ciphertext = gcm.Seal(nonce, nonce, privateKey, nil)
+	ciphertext = aead.Seal(nonce, nonce, privateKey, nil)
 	return nonce, ciphertext, nil
 }
 
-// decrypt opens the AES-256-GCM ciphertext.
-func decrypt(ciphertext, key []byte) ([]byte, error) {
+// decrypt opens a nonce-prefixed ciphertext, dispatching on the recorded
+// cipher marker ("" = legacy AES-256-GCM).
+func decrypt(ciphertext, key []byte, cipherName string) ([]byte, error) {
 	if len(ciphertext) == 0 {
 		return nil, fmt.Errorf("ciphertext is empty")
 	}
-	block, err := aes.NewCipher(key)
+	aead, err := aeadFor(key, cipherName)
 	if err != nil {
-		return nil, fmt.Errorf("new cipher: %w", err)
+		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("new gcm: %w", err)
-	}
-	if len(ciphertext) < gcm.NonceSize() {
+	if len(ciphertext) < aead.NonceSize() {
 		return nil, fmt.Errorf("ciphertext too short")
 	}
-	return gcm.Open(nil, ciphertext[:gcm.NonceSize()], ciphertext[gcm.NonceSize():], nil)
+	return aead.Open(nil, ciphertext[:aead.NonceSize()], ciphertext[aead.NonceSize():], nil)
+}
+
+// aeadFor constructs the AEAD named by cipherName; the empty marker selects
+// the legacy AES-256-GCM read path.
+func aeadFor(key []byte, cipherName string) (cipher.AEAD, error) {
+	switch cipherName {
+	case "", cipherAES256GCM:
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, fmt.Errorf("new cipher: %w", err)
+		}
+		return cipher.NewGCM(block)
+	case cipherXChaCha20Poly1305:
+		return chacha20poly1305.NewX(key)
+	default:
+		return nil, fmt.Errorf("unknown identity cipher %q", cipherName)
+	}
 }
 
 // generateKey returns a 32-byte random key.

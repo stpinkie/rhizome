@@ -253,7 +253,10 @@ Guide: `docs/guides/web3.md`.
 ## Web3 Wallet & Signing (v0.12.0, Track 77)
 
 `pkg/web3` also holds the write side: secp256k1 wallet keystore
-(`keys.go` — AES-256-GCM per key, OS keyring master key, scrypt fallback via
+(`keys.go` — XChaCha20-Poly1305 per key on new writes, per-entry `cipher`
+marker; legacy AES-256-GCM entries read transparently and re-seal on the
+next `addKey` write — downgraded binaries cannot open migrated entries;
+OS keyring master key, scrypt fallback via
 `RHIZOME_WALLET_PASSPHRASE`, `RHIZOME_WALLET_KEYSOURCE` override), minimal
 ABI/RLP codecs, EIP-1559+legacy tx signing (`tx.go`), EIP-191 message
 signing, a policy engine (`policy.go` — from/contract/method allowlists,
@@ -604,6 +607,12 @@ By default `rhizome network onboard` prompts for an encryption method. You can a
 To load an encrypted identity in a non-interactive environment, set `RHIZOME_IDENTITY_PASSPHRASE`. When the keyring is unavailable, `rhizome daemon` and the `network`/`sync` commands will fall back to the passphrase.
 
 Legacy unencrypted `node.json` files continue to load without any changes.
+
+Encrypted records carry a `cipher` field (v0.13.0, Track 96): new writes
+seal XChaCha20-Poly1305 (`"xchacha20poly1305"`); an empty/absent marker
+means a legacy AES-256-GCM record, which still loads transparently.
+Re-saving an identity re-seals under the new cipher — a one-way door: a
+binary older than v0.13.0 cannot open migrated records.
 
 ## Provider Authentication (`rhizome auth`)
 
