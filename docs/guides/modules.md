@@ -210,6 +210,16 @@ rhizome module enable ethereum-rpc
 - Module directories are `0700`; secrets never touch `config.json`.
 - `module-state.json` under the module dir persists last-known status so the
   Modules page and `module list` report accurately when the daemon is down.
+- **Upstream signatures (catalog schema v3)** — catalog entries may declare
+  a `signature` per release pin (`cosign-blob`, `minisign`, or `gpg` kind,
+  with a detached signature URL + public key). When declared, install
+  verifies the signature after the digest check and fails closed; a catalog
+  declaring signatures is rejected entirely by binaries too old to verify
+  them. Today no upstream tenant publishes signatures, so this is
+  mechanism + verified fixtures — the digest remains the mandatory floor.
+- Adding a new module (e.g. a llama.cpp inference daemon): see
+  `docs/design/llama-cpp-module.md` for the catalog-authoring pattern —
+  extraction shape, weights trust story, and GPU/accelerant fields.
 
 Daemon-kind modules emit `module.started`/`module.stopped`/`module.crashed`
 events (plus `installed`/`uninstalled`/`enabled`/`disabled`), visible in the

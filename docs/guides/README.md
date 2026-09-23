@@ -15,5 +15,6 @@ Task-oriented guides for setup, configuration, and common Rhizome workflows.
 - [Using Antigravity Provider in Rhizome](ANTIGRAVITY_USAGE.md): Google Cloud Code Assist setup and usage.
 - [Companion Modules](modules.md): sidecar binaries (`rhizome module`) — verified installs, daemon supervision, secrets posture.
 - [ACP — Agent Client Protocol](acp.md): `rhizome acp` for Zed/JetBrains, plus binding external ACP agents to Rhizome agent ids.
+- [Rhizome as an MCP Server](mcp-server.md): `rhizome mcp serve` — expose allowlisted local tools to MCP clients over stdio.
 
 Translations usually live beside the English source when available.
