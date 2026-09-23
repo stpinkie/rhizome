@@ -89,7 +89,7 @@ func (al *AgentLoop) ProcessRemoteDispatch(
 	agentCopy := *base
 	agentCopy.Sessions = newEphemeralSession(nil)
 
-	if err := al.applyRemoteModelOverride(base, &agentCopy, req.Model); err != nil {
+	if err := al.applyModelOverride(base, &agentCopy, req.Model); err != nil {
 		return "", nil, err
 	}
 	if err := applyRemoteToolOverride(base, &agentCopy, req.Tools); err != nil {
@@ -163,11 +163,13 @@ func (al *AgentLoop) appendRemoteTranscriptions(ctx context.Context, prompt stri
 	return prompt
 }
 
-// applyRemoteModelOverride validates and applies a remote-requested model.
-// The model must resolve to a model_list entry on this node; the copy's
-// candidates and providers are rebuilt for it, and model routing is disabled
-// so an explicit remote choice is never overridden by the light-model router.
-func (al *AgentLoop) applyRemoteModelOverride(
+// applyModelOverride validates and applies a caller-requested model to an
+// agent copy — shared by remote dispatch and per-message overrides
+// (bus.InboundMessage.ModelOverride). The model must resolve to a
+// model_list entry on this node; the copy's candidates and providers are
+// rebuilt for it, and model routing is disabled so an explicit choice is
+// never overridden by the light-model router.
+func (al *AgentLoop) applyModelOverride(
 	base, agentCopy *AgentInstance,
 	model string,
 ) error {

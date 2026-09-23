@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/spf13/cobra"
@@ -142,6 +143,7 @@ func run(agentID string) error {
 		Policy:   policy,
 		Media:    mediaStore,
 		Version:  config.FormatVersion(),
+		Models:   selectableModels(cfg),
 		Sessions: sessionStore,
 	})
 	if err := srv.Start(); err != nil {
@@ -160,6 +162,26 @@ func run(agentID string) error {
 
 	<-conn.Done()
 	return nil
+}
+
+// selectableModels lists the enabled model_list entries offered in the
+// session's category:model config option, deduplicated by model_name.
+// Virtual entries produced by multi-key expansion are skipped.
+func selectableModels(cfg *config.Config) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range cfg.ModelList {
+		if m == nil || m.IsVirtual() || !m.Enabled {
+			continue
+		}
+		name := strings.TrimSpace(m.ModelName)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 // injectACPChannel installs a process-local channel entry so the streaming
