@@ -27,7 +27,7 @@ func TestTaskStorePersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 	s.Start(task.ID, func() {})
-	s.Finish(task.ID, agenttask.StatusDone, toolshared.NewToolResult("ok"), "")
+	s.Finish(task.ID, agenttask.StatusDone, toolshared.NewToolResult("ok"), "", nil)
 
 	// Force a synchronous save.
 	s.flushSave()
@@ -95,7 +95,7 @@ func TestTaskStoreInMemoryNoPersistence(t *testing.T) {
 	task, _, err := s.Submit(owner, agenttask.Request{TargetAgentID: "main"})
 	require.NoError(t, err)
 	s.Start(task.ID, func() {})
-	s.Finish(task.ID, agenttask.StatusDone, nil, "")
+	s.Finish(task.ID, agenttask.StatusDone, nil, "", nil)
 	s.flushSave()
 
 	// A new in-memory store with the same path loads the file.
@@ -153,7 +153,7 @@ func TestTaskStoreSnapshotsAreIndependent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Finish the task so the store's Result pointer is populated.
-	s.Finish(snap.ID, agenttask.StatusDone, toolshared.NewToolResult("original"), "")
+	s.Finish(snap.ID, agenttask.StatusDone, toolshared.NewToolResult("original"), "", nil)
 
 	loaded, ok := s.getOwned(snap.ID, owner)
 	require.True(t, ok)

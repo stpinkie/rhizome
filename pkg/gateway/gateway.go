@@ -297,29 +297,41 @@ func RunWithMesh(
 		// The media store lets the mesh register fetched attachments and
 		// resolve result artifacts for remote tasks.
 		rhizomeMesh.SetMediaStore(mediaStore)
-		rhizomeMesh.SetRunFunc(func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
-			var toolNames []string
-			for _, t := range req.Tools {
-				if strings.TrimSpace(t.Name) != "" {
-					toolNames = append(toolNames, t.Name)
+		rhizomeMesh.SetRunFunc(
+			func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error) {
+				var toolNames []string
+				for _, t := range req.Tools {
+					if strings.TrimSpace(t.Name) != "" {
+						toolNames = append(toolNames, t.Name)
+					}
 				}
-			}
-			resp, mediaRefs, pErr := agentLoop.ProcessRemoteDispatch(ctx, agent.RemoteDispatchRequest{
-				AgentID:    req.TargetAgentID,
-				Model:      req.Model,
-				Tools:      toolNames,
-				Prompt:     req.SystemPrompt,
-				Media:      req.Media,
-				SessionKey: "mesh-" + req.CorrelationID,
-				SenderID:   "mesh",
-			})
-			if pErr != nil {
-				return nil, pErr
-			}
-			result := toolshared.NewToolResult(resp)
-			result.Media = mediaRefs
-			return result, nil
-		})
+				dreq := agent.RemoteDispatchRequest{
+					AgentID:    req.TargetAgentID,
+					Model:      req.Model,
+					Tools:      toolNames,
+					Prompt:     req.SystemPrompt,
+					Media:      req.Media,
+					SessionKey: "mesh-" + req.CorrelationID,
+					SenderID:   "mesh",
+				}
+				var usage toolshared.RemoteUsage
+				if req.WantUsage {
+					dreq.UsageSink = &usage
+				}
+				resp, mediaRefs, pErr := agentLoop.ProcessRemoteDispatch(ctx, dreq)
+				if pErr != nil {
+					return nil, nil, pErr
+				}
+				result := toolshared.NewToolResult(resp)
+				result.Media = mediaRefs
+				if !req.WantUsage || usage == (toolshared.RemoteUsage{}) {
+					// Unnegotiated, or negotiated but unmetered (e.g. the target
+					// is an external ACP agent — no local LLM calls to sum).
+					return result, nil, nil
+				}
+				return result, &usage, nil
+			},
+		)
 		remoteSpawner := mesh.NewRemoteSpawner(rhizomeMesh, local)
 		remoteSpawner.SetLocalAgentChecker(func(id string) bool {
 			_, ok := agentLoop.GetRegistry().GetAgent(id)

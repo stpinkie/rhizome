@@ -16,6 +16,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/providers"
 	"github.com/stpinkie/rhizome/pkg/session"
 	"github.com/stpinkie/rhizome/pkg/tools"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 // =============================================================================
@@ -250,9 +251,10 @@ type turnState struct {
 	finishedChan    chan struct{}      // Closed when turn finishes
 
 	// Token budget tracking
-	tokenBudget      *atomic.Int64        // Shared token budget counter
-	lastFinishReason string               // Last LLM finish_reason
-	lastUsage        *providers.UsageInfo // Last LLM usage info
+	tokenBudget      *atomic.Int64          // Shared token budget counter
+	lastFinishReason string                 // Last LLM finish_reason
+	lastUsage        *providers.UsageInfo   // Last LLM usage info
+	usage            toolshared.RemoteUsage // Summed usage across all LLM calls this turn
 
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
 	al *AgentLoop
@@ -891,6 +893,27 @@ func (ts *turnState) SetLastUsage(usage *providers.UsageInfo) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.lastUsage = usage
+}
+
+// AddUsage folds one LLM response's usage into the turn's summed usage
+// accumulator (last-call-only data stays on lastUsage).
+func (ts *turnState) AddUsage(usage *providers.UsageInfo) {
+	if usage == nil {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.usage.LLMCalls++
+	ts.usage.PromptTokens += usage.PromptTokens
+	ts.usage.CompletionTokens += usage.CompletionTokens
+	ts.usage.TotalTokens += usage.TotalTokens
+}
+
+// Usage returns the summed usage accumulated over this turn's LLM calls.
+func (ts *turnState) Usage() toolshared.RemoteUsage {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.usage
 }
 
 // =============================================================================

@@ -61,6 +61,19 @@ type ToolResult struct {
 	ResponseHandled bool `json:"response_handled,omitempty"`
 }
 
+// RemoteUsage is an optional summed usage report attached to remote mesh
+// task responses. Callees populate it only when the caller negotiated
+// usage reporting (want_usage + the callee's advertised
+// allows.usage_report); external ACP agents never report usage. All
+// fields are omitempty so old↔new wire mixes produce identical bytes.
+type RemoteUsage struct {
+	LLMCalls         int   `json:"llm_calls,omitempty"`
+	PromptTokens     int   `json:"prompt_tokens,omitempty"`
+	CompletionTokens int   `json:"completion_tokens,omitempty"`
+	TotalTokens      int   `json:"total_tokens,omitempty"`
+	DurationMS       int64 `json:"duration_ms,omitempty"`
+}
+
 // ContentForLLM returns the normalized textual content to append to the
 // conversation after a tool call. Errors fall back to Err when ForLLM is empty.
 func (tr *ToolResult) ContentForLLM() string {

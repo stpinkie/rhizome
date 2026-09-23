@@ -39,6 +39,7 @@ type MeshTask struct {
 	Model      string
 	Status     agenttask.TaskStatus
 	Result     *toolshared.ToolResult
+	Usage      *toolshared.RemoteUsage
 	Err        string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -57,6 +58,7 @@ type MeshTaskSnapshot struct {
 	Model     string
 	Status    agenttask.TaskStatus
 	Result    *toolshared.ToolResult
+	Usage     *toolshared.RemoteUsage
 	Err       string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -69,6 +71,11 @@ func (t *MeshTask) snapshot() MeshTaskSnapshot {
 		r := *t.Result
 		result = &r
 	}
+	var usage *toolshared.RemoteUsage
+	if t.Usage != nil {
+		u := *t.Usage
+		usage = &u
+	}
 	return MeshTaskSnapshot{
 		ID:        t.ID,
 		CorrID:    t.CorrID,
@@ -77,6 +84,7 @@ func (t *MeshTask) snapshot() MeshTaskSnapshot {
 		Model:     t.Model,
 		Status:    t.Status,
 		Result:    result,
+		Usage:     usage,
 		Err:       t.Err,
 		CreatedAt: t.CreatedAt,
 		UpdatedAt: t.UpdatedAt,
@@ -86,16 +94,17 @@ func (t *MeshTask) snapshot() MeshTaskSnapshot {
 // taskRecord is the on-disk, JSON-serializable form of MeshTask. It omits
 // in-memory channels and cancel functions.
 type taskRecord struct {
-	ID        string                 `json:"id"`
-	CorrID    string                 `json:"corr_id,omitempty"`
-	Owner     string                 `json:"owner"`
-	AgentID   string                 `json:"agent_id"`
-	Model     string                 `json:"model,omitempty"`
-	Status    agenttask.TaskStatus   `json:"status"`
-	Result    *toolshared.ToolResult `json:"result,omitempty"`
-	Err       string                 `json:"err,omitempty"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	ID        string                  `json:"id"`
+	CorrID    string                  `json:"corr_id,omitempty"`
+	Owner     string                  `json:"owner"`
+	AgentID   string                  `json:"agent_id"`
+	Model     string                  `json:"model,omitempty"`
+	Status    agenttask.TaskStatus    `json:"status"`
+	Result    *toolshared.ToolResult  `json:"result,omitempty"`
+	Usage     *toolshared.RemoteUsage `json:"usage,omitempty"`
+	Err       string                  `json:"err,omitempty"`
+	CreatedAt time.Time               `json:"created_at"`
+	UpdatedAt time.Time               `json:"updated_at"`
 }
 
 // TaskStore tracks remote tasks submitted to this node. Tasks are keyed by
@@ -192,6 +201,7 @@ func (s *TaskStore) Load() ([]MeshTaskSnapshot, error) {
 			Model:     rec.Model,
 			Status:    rec.Status,
 			Result:    rec.Result,
+			Usage:     rec.Usage,
 			Err:       rec.Err,
 			CreatedAt: rec.CreatedAt,
 			UpdatedAt: rec.UpdatedAt,
@@ -239,6 +249,7 @@ func (s *TaskStore) save() error {
 			Model:     t.Model,
 			Status:    t.Status,
 			Result:    t.Result,
+			Usage:     t.Usage,
 			Err:       t.Err,
 			CreatedAt: t.CreatedAt,
 			UpdatedAt: t.UpdatedAt,
@@ -483,13 +494,21 @@ func (s *TaskStore) Start(id string, cancel context.CancelFunc) {
 	}
 }
 
-// Finish records the terminal status and result of a task.
-func (s *TaskStore) Finish(id string, status agenttask.TaskStatus, result *toolshared.ToolResult, taskErr string) {
+// Finish records the terminal status, result, and (when negotiated) the
+// summed usage report of a task.
+func (s *TaskStore) Finish(
+	id string,
+	status agenttask.TaskStatus,
+	result *toolshared.ToolResult,
+	taskErr string,
+	usage *toolshared.RemoteUsage,
+) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if t, ok := s.tasks[id]; ok && !t.Status.Terminal() {
 		t.Status = status
 		t.Result = result
+		t.Usage = usage
 		t.Err = taskErr
 		t.UpdatedAt = time.Now().UTC()
 		close(t.done)
@@ -609,6 +628,7 @@ func (t *MeshTask) Info() agenttask.TaskInfo {
 		CreatedAt: t.CreatedAt,
 		UpdatedAt: t.UpdatedAt,
 		Error:     t.Err,
+		Usage:     t.Usage,
 	}
 }
 

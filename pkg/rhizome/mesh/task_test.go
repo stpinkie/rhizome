@@ -19,6 +19,18 @@ import (
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
+// nilUsageRun adapts a test runFunc that reports no usage to the mesh run
+// signature. Tests that exercise usage reporting pass the full signature
+// directly.
+func nilUsageRun(
+	fn func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error),
+) func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error) {
+	return func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error) {
+		res, err := fn(ctx, req)
+		return res, nil, err
+	}
+}
+
 // newTaskTestMeshes starts two meshed nodes that trust each other. The
 // returned cleanup stops both meshes and nodes.
 func newTaskTestMeshes(
@@ -57,11 +69,11 @@ func newTaskTestMeshes(
 		return network.IsConnectednessUp(nodeA.Connectedness(nodeB.ID()))
 	}, 10*time.Second, 50*time.Millisecond, "nodeB should connect to nodeA")
 
-	meshA := NewMesh(nodeA, nil, idA, cfg, runFunc)
+	meshA := NewMesh(nodeA, nil, idA, cfg, nilUsageRun(runFunc))
 	require.NoError(t, meshA.Start(ctx))
 	t.Cleanup(func() { _ = meshA.Stop() })
 
-	meshB := NewMesh(nodeB, nil, idB, cfg, runFunc)
+	meshB := NewMesh(nodeB, nil, idB, cfg, nilUsageRun(runFunc))
 	require.NoError(t, meshB.Start(ctx))
 	t.Cleanup(func() { _ = meshB.Stop() })
 
@@ -308,7 +320,7 @@ func TestMeshSubmitRemoteTaskFailover(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = nodeC.Close() })
-	meshC := NewMesh(nodeC, nil, idC, cfg, runFunc)
+	meshC := NewMesh(nodeC, nil, idC, cfg, nilUsageRun(runFunc))
 	require.NoError(t, meshC.Start(ctx))
 	t.Cleanup(func() { _ = meshC.Stop() })
 

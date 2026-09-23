@@ -61,11 +61,11 @@ func TestMeshRemoteCall(t *testing.T) {
 		RemoteTimeout:       30 * time.Second,
 	}
 
-	meshA := NewMesh(nodeA, nil, idA, cfg, runFunc)
+	meshA := NewMesh(nodeA, nil, idA, cfg, nilUsageRun(runFunc))
 	require.NoError(t, meshA.Start(ctx))
 	defer meshA.Stop()
 
-	meshB := NewMesh(nodeB, nil, idB, cfg, runFunc)
+	meshB := NewMesh(nodeB, nil, idB, cfg, nilUsageRun(runFunc))
 	require.NoError(t, meshB.Start(ctx))
 	defer meshB.Stop()
 
@@ -163,9 +163,15 @@ func TestMeshUntrustedPeer(t *testing.T) {
 	require.NoError(t, meshA.Start(ctx))
 	defer meshA.Stop()
 
-	meshB := NewMesh(nodeB, nil, idB, cfg, func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
-		return toolshared.NewToolResult("hello from remote"), nil
-	})
+	meshB := NewMesh(
+		nodeB,
+		nil,
+		idB,
+		cfg,
+		nilUsageRun(func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
+			return toolshared.NewToolResult("hello from remote"), nil
+		}),
+	)
 	require.NoError(t, meshB.Start(ctx))
 	defer meshB.Stop()
 
@@ -215,9 +221,15 @@ func TestMeshInvalidRequestSignature(t *testing.T) {
 	require.NoError(t, meshA.Start(ctx))
 	defer meshA.Stop()
 
-	meshB := NewMesh(nodeB, nil, idB, cfg, func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
-		return toolshared.NewToolResult("hello from remote"), nil
-	})
+	meshB := NewMesh(
+		nodeB,
+		nil,
+		idB,
+		cfg,
+		nilUsageRun(func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
+			return toolshared.NewToolResult("hello from remote"), nil
+		}),
+	)
 	require.NoError(t, meshB.Start(ctx))
 	defer meshB.Stop()
 

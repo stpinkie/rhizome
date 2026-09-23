@@ -73,12 +73,12 @@ func newSecurityMeshFixture(t *testing.T, cfgB config.MeshConfig) *securityMeshF
 		nil,
 		idA,
 		config.MeshConfig{Enabled: true, AllowRemoteDelegate: true, RemoteTimeout: 30 * time.Second},
-		runFunc,
+		nilUsageRun(runFunc),
 	)
 	require.NoError(t, meshA.Start(ctx))
 	t.Cleanup(func() { meshA.Stop() })
 
-	meshB := NewMesh(nodeB, nil, idB, cfgB, runFunc)
+	meshB := NewMesh(nodeB, nil, idB, cfgB, nilUsageRun(runFunc))
 	require.NoError(t, meshB.Start(ctx))
 	t.Cleanup(func() { meshB.Stop() })
 

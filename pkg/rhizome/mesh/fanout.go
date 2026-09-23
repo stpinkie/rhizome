@@ -71,7 +71,10 @@ type FanoutBranch struct {
 	TaskID string                 `json:"task_id,omitempty"`
 	Status string                 `json:"status"`
 	Result *toolshared.ToolResult `json:"result,omitempty"`
-	Error  string                 `json:"error,omitempty"`
+	// Usage carries the branch peer's summed usage report when the submit
+	// negotiated it and the run could be metered.
+	Usage *toolshared.RemoteUsage `json:"usage,omitempty"`
+	Error string                  `json:"error,omitempty"`
 }
 
 // FanoutResult aggregates the per-branch outcomes of a FanoutTask call.
@@ -205,6 +208,7 @@ func (m *Mesh) FanoutTask(ctx context.Context, req FanoutRequest) (FanoutResult,
 		}
 		b.Status = string(oc.resp.Status)
 		b.Result = oc.resp.Result
+		b.Usage = oc.resp.Usage
 		b.Error = oc.resp.Error
 		if b.Status == string(agenttask.StatusDone) && res.Winner == "" {
 			res.Winner = b.PeerID

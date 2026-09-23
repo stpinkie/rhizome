@@ -15,6 +15,7 @@ import (
 
 	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 const (
@@ -310,6 +311,18 @@ func (l *auditLogger) rotateLocked() {
 
 // auditMesh records one remote-operation audit entry: event bus + JSONL file.
 func (m *Mesh) auditMesh(from peer.ID, op, agentID, ref, status string, started time.Time, detail string) {
+	m.auditMeshUsage(from, op, agentID, ref, status, started, detail, nil)
+}
+
+// auditMeshUsage is auditMesh with an optional usage report attached; usage
+// lands on the "usage" key of both the event payload and the JSONL entry.
+func (m *Mesh) auditMeshUsage(
+	from peer.ID,
+	op, agentID, ref, status string,
+	started time.Time,
+	detail string,
+	usage *toolshared.RemoteUsage,
+) {
 	entry := map[string]any{
 		"ts":          time.Now().UTC().Format(time.RFC3339Nano),
 		"peer_id":     from.String(),
@@ -321,6 +334,9 @@ func (m *Mesh) auditMesh(from peer.ID, op, agentID, ref, status string, started 
 	}
 	if detail != "" {
 		entry["detail"] = detail
+	}
+	if usage != nil {
+		entry["usage"] = usage
 	}
 
 	m.publishMeshEvent(runtimeevents.KindMeshRemoteAudit, entry)

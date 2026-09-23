@@ -6,6 +6,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/bus"
 	"github.com/stpinkie/rhizome/pkg/routing"
 	"github.com/stpinkie/rhizome/pkg/session"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
 // DispatchRequest is the normalized runtime input passed into the agent loop
@@ -22,6 +23,10 @@ type DispatchRequest struct {
 	// the turn (tool attachments, send_file outputs). Used by remote mesh
 	// dispatch to return artifacts to the caller.
 	MediaSink *[]string
+	// UsageSink, when non-nil, receives the turn's summed LLM usage
+	// (call count, token totals) plus wall duration when the turn ends.
+	// Used by remote mesh dispatch to report usage to negotiated callers.
+	UsageSink *toolshared.RemoteUsage
 }
 
 func (r DispatchRequest) Channel() string {

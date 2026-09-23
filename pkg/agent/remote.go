@@ -9,6 +9,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/bus"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers"
+	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 	"github.com/stpinkie/rhizome/pkg/utils"
 )
 
@@ -33,6 +34,10 @@ type RemoteDispatchRequest struct {
 	SessionKey string
 	// SenderID identifies the requesting peer for events and audit logging.
 	SenderID string
+	// UsageSink, when non-nil, receives the turn's summed LLM usage and wall
+	// duration. External ACP runners leave it untouched (they cannot be
+	// metered), so callers should treat an all-zero report as "no data".
+	UsageSink *toolshared.RemoteUsage
 }
 
 // ProcessRemoteDispatch executes a mesh-submitted task on a specific local
@@ -119,6 +124,7 @@ func (al *AgentLoop) ProcessRemoteDispatch(
 			UserMessage: prompt,
 			Media:       append([]string(nil), req.Media...),
 			MediaSink:   &producedMedia,
+			UsageSink:   req.UsageSink,
 			InboundContext: &bus.InboundContext{
 				Channel:  "mesh",
 				ChatID:   sessionKey,

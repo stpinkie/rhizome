@@ -182,7 +182,7 @@ func TestMeshTaskAttachments(t *testing.T) {
 	meshA.SetMediaStore(storeA)
 	meshB.SetMediaStore(storeB)
 
-	meshB.SetRunFunc(func(_ context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
+	meshB.SetRunFunc(nilUsageRun(func(_ context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
 		if len(req.Media) != 1 {
 			return nil, fmt.Errorf("expected 1 media ref, got %d", len(req.Media))
 		}
@@ -211,7 +211,7 @@ func TestMeshTaskAttachments(t *testing.T) {
 		res := toolshared.NewToolResult("got:" + string(content))
 		res.Media = []string{ref}
 		return res, nil
-	})
+	}))
 
 	src := filepath.Join(t.TempDir(), "attach.txt")
 	require.NoError(t, os.WriteFile(src, []byte("attach me"), 0o600))

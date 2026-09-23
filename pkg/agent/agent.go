@@ -653,6 +653,17 @@ func (al *AgentLoop) runAgentLoop(
 		newTurnContext(opts.Dispatch.InboundContext, opts.Dispatch.RouteResult, opts.Dispatch.SessionScope),
 	)
 	ts := newTurnState(agent, opts, turnScope)
+	if opts.Dispatch.UsageSink != nil {
+		sink := opts.Dispatch.UsageSink
+		defer func() {
+			u := ts.Usage()
+			sink.LLMCalls = u.LLMCalls
+			sink.PromptTokens = u.PromptTokens
+			sink.CompletionTokens = u.CompletionTokens
+			sink.TotalTokens = u.TotalTokens
+			sink.DurationMS = time.Since(ts.startedAt).Milliseconds()
+		}()
+	}
 	pipeline := NewPipeline(al)
 	result, err := al.runTurn(ctx, ts, pipeline)
 	if err != nil {
