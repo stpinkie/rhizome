@@ -109,7 +109,7 @@ PORT =8080`,
 				t.Fatalf("Failed to create test file: %v", err)
 			}
 
-			result, err := loadEnvFile(envFile)
+			result, err := LoadEnvFile(envFile)
 
 			if tt.expectErr {
 				if err == nil {
@@ -139,7 +139,7 @@ PORT =8080`,
 }
 
 func TestLoadEnvFileNotFound(t *testing.T) {
-	_, err := loadEnvFile("/nonexistent/file.env")
+	_, err := LoadEnvFile("/nonexistent/file.env")
 	if err == nil {
 		t.Error("Expected error for nonexistent file")
 	}
@@ -175,7 +175,7 @@ SHARED_VAR=from_file`
 	}
 
 	// Load envFile
-	envVars, err := loadEnvFile(envFile)
+	envVars, err := LoadEnvFile(envFile)
 	if err != nil {
 		t.Fatalf("Failed to load env file: %v", err)
 	}

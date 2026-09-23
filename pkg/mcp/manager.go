@@ -61,11 +61,11 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return base.RoundTrip(req)
 }
 
-// loadEnvFile loads environment variables from a file in .env format
+// LoadEnvFile loads environment variables from a file in .env format
 // Each line should be in the format: KEY=value
 // Lines starting with # are comments
 // Empty lines are ignored
-func loadEnvFile(path string) (map[string]string, error) {
+func LoadEnvFile(path string) (map[string]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open env file: %w", err)
@@ -430,7 +430,7 @@ func connectServer(
 
 		// Load environment variables from file if specified
 		if cfg.EnvFile != "" {
-			envVars, err := loadEnvFile(cfg.EnvFile)
+			envVars, err := LoadEnvFile(cfg.EnvFile)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load env file %s: %w", cfg.EnvFile, err)
 			}
