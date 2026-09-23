@@ -85,6 +85,23 @@ In the AI/agent settings, register a custom ACP agent with command
 If the client disconnects or cancels a permission request, the tool call
 fails closed (denied).
 
+## Session modes
+
+Sessions also advertise ACP **session modes** (`session/set_mode`), a
+per-session override on top of the server policy:
+
+| Mode        | Effect                                                      |
+| ----------- | ----------------------------------------------------------- |
+| `ask`       | prompt the client per tool call (same as `prompt`).         |
+| `auto`      | approve every tool call without prompting (same as `allow`). |
+| `read-only` | reject every tool call (same as `deny`).                    |
+
+`acp.server.permission_policy=deny` caps the advertised set at `read-only`
+— a client may narrow but never widen the operator's policy. Switching
+modes clears cached `allow_always`/`reject_always` decisions so approvals
+can't leak across modes, and the mode is persisted in `acp-sessions.json`
+and restored by `session/load`.
+
 ## Session MCP servers
 
 `session/new` and `session/load` accept client-declared `mcpServers`.
