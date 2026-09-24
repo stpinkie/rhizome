@@ -357,7 +357,10 @@ func RunWithMesh(
 				logger.WarnCF("acp", "remote ACP serving failed to start",
 					map[string]any{"error": err.Error()})
 			} else {
-				defer remoteMux.Close()
+				defer func() {
+					msgBus.RemoveStreamDelegate(remoteMux)
+					remoteMux.Close()
+				}()
 			}
 		}
 

@@ -228,7 +228,10 @@ func NewDaemonCommand() *cobra.Command {
 						fmt.Fprintf(os.Stderr, "remote ACP serving failed: %v\n", err)
 					} else {
 						defer stack.Close()
-						defer mux.Close()
+						defer func() {
+							stack.Bus.RemoveStreamDelegate(mux)
+							mux.Close()
+						}()
 					}
 				}
 			}
