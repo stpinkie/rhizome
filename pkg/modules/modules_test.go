@@ -1058,7 +1058,11 @@ func TestCatalogVersionBump(t *testing.T) {
 		t.Fatalf("v3 catalog refused: %v", err)
 	}
 	if _, err := parseCatalogEnvelope(
-		[]byte(`{"catalog_version":4,"modules":[]}`)); err == nil {
-		t.Fatal("v4 catalog accepted")
+		[]byte(`{"catalog_version":4,"modules":[]}`)); err != nil {
+		t.Fatalf("v4 catalog refused: %v", err)
+	}
+	if _, err := parseCatalogEnvelope(
+		[]byte(`{"catalog_version":5,"modules":[]}`)); err == nil {
+		t.Fatal("v5 catalog accepted")
 	}
 }

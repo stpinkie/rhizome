@@ -434,7 +434,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 			agent.Candidates = nextCandidates
 			agent.CandidateProviders = nextCandidateProviders
 			agent.ThinkingLevel = parseThinkingLevel(modelCfg.ThinkingLevel)
-			agent.ThinkingLevelConfigured = isConfiguredThinkingLevel(modelCfg.ThinkingLevel)
+			agent.ThinkingLevelConfigured = IsConfiguredThinkingLevel(modelCfg.ThinkingLevel)
 
 			closeUnreferencedStatefulProviders(
 				previousProviders,

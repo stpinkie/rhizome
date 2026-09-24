@@ -4,10 +4,13 @@ Rhizome speaks [ACP](https://agentclientprotocol.com) in both directions:
 
 - **Server** — `rhizome acp` lets editors such as **Zed** and **JetBrains
   IDEs** drive your Rhizome agents directly, with streamed responses,
-  tool-call progress, and permission prompts.
+  tool-call progress, and permission prompts;
+  `acp.server.remote` additionally serves ACP to trusted mesh peers over
+  `/rhizome/acp/1.0.0`.
 - **Client** — `agents.list[].acp` binds an external ACP agent
   (`gemini --acp`, `claude-code acp`, …) to a Rhizome agent id, so it can
-  be delegated to like any local agent.
+  be delegated to like any local agent; `acp.remote` binds an agent that
+  lives on a trusted mesh peer instead of a local subprocess.
 
 `rhizome acp` speaks newline-delimited JSON-RPC over **stdio**. The editor
 spawns it as a subprocess; prompts run through the normal Rhizome agent
@@ -113,19 +116,59 @@ session history are untouched. `inherit` clears the override. The choice
 persists in `acp-sessions.json` and is restored by `session/load`; a model
 removed from `model_list` in the meantime falls back to inherit.
 
+A second `category:thought_level` select offers the fixed thinking-level
+set (`off`, `low`, `medium`, `high`, `xhigh`, `adaptive`) plus **inherit**.
+The choice applies to the turn's LLM calls and beats a `thinking_level`
+pinned on the selected model entry; `inherit` clears it. Persisted and
+restored by `session/load` like the model override.
+
 ## Session MCP servers
 
 `session/new` and `session/load` accept client-declared `mcpServers`.
-Only **stdio** entries are honoured (http/sse/acp variants are refused);
-each session gets its own MCP manager, at most 4 servers, and a 30 s
-connect bound. Tools surface to the agent as
+**stdio**, **http**, and **sse** entries are honoured (nested `acp` is
+refused); each session gets its own MCP manager, at most 4 servers, and a
+30 s connect bound. `initialize` advertises `mcp_capabilities.http` and
+`.sse` accordingly. Tools surface to the agent as
 `mcp_acp-<session>-<server>_<tool>` and are scoped to the owning session —
 other sessions (and other channels) neither see nor can execute them, and
 everything is torn down on `session/close` or server shutdown.
 
-Session-declared servers run **env-only**: the child receives a minimal
-system base (PATH, HOME, temp dirs, …) plus exactly the `env` entries the
-client declared — the daemon's environment is never inherited.
+Session-declared **stdio** servers run **env-only**: the child receives a
+minimal system base (PATH, HOME, temp dirs, …) plus exactly the `env`
+entries the client declared — the daemon's environment is never
+inherited. http/sse servers are outbound connections: only http(s) URLs
+are accepted and declared `headers` are sent verbatim — an operator
+serving remote peers via `acp.server.remote` should treat session-declared
+MCP as part of the trusted-peers trust surface.
+
+## Serving ACP to mesh peers (`acp.server.remote`)
+
+`rhizome acp` serves editors over stdio; the daemon can also serve the
+same ACP surface to **trusted mesh peers** over the libp2p protocol
+`/rhizome/acp/1.0.0`:
+
+```json
+{
+  "acp": { "server": { "remote": true, "permission_policy": "prompt" } }
+}
+```
+
+- Requires `mesh.enabled`; without the trust layer the daemon warns and
+  does not register the handler.
+- Every inbound stream is gated on `mesh.trusted_peers` — untrusted peers
+  are reset before a single ACP byte is read.
+- Each connection gets its own session table and permission flow; a
+  `RemoteMux` shares the agent loop and session store across connections,
+  so two peers can hold simultaneous sessions.
+- Works under `daemon --no-gateway` via a dedicated headless runtime
+  (own agent loop + message bus); with the gateway running, sessions ride
+  the gateway's loop so streamed updates, tool approvals, and session
+  persistence behave exactly like the stdio server.
+- `permission_policy` applies per connection — `prompt` forwards
+  `session/request_permission` to that connection's client only; remote
+  requests never leak onto a local editor session (or vice versa).
+- Remote peers reach it through `agents.list[].acp.remote` bindings on
+  their side (see below).
 
 ## Diagnostics
 
@@ -268,6 +311,40 @@ Pin the method explicitly with `agents.list[].acp.auth_method` (matches
 the advertised method id); otherwise the first satisfiable method wins.
 Unsatisfiable or rejected auth kills the process with a descriptive
 error.
+
+### Remote bindings (`acp.remote`)
+
+A binding can point at an ACP agent running on a **trusted mesh peer**
+instead of a local subprocess — the same wire protocol over the libp2p
+stream protocol `/rhizome/acp/1.0.0`:
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "remote-worker",
+        "acp": { "remote": "/ip4/203.0.113.10/tcp/7443/p2p/12D3KooW…" }
+      }
+    ]
+  }
+}
+```
+
+- `remote` accepts a bare peer ID or a full peer multiaddr; a multiaddr's
+  addresses are added to the peerstore so dialing works for a peer that
+  isn't already connected.
+- The peer must be in `mesh.trusted_peers` — the dialer refuses untrusted
+  peers **before** any stream opens.
+- Everything else matches a subprocess binding: `initialize`,
+  `session/new`, permission bridging, `session_mode`, `mode`, and
+  capability negotiation all behave identically.
+- There is no local process and no local `cwd` — unless `acp.cwd` is set,
+  `session/new` sends `"."` so the remote side resolves it in its own
+  context.
+- A remote binding with `mesh.enabled=false` (or no mesh) fails with a
+  clear error at first use; the remote dialer seam lives outside
+  `pkg/acp`, so the package itself stays transport-agnostic.
 
 ### Trust posture
 

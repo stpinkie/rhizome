@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
@@ -55,4 +56,19 @@ func isProtocolNotSupported(err error) bool {
 	return strings.Contains(msg, "protocols not supported") ||
 		strings.Contains(msg, "protocol not supported") ||
 		strings.Contains(msg, "failed to negotiate")
+}
+
+// ResolvePeerAddr accepts a bare peer ID or a full peer multiaddr. A
+// multiaddr's addresses are added to the host's peerstore so dialing works
+// for freshly discovered peers (module stream bridge, acp.remote).
+func ResolvePeerAddr(h host.Host, s string) (peer.ID, error) {
+	if pid, err := peer.Decode(s); err == nil {
+		return pid, nil
+	}
+	ai, err := peer.AddrInfoFromString(s)
+	if err != nil {
+		return "", fmt.Errorf("unparseable peer %q", s)
+	}
+	h.Peerstore().AddAddrs(ai.ID, ai.Addrs, peerstore.TempAddrTTL)
+	return ai.ID, nil
 }

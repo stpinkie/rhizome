@@ -44,7 +44,9 @@ func parseThinkingLevel(level string) ThinkingLevel {
 	}
 }
 
-func isConfiguredThinkingLevel(level string) bool {
+// IsConfiguredThinkingLevel reports whether level is a valid configured
+// thinking level — the set callers may offer (e.g. ACP thought_level).
+func IsConfiguredThinkingLevel(level string) bool {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "off", "low", "medium", "high", "xhigh", "adaptive":
 		return true
@@ -59,7 +61,7 @@ type thinkingSettings struct {
 }
 
 func thinkingSettingsFromModelConfig(mc *config.ModelConfig) thinkingSettings {
-	if mc == nil || !isConfiguredThinkingLevel(mc.ThinkingLevel) {
+	if mc == nil || !IsConfiguredThinkingLevel(mc.ThinkingLevel) {
 		return thinkingSettings{}
 	}
 	return thinkingSettings{
@@ -116,6 +118,9 @@ func applyTurnThinkingOptions(
 	}
 	delete(exec.llmOpts, "thinking_level")
 	settings := activeThinkingSettings(agent, exec.activeModelConfig)
+	if exec.thinkingOverride.configured {
+		settings = exec.thinkingOverride
+	}
 	agentID := ""
 	if agent != nil {
 		agentID = agent.ID

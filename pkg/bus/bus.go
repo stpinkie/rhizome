@@ -105,6 +105,8 @@ type MessageBus struct {
 	wg             sync.WaitGroup
 	publishMu      sync.Mutex
 	streamDelegate atomic.Value // stores StreamDelegate
+	extraDelegates atomic.Value // stores []StreamDelegate
+	delegateMu     sync.Mutex   // serializes Add/Remove copy-on-write
 	eventPublisher atomic.Value // stores EventPublisher
 	inboundStats   streamStats
 	outboundStats  streamStats
@@ -319,15 +321,57 @@ func (mb *MessageBus) SetStreamDelegate(d StreamDelegate) {
 	mb.streamDelegate.Store(d)
 }
 
+// AddStreamDelegate registers an additional delegate consulted after the
+// primary — remote ACP connections use it to multiplex stream ownership
+// without replacing the channel Manager's delegate. Safe to call while the
+// bus is serving; the change takes effect on the next GetStreamer call.
+func (mb *MessageBus) AddStreamDelegate(d StreamDelegate) {
+	mb.delegateMu.Lock()
+	defer mb.delegateMu.Unlock()
+	cur := mb.extraDelegatesSnapshot()
+	mb.extraDelegates.Store(append(append([]StreamDelegate{}, cur...), d))
+}
+
+// RemoveStreamDelegate unregisters a delegate previously added via
+// AddStreamDelegate — typically when the owning connection closes.
+func (mb *MessageBus) RemoveStreamDelegate(d StreamDelegate) {
+	mb.delegateMu.Lock()
+	defer mb.delegateMu.Unlock()
+	cur := mb.extraDelegatesSnapshot()
+	out := make([]StreamDelegate, 0, len(cur))
+	for _, e := range cur {
+		if e != d {
+			out = append(out, e)
+		}
+	}
+	mb.extraDelegates.Store(out)
+}
+
+func (mb *MessageBus) extraDelegatesSnapshot() []StreamDelegate {
+	if v, ok := mb.extraDelegates.Load().([]StreamDelegate); ok {
+		return v
+	}
+	return nil
+}
+
 // SetEventPublisher registers a runtime event publisher for bus errors and lifecycle events.
 func (mb *MessageBus) SetEventPublisher(p EventPublisher) {
 	mb.eventPublisher.Store(p)
 }
 
-// GetStreamer returns a Streamer for the given channel+chatID+session via the delegate.
+// GetStreamer returns a Streamer for the given channel+chatID+session via
+// the delegate(s). The primary delegate answers first; added delegates are
+// consulted in registration order until one claims the session.
 func (mb *MessageBus) GetStreamer(ctx context.Context, channel, chatID, sessionKey string) (Streamer, bool) {
 	if d, ok := mb.streamDelegate.Load().(StreamDelegate); ok && d != nil {
-		return d.GetStreamer(ctx, channel, chatID, sessionKey)
+		if s, claimed := d.GetStreamer(ctx, channel, chatID, sessionKey); claimed {
+			return s, true
+		}
+	}
+	for _, d := range mb.extraDelegatesSnapshot() {
+		if s, claimed := d.GetStreamer(ctx, channel, chatID, sessionKey); claimed {
+			return s, true
+		}
 	}
 	return nil, false
 }

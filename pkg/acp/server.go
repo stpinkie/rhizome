@@ -75,6 +75,10 @@ type Options struct {
 	// Sessions is the persisted ACP session index. When non-nil the server
 	// advertises loadSession and records new sessions for session/load.
 	Sessions *SessionStore
+	// SkipPermissionHook suppresses mounting the acp-permission tool
+	// approver — used by the RemoteMux, which mounts one shared approver
+	// resolving sessions across all of its connection-scoped servers.
+	SkipPermissionHook bool
 	// Logger receives diagnostics; defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -89,6 +93,9 @@ type Server struct {
 	models  []string
 	log     *slog.Logger
 	store   *SessionStore
+
+	// skipHook mirrors Options.SkipPermissionHook.
+	skipHook bool
 
 	// newMCPManager builds the per-session MCP manager — overridable in
 	// tests.
@@ -122,6 +129,7 @@ func NewServer(runner AgentRunner, opts Options) *Server {
 		version:  opts.Version,
 		models:   append([]string(nil), opts.Models...),
 		store:    opts.Sessions,
+		skipHook: opts.SkipPermissionHook,
 		log:      log,
 		sessions: make(map[acpsdk.SessionId]*acpSession),
 	}
@@ -142,8 +150,12 @@ func (s *Server) Bind(conn ClientConn) {
 // tool-call progress updates. The subscription uses a background context so
 // it outlives individual prompt requests.
 func (s *Server) Start() error {
-	if err := s.runner.MountHook(agent.NamedHook("acp-permission", &toolApprover{srv: s})); err != nil {
-		return fmt.Errorf("mounting acp permission hook: %w", err)
+	if !s.skipHook {
+		if err := s.runner.MountHook(
+			agent.NamedHook("acp-permission", &toolApprover{resolve: s.resolveSessionConn}),
+		); err != nil {
+			return fmt.Errorf("mounting acp permission hook: %w", err)
+		}
 	}
 
 	evCtx, cancel := context.WithCancel(context.Background())
@@ -199,6 +211,18 @@ func (s *Server) connOrErr() (ClientConn, error) {
 		return nil, fmt.Errorf("acp: no client connection bound")
 	}
 	return s.conn, nil
+}
+
+// resolveSessionConn is the toolApprover resolver for the single-connection
+// stdio server: the session's owning connection is always this server's
+// bound conn.
+func (s *Server) resolveSessionConn(chatID string) (*acpSession, ClientConn, PermissionPolicy) {
+	sess := s.sessionByChatID(chatID)
+	if sess == nil {
+		return nil, nil, ""
+	}
+	conn, _ := s.connOrErr()
+	return sess, conn, s.policy
 }
 
 func (s *Server) notify(ctx context.Context, sid acpsdk.SessionId, upd acpsdk.SessionUpdate) error {
@@ -259,10 +283,11 @@ func (s *Server) Initialize(
 		AgentCapabilities: acpsdk.AgentCapabilities{
 			LoadSession: s.store != nil,
 			// MCP transports we can host for session-declared servers:
-			// stdio is implicit in ACP; http/sse/acp stay refused.
+			// stdio is implicit in ACP; http and sse are served via the
+			// shared pkg/mcp manager; nested acp stays refused.
 			McpCapabilities: acpsdk.McpCapabilities{
-				Http: false,
-				Sse:  false,
+				Http: true,
+				Sse:  true,
 			},
 			PromptCapabilities: acpsdk.PromptCapabilities{
 				Image:           s.media != nil,
@@ -342,6 +367,11 @@ func (s *Server) LoadSession(
 	if s.modelOffered(rec.Model) {
 		sess.setModel(rec.Model)
 	}
+	// Thinking levels are a fixed enum — a persisted value is either still
+	// valid or dropped.
+	if agent.IsConfiguredThinkingLevel(rec.ThinkingLevel) {
+		sess.setThinkingLevel(rec.ThinkingLevel)
+	}
 	sess.onDecisions = s.decisionPersister(sid)
 
 	s.mu.Lock()
@@ -411,9 +441,14 @@ func (s *Server) modeState(sess *acpSession) *acpsdk.SessionModeState {
 
 // Session config option ids and reserved select values.
 const (
-	modelConfigID     acpsdk.SessionConfigId      = "model"
-	modelInheritValue acpsdk.SessionConfigValueId = "inherit"
+	modelConfigID        acpsdk.SessionConfigId      = "model"
+	thoughtLevelConfigID acpsdk.SessionConfigId      = "thought_level"
+	inheritConfigValue   acpsdk.SessionConfigValueId = "inherit"
 )
+
+// acpThoughtLevels are the thinking levels offered in the thought_level
+// select — the same set agent.IsConfiguredThinkingLevel validates.
+var acpThoughtLevels = []string{"off", "low", "medium", "high", "xhigh", "adaptive"}
 
 // modelOffered reports whether name is a selectable model for this server.
 func (s *Server) modelOffered(name string) bool {
@@ -438,13 +473,20 @@ func (s *Server) agentModel(sess *acpSession) string {
 	return inst.Model
 }
 
-// configOptions builds the session's config-option list. The only option
-// today is the category:model select over Options.Models plus an "inherit"
-// entry that clears the per-session override.
+// configOptions builds the session's config-option list: the category:model
+// select over Options.Models (omitted when no models are offered) and the
+// category:thought_level select over the fixed thinking-level set. Each has
+// an "inherit" entry that clears the per-session override.
 func (s *Server) configOptions(sess *acpSession) []acpsdk.SessionConfigOption {
-	if len(s.models) == 0 {
-		return nil
+	opts := make([]acpsdk.SessionConfigOption, 0, 2)
+	if len(s.models) > 0 {
+		opts = append(opts, s.modelConfigOption(sess))
 	}
+	opts = append(opts, s.thoughtLevelConfigOption(sess))
+	return opts
+}
+
+func (s *Server) modelConfigOption(sess *acpSession) acpsdk.SessionConfigOption {
 	inheritName := "Agent default"
 	if active := s.agentModel(sess); active != "" {
 		inheritName = fmt.Sprintf("Agent default (%s)", active)
@@ -452,7 +494,7 @@ func (s *Server) configOptions(sess *acpSession) []acpsdk.SessionConfigOption {
 	values := make([]acpsdk.SessionConfigSelectOption, 0, len(s.models)+1)
 	values = append(values, acpsdk.SessionConfigSelectOption{
 		Name:  inheritName,
-		Value: modelInheritValue,
+		Value: inheritConfigValue,
 	})
 	for _, name := range s.models {
 		values = append(values, acpsdk.SessionConfigSelectOption{
@@ -465,10 +507,10 @@ func (s *Server) configOptions(sess *acpSession) []acpsdk.SessionConfigOption {
 		current = s.agentModel(sess)
 	}
 	if current == "" {
-		current = string(modelInheritValue)
+		current = string(inheritConfigValue)
 	}
 	ungrouped := acpsdk.SessionConfigSelectOptionsUngrouped(values)
-	return []acpsdk.SessionConfigOption{{
+	return acpsdk.SessionConfigOption{
 		Select: &acpsdk.SessionConfigOptionSelect{
 			Id:           modelConfigID,
 			Name:         "Model",
@@ -476,7 +518,54 @@ func (s *Server) configOptions(sess *acpSession) []acpsdk.SessionConfigOption {
 			CurrentValue: acpsdk.SessionConfigValueId(current),
 			Options:      acpsdk.SessionConfigSelectOptions{Ungrouped: &ungrouped},
 		},
-	}}
+	}
+}
+
+func (s *Server) thoughtLevelConfigOption(sess *acpSession) acpsdk.SessionConfigOption {
+	inheritName := "Agent default"
+	if active := s.agentThinkingLevel(sess); active != "" {
+		inheritName = fmt.Sprintf("Agent default (%s)", active)
+	}
+	values := make([]acpsdk.SessionConfigSelectOption, 0, len(acpThoughtLevels)+1)
+	values = append(values, acpsdk.SessionConfigSelectOption{
+		Name:  inheritName,
+		Value: inheritConfigValue,
+	})
+	for _, level := range acpThoughtLevels {
+		values = append(values, acpsdk.SessionConfigSelectOption{
+			Name:  level,
+			Value: acpsdk.SessionConfigValueId(level),
+		})
+	}
+	current := sess.thinkingLevelOverride()
+	if current == "" {
+		current = string(inheritConfigValue)
+	}
+	ungrouped := acpsdk.SessionConfigSelectOptionsUngrouped(values)
+	return acpsdk.SessionConfigOption{
+		Select: &acpsdk.SessionConfigOptionSelect{
+			Id:           thoughtLevelConfigID,
+			Name:         "Thought Level",
+			Category:     acpsdk.Ptr(acpsdk.SessionConfigOptionCategoryThoughtLevel),
+			CurrentValue: acpsdk.SessionConfigValueId(current),
+			Options:      acpsdk.SessionConfigSelectOptions{Ungrouped: &ungrouped},
+		},
+	}
+}
+
+// agentThinkingLevel resolves the bound agent's configured thinking level
+// ("" when unconfigured — off-by-default is not surfaced as a configured
+// choice so the inherit label stays "Agent default").
+func (s *Server) agentThinkingLevel(sess *acpSession) string {
+	reg := s.runner.GetRegistry()
+	if reg == nil {
+		return ""
+	}
+	inst, ok := reg.GetAgent(sess.agentID)
+	if !ok || inst == nil || !inst.ThinkingLevelConfigured {
+		return ""
+	}
+	return string(inst.ThinkingLevel)
 }
 
 // replayHistory resends stored user/assistant messages as session/update
@@ -560,6 +649,18 @@ func (s *Server) persistModel(sess *acpSession) {
 	}
 }
 
+// persistThinkingLevel records the session's thinking-level override (no-op
+// when unconfigured).
+func (s *Server) persistThinkingLevel(sess *acpSession) {
+	if s.store == nil {
+		return
+	}
+	if err := s.store.UpdateThinkingLevel(string(sess.id), sess.thinkingLevelOverride()); err != nil {
+		s.log.Warn("acp: failed to persist session thinking level",
+			"session_id", string(sess.id), "error", err)
+	}
+}
+
 // decisionPersister returns the onDecisions callback bound to a session id.
 func (s *Server) decisionPersister(sid acpsdk.SessionId) func(allow, deny []string) {
 	if s.store == nil {
@@ -601,8 +702,9 @@ func (s *Server) Prompt(ctx context.Context, params acpsdk.PromptRequest) (acpsd
 		Media:      mediaRefs,
 		MediaScope: sess.key,
 		SessionKey: sess.key,
-		// Per-session model override (session/set_config_option).
-		ModelOverride: sess.modelOverride(),
+		// Per-session overrides (session/set_config_option).
+		ModelOverride:         sess.modelOverride(),
+		ThinkingLevelOverride: sess.thinkingLevelOverride(),
 	}
 
 	text, runErr := s.runner.ProcessInbound(ctx, msg)
@@ -825,10 +927,11 @@ func (s *Server) SetSessionMode(
 	return acpsdk.SetSessionModeResponse{}, nil
 }
 
-// SetSessionConfigOption applies a client-chosen config option. The only
-// declared option is the category:model select: a value id names a
-// model_list entry and becomes the session's model override; "inherit"
-// clears it. The response carries the full option set per the ACP spec.
+// SetSessionConfigOption applies a client-chosen config option. The model
+// select names a model_list entry for the session's model override; the
+// thought_level select names a thinking level for the session's thinking
+// override. "inherit" clears either. The response carries the full option
+// set per the ACP spec.
 func (s *Server) SetSessionConfigOption(
 	_ context.Context,
 	params acpsdk.SetSessionConfigOptionRequest,
@@ -846,24 +949,39 @@ func (s *Server) SetSessionConfigOption(
 			"error": "unknown or closed session",
 		})
 	}
-	if req.ConfigId != modelConfigID {
-		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
-			"error":      fmt.Sprintf("unknown configId %q", req.ConfigId),
-			"candidates": []string{string(modelConfigID)},
-		})
-	}
 	val := string(req.Value)
-	switch {
-	case val == string(modelInheritValue):
-		sess.setModel("")
-	case s.modelOffered(val):
-		sess.setModel(val)
+	switch req.ConfigId {
+	case modelConfigID:
+		switch {
+		case val == string(inheritConfigValue):
+			sess.setModel("")
+		case s.modelOffered(val):
+			sess.setModel(val)
+		default:
+			return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+				"error":     fmt.Sprintf("unknown model %q", val),
+				"available": s.models,
+			})
+		}
+		s.persistModel(sess)
+	case thoughtLevelConfigID:
+		switch {
+		case val == string(inheritConfigValue):
+			sess.setThinkingLevel("")
+		case agent.IsConfiguredThinkingLevel(val):
+			sess.setThinkingLevel(val)
+		default:
+			return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+				"error":     fmt.Sprintf("unknown thought level %q", val),
+				"available": acpThoughtLevels,
+			})
+		}
+		s.persistThinkingLevel(sess)
 	default:
 		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
-			"error":     fmt.Sprintf("unknown model %q", val),
-			"available": s.models,
+			"error":      fmt.Sprintf("unknown configId %q", req.ConfigId),
+			"candidates": []string{string(modelConfigID), string(thoughtLevelConfigID)},
 		})
 	}
-	s.persistModel(sess)
 	return acpsdk.SetSessionConfigOptionResponse{ConfigOptions: s.configOptions(sess)}, nil
 }

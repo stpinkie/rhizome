@@ -75,6 +75,7 @@ type acpSession struct {
 	deny     map[string]bool
 	mode     acpsdk.SessionModeId // "" = inherit the server policy
 	model    string               // "" = inherit the agent's model
+	thinking string               // "" = inherit the agent's thinking level
 	agentID  string               // bound agent, for model resolution
 	closed   bool
 	promptAt time.Time
@@ -271,6 +272,20 @@ func (s *acpSession) setModel(model string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.model = model
+}
+
+// thinkingLevelOverride returns the session's thinking-level override
+// ("" = inherit the agent's configured level).
+func (s *acpSession) thinkingLevelOverride() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.thinking
+}
+
+func (s *acpSession) setThinkingLevel(level string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.thinking = level
 }
 
 // setMCP wires the session's MCP manager + tool registrations for teardown.

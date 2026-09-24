@@ -234,7 +234,7 @@ func NewAgentInstance(
 		thinkingLevelStr = mc.ThinkingLevel
 	}
 	thinkingLevel := parseThinkingLevel(thinkingLevelStr)
-	thinkingLevelConfigured := isConfiguredThinkingLevel(thinkingLevelStr)
+	thinkingLevelConfigured := IsConfiguredThinkingLevel(thinkingLevelStr)
 
 	summarizeMessageThreshold := defaults.SummarizeMessageThreshold
 	if summarizeMessageThreshold == 0 {

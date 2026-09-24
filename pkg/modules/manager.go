@@ -66,6 +66,10 @@ type Manager struct {
 	client *http.Client
 	sup    *Supervisor // nil outside the daemon
 	saveFn func(*config.Config) error
+	// bridgeAddr is the module stream bridge's loopback address, set by the
+	// daemon via SetBridgeAddr. Protocol-declaring modules receive it as
+	// RHIZOME_BRIDGE_ADDR in their process environment.
+	bridgeAddr string
 }
 
 // NewManager builds a module manager rooted at <home>/modules. bus may be
@@ -99,6 +103,23 @@ func (m *Manager) SetSupervisor(sup *Supervisor) { m.sup = sup }
 
 // Supervisor returns the attached supervisor, or nil.
 func (m *Manager) Supervisor() *Supervisor { return m.sup }
+
+// SetBridgeAddr records the module stream bridge's loopback address so
+// protocol-declaring module processes get RHIZOME_BRIDGE_ADDR. Called by
+// the daemon once the bridge listener is bound; "" disables env injection.
+func (m *Manager) SetBridgeAddr(addr string) { m.bridgeAddr = addr }
+
+// AnyEnabledProtocolModules reports whether any enabled module declares
+// stream protocols — the daemon gates bridge creation on this so the
+// loopback listener only binds when a module can use it.
+func (m *Manager) AnyEnabledProtocolModules() bool {
+	for _, spec := range m.specs() {
+		if len(spec.Protocols) > 0 && m.moduleConfig(spec.ID).Enabled {
+			return true
+		}
+	}
+	return false
+}
 
 func (m *Manager) publish(kind string, attrs map[string]any) {
 	if m.bus == nil {
@@ -377,7 +398,10 @@ func (m *Manager) Install(ctx context.Context, id, version string) error {
 		if err != nil {
 			return err
 		}
-		return m.markInstalled(id, "detected:"+path)
+		if err := m.markInstalled(id, "detected:"+path); err != nil {
+			return err
+		}
+		return m.rotateBridgeToken(spec)
 	}
 	if !spec.Supports(Platform()) {
 		return fmt.Errorf("module %q is not supported on %s", id, Platform())
@@ -385,8 +409,22 @@ func (m *Manager) Install(ctx context.Context, id, version string) error {
 	if err := m.installRelease(ctx, spec, version); err != nil {
 		return err
 	}
+	if err := m.rotateBridgeToken(spec); err != nil {
+		return err
+	}
 	m.publish("module.installed", map[string]any{"module": id, "version": m.installedVersion(id)})
 	return nil
+}
+
+// rotateBridgeToken mints a fresh bridge token on every (re)install of a
+// protocol-declaring module; a restarted process gets the new token through
+// RHIZOME_BRIDGE_TOKEN.
+func (m *Manager) rotateBridgeToken(spec ModuleSpec) error {
+	if len(spec.Protocols) == 0 {
+		return nil
+	}
+	_, err := m.mintBridgeToken(spec.ID)
+	return err
 }
 
 // Uninstall removes the module directory. The caller must stop the module

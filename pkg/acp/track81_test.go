@@ -394,14 +394,15 @@ func TestSessionMCPRefusesNonStdio(t *testing.T) {
 	resp, err := srv.NewSession(context.Background(), acpsdk.NewSessionRequest{
 		Cwd: t.TempDir(),
 		McpServers: []acpsdk.McpServer{
-			{Http: &acpsdk.McpServerHttpInline{Url: "http://example.com/mcp", Name: "remote"}},
+			// Nested ACP stays refused — no transport for it.
+			{Acp: &acpsdk.McpServerAcpInline{}},
 		},
 	})
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 	if len(fake.servers) != 0 {
-		t.Fatalf("non-stdio server should be refused, got %v", fake.servers)
+		t.Fatalf("nested-acp server should be refused, got %v", fake.servers)
 	}
 	inst, _ := srv.runner.GetRegistry().GetAgent("main")
 	for _, n := range inst.Tools.List() {

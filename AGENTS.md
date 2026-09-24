@@ -227,6 +227,27 @@ emits `catalog_version` 3 only when a signature is actually declared.
 module design: layout-preserving extraction, digest-pinned model weights,
 ondemand shape, GPU field sketch.
 
+Module wire protocols (v0.14.0, Track 98 — catalog schema v4): a spec may
+declare `protocols` — libp2p protocol ids the daemon bridges to the module
+process. `pkg/modules/bridge.go` runs a dedicated loopback listener (not
+the gateway mux, so it works under `--no-gateway`): outbound module dials
+send one JSON hello line `{token, action:"dial", peer, protocol}` then raw
+bytes splice onto a fresh peer stream; inbound peer streams on a claimed
+protocol are gated on `mesh.trusted_peers` (untrusted reset pre-handshake),
+then the daemon dials the module's own listener published at
+`<module_dir>/bridge.addr`, sends `{token, action:"accept", peer,
+protocol}`, and splices. Per-module bearer tokens live at
+`<module_dir>/bridge-token` (0600, minted at install, rotated on
+reinstall); the supervisor injects `RHIZOME_BRIDGE_ADDR`,
+`RHIZOME_BRIDGE_TOKEN`, and `RHIZOME_MODULE_DIR` into protocol-declaring
+modules only. Validation refuses malformed ids, dupes, static collisions
+with core protocols, mux-registered collisions (skipped at bridge start),
+and cross-module claims of the same protocol while both are enabled.
+`/rhizome/acp/1.0.0` is intentionally not statically refused — the bridge
+resolves it dynamically so a module can declare it when core is not
+serving. Catalog emits `catalog_version` 4 only when a module actually
+declares protocols.
+
 Remote index (v0.11.0, Track 70): `module_index = {enabled, url}` is a
 sibling of `modules` (a key inside `modules` would decode as a module id).
 When enabled, `<url>/catalog.json` + `.sig` (Ed25519 over the served bytes,
@@ -432,11 +453,23 @@ Rhizome as an editor agent). `pkg/acp` contains all
   and `ToolRegistry.Unregister` + manager `Close` run on session close /
   server shutdown. http/sse/acp entries are refused per-entry.
 - See `docs/guides/acp.md` for Zed `agent_servers` / JetBrains setup.
+- **Remote serving** (v0.14.0 Track 98): `acp.server.remote=true` also
+  serves ACP over `/rhizome/acp/1.0.0` to trusted mesh peers — requires
+  `mesh.enabled`; the stream handler resets untrusted peers before any
+  ACP bytes. `RemoteMux` multiplexes connections onto the shared agent
+  loop: one `Server` per connection (own session table, own permission
+  wiring through a session→conn resolver hook), sharing `acp-sessions.json`
+  and `SelectableModels`. Under `--no-gateway` a headless stack
+  (`NewHeadlessStack`: own loop + bus + session store) backs the mux.
+  `bus.AddStreamDelegate` is additive so the mux's delegate composes with
+  the channel manager's instead of replacing it.
 
 ### ACP client (external agents)
 
 `agents.list[].acp = {command, args, env, cwd}` binds an external ACP
-agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id:
+agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id; the
+alternative `acp.remote = <peer-id|multiaddr>` binds an agent served by a
+trusted mesh peer's `acp.server.remote` instead of a subprocess:
 
 - `AgentInstance.ACP` marks the binding; `pkg/acp.ClientManager` lazily
   spawns the child process (plain `exec.Command` — NOT `pkg/isolation`;
@@ -468,6 +501,14 @@ agent (`gemini --acp`, `claude-code acp`, …) to a routable agent id:
   not advertised and methods return method-not-found.
 - Registry is resolved lazily (`func() *AgentRegistry`) in both the
   manager and spawner — reload swaps the registry pointer.
+- **Remote bindings** (v0.14.0 Track 98): `acp.remote` takes a peer id or
+  multiaddr; `ClientManager.RemoteDialer` is a `func(ctx, agentID,
+  remote) (io.ReadWriteCloser, error)` seam the gateway fills with a
+  trust-gated `OpenProtocolStream` — `pkg/acp` itself stays libp2p-free.
+  Trust is enforced in the dialer (`mesh.IsTrusted` before any stream
+  opens); `session/new` sends `cwd="."` unless `acp.cwd` is set. A remote
+  binding without a dialer (mesh off) fails with a descriptive error at
+  first use.
 
 ## Web Backend Network API
 

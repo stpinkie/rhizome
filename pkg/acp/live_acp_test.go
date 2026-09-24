@@ -22,9 +22,11 @@ package acp
 // unusable as a CI-style drive.)
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,6 +40,7 @@ import (
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -363,6 +366,24 @@ func TestLiveRhizomeACPSessionMachinery(t *testing.T) {
 	})
 	require.NoError(t, err, "set model to mock-b for this session")
 
+	// Per-session thought_level override: a fixed-enum option.
+	_, err = conn.SetSessionConfigOption(ctx, acpsdk.SetSessionConfigOptionRequest{
+		ValueId: &acpsdk.SetSessionConfigOptionValueId{
+			SessionId: sess.SessionId,
+			ConfigId:  thoughtLevelConfigID,
+			Value:     "low",
+		},
+	})
+	require.NoError(t, err, "set thought_level to low for this session")
+	_, err = conn.SetSessionConfigOption(ctx, acpsdk.SetSessionConfigOptionRequest{
+		ValueId: &acpsdk.SetSessionConfigOptionValueId{
+			SessionId: sess.SessionId,
+			ConfigId:  thoughtLevelConfigID,
+			Value:     "ludicrous",
+		},
+	})
+	assert.Error(t, err, "unadvertised thought level must be refused")
+
 	resp, err := conn.Prompt(ctx, acpsdk.PromptRequest{
 		SessionId: sess.SessionId,
 		Prompt:    []acpsdk.ContentBlock{{Text: &acpsdk.ContentBlockText{Text: "ping"}}},
@@ -396,4 +417,138 @@ func TestLiveRhizomeACPSessionMachinery(t *testing.T) {
 	require.NotNil(t, loadResp.Modes)
 	t.Logf("session/load ok: id=%s modes-advertised=%d",
 		sess.SessionId, len(loadResp.Modes.AvailableModes))
+}
+
+// ── acp.remote against a real daemon ──────────────────────────────────────
+
+// TestLiveRhizomeRemoteACPDaemon drives the acp.remote path against a real
+// `rhizome daemon --no-gateway` subprocess: the daemon onboards an identity,
+// serves /rhizome/acp/1.0.0 through the production headless RemoteMux, and
+// answers a real prompt turn through the mock OpenAI backend. The client is
+// an in-process mesh node bound via agents.list[].acp.remote — the same
+// trust gate + dialer shape the gateway installs.
+func TestLiveRhizomeRemoteACPDaemon(t *testing.T) {
+	bin := liveRhizomeBinary(t)
+	mock := newLiveMockLLM(t)
+
+	// Client mesh node first — its peer ID goes into the daemon's trust set.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	clientNode, clientMesh := remoteE2EMesh(t, ctx, nil)
+
+	// Daemon home: onboarded identity + config serving acp.server.remote.
+	daemonHome := t.TempDir()
+	workspace := t.TempDir()
+	cfg := map[string]any{
+		"version": config.CurrentVersion,
+		"model_list": []map[string]any{{
+			"model_name": "mock-a",
+			"provider":   "openai",
+			"model":      "mock/model-a",
+			"api_base":   mock.apiBase(),
+			"api_keys":   []string{"test-key"},
+			"enabled":    true,
+		}},
+		"agents": map[string]any{
+			"defaults": map[string]any{
+				"model_name": "mock-a",
+				"workspace":  workspace,
+			},
+		},
+		"mesh": map[string]any{
+			"enabled":       true,
+			"dht_enabled":   false,
+			"trusted_peers": []string{clientNode.ID().String()},
+		},
+		"acp": map[string]any{
+			"server": map[string]any{
+				"remote":            true,
+				"permission_policy": "allow",
+			},
+		},
+	}
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	require.NoError(t,
+		os.WriteFile(filepath.Join(daemonHome, "config.json"), data, 0o600))
+
+	env := append(os.Environ(), config.EnvHome+"="+daemonHome)
+	onboard := exec.Command(bin, "network", "onboard",
+		"--generate", "--name", "live-remote", "--encrypt", "none",
+		"--yes", "--non-interactive")
+	onboard.Env = env
+	if out, err := onboard.CombinedOutput(); err != nil {
+		t.Fatalf("daemon onboard: %v\n%s", err, out)
+	}
+
+	proc := exec.Command(bin, "daemon",
+		"--allow-empty", "--no-dht", "--no-gateway",
+		"--listen", "/ip4/127.0.0.1/tcp/0")
+	proc.Env = env
+	proc.Dir = daemonHome
+	stdout, err := proc.StdoutPipe()
+	require.NoError(t, err)
+	stderr, err := proc.StderrPipe()
+	require.NoError(t, err)
+	require.NoError(t, proc.Start())
+	defer func() { _ = proc.Process.Kill(); _, _ = proc.Process.Wait() }()
+
+	addrCh := make(chan string, 4)
+	go func() {
+		sc := bufioScanner(stdout)
+		for sc.Scan() {
+			line := sc.Text()
+			t.Logf("daemon: %s", line)
+			if i := strings.Index(line, "Addrs:"); i >= 0 {
+				addrCh <- strings.TrimSpace(line[i+len("Addrs:"):])
+			}
+		}
+	}()
+	go func() {
+		sc := bufioScanner(stderr)
+		for sc.Scan() {
+			t.Logf("daemon stderr: %s", sc.Text())
+		}
+	}()
+
+	var daemonAddr string
+	select {
+	case daemonAddr = <-addrCh:
+	case <-time.After(30 * time.Second):
+		t.Fatal("daemon never printed its listen addrs")
+	}
+	require.NotEmpty(t, daemonAddr)
+	t.Logf("daemon listening at %s", daemonAddr)
+
+	// The remote binding takes the daemon's full multiaddr — the dialer
+	// resolves it through AddrInfoFromString and injects the addrs into
+	// the client node's peerstore.
+	clientMesh.TrustPeer(peerIDFromAddr(t, daemonAddr))
+	reg := remoteBoundRegistry(t, t.TempDir(), daemonAddr)
+	mgr := NewClientManager(&config.Config{}, func() *agent.AgentRegistry { return reg })
+	require.NotNil(t, mgr)
+	defer mgr.Close()
+	mgr.SetRemoteDialer(remoteE2EDialer(clientMesh))
+
+	pctx, pcancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer pcancel()
+	out, err := mgr.RunAgent(pctx, "ext", "ping")
+	require.NoError(t, err)
+	assert.Contains(t, out, "acp-live-drive-ok",
+		"real daemon remote ACP turn should return the mock reply")
+	assert.Equal(t, "mock/model-a", mock.model())
+	t.Logf("remote ACP reply via real daemon: %q", out)
+}
+
+func bufioScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	return sc
+}
+
+func peerIDFromAddr(t *testing.T, addr string) peer.ID {
+	t.Helper()
+	ai, err := peer.AddrInfoFromString(addr)
+	require.NoError(t, err)
+	return ai.ID
 }

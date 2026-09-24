@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,18 @@ const (
 	ClientPolicyAllow         = "allow"           // allow everything
 )
 
+// RemoteProtocolID is the libp2p protocol id remote ACP traffic flows over
+// (agents.list[].acp.remote client bindings; acp.server.remote serving).
+const RemoteProtocolID = "/rhizome/acp/1.0.0"
+
+// RemoteDialer opens a byte transport to a remote peer's ACP server.
+// remote is the configured agents.list[].acp.remote value (peer ID or
+// multiaddr); the returned stream carries the ACP wire protocol
+// byte-for-byte and Close terminates the connection. pkg/acp stays
+// transport-free — the daemon injects a mesh-backed dialer that enforces
+// the trusted-peer gate.
+type RemoteDialer func(ctx context.Context, agentID, remote string) (io.ReadWriteCloser, error)
+
 // ClientManager owns the lifecycle of external ACP agent processes declared
 // via agents.list[].acp. Processes are spawned lazily on first use, reused
 // across delegations, and restarted when the connection dies.
@@ -51,6 +64,9 @@ type ClientManager struct {
 
 	// dial is the process-spawn seam; tests inject an in-process connection.
 	dial func(ctx context.Context, agentID string, inst *agent.AgentInstance) (*agentProcess, error)
+	// remoteDial opens remote ACP transports for acp.remote bindings;
+	// nil when no mesh-backed dialer was injected.
+	remoteDial RemoteDialer
 }
 
 // NewClientManager builds a manager. getRegistry is resolved lazily because
@@ -87,6 +103,12 @@ func NewClientManager(cfg *config.Config, getRegistry func() *agent.AgentRegistr
 // attachment refs into ACP prompt content blocks.
 func (m *ClientManager) SetMediaStore(s media.MediaStore) {
 	m.media = s
+}
+
+// SetRemoteDialer injects the transport used by acp.remote bindings. When
+// nil, remote bindings fail with a clear error at spawn time.
+func (m *ClientManager) SetRemoteDialer(d RemoteDialer) {
+	m.remoteDial = d
 }
 
 func normalizeClientPolicy(p string) string {
@@ -631,14 +653,17 @@ func (m *ClientManager) Close() {
 	clear(m.sessions)
 }
 
-// spawn starts the configured ACP subprocess and performs the ACP
-// initialize handshake.
+// spawn starts the configured ACP subprocess or remote connection and
+// performs the ACP initialize handshake.
 func (m *ClientManager) spawn(
 	ctx context.Context,
 	agentID string,
 	inst *agent.AgentInstance,
 ) (*agentProcess, error) {
 	binding := inst.ACP
+	if remote := strings.TrimSpace(binding.Remote); remote != "" {
+		return m.spawnRemote(ctx, agentID, inst, remote)
+	}
 	command := strings.TrimSpace(binding.Command)
 	if command == "" {
 		return nil, fmt.Errorf("agent %q acp.command is empty", agentID)
@@ -650,7 +675,7 @@ func (m *ClientManager) spawn(
 
 	//nolint:gosec // G204: command is the operator-configured agent binding
 	cmd := exec.CommandContext(context.Background(), resolved, binding.Args...)
-	cmd.Dir = m.sessionCwd(inst)
+	cmd.Dir = m.handlerWorkspace(inst)
 	cmd.Env = os.Environ()
 	for k, v := range binding.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -676,11 +701,53 @@ func (m *ClientManager) spawn(
 	// transport and must stay protocol-clean.
 	go drainStderr(agentID, stderr)
 
+	return m.connect(ctx, agentID, inst, stdin, stdout, func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}, map[string]any{"command": command, "pid": cmd.Process.Pid})
+}
+
+// spawnRemote dials a trusted peer's ACP server over acp.remote and binds
+// the returned stream as the ACP transport. The same session lifecycle
+// applies — the "process" is just a connection whose kill closes it.
+func (m *ClientManager) spawnRemote(
+	ctx context.Context,
+	agentID string,
+	inst *agent.AgentInstance,
+	remote string,
+) (*agentProcess, error) {
+	if m.remoteDial == nil {
+		return nil, fmt.Errorf(
+			"agent %q has acp.remote set but no remote dialer is configured (mesh required)",
+			agentID,
+		)
+	}
+	stream, err := m.remoteDial(ctx, agentID, remote)
+	if err != nil {
+		return nil, fmt.Errorf("acp remote dial for agent %q: %w", agentID, err)
+	}
+	return m.connect(ctx, agentID, inst, stream, stream,
+		func() { _ = stream.Close() },
+		map[string]any{"remote": remote})
+}
+
+// connect builds the client handler, binds the ACP transport, and runs the
+// initialize + authenticate handshake. Shared by the exec and remote spawn
+// paths; kill terminates the underlying process/connection on failure.
+func (m *ClientManager) connect(
+	ctx context.Context,
+	agentID string,
+	inst *agent.AgentInstance,
+	stdin io.Writer,
+	stdout io.Reader,
+	kill func(),
+	fields map[string]any,
+) (*agentProcess, error) {
 	policy := m.policyFor(inst)
 	handler := &clientHandler{
 		agentID:   agentID,
 		policy:    policy,
-		workspace: m.sessionCwd(inst),
+		workspace: m.handlerWorkspace(inst),
 		restrict:  m.cfg.Agents.Defaults.RestrictToWorkspace,
 		allowRead: toolfs.CompilePatterns(m.cfg.Tools.AllowReadPaths),
 		allowWr:   toolfs.CompilePatterns(m.cfg.Tools.AllowWritePaths),
@@ -705,10 +772,7 @@ func (m *ClientManager) spawn(
 	proc := &agentProcess{
 		conn:    conn,
 		handler: handler,
-		kill: func() {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
-		},
+		kill:    kill,
 	}
 
 	initCtx, cancel := context.WithTimeout(ctx, acpInitTimeout)
@@ -737,15 +801,31 @@ func (m *ClientManager) spawn(
 		return nil, err
 	}
 
-	logger.InfoCF("acp", "external ACP agent connected",
-		map[string]any{"agent_id": agentID, "command": command, "pid": cmd.Process.Pid})
+	fields["agent_id"] = agentID
+	logger.InfoCF("acp", "external ACP agent connected", fields)
 	return proc, nil
 }
 
-// sessionCwd picks the working directory for the external agent: explicit
-// acp.cwd wins, then the agent workspace, then the daemon workspace.
+// sessionCwd picks the cwd sent in session/new. For remote bindings the
+// value is interpreted on the remote peer's filesystem, so only an
+// explicit acp.cwd is sent — "." lets the remote resolve its own default
+// (the wire requires a non-empty cwd). For exec bindings: explicit
+// acp.cwd, then the agent workspace, then the daemon workspace.
 func (m *ClientManager) sessionCwd(inst *agent.AgentInstance) string {
-	if inst != nil && inst.ACP != nil && strings.TrimSpace(inst.ACP.Cwd) != "" {
+	if inst != nil && inst.ACP != nil && strings.TrimSpace(inst.ACP.Remote) != "" {
+		if cwd := strings.TrimSpace(inst.ACP.Cwd); cwd != "" {
+			return cwd
+		}
+		return "."
+	}
+	return m.handlerWorkspace(inst)
+}
+
+// handlerWorkspace picks the local fs root our client-side fs.* capability
+// serves — always a local path, even for remote bindings.
+func (m *ClientManager) handlerWorkspace(inst *agent.AgentInstance) string {
+	if inst != nil && inst.ACP != nil && strings.TrimSpace(inst.ACP.Cwd) != "" &&
+		strings.TrimSpace(inst.ACP.Remote) == "" {
 		if abs, err := filepath.Abs(inst.ACP.Cwd); err == nil {
 			return abs
 		}

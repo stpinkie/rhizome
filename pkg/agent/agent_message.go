@@ -174,13 +174,19 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	// A per-message model override (e.g. an ACP session config option)
 	// runs the turn on a shallow copy of the resolved agent — unlike
 	// remote dispatch there is no ephemeral-session swap, so history and
-	// the live instance are untouched.
+	// the live instance are untouched. A thinking-level override is
+	// validated here and carried on the turn options so it can beat
+	// model-configured levels for this turn only.
 	if override := strings.TrimSpace(msg.ModelOverride); override != "" {
 		agentCopy := *agent
 		if err := al.applyModelOverride(agent, &agentCopy, override); err != nil {
 			return "", err
 		}
 		agent = &agentCopy
+	}
+	thinkingOverride := strings.TrimSpace(msg.ThinkingLevelOverride)
+	if thinkingOverride != "" && !IsConfiguredThinkingLevel(thinkingOverride) {
+		return "", fmt.Errorf("thinking level %q is not a configured level", thinkingOverride)
 	}
 
 	allocation := al.allocateRouteSession(route, msg)
@@ -224,6 +230,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		EnableSummary:           true,
 		SendResponse:            false,
 		AllowInterimPicoPublish: true,
+		ThinkingLevelOverride:   thinkingOverride,
 	}
 	var err error
 	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)

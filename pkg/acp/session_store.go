@@ -29,6 +29,9 @@ type SessionRecord struct {
 	// Model is the session's model override ("" = inherit the agent's
 	// configured model); restored on session/load.
 	Model string `json:"model,omitempty"`
+	// ThinkingLevel is the session's thinking-level override ("" = the
+	// agent's configured level); restored on session/load.
+	ThinkingLevel string `json:"thinking_level,omitempty"`
 	// AllowAlways/DenyAlways restore cached permission decisions.
 	AllowAlways []string `json:"allow_always,omitempty"`
 	DenyAlways  []string `json:"deny_always,omitempty"`
@@ -133,6 +136,20 @@ func (s *SessionStore) UpdateModel(id string, model string) error {
 		return nil
 	}
 	r.Model = model
+	s.records[id] = r
+	return s.saveLocked()
+}
+
+// UpdateThinkingLevel stores the session's thinking-level override so a
+// later session/load can restore it.
+func (s *SessionStore) UpdateThinkingLevel(id string, level string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.records[id]
+	if !ok {
+		return nil
+	}
+	r.ThinkingLevel = level
 	s.records[id] = r
 	return s.saveLocked()
 }
