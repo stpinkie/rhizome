@@ -430,6 +430,13 @@ func (s *Syncer) pullFromLocked(ctx context.Context, pid peer.ID, state *pullSta
 	if err := s.applyPackfileAndMergeLocked(ctx, pack, remoteHead, pid); err != nil {
 		return fmt.Errorf("merge from %s: %w", pid, err)
 	}
+	// Announce the post-merge head immediately. Without this the merged
+	// head only propagates on the next pull or commit tick — a window
+	// where peers fetch our stale pre-merge head and produce a competing
+	// merge commit (merge-of-merges churn that can live-lock under load).
+	if head, err := Head(s.repo); err == nil && head != remoteHead {
+		s.announceHeadLocked(head)
+	}
 	return nil
 }
 
@@ -486,6 +493,15 @@ func (s *Syncer) commitAndAnnounceLocked(ctx context.Context) (plumbing.Hash, er
 		}
 	}
 
+	s.announceHeadLocked(head)
+
+	return head, nil
+}
+
+// announceHeadLocked announces head to every connected peer. The caller
+// holds s.mu; sends run async so announce latency never blocks the merge
+// path.
+func (s *Syncer) announceHeadLocked(head plumbing.Hash) {
 	for _, pid := range s.node.ConnectedPeers() {
 		if pid == s.node.ID() {
 			continue
@@ -496,8 +512,6 @@ func (s *Syncer) commitAndAnnounceLocked(ctx context.Context) (plumbing.Hash, er
 			_ = s.transport.AnnounceHead(ctx, p, head)
 		}(pid)
 	}
-
-	return head, nil
 }
 
 func (s *Syncer) commitLoop(ctx context.Context) {
