@@ -47,6 +47,11 @@ type InboundMessage struct {
 	// It must resolve to a model_list entry; unconfigured models fail the
 	// turn with an error.
 	ModelOverride string `json:"model_override,omitempty"`
+	// ThinkingLevelOverride runs this turn on a shallow copy of the routed
+	// agent with the named thinking level applied (e.g. an ACP session
+	// config option). Valid values are off, low, medium, high, xhigh, and
+	// adaptive; anything else fails the turn with an error.
+	ThinkingLevelOverride string `json:"thinking_level_override,omitempty"`
 
 	// Convenience mirrors derived from Context for runtime consumers.
 	Channel   string `json:"channel"`

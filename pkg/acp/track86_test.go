@@ -57,7 +57,7 @@ func TestNewSessionAdvertisesModelOption(t *testing.T) {
 	if len(values) != 3 {
 		t.Fatalf("expected inherit + 2 models, got %+v", values)
 	}
-	if values[0].Value != modelInheritValue {
+	if values[0].Value != inheritConfigValue {
 		t.Fatalf("first value = %q, want inherit", values[0].Value)
 	}
 	if values[1].Value != "m1" || values[2].Value != "m2" {
@@ -74,8 +74,9 @@ func TestNewSessionNoModelOptionWithoutModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if len(resp.ConfigOptions) != 0 {
-		t.Fatalf("no models configured → no options, got %+v", resp.ConfigOptions)
+	// No models configured → no model option (thought_level is always offered).
+	if modelOption(resp.ConfigOptions) != nil {
+		t.Fatalf("no models configured → no model option, got %+v", resp.ConfigOptions)
 	}
 }
 
@@ -137,7 +138,7 @@ func TestSetSessionConfigOptionInheritClears(t *testing.T) {
 	}
 
 	set("m2")
-	resp := set(modelInheritValue)
+	resp := set(inheritConfigValue)
 	sel := modelOption(resp.ConfigOptions)
 	if sel == nil || sel.CurrentValue != "m1" {
 		t.Fatalf("inherit should show agent's model m1, got %+v", sel)

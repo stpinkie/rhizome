@@ -388,6 +388,18 @@ func (m *Manager) commandBase(
 			env = append(env, f.Env+"="+values[f.Key])
 		}
 	}
+	if len(spec.Protocols) > 0 {
+		// Protocol-declaring modules learn the bridge endpoint, their
+		// bearer token, and their module dir (where bridge.addr is
+		// published for inbound splicing) through the environment.
+		if m.bridgeAddr != "" {
+			env = append(env, "RHIZOME_BRIDGE_ADDR="+m.bridgeAddr)
+		}
+		if tok, err := m.bridgeToken(spec.ID); err == nil && tok != "" {
+			env = append(env, "RHIZOME_BRIDGE_TOKEN="+tok)
+		}
+		env = append(env, "RHIZOME_MODULE_DIR="+m.Dir(spec.ID))
+	}
 	cmd.Env = env
 
 	dir := m.Dir(spec.ID)

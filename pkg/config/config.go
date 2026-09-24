@@ -711,6 +711,10 @@ type ACPAgentConfig struct {
 	// Mode requests session/set_mode with this id after session creation
 	// when the agent advertises it; unadvertised ids warn and continue.
 	Mode string `json:"mode,omitempty"`
+	// Remote binds this agent to an ACP server on a trusted mesh peer
+	// (peer ID or full multiaddr) over /rhizome/acp/1.0.0 instead of a
+	// local command. Command/Args/Env/Cwd are ignored when set.
+	Remote string `json:"remote,omitempty"`
 }
 
 type SubagentsConfig struct {
@@ -938,6 +942,10 @@ type ACPPolicyConfig struct {
 	// "deny" (default) refuses all terminal methods; "allow" serves them via
 	// the guarded exec-tool shell path. Ignored under acp.server.
 	TerminalPolicy string `json:"terminal_policy,omitempty"`
+	// Remote (server side only) serves ACP over /rhizome/acp/1.0.0 to
+	// trusted mesh peers in addition to `rhizome acp` stdio. Ignored under
+	// acp.client.
+	Remote bool `json:"remote,omitempty"`
 }
 
 func (c StreamingConfig) IsZero() bool {

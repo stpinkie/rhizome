@@ -174,6 +174,12 @@ func RunWithMesh(
 		return fmt.Errorf("config pre-check failed: %w", err)
 	}
 
+	if cfg.ACP.Server.Remote {
+		// Remote ACP sessions run turns on channel "acp"; inject the
+		// process-local channel entry so routing/streaming gates pass.
+		acp.InjectChannelConfig(cfg)
+	}
+
 	// Debug mode permanently overrides the config log level to DEBUG.
 	if debug {
 		fmt.Println("🔍 Debug mode enabled")
@@ -338,6 +344,22 @@ func RunWithMesh(
 			return ok
 		})
 		agentLoop.SetSubTurnSpawner(remoteSpawner)
+
+		// acp.remote: agents.list[].acp.remote bindings dial the peer over
+		// /rhizome/acp/1.0.0 through the trust-gated dialer.
+		if acpManager != nil {
+			acpManager.SetRemoteDialer(remoteACPDialer(rhizomeMesh))
+		}
+		// acp.server.remote: serve ACP to trusted peers on the same protocol.
+		if cfg.ACP.Server.Remote {
+			remoteMux, err := startRemoteACP(cfg, homePath, agentLoop, msgBus, mediaStore, rhizomeMesh)
+			if err != nil {
+				logger.WarnCF("acp", "remote ACP serving failed to start",
+					map[string]any{"error": err.Error()})
+			} else {
+				defer remoteMux.Close()
+			}
+		}
 
 		if sw := currentSwarm(); sw != nil {
 			wireSwarm(sw, rhizomeMesh, agentLoop, cfg)

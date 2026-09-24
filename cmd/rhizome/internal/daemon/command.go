@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/spf13/cobra"
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
@@ -213,6 +214,25 @@ func NewDaemonCommand() *cobra.Command {
 				)
 			}
 
+			// acp.server.remote on the headless path: with --no-gateway there
+			// is no gateway agent loop, so a dedicated headless runtime backs
+			// the RemoteMux. With the gateway up it serves on the gateway loop.
+			if cfg.ACP.Server.Remote {
+				switch {
+				case rhizomeMesh == nil:
+					fmt.Fprintln(os.Stderr,
+						"acp.server.remote is set but mesh.enabled is off; remote ACP requires the mesh trust layer")
+				case noGateway:
+					stack, mux, err := startHeadlessRemoteACP(cfg, home, rhizomeMesh)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "remote ACP serving failed: %v\n", err)
+					} else {
+						defer stack.Close()
+						defer mux.Close()
+					}
+				}
+			}
+
 			// Companion modules: catalog-driven sidecars supervised by the
 			// daemon. A bad modules section warns but never blocks startup —
 			// per-module errors surface in `rhizome module status` and the log.
@@ -223,6 +243,26 @@ func NewDaemonCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "module config warning: %v\n", err)
 			}
 			moduleSup := modules.NewSupervisor(moduleMgr)
+			// Module stream bridge: protocol-declaring modules get
+			// RHIZOME_BRIDGE_ADDR/TOKEN plus inbound libp2p splicing.
+			// Bound on the node, not the gateway mux, so it works
+			// under --no-gateway.
+			if moduleMgr.AnyEnabledProtocolModules() {
+				// Inbound peer→module splicing is gated on the mesh trust
+				// set; without a mesh every inbound stream is refused.
+				var trustFn func(peer.ID) bool
+				if rhizomeMesh != nil {
+					trustFn = rhizomeMesh.IsTrusted
+				}
+				bridge, err := modules.NewBridge(node.Host(), moduleMgr, trustFn)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "module bridge failed to bind: %v\n", err)
+				} else {
+					moduleMgr.SetBridgeAddr(bridge.Addr())
+					bridge.Start()
+					defer func() { _ = bridge.Close() }()
+				}
+			}
 			moduleSup.StartEnabled()
 			defer moduleSup.StopAll() // modules stop before mesh teardown (LIFO)
 			gateway.SetModuleManager(moduleMgr)

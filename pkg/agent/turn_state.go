@@ -146,6 +146,7 @@ type turnExecution struct {
 	llmModel            string
 	llmModelName        string
 	llmOpts             map[string]any
+	thinkingOverride    thinkingSettings
 	gracefulTerminal    bool
 	useNativeSearch     bool
 	ownedProviders      []providers.LLMProvider
@@ -174,7 +175,7 @@ func newTurnExecution(
 	summary string,
 	messages []providers.Message,
 ) *turnExecution {
-	return &turnExecution{
+	exec := &turnExecution{
 		history:          history,
 		summary:          summary,
 		messages:         messages,
@@ -183,6 +184,15 @@ func newTurnExecution(
 		iteration:        0,
 		phase:            LLMPhaseSetup,
 	}
+	// A caller-chosen thinking level (processOptions.ThinkingLevelOverride)
+	// is validated upstream; only a recognized value becomes the override.
+	if IsConfiguredThinkingLevel(opts.ThinkingLevelOverride) {
+		exec.thinkingOverride = thinkingSettings{
+			level:      parseThinkingLevel(opts.ThinkingLevelOverride),
+			configured: true,
+		}
+	}
+	return exec
 }
 
 // =============================================================================

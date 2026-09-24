@@ -181,7 +181,13 @@ type ModuleSpec struct {
 	Run          RunSpec       `json:"run,omitempty"`
 	Health       HealthSpec    `json:"health,omitempty"`
 	ConfigFields []ConfigField `json:"config_fields,omitempty"`
-	Notes        string        `json:"notes,omitempty"`
+	// Protocols lists libp2p protocol ids (e.g. "/rhizome/acp/1.0.0") the
+	// daemon's module stream bridge claims for this module: inbound streams
+	// splice to the module's bridge listener, and the module may dial out
+	// on them through the bridge. Empty means no wire access (catalog
+	// schema v4).
+	Protocols []string `json:"protocols,omitempty"`
+	Notes     string   `json:"notes,omitempty"`
 }
 
 // Platform returns the current runtime platform in "goos/goarch" form.
@@ -668,7 +674,10 @@ func Lookup(id string) (ModuleSpec, bool) {
 // v3 adds ReleasePin.signature — a binary that cannot verify a declared
 // signature must not silently skip it, so catalogs declaring one must
 // declare version 3.
-const catalogVersionSupported = 3
+// v4 adds ModuleSpec.protocols — a binary that cannot bridge a declared
+// protocol must not silently drop it, so catalogs declaring protocols must
+// declare version 4.
+const catalogVersionSupported = 4
 
 // catalogVersionRequired returns the lowest schema version that covers the
 // given module set — MarshalCatalog emits it rather than always emitting
@@ -683,8 +692,11 @@ func catalogVersionRequired(specs []ModuleSpec) int {
 		}
 		for _, r := range spec.Install.Releases {
 			if r.Signature != nil {
-				return 3
+				v = 3
 			}
+		}
+		if len(spec.Protocols) > 0 {
+			v = 4
 		}
 	}
 	return v
@@ -742,6 +754,7 @@ func parseCatalogEnvelope(data []byte) ([]ModuleSpec, error) {
 			env.CatalogVersion, catalogVersionSupported)
 	}
 	seen := map[string]bool{}
+	claimedProtos := map[string]string{} // protocol → first module claiming it
 	for i, spec := range env.Modules {
 		if spec.ID == "" || spec.Name == "" {
 			return nil, fmt.Errorf("catalog entry %d: id/name required", i)
@@ -755,6 +768,16 @@ func parseCatalogEnvelope(data []byte) ([]ModuleSpec, error) {
 			if err := validateReleaseSignature(spec.ID, r.Signature); err != nil {
 				return nil, err
 			}
+		}
+		if err := ValidateProtocols(spec.ID, spec.Protocols); err != nil {
+			return nil, err
+		}
+		for _, p := range spec.Protocols {
+			if prior, dup := claimedProtos[p]; dup {
+				return nil, fmt.Errorf(
+					"catalog: protocol %q claimed by both %q and %q", p, prior, spec.ID)
+			}
+			claimedProtos[p] = spec.ID
 		}
 		if seen[spec.ID] {
 			return nil, fmt.Errorf("catalog lists %q twice", spec.ID)

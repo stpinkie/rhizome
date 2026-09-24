@@ -1261,6 +1261,16 @@ func (m *Mesh) IsTrusted(pid peer.ID) bool {
 	return m.trust[pid]
 }
 
+// Host exposes the underlying libp2p host for transports layered on the
+// mesh (module stream bridge, remote ACP serving). Nil-safe like the rest
+// of the mesh surface.
+func (m *Mesh) Host() host.Host {
+	if m == nil || m.node == nil {
+		return nil
+	}
+	return m.node.Host()
+}
+
 // IsConnected reports whether the peer currently has an open connection.
 func (m *Mesh) IsConnected(pid peer.ID) bool {
 	if m == nil || m.node == nil {

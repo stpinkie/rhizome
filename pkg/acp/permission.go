@@ -21,8 +21,14 @@ const (
 // toolApprover bridges the agent loop's ApproveTool hook to ACP
 // session/request_permission prompts. It only claims requests that arrive
 // on the "acp" channel; every other turn is passed through untouched.
+//
+// resolve maps a chat id to its owning session, the client connection that
+// session lives on, and the server-level permission policy — the stdio
+// Server resolves to its own conn, the RemoteMux resolves across every
+// accepted connection. A nil session means the chat is not ACP-owned and
+// the approver abstains.
 type toolApprover struct {
-	srv *Server
+	resolve func(chatID string) (*acpSession, ClientConn, PermissionPolicy)
 }
 
 var _ agent.ToolApprover = (*toolApprover)(nil)
@@ -43,7 +49,7 @@ func (a *toolApprover) ApproveTool(
 		return agent.ApprovalDecision{Approved: true}, nil
 	}
 
-	sess := a.srv.sessionByChatID(inbound.ChatID)
+	sess, conn, serverPolicy := a.resolve(inbound.ChatID)
 	if sess == nil {
 		// Not an ACP-owned chat — abstain.
 		return agent.ApprovalDecision{Approved: true}, nil
@@ -51,7 +57,7 @@ func (a *toolApprover) ApproveTool(
 
 	// The session's mode override (session/set_mode) takes precedence over
 	// the server-wide permission_policy.
-	policy := sess.effectivePolicy(a.srv.policy)
+	policy := sess.effectivePolicy(serverPolicy)
 	switch policy {
 	case PermissionAllow:
 		return agent.ApprovalDecision{Approved: true}, nil
@@ -71,9 +77,8 @@ func (a *toolApprover) ApproveTool(
 		return agent.ApprovalDecision{Approved: approved, Reason: "cached acp decision"}, nil
 	}
 
-	conn, err := a.srv.connOrErr()
-	if err != nil {
-		//nolint:nilerr // an unreachable client fails closed as a deny decision, not a hook error.
+	if conn == nil {
+		// An unreachable client fails closed as a deny decision, not a hook error.
 		return agent.ApprovalDecision{
 			Approved: false,
 			Reason:   "acp client unavailable for permission request",

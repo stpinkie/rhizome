@@ -60,6 +60,50 @@ Required fields gate `enabled`: a module with missing required config stays
 `configured: false` and won't start until every required field is set
 (`module status <id>` lists what's missing).
 
+## Wire protocols (catalog schema v4) + stream bridge
+
+A module can declare libp2p `protocols` in its catalog entry (schema v4 —
+emitted only when a module actually declares one, so older binaries keep
+working on v1–v3 catalogs):
+
+```json
+{
+  "id": "rhizome-market",
+  "protocols": ["/rhizome-market/offer/1.0.0"]
+}
+```
+
+When an enabled module declares protocols, the daemon runs a **loopback
+stream bridge** (works under `--no-gateway`; it's a dedicated listener,
+not the gateway mux) and injects three variables into the module's
+environment:
+
+| Variable               | Purpose                                                        |
+| ---------------------- | -------------------------------------------------------------- |
+| `RHIZOME_BRIDGE_ADDR`  | `127.0.0.1:<port>` — the module dials here to open peer streams |
+| `RHIZOME_BRIDGE_TOKEN` | per-module bearer, minted at install and rotated on reinstall   |
+| `RHIZOME_MODULE_DIR`   | the module dir, where it publishes `bridge.addr` for inbound    |
+
+Outbound (module → peer): connect to the bridge, send one JSON hello line
+`{"token","action":"dial","peer":<peer-id-or-multiaddr>,"protocol":<id>}`,
+then raw bytes splice onto a fresh libp2p stream — but only for protocols
+the module declared and only after the token authenticates.
+
+Inbound (peer → module): the bridge claims each declared protocol with a
+libp2p stream handler, gated on the mesh trust set — untrusted peers are
+reset before any bytes flow. For trusted peers the daemon dials the
+module's own loopback listener (published at `<module_dir>/bridge.addr`),
+sends `{"token","action":"accept","peer":<source peer>,"protocol":<id>}`,
+and splices.
+
+Declarations are validated on both sides: malformed ids, duplicates, and
+collisions with core Rhizome protocols (`/rhizome/agent/1.0.0`, …) are
+config errors; protocols already registered by the running node, or
+claimed by another enabled module, are skipped with a warning.
+`/rhizome/acp/1.0.0` is deliberately *not* in the static refuse list —
+it's only core-claimed while `acp.server.remote` serves, so a module may
+declare it when core is not.
+
 ## Catalog
 
 ### `nimbus-verified-proxy` (daemon)
@@ -220,6 +264,13 @@ rhizome module enable ethereum-rpc
 - Adding a new module (e.g. a llama.cpp inference daemon): see
   `docs/design/llama-cpp-module.md` for the catalog-authoring pattern —
   extraction shape, weights trust story, and GPU/accelerant fields.
+- **Stream bridge (catalog schema v4)** — modules that declare
+  `protocols` get a loopback bridge: per-module bearer tokens (`0600`,
+  minted at install, rotated on reinstall, injected via
+  `RHIZOME_BRIDGE_TOKEN`) gate every outbound dial and every inbound
+  splice; a token resolves to exactly one module and its declared
+  allowlist. Inbound peer streams additionally require the peer to be in
+  `mesh.trusted_peers` — refused before a single byte reaches the module.
 
 Daemon-kind modules emit `module.started`/`module.stopped`/`module.crashed`
 events (plus `installed`/`uninstalled`/`enabled`/`disabled`), visible in the

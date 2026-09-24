@@ -137,18 +137,22 @@ func (al *AgentLoop) SetACPInvoker(inv tools.ACPInvoker) {
 
 // processOptions configures how a message is processed
 type processOptions struct {
-	Dispatch                DispatchRequest // Normalized routed request boundary for this turn
-	SessionKey              string          // Session identifier for history/context
-	SessionAliases          []string        // Compatibility aliases for the session key
-	Channel                 string          // Target channel for tool execution
-	ChatID                  string          // Target chat ID for tool execution
-	MessageID               string          // Current inbound platform message ID
-	ReplyToMessageID        string          // Current inbound reply target message ID
-	SenderID                string          // Current sender ID for dynamic context
-	SenderDisplayName       string          // Current sender display name for dynamic context
-	UserMessage             string          // User message content (may include prefix)
-	ForcedSkills            []string        // Skills explicitly requested for this message
-	TurnProfile             config.EffectiveTurnProfile
+	Dispatch          DispatchRequest // Normalized routed request boundary for this turn
+	SessionKey        string          // Session identifier for history/context
+	SessionAliases    []string        // Compatibility aliases for the session key
+	Channel           string          // Target channel for tool execution
+	ChatID            string          // Target chat ID for tool execution
+	MessageID         string          // Current inbound platform message ID
+	ReplyToMessageID  string          // Current inbound reply target message ID
+	SenderID          string          // Current sender ID for dynamic context
+	SenderDisplayName string          // Current sender display name for dynamic context
+	UserMessage       string          // User message content (may include prefix)
+	ForcedSkills      []string        // Skills explicitly requested for this message
+	TurnProfile       config.EffectiveTurnProfile
+	// ThinkingLevelOverride is a per-turn thinking level chosen by the
+	// caller (e.g. an ACP session config option). It beats the active
+	// model config's thinking_level for this turn only.
+	ThinkingLevelOverride   string
 	SystemPromptOverride    string                 // Override the default system prompt (Used by SubTurns)
 	Media                   []string               // media:// refs from inbound message
 	MediaSink               *[]string              // collects produced media:// refs (remote dispatch)

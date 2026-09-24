@@ -4,12 +4,10 @@
 package acp
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/spf13/cobra"
@@ -23,14 +21,6 @@ import (
 	"github.com/stpinkie/rhizome/pkg/media"
 	"github.com/stpinkie/rhizome/pkg/providers"
 )
-
-// acpChannelSettings is the decoded channel-settings shape the streaming
-// pipeline looks for: a Streaming field of type config.StreamingConfig.
-// The "acp" channel exists only inside this process — it is never
-// registered as a channel type, so user configs are unaffected.
-type acpChannelSettings struct {
-	Streaming config.StreamingConfig `json:"streaming,omitempty"`
-}
 
 // NewACPCommand returns the rhizome acp command.
 func NewACPCommand() *cobra.Command {
@@ -92,12 +82,8 @@ func run(agentID string) error {
 	// ACP's contract is streamed updates; enable streaming on every model
 	// entry in-memory. Providers that cannot stream fall back to Chat
 	// transparently, and unsent final responses are flushed as one chunk.
-	for _, m := range cfg.ModelList {
-		if m != nil {
-			m.Streaming.Enabled = true
-		}
-	}
-	injectACPChannel(cfg)
+	acpbridge.EnableModelStreaming(cfg)
+	acpbridge.InjectChannelConfig(cfg)
 
 	// Pin sessions to --agent via a leading dispatch rule so normal routing
 	// machinery (and any user rules) still applies underneath.
@@ -143,7 +129,7 @@ func run(agentID string) error {
 		Policy:   policy,
 		Media:    mediaStore,
 		Version:  config.FormatVersion(),
-		Models:   selectableModels(cfg),
+		Models:   acpbridge.SelectableModels(cfg),
 		Sessions: sessionStore,
 	})
 	if err := srv.Start(); err != nil {
@@ -162,49 +148,4 @@ func run(agentID string) error {
 
 	<-conn.Done()
 	return nil
-}
-
-// selectableModels lists the enabled model_list entries offered in the
-// session's category:model config option, deduplicated by model_name.
-// Virtual entries produced by multi-key expansion are skipped.
-func selectableModels(cfg *config.Config) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, m := range cfg.ModelList {
-		if m == nil || m.IsVirtual() || !m.Enabled {
-			continue
-		}
-		name := strings.TrimSpace(m.ModelName)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		out = append(out, name)
-	}
-	return out
-}
-
-// injectACPChannel installs a process-local channel entry so the streaming
-// pipeline's channel gate passes for channel "acp". The enabled streaming
-// flag lives in Settings — Channel.Decode unmarshals Settings into the
-// cached extend struct, so presetting the target would be overwritten.
-func injectACPChannel(cfg *config.Config) {
-	if cfg.Channels == nil {
-		cfg.Channels = config.ChannelsConfig{}
-	}
-	settings, err := json.Marshal(acpChannelSettings{
-		Streaming: config.StreamingConfig{Enabled: true},
-	})
-	if err != nil {
-		return
-	}
-	ch := &config.Channel{
-		Enabled:  true,
-		Type:     acpbridge.ChannelName,
-		Settings: config.RawNode(settings),
-	}
-	if err := ch.Decode(&acpChannelSettings{}); err != nil {
-		return
-	}
-	cfg.Channels[acpbridge.ChannelName] = ch
 }

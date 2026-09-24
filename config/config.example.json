@@ -22,11 +22,12 @@
     },
     "list": [
       {
-        "_comment": "agents.list entry bound to an external ACP agent (command+args spawn the subprocess lazily; env satisfies env_var auth methods; session_mode persistent reuses one ACP session; mode forwards session/set_mode when advertised; permission_policy/terminal_policy override acp.client for this binding)",
+        "_comment": "agents.list entry bound to an external ACP agent (command+args spawn the subprocess lazily; remote instead binds a trusted mesh peer's acp.server.remote — peer id or multiaddr; env satisfies env_var auth methods; session_mode persistent reuses one ACP session; mode forwards session/set_mode when advertised; permission_policy/terminal_policy override acp.client for this binding)",
         "id": "gemini",
         "name": "Gemini (external ACP)",
         "acp": {
           "command": "gemini",
+          "remote": "",
           "args": ["--acp"],
           "env": {},
           "cwd": "",
@@ -666,8 +667,8 @@
     }
   },
   "acp": {
-    "_comment": "Agent Client Protocol. server: tool-permission policy for `rhizome acp` (prompt|allow|deny). client: policy for externally bound agents (deny|allow-read-only|allow); terminal_policy gates the ACP terminal/* bridge onto the guarded shell path — deny (default) advertises no terminal capability.",
-    "server": { "permission_policy": "prompt" },
+    "_comment": "Agent Client Protocol. server: tool-permission policy for `rhizome acp` (prompt|allow|deny) plus remote: serve ACP to trusted mesh peers over /rhizome/acp/1.0.0 (requires mesh.enabled). client: policy for externally bound agents (deny|allow-read-only|allow); terminal_policy gates the ACP terminal/* bridge onto the guarded shell path — deny (default) advertises no terminal capability.",
+    "server": { "permission_policy": "prompt", "remote": false },
     "client": { "permission_policy": "deny", "terminal_policy": "deny" }
   },
   "mesh": {
