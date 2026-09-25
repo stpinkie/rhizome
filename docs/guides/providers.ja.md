@@ -65,6 +65,7 @@
 | **ModelScope (魔搭)**| `modelscope/`        | `https://api-inference.modelscope.cn/v1`            | OpenAI     | [トークンを取得](https://modelscope.cn/my/tokens)                |
 | **Antigravity**     | `antigravity/`        | Google Cloud                                        | カスタム   | OAuth のみ                                                        |
 | **GitHub Copilot**  | `github-copilot/`     | `localhost:4321`                                    | gRPC       | -                                                                 |
+| **OpenCode Go**     | `opencode-go/`        | `https://opencode.ai/zen/go/v1`                     | Multi      | [Get Key](https://opencode.ai/docs/go/)                           |
 
 #### 基本設定
 

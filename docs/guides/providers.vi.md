@@ -64,6 +64,7 @@ Thiết kế này cũng cho phép **hỗ trợ đa agent** với lựa chọn pr
 | **ModelScope (魔搭)**| `modelscope/`    | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [Get Token](https://modelscope.cn/my/tokens)                     |
 | **Antigravity**     | `antigravity/`    | Google Cloud                                        | Custom    | OAuth only                                                       |
 | **GitHub Copilot**  | `github-copilot/` | `localhost:4321`                                    | gRPC      | -                                                                |
+| **OpenCode Go**     | `opencode-go/`    | `https://opencode.ai/zen/go/v1`                     | Multi     | [Get Key](https://opencode.ai/docs/go/)                          |
 
 #### Cấu Hình Cơ Bản
 

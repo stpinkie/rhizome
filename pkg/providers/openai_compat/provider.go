@@ -329,17 +329,13 @@ func (p *Provider) applyCustomHeaders(req *http.Request) {
 	}
 }
 
-// applySessionHeader sets the configured session header to the session key
-// carried in options["session_key"], when both are present.
+// applySessionHeader injects the per-conversation session header (if configured)
+// from options["session_key"]. Explicit custom_headers values win.
 func (p *Provider) applySessionHeader(req *http.Request, options map[string]any) {
-	if p.sessionHeader == "" || options == nil {
+	if p.sessionHeader == "" {
 		return
 	}
-	sessionKey, _ := options["session_key"].(string)
-	if sessionKey == "" {
-		return
-	}
-	req.Header.Set(p.sessionHeader, sessionKey)
+	common.ApplySessionHeader(req.Header, options, p.sessionHeader)
 }
 
 func (p *Provider) SetProviderName(providerName string) {
