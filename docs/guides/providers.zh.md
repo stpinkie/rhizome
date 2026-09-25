@@ -72,6 +72,7 @@
 | **小米 MiMo**       | `mimo`            | `https://api.xiaomimimo.com/v1`                     | OpenAI    | [获取密钥](https://platform.xiaomimimo.com)                       |
 | **Antigravity**     | `antigravity`     | Google Cloud                                        | 自定义    | 仅 OAuth                                                          |
 | **GitHub Copilot**  | `github-copilot`  | `localhost:4321`                                    | gRPC      | -                                                                 |
+| **OpenCode Go**     | `opencode-go`     | `https://opencode.ai/zen/go/v1`                     | Multi     | [Get Key](https://opencode.ai/docs/go/)                          |
 
 #### 基础配置示例
 

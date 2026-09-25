@@ -39,17 +39,34 @@ const (
 // Provider implements Anthropic Messages API via HTTP (without SDK).
 // It supports custom endpoints that use Anthropic's native message format.
 type Provider struct {
-	apiKey           string
-	apiBase          string
-	httpClient       *http.Client
-	userAgent        string
-	tokenSource      func() (string, error)
-	stripModelPrefix bool
-	providerName     string
+	apiKey            string
+	apiBase           string
+	httpClient        *http.Client
+	customHeaders     map[string]string
+	sessionHeaderName string // Optional per-conversation session header (e.g. x-opencode-session)
+	userAgent         string
+	tokenSource       func() (string, error)
+	stripModelPrefix  bool
+	providerName      string
 }
 
 // Option configures a Provider at construction time.
 type Option func(*Provider)
+
+// WithCustomHeaders injects additional headers into every HTTP request.
+func WithCustomHeaders(customHeaders map[string]string) Option {
+	return func(p *Provider) {
+		p.customHeaders = customHeaders
+	}
+}
+
+// WithSessionHeaderName enables a per-conversation session header whose value
+// comes from options["session_key"]. An explicit custom_headers value wins.
+func WithSessionHeaderName(headerName string) Option {
+	return func(p *Provider) {
+		p.sessionHeaderName = strings.TrimSpace(headerName)
+	}
+}
 
 // NewProvider creates a new Anthropic Messages API provider.
 func NewProvider(apiKey, apiBase, userAgent string, opts ...Option) *Provider {
@@ -188,6 +205,15 @@ func (p *Provider) Chat(
 	req.Header.Set("Anthropic-Version", defaultAPIVersion)
 	if p.userAgent != "" {
 		req.Header.Set("User-Agent", p.userAgent)
+	}
+	for k, v := range p.customHeaders {
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+	if p.sessionHeaderName != "" {
+		common.ApplySessionHeader(req.Header, options, p.sessionHeaderName)
 	}
 
 	// Execute request

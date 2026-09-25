@@ -64,6 +64,7 @@ Cette conception permet également le **support multi-agents** avec une sélecti
 | **ModelScope (魔搭)**| `modelscope/`    | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [Get Token](https://modelscope.cn/my/tokens)                     |
 | **Antigravity**     | `antigravity/`    | Google Cloud                                        | Custom    | OAuth only                                                       |
 | **GitHub Copilot**  | `github-copilot/` | `localhost:4321`                                    | gRPC      | -                                                                |
+| **OpenCode Go**     | `opencode-go/`    | `https://opencode.ai/zen/go/v1`                     | Multi     | [Get Key](https://opencode.ai/docs/go/)                          |
 
 #### Configuration de Base
 
