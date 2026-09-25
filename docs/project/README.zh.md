@@ -458,7 +458,6 @@ Rhizome 通过 `model_list` 配置支持 30+ LLM Provider，使用 `协议/模�
 | **QQ** | 简单（AppID + AppSecret） | WebSocket | [指南](../channels/qq/README.zh.md) |
 | **Slack** | 简单（bot + app token） | Socket Mode | [指南](../channels/slack/README.zh.md) |
 | **Matrix** | 中等（homeserver + token） | Sync API | [指南](../channels/matrix/README.zh.md) |
-| **钉钉** | 中等（client credentials） | Stream | [指南](../channels/dingtalk/README.zh.md) |
 | **飞书 / Lark** | 中等（App ID + Secret） | WebSocket/SDK | [指南](../channels/feishu/README.zh.md) |
 | **LINE** | 中等（credentials + webhook） | Webhook | [指南](../channels/line/README.zh.md) |
 | **企业微信** | 简单（扫码登录或手动配置） | WebSocket | [指南](../channels/wecom/README.zh.md) |

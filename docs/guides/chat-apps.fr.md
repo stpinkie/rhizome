@@ -17,7 +17,6 @@ Communiquez avec votre Rhizome via Telegram, Discord, WhatsApp, Matrix, QQ, Ding
 | **Slack**            | ⭐ Facile          | **Socket Mode** (pas d'IP publique requise), entreprise | [Documentation](../channels/slack/README.fr.md)                                                                |
 | **Matrix**           | ⭐⭐ Moyen         | Protocole fédéré, auto-hébergement possible           | [Documentation](../channels/matrix/README.fr.md)                                                                |
 | **QQ**               | ⭐⭐ Moyen         | API bot officielle, communauté chinoise               | [Documentation](../channels/qq/README.fr.md)                                                                    |
-| **DingTalk**         | ⭐⭐ Moyen         | Mode Stream (pas d'IP publique requise), entreprise   | [Documentation](../channels/dingtalk/README.fr.md)                                                              |
 | **LINE**             | ⭐⭐⭐ Avancé      | HTTPS Webhook requis                                  | [Documentation](../channels/line/README.fr.md)                                                                  |
 | **WeCom (企业微信)** | ⭐⭐⭐ Avancé      | Bot groupe (Webhook), app personnalisée (API), AI Bot | [Guide](../channels/wecom/README.fr.md) |
 | **Feishu (飞书)**    | ⭐⭐⭐ Avancé      | Collaboration entreprise, fonctionnalités riches      | [Documentation](../channels/feishu/README.fr.md)                                                                |
@@ -259,41 +258,6 @@ Si vous préférez créer le bot manuellement :
 * Copiez l'**App ID** et l'**App Secret** depuis les paramètres du bot
 * Configurez comme indiqué ci-dessus et lancez `rhizome gateway`
 
-</details>
-
-<a id="dingtalk"></a>
-<details>
-<summary><b>DingTalk</b></summary>
-
-**1. Créer un bot**
-
-* Allez sur [Open Platform](https://open.dingtalk.com/)
-* Créez une application interne
-* Copiez le Client ID et le Client Secret
-
-**2. Configurer**
-
-```json
-{
-  "channel_list": {
-    "dingtalk": {
-      "enabled": true,
-      "type": "dingtalk",
-      "client_id": "YOUR_CLIENT_ID",
-      "client_secret": "YOUR_CLIENT_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> Définissez `allow_from` vide pour autoriser tous les utilisateurs, ou spécifiez des identifiants DingTalk pour restreindre l'accès.
-
-**3. Lancer**
-
-```bash
-rhizome gateway
-```
 </details>
 
 <a id="matrix"></a>

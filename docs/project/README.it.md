@@ -460,7 +460,6 @@ Parla con il tuo Rhizome attraverso 17+ piattaforme di messaggistica:
 | **QQ** | Facile (AppID + AppSecret) | WebSocket | [Guida](../channels/qq/README.md) |
 | **Slack** | Facile (bot + app token) | Socket Mode | [Guida](../channels/slack/README.md) |
 | **Matrix** | Medio (homeserver + token) | Sync API | [Guida](../channels/matrix/README.md) |
-| **DingTalk** | Medio (credenziali client) | Stream | [Guida](../channels/dingtalk/README.md) |
 | **Feishu / Lark** | Medio (App ID + Secret) | WebSocket/SDK | [Guida](../channels/feishu/README.md) |
 | **LINE** | Medio (credenziali + webhook) | Webhook | [Guida](../channels/line/README.md) |
 | **WeCom** | Facile (login QR o manuale) | WebSocket | [Guida](../channels/wecom/README.md) |

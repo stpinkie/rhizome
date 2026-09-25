@@ -458,7 +458,6 @@ Trò chuyện với Rhizome của bạn qua 17+ nền tảng nhắn tin:
 | **QQ** | Dễ (AppID + AppSecret) | WebSocket | [Hướng dẫn](../channels/qq/README.vi.md) |
 | **Slack** | Dễ (bot + app token) | Socket Mode | [Hướng dẫn](../channels/slack/README.vi.md) |
 | **Matrix** | Trung bình (homeserver + token) | Sync API | [Hướng dẫn](../channels/matrix/README.vi.md) |
-| **DingTalk** | Trung bình (client credentials) | Stream | [Hướng dẫn](../channels/dingtalk/README.vi.md) |
 | **Feishu / Lark** | Trung bình (App ID + Secret) | WebSocket/SDK | [Hướng dẫn](../channels/feishu/README.vi.md) |
 | **LINE** | Trung bình (credentials + webhook) | Webhook | [Hướng dẫn](../channels/line/README.vi.md) |
 | **WeCom** | Dễ (đăng nhập QR hoặc thủ công) | WebSocket | [Hướng dẫn](../channels/wecom/README.vi.md) |

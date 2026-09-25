@@ -460,7 +460,6 @@ Provider の完全な設定詳細は [Provider とモデル](../guides/providers
 | **QQ** | 簡単（AppID + AppSecret） | WebSocket | [ガイド](../channels/qq/README.ja.md) |
 | **Slack** | 簡単（bot + app トークン） | Socket Mode | [ガイド](../channels/slack/README.ja.md) |
 | **Matrix** | 中級（homeserver + トークン） | Sync API | [ガイド](../channels/matrix/README.ja.md) |
-| **DingTalk** | 中級（クライアント認証情報） | Stream | [ガイド](../channels/dingtalk/README.ja.md) |
 | **Feishu / Lark** | 中級（App ID + Secret） | WebSocket/SDK | [ガイド](../channels/feishu/README.ja.md) |
 | **LINE** | 中級（認証情報 + webhook） | Webhook | [ガイド](../channels/line/README.ja.md) |
 | **WeCom** | 簡単（QR ログインまたは手動） | WebSocket | [ガイド](../channels/wecom/README.ja.md) |

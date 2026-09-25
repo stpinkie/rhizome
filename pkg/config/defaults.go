@@ -568,8 +568,7 @@ func defaultChannels() ChannelsConfig {
 		"qq": map[string]any{
 			"settings": map[string]any{"max_message_length": 2000},
 		},
-		"dingtalk": map[string]any{},
-		"slack":    map[string]any{},
+		"slack": map[string]any{},
 		"matrix": map[string]any{
 			"group_trigger": map[string]any{"mention_only": true},
 			"placeholder":   map[string]any{"enabled": true, "text": []string{"Thinking... 💭"}},

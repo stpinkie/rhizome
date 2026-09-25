@@ -11,6 +11,44 @@ Issue numbers below refer to `sipeed/picoclaw` issues. Links of the form
 `stpinkie/rhizome/issues/NNN` in `ROADMAP.md` are rebrand-rewrites of these
 upstream numbers and do not resolve to a live Rhizome tracker.
 
+## v0.14.0 Track 108 sweep (2026-09-25)
+
+**Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) — the GitHub
+compare API reports `ahead_by: 0` for `bbf6893c...main`. There are **no new
+upstream commits** to cherry-pick; all upstream activity since the sync lives in
+open PRs and issues. The next sweep can start from this state.
+
+**Picked**:
+
+| Item | What | Action |
+|---|---|---|
+| PR #3378 | `RefreshAccessToken` sent hardcoded `openid profile email` instead of `cfg.Scopes` | Ported — `pkg/auth/oauth.go` now sends `cfg.Scopes`; `TestRefreshAccessToken` asserts the configured scope reaches the wire |
+
+**Removed**:
+
+| Item | What | Action |
+|---|---|---|
+| Issue #3382 | DingTalk channel panics with `send on closed channel` inside `dingtalk-stream-sdk-go v0.9.1`'s own `processLoop` goroutine — unrecoverable from Rhizome's `Start()`; only candidate fix is the unverifiable `v0.9.2-beta.1` | DingTalk channel implementation removed pending a stable upstream SDK fix. `ChannelDingTalk`/`DingTalkSettings` stay registered so existing `channel_list.dingtalk` configs still validate; `pkg/channels/dingtalk` is a stub whose factory fails with a clear error. Implementation + `dingtalk-stream-sdk-go` dep + UI pickers + docs deleted |
+
+**Already shipped / not applicable / out of scope** (verified against our tree):
+
+| Item | Verdict |
+|---|---|
+| PR #3353 (bound tool-feedback animations) | Already shipped v0.9.0 — `ChannelToolFeedbackMaxDuration` + consecutive-error abort + per-edit timeout |
+| PR #3347 (laggy web UI) | Already shipped v0.9.0 — `React.memo` on the same chat components |
+| PR #3376 (deltachat `RegisterChannelSettings`) | Not applicable — `ChannelDeltaChat` is already in our static `channelSettingsFactory` (`config_channel.go`) |
+| Issue #3391 (pico multi-line input split) | Out of scope — lives in the upstream pico mobile-TUI *client* app, not this repo |
+| Dependabot PRs #3385–#3389 | No action — Rhizome's own `.github/dependabot.yml` proposes the same bumps |
+
+**Watch list** (revisit next sweep):
+
+| Item | Trigger |
+|---|---|
+| PR #3381 (switch OpenAI provider to Responses API) | Port only after upstream merges — unmerged default-path wire-protocol switch we cannot verify against the live API |
+| `dingtalk-stream-sdk-go` ≥ stable release fixing #3382 | Restore the DingTalk channel (config type retained, so restoration is a re-add of `pkg/channels/dingtalk` impl + dep + UI/docs) |
+| PR #3371 (opencode-go provider) | Ported this track (adapted — see Track 108 notes); track upstream for follow-ups |
+| Feature PRs #3370 (Keenable search), #3354 (IRCv3 multiline), #3368/#3259 (docs), #3222 (deltachat refactor), #1951 (scripts) | Fixes-only policy — flagged for future sign-off |
+
 ## Fixed in this release (v0.9.0)
 
 | Issue | Defect | Fix |

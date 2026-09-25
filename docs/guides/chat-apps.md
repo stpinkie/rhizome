@@ -4,9 +4,9 @@
 
 ## 💬 Chat Apps
 
-Talk to your rhizome through Telegram, Discord, WhatsApp, Matrix, QQ, DingTalk, LINE, WeCom, Feishu, Slack, IRC, OneBot, MQTT, MaixCam, or Pico (native protocol)
+Talk to your rhizome through Telegram, Discord, WhatsApp, Matrix, QQ, LINE, WeCom, Feishu, Slack, IRC, OneBot, MQTT, MaixCam, or Pico (native protocol)
 
-> **Note**: Channels that rely on HTTP callbacks share a single Gateway HTTP server (`gateway.host`:`gateway.port`, default `127.0.0.1:18790`). Socket/stream-based channels such as Feishu, DingTalk, and WeCom do not rely on the shared webhook server for inbound delivery.
+> **Note**: Channels that rely on HTTP callbacks share a single Gateway HTTP server (`gateway.host`:`gateway.port`, default `127.0.0.1:18790`). Socket/stream-based channels such as Feishu and WeCom do not rely on the shared webhook server for inbound delivery.
 
 | Channel              | Difficulty         | Description                                           | Documentation                                                                                                    |
 | -------------------- | ------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -17,7 +17,6 @@ Talk to your rhizome through Telegram, Discord, WhatsApp, Matrix, QQ, DingTalk, 
 | **Slack**            | ⭐ Easy            | **Socket Mode** (no public IP needed), enterprise     | [Docs](../channels/slack/README.md)                                                                             |
 | **Matrix**           | ⭐⭐ Medium        | Federated protocol, self-hosting supported            | [Docs](../channels/matrix/README.md)                                                                            |
 | **QQ**               | ⭐⭐ Medium        | Official bot API, Chinese community                   | [Docs](../channels/qq/README.md)                                                                                |
-| **DingTalk**         | ⭐⭐ Medium        | Stream mode (no public IP needed), enterprise         | [Docs](../channels/dingtalk/README.md)                                                                          |
 | **LINE**             | ⭐⭐⭐ Advanced    | HTTPS Webhook required                                | [Docs](../channels/line/README.md)                                                                              |
 | **WeCom (企业微信)** | ⭐⭐⭐ Advanced    | Official AI Bot over WebSocket, streaming + media     | [Docs](../channels/wecom/README.md) |
 | **Feishu (飞书)**    | ⭐⭐⭐ Advanced    | Enterprise collaboration, feature-rich                | [Docs](../channels/feishu/README.md)                                                                            |
@@ -265,41 +264,6 @@ If you prefer to create the bot manually:
 * Copy the **App ID** and **App Secret** from the bot settings
 * Configure as shown above and run `rhizome gateway`
 
-</details>
-
-<a id="dingtalk"></a>
-<details>
-<summary><b>DingTalk</b></summary>
-
-**1. Create a bot**
-
-* Go to [Open Platform](https://open.dingtalk.com/)
-* Create an internal app
-* Copy Client ID and Client Secret
-
-**2. Configure**
-
-```json
-{
-  "channel_list": {
-    "dingtalk": {
-      "enabled": true,
-      "type": "dingtalk",
-      "client_id": "YOUR_CLIENT_ID",
-      "client_secret": "YOUR_CLIENT_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> Set `allow_from` to empty to allow all users, or specify DingTalk user IDs to restrict access.
-
-**3. Run**
-
-```bash
-rhizome gateway
-```
 </details>
 
 <a id="matrix"></a>

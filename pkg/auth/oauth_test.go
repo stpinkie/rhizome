@@ -231,6 +231,7 @@ func TestExchangeCodeForTokens(t *testing.T) {
 }
 
 func TestRefreshAccessToken(t *testing.T) {
+	expectedScope := "https://www.googleapis.com/auth/cloud-platform custom-scope"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/oauth/token" {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -240,6 +241,10 @@ func TestRefreshAccessToken(t *testing.T) {
 		r.ParseForm()
 		if r.FormValue("grant_type") != "refresh_token" {
 			http.Error(w, "invalid grant_type", http.StatusBadRequest)
+			return
+		}
+		if r.FormValue("scope") != expectedScope {
+			http.Error(w, "invalid scope", http.StatusBadRequest)
 			return
 		}
 
@@ -255,6 +260,7 @@ func TestRefreshAccessToken(t *testing.T) {
 	cfg := OAuthProviderConfig{
 		Issuer:   server.URL,
 		ClientID: "test-client",
+		Scopes:   expectedScope,
 	}
 
 	cred := &AuthCredential{

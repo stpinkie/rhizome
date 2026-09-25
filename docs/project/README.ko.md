@@ -463,7 +463,6 @@ Rhizome는 `model_list` 설정을 통해 30개 이상의 LLM 프로바이더를 
 | **QQ** | 쉬움(AppID + AppSecret) | WebSocket | [가이드](../channels/qq/README.md) |
 | **Slack** | 쉬움(봇 + 앱 토큰) | Socket Mode | [가이드](../channels/slack/README.md) |
 | **Matrix** | 중간(homeserver + 토큰) | Sync API | [가이드](../channels/matrix/README.md) |
-| **DingTalk** | 중간(클라이언트 자격 증명) | Stream | [가이드](../channels/dingtalk/README.md) |
 | **Feishu / Lark** | 중간(App ID + Secret) | WebSocket/SDK | [가이드](../channels/feishu/README.md) |
 | **LINE** | 중간(인증 정보 + webhook) | Webhook | [가이드](../channels/line/README.md) |
 | **WeCom** | 쉬움(QR 로그인 또는 수동 설정) | WebSocket | [가이드](../channels/wecom/README.md) |

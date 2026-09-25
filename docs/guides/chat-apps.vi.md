@@ -17,7 +17,6 @@ Trò chuyện với rhizome của bạn qua Telegram, Discord, WhatsApp, Matrix,
 | **Slack**            | ⭐ Dễ              | **Socket Mode** (không cần IP công khai), doanh nghiệp | [Tài liệu](../channels/slack/README.vi.md)                                                                      |
 | **Matrix**           | ⭐⭐ Trung bình    | Giao thức liên kết, hỗ trợ tự lưu trữ                | [Tài liệu](../channels/matrix/README.vi.md)                                                                     |
 | **QQ**               | ⭐⭐ Trung bình    | API bot chính thức, cộng đồng Trung Quốc              | [Tài liệu](../channels/qq/README.vi.md)                                                                         |
-| **DingTalk**         | ⭐⭐ Trung bình    | Chế độ Stream (không cần IP công khai), doanh nghiệp  | [Tài liệu](../channels/dingtalk/README.vi.md)                                                                   |
 | **LINE**             | ⭐⭐⭐ Nâng cao    | Yêu cầu HTTPS Webhook                                 | [Tài liệu](../channels/line/README.vi.md)                                                                       |
 | **WeCom (企业微信)** | ⭐⭐⭐ Nâng cao    | Bot nhóm (Webhook), ứng dụng tùy chỉnh (API), AI Bot | [Hướng dẫn](../channels/wecom/README.vi.md) |
 | **Feishu (飞书)**    | ⭐⭐⭐ Nâng cao    | Cộng tác doanh nghiệp, nhiều tính năng                | [Tài liệu](../channels/feishu/README.vi.md)                                                                     |
@@ -258,42 +257,6 @@ Nếu bạn muốn tạo bot thủ công:
 * Tạo bot QQ — tùy chỉnh avatar và tên
 * Sao chép **App ID** và **App Secret** từ cài đặt bot
 * Cấu hình như trên và chạy `rhizome gateway`
-
-</details>
-
-<a id="dingtalk"></a>
-<details>
-<summary><b>DingTalk</b></summary>
-
-**1. Tạo bot**
-
-* Truy cập [Open Platform](https://open.dingtalk.com/)
-* Tạo ứng dụng nội bộ
-* Sao chép Client ID và Client Secret
-
-**2. Cấu hình**
-
-```json
-{
-  "channel_list": {
-    "dingtalk": {
-      "enabled": true,
-      "type": "dingtalk",
-      "client_id": "YOUR_CLIENT_ID",
-      "client_secret": "YOUR_CLIENT_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> Đặt `allow_from` trống để cho phép tất cả người dùng, hoặc chỉ định DingTalk user ID để giới hạn truy cập.
-
-**3. Chạy**
-
-```bash
-rhizome gateway
-```
 
 </details>
 

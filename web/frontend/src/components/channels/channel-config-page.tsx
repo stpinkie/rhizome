@@ -188,8 +188,6 @@ function isConfigured(
       return hasValue("bot_token")
     case "feishu":
       return hasValue("app_id") && hasValue("app_secret")
-    case "dingtalk":
-      return hasValue("client_id") && hasValue("client_secret")
     case "line":
       return hasValue("channel_secret") && hasValue("channel_access_token")
     case "qq":
@@ -233,8 +231,6 @@ function getRequiredFieldKeys(channelName: string): string[] {
       return ["bot_token"]
     case "feishu":
       return ["app_id", "app_secret"]
-    case "dingtalk":
-      return ["client_id", "client_secret"]
     case "line":
       return ["channel_secret", "channel_access_token"]
     case "qq":
