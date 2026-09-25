@@ -1,6 +1,5 @@
 import {
   IconBrandChrome,
-  IconBrandDingtalk,
   IconBrandDiscord,
   IconBrandLine,
   IconBrandMatrix,
@@ -32,7 +31,6 @@ const CHANNEL_IMPORTANCE_TAIL = [
   "slack",
   "line",
   "wecom",
-  "dingtalk",
   "qq",
   "onebot",
   "matrix",
@@ -71,7 +69,6 @@ const CHANNEL_ICON_MAP: Record<
   discord: IconBrandDiscord,
   slack: IconBrandSlack,
   feishu: IconLark,
-  dingtalk: IconBrandDingtalk,
   line: IconBrandLine,
   qq: IconBrandQq,
   weixin: IconBrandWechat,

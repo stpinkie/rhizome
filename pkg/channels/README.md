@@ -61,6 +61,7 @@ pkg/channels/
 │   ├── init.go
 │   └── discord.go
 ├── slack/ line/ onebot/ dingtalk/ feishu/ wecom/ qq/ whatsapp/ whatsapp_native/ maixcam/ pico/
+│   (dingtalk/ is a stub — channel removed pending upstream dingtalk-stream-sdk-go fix)
 │   └── ...
 
 pkg/bus/
@@ -1303,7 +1304,7 @@ make test                                       # Full test suite
 | `pkg/channels/slack/` | `"slack"` | ReactionCapable, MediaSender |
 | `pkg/channels/line/` | `"line"` | TypingCapable, MediaSender, WebhookHandler |
 | `pkg/channels/onebot/` | `"onebot"` | ReactionCapable, MediaSender |
-| `pkg/channels/dingtalk/` | `"dingtalk"` | — |
+| `pkg/channels/dingtalk/` | `"dingtalk"` | — (removed stub; see upstream-issue-triage.md) |
 | `pkg/channels/feishu/` | `"feishu"` | — (optional build tag: `feishu`; 64-bit only) |
 | `pkg/channels/wecom/` | `"wecom"` | MediaSender |
 | `pkg/channels/qq/` | `"qq"` | — |
@@ -1427,8 +1428,8 @@ agentLoop.Stop()               // Stop Agent
 
 5. **WhatsApp has two modes**: `"whatsapp"` (Bridge mode, communicates via external bridge URL) and `"whatsapp_native"` (native whatsmeow mode, connects directly to WhatsApp). Manager selects which to initialize based on `WhatsAppConfig.UseNative`.
 
-6. **DingTalk uses Stream mode**: DingTalk uses the SDK's Stream/WebSocket mode (not HTTP webhook), so it does not implement `WebhookHandler`.
+6. **DingTalk removed**: the DingTalk channel is a stub — removed pending an upstream `dingtalk-stream-sdk-go` fix (upstream #3382, unrecoverable panic inside the SDK goroutine). `channel_list.dingtalk` configs still validate; the channel fails to initialize with a clear error. See `docs/project/upstream-issue-triage.md`.
 
 7. **PlaceholderConfig vs implementation**: `PlaceholderConfig` appears in 6 channel configs (Telegram, Discord, Slack, LINE, OneBot, Pico), but only channels that implement both `PlaceholderCapable` + `MessageEditor` (Telegram, Discord, Pico) can actually use placeholder message editing. The rest are reserved fields.
 
-8. **ReasoningChannelID**: Most channel configs include a `reasoning_channel_id` field to route LLM reasoning/thinking output to a designated channel (WhatsApp, Telegram, Feishu, Discord, MaixCam, QQ, DingTalk, Slack, LINE, OneBot, WeCom). Note: `PicoConfig` does not currently expose this field. `BaseChannel` exposes this via the `WithReasoningChannelID` option and `ReasoningChannelID()` method.
+8. **ReasoningChannelID**: Most channel configs include a `reasoning_channel_id` field to route LLM reasoning/thinking output to a designated channel (WhatsApp, Telegram, Feishu, Discord, MaixCam, QQ, Slack, LINE, OneBot, WeCom). Note: `PicoConfig` does not currently expose this field. `BaseChannel` exposes this via the `WithReasoningChannelID` option and `ReasoningChannelID()` method.

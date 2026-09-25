@@ -19,7 +19,6 @@ Rhizome は複数のチャットプラットフォームをサポートしてお
 | **Slack**            | ⭐ 簡単            | **Socket Mode** (公開 IP 不要)、エンタープライズ対応 | [ドキュメント](../channels/slack/README.ja.md)                                                                |
 | **Matrix**           | ⭐⭐ 中程度        | フェデレーションプロトコル、セルフホスト対応 | [ドキュメント](../channels/matrix/README.ja.md)                                                              |
 | **QQ**               | ⭐⭐ 中程度        | 公式ボット API、中国コミュニティ向け       | [ドキュメント](../channels/qq/README.ja.md)                                                                   |
-| **DingTalk**         | ⭐⭐ 中程度        | Stream モード（公開 IP 不要）、企業向け    | [ドキュメント](../channels/dingtalk/README.ja.md)                                                             |
 | **LINE**             | ⭐⭐⭐ やや難      | HTTPS Webhook が必要                       | [ドキュメント](../channels/line/README.ja.md)                                                                 |
 | **WeCom (企業微信)** | ⭐⭐⭐ やや難      | グループ Bot (Webhook)、カスタムアプリ (API)、AI Bot 対応 | [ガイド](../channels/wecom/README.ja.md) |
 | **Feishu (飛書)**    | ⭐⭐⭐ やや難      | エンタープライズコラボレーション、機能豊富 | [ドキュメント](../channels/feishu/README.ja.md)                                                               |
@@ -361,42 +360,6 @@ rhizome gateway
 ```
 
 ボットは IRC サーバーに接続し、指定されたチャネルに参加します。
-
-</details>
-
-<a id="dingtalk"></a>
-<details>
-<summary><b>DingTalk</b></summary>
-
-**1. Bot を作成**
-
-* [開放プラットフォーム](https://open.dingtalk.com/) にアクセス
-* 内部アプリを作成
-* Client ID と Client Secret をコピー
-
-**2. 設定**
-
-```json
-{
-  "channel_list": {
-    "dingtalk": {
-      "enabled": true,
-      "type": "dingtalk",
-      "client_id": "YOUR_CLIENT_ID",
-      "client_secret": "YOUR_CLIENT_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> `allow_from` を空にするとすべてのユーザーを許可します。DingTalk ユーザー ID を指定してアクセスを制限することもできます。
-
-**3. 実行**
-
-```bash
-rhizome gateway
-```
 
 </details>
 

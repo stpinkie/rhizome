@@ -4,9 +4,9 @@
 
 ## 💬 聊天应用集成 (Chat Apps)
 
-Rhizome 支持多种聊天平台，使您的 Agent 能够连接到任何地方，包括 Telegram、Discord、WhatsApp、微信、QQ、钉钉、LINE、企业微信、飞书、Slack、IRC、OneBot、MQTT、MaixCam 等。
+Rhizome 支持多种聊天平台，使您的 Agent 能够连接到任何地方，包括 Telegram、Discord、WhatsApp、微信、QQ、LINE、企业微信、飞书、Slack、IRC、OneBot、MQTT、MaixCam 等。
 
-> **注意**: 依赖 HTTP 回调的渠道共用同一个 Gateway HTTP 服务器（`gateway.host`:`gateway.port`，默认 `127.0.0.1:18790`），无需为每个渠道单独配置端口。飞书、钉钉、企业微信这类 Socket/Stream 模式渠道不依赖共享 webhook 服务器来接收入站消息。
+> **注意**: 依赖 HTTP 回调的渠道共用同一个 Gateway HTTP 服务器（`gateway.host`:`gateway.port`，默认 `127.0.0.1:18790`），无需为每个渠道单独配置端口。飞书、企业微信这类 Socket/Stream 模式渠道不依赖共享 webhook 服务器来接收入站消息。
 
 ### 核心渠道
 
@@ -19,7 +19,6 @@ Rhizome 支持多种聊天平台，使您的 Agent 能够连接到任何地方�
 | **Slack**            | ⭐ 简单     | **Socket Mode** (无需公网 IP)，企业级支持 | [查看文档](../channels/slack/README.zh.md)                                                                    |
 | **Matrix**           | ⭐⭐ 中等   | 联邦协议，支持自建 homeserver 与公开服务器 | [查看文档](../channels/matrix/README.zh.md)                                                                  |
 | **QQ**               | ⭐⭐ 中等   | 官方机器人 API，适合国内社群              | [查看文档](../channels/qq/README.zh.md)                                                                       |
-| **钉钉 (DingTalk)**  | ⭐⭐ 中等   | Stream 模式无需公网，企业办公首选         | [查看文档](../channels/dingtalk/README.zh.md)                                                                 |
 | **LINE**             | ⭐⭐⭐ 较难 | 需要 HTTPS Webhook                        | [查看文档](../channels/line/README.zh.md)                                                                     |
 | **企业微信 (WeCom)** | ⭐⭐⭐ 较难 | 官方 AI Bot WebSocket 接入，支持流式回复和媒体消息 | [查看文档](../channels/wecom/README.zh.md) |
 | **飞书 (Feishu)**    | ⭐⭐⭐ 较难 | 企业级协作，功能丰富                      | [查看文档](../channels/feishu/README.zh.md)                                                                   |
@@ -369,42 +368,6 @@ rhizome gateway
 ```
 
 Bot 将连接到 IRC 服务器并加入指定的频道。
-
-</details>
-
-<a id="dingtalk"></a>
-<details>
-<summary><b>钉钉 (DingTalk)</b></summary>
-
-**1. 创建 Bot**
-
-* 前往 [开放平台](https://open.dingtalk.com/)
-* 创建内部应用
-* 复制 Client ID 和 Client Secret
-
-**2. 配置**
-
-```json
-{
-  "channel_list": {
-    "dingtalk": {
-      "enabled": true,
-      "type": "dingtalk",
-      "client_id": "YOUR_CLIENT_ID",
-      "client_secret": "YOUR_CLIENT_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> `allow_from` 留空表示允许所有用户，或指定钉钉用户 ID 限制访问。
-
-**3. 运行**
-
-```bash
-rhizome gateway
-```
 
 </details>
 

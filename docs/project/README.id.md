@@ -460,7 +460,6 @@ Bicara dengan Rhizome Anda melalui 17+ platform pesan:
 | **QQ** | Mudah (AppID + AppSecret) | WebSocket | [Panduan](../channels/qq/README.md) |
 | **Slack** | Mudah (bot + app token) | Socket Mode | [Panduan](../channels/slack/README.md) |
 | **Matrix** | Sedang (homeserver + token) | Sync API | [Panduan](../channels/matrix/README.md) |
-| **DingTalk** | Sedang (client credentials) | Stream | [Panduan](../channels/dingtalk/README.md) |
 | **Feishu / Lark** | Sedang (App ID + Secret) | WebSocket/SDK | [Panduan](../channels/feishu/README.md) |
 | **LINE** | Sedang (credentials + webhook) | Webhook | [Panduan](../channels/line/README.md) |
 | **WeCom** | Mudah (login QR atau manual) | WebSocket | [Panduan](../channels/wecom/README.md) |

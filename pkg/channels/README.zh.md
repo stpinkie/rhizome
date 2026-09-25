@@ -61,6 +61,7 @@ pkg/channels/
 │   ├── init.go
 │   └── discord.go
 ├── slack/ line/ onebot/ dingtalk/ feishu/ wecom/ qq/ whatsapp/ whatsapp_native/ maixcam/ pico/
+│   （dingtalk/ 仅为 stub —— 已移除，待上游 dingtalk-stream-sdk-go 修复后恢复）
 │   └── ...
 
 pkg/bus/
@@ -1301,7 +1302,7 @@ make test                                       # 全量测试
 | `pkg/channels/slack/` | `"slack"` | ReactionCapable, MediaSender |
 | `pkg/channels/line/` | `"line"` | TypingCapable, MediaSender, WebhookHandler |
 | `pkg/channels/onebot/` | `"onebot"` | ReactionCapable, MediaSender |
-| `pkg/channels/dingtalk/` | `"dingtalk"` | — |
+| `pkg/channels/dingtalk/` | `"dingtalk"` | —（已移除的 stub；见 upstream-issue-triage.md） |
 | `pkg/channels/feishu/` | `"feishu"` | — (可选 build tag: `feishu`；仅 64 位) |
 | `pkg/channels/wecom/` | `"wecom"` | MediaSender |
 | `pkg/channels/qq/` | `"qq"` | — |
@@ -1425,8 +1426,8 @@ agentLoop.Stop()               // 停止 Agent
 
 5. **WhatsApp 有两种模式**：`"whatsapp"`（Bridge 模式，通过外部 bridge URL 通信）和 `"whatsapp_native"`（原生 whatsmeow 模式，直接连接 WhatsApp）。Manager 根据 `WhatsAppConfig.UseNative` 决定初始化哪个。
 
-6. **DingTalk 使用 Stream 模式**：DingTalk 使用 SDK 的 Stream/WebSocket 模式（非 HTTP webhook），因此不实现 `WebhookHandler`。
+6. **DingTalk 已移除**：DingTalk channel 现为 stub——因上游 `dingtalk-stream-sdk-go` 存在无法在调用方恢复的 panic（上游 issue #3382，SDK 自身 goroutine 内的 "send on closed channel"）而移除，待上游修复后恢复。`channel_list.dingtalk` 配置仍可通过校验，但 channel 初始化会以明确的错误信息失败。详见 `docs/project/upstream-issue-triage.md`。
 
 7. **PlaceholderConfig 的配置与实现**：`PlaceholderConfig` 出现在 6 个 channel config 中（Telegram、Discord、Slack、LINE、OneBot、Pico），但只有实现了 `PlaceholderCapable` + `MessageEditor` 的 channel（Telegram、Discord、Pico）能真正使用占位消息编辑功能。其余 channel 的 `PlaceholderConfig` 为预留字段。
 
-8. **ReasoningChannelID**：大多数 channel config 都包含 `reasoning_channel_id` 字段，用于将 LLM 的思维链（reasoning/thinking）路由到指定 channel（WhatsApp、Telegram、Feishu、Discord、MaixCam、QQ、DingTalk、Slack、LINE、OneBot、WeCom）。注意：`PicoConfig` 目前不包含该字段。`BaseChannel` 通过 `WithReasoningChannelID` 选项和 `ReasoningChannelID()` 方法暴露此配置。
+8. **ReasoningChannelID**：大多数 channel config 都包含 `reasoning_channel_id` 字段，用于将 LLM 的思维链（reasoning/thinking）路由到指定 channel（WhatsApp、Telegram、Feishu、Discord、MaixCam、QQ、Slack、LINE、OneBot、WeCom）。注意：`PicoConfig` 目前不包含该字段。`BaseChannel` 通过 `WithReasoningChannelID` 选项和 `ReasoningChannelID()` 方法暴露此配置。

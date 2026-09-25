@@ -22,7 +22,6 @@ message. **Outbound** means the channel implements `channels.MediaSender`
 | whatsapp (bridge) | ✅ | ✅ | Outbound parts sent as base64 `{"type":"media"}` frames over the bridge WebSocket |
 | whatsapp_native | ✅ | ✅ | whatsmeow upload + `ImageMessage`/`VideoMessage`/`AudioMessage`/`DocumentMessage`; requires `-tags whatsapp_native` |
 | vk | ✅ | ✅ | Inbound photos/docs/voice downloaded; outbound via message upload servers (photos + docs) |
-| dingtalk | ✅ | ✅ | Inbound `downloadCode` → `robot/messageFiles/download`; outbound oapi `media/upload` + session-webhook image/file reply; falls back to a caption text reply when upload fails |
 | irc | — | — | Text-only protocol |
 | mqtt | — | — | Text-only protocol |
 | maixcam | — | — | Text-only device channel |
@@ -34,9 +33,8 @@ message. **Outbound** means the channel implements `channels.MediaSender`
 - `MediaPart.Type` is `image` | `audio` | `video` | `file`; `Ref` resolves
   through `media.MediaStore` (`media://<id>` → local path).
 - Channels that cannot represent a media type natively send it as a generic
-  file/document attachment (VK docs, DingTalk file replies).
+  file/document attachment (VK docs).
 - Captions are per-part where the platform supports them (Telegram, WhatsApp
-  native). VK joins captions into the message text; DingTalk sends the caption
-  as a separate markdown reply.
+  native). VK joins captions into the message text.
 - Inbound `Media` entries are `media://` refs when a media store is injected,
   or raw local paths otherwise.

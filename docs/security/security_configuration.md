@@ -59,8 +59,6 @@ channels:
     token: "your-weixin-token"
   qq:
     app_secret: "your-qq-app-secret"
-  dingtalk:
-    client_secret: "your-dingtalk-client-secret"
   slack:
     bot_token: "your-slack-bot-token"
     app_token: "your-slack-app-token"

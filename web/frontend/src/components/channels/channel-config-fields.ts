@@ -26,7 +26,6 @@ const CHANNEL_SECRET_FIELDS: Record<string, string[]> = {
   discord: ["token"],
   slack: ["bot_token", "app_token"],
   feishu: ["app_secret", "encrypt_key", "verification_token"],
-  dingtalk: ["client_secret"],
   line: ["channel_secret", "channel_access_token"],
   qq: ["app_secret"],
   onebot: ["access_token"],

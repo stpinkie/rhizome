@@ -4,7 +4,7 @@
 
 ## 💬 Aplikasi Sembang
 
-Berbual dengan rhizome anda melalui Telegram, Discord, WhatsApp, Matrix, QQ, DingTalk, LINE, WeCom, Feishu, Slack, IRC, OneBot, MQTT, MaixCam, atau Pico (protokol asli)
+Berbual dengan rhizome anda melalui Telegram, Discord, WhatsApp, Matrix, QQ, LINE, WeCom, Feishu, Slack, IRC, OneBot, MQTT, MaixCam, atau Pico (protokol asli)
 
 > **Nota**: Semua saluran berasaskan webhook (LINE, WeCom, dan sebagainya) diservis pada satu pelayan HTTP Gateway yang dikongsi (`gateway.host`:`gateway.port`, lalai `127.0.0.1:18790`). Tiada port khusus per saluran untuk dikonfigurasikan. Nota: Feishu menggunakan mod WebSocket/SDK dan tidak menggunakan pelayan HTTP webhook yang dikongsi.
 
@@ -15,7 +15,6 @@ Berbual dengan rhizome anda melalui Telegram, Discord, WhatsApp, Matrix, QQ, Din
 | **WhatsApp**     | Mudah (asli: imbas QR; atau bridge URL)    |
 | **Matrix**       | Sederhana (homeserver + access token bot)  |
 | **QQ**           | Mudah (AppID + AppSecret)                  |
-| **DingTalk**     | Sederhana (kelayakan aplikasi)             |
 | **LINE**         | Sederhana (kelayakan + webhook URL)        |
 | **WeCom AI Bot** | Sederhana (Token + kunci AES)              |
 | **Feishu**       | Sederhana (App ID + Secret, mod WebSocket) |
@@ -213,40 +212,6 @@ Jika `session_store_path` kosong, sesi akan disimpan dalam `<workspace>/whatsapp
 rhizome gateway
 ```
 
-</details>
-
-<details>
-<summary><b>DingTalk</b></summary>
-
-**1. Cipta bot**
-
-* Pergi ke [Open Platform](https://open.dingtalk.com/)
-* Cipta aplikasi dalaman
-* Salin Client ID dan Client Secret
-
-**2. Konfigurasi**
-
-```json
-{
-  "channel_list": {
-    "dingtalk": {
-      "enabled": true,
-      "type": "dingtalk",
-      "client_id": "YOUR_CLIENT_ID",
-      "client_secret": "YOUR_CLIENT_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> Tetapkan `allow_from` kepada kosong untuk membenarkan semua pengguna, atau nyatakan user ID DingTalk untuk mengehadkan akses.
-
-**3. Jalankan**
-
-```bash
-rhizome gateway
-```
 </details>
 
 <details>
