@@ -3507,8 +3507,10 @@ func TestACPConfig_Validate(t *testing.T) {
 		}), wantErr: "container.image"},
 		{name: "container ok", cfg: valid(func(a *ACPConfig) {
 			a.Client.Runtime = "container"
-			a.Client.Container = &ACPContainerConfig{Image: "img:1", Engine: "auto",
-				Network: "none", MemMB: 256, Cpus: 0.5, Pull: "missing"}
+			a.Client.Container = &ACPContainerConfig{
+				Image: "img:1", Engine: "auto", Network: "none",
+				MemMB: 256, Cpus: 0.5, Pull: "missing",
+			}
 		})},
 		{name: "bad engine", cfg: valid(func(a *ACPConfig) {
 			a.Client.Container = &ACPContainerConfig{Engine: "rkt"}
