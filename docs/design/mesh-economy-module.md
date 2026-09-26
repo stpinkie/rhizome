@@ -1,8 +1,10 @@
 # Open Agent Work Market — Design (opt-in companion module)
 
-Status: **deferred, not scheduled.** Supersedes the earlier "mesh economy"
-seed (the old intra-mesh bilateral-ledger sketch is preserved in the
-appendix). This page is a design record, not a commitment.
+Status: **scheduled.** Experimental build ships in v0.14.0 (fixture rail,
+direct-peer discovery); the graduation arc is planned as v0.16.0
+(`v0.16.0-sprint.md`, Tracks 123–136). Supersedes the earlier "mesh
+economy" seed (the old intra-mesh bilateral-ledger sketch is preserved in
+the appendix).
 
 ## What it is
 
