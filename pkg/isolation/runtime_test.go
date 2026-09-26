@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stpinkie/rhizome/pkg"
@@ -254,5 +255,111 @@ func TestPrepareCommand_AppliesUserEnv(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && !hasHome {
 		t.Fatal("PrepareCommand() did not inject HOME")
+	}
+}
+
+func TestOptionsFromConfig(t *testing.T) {
+	iso := config.IsolationConfig{
+		Enabled:     true,
+		Backend:     "bwrap",
+		ExposePaths: []config.ExposePath{{Source: "/a", Target: "/b", Mode: "ro"}},
+	}
+	opts := OptionsFromConfig(iso)
+	if !opts.Enabled || opts.Backend != "bwrap" {
+		t.Fatalf("OptionsFromConfig() = %+v", opts)
+	}
+	if len(opts.ExposePaths) != 1 || opts.ExposePaths[0].Source != "/a" {
+		t.Fatalf("OptionsFromConfig() ExposePaths = %+v", opts.ExposePaths)
+	}
+	if opts.NetMode != "" || opts.Root != "" {
+		t.Fatalf("OptionsFromConfig() must not invent Root/NetMode: %+v", opts)
+	}
+}
+
+func TestOptionsResolveRoot(t *testing.T) {
+	t.Setenv(config.EnvHome, filepath.Join(t.TempDir(), "home"))
+	got, err := (Options{}).resolveRoot()
+	if err != nil {
+		t.Fatalf("resolveRoot() error = %v", err)
+	}
+	if want := filepath.Clean(config.GetHome()); got != want {
+		t.Fatalf("resolveRoot() = %q, want %q", got, want)
+	}
+
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	got, err = (Options{Root: scratch}).resolveRoot()
+	if err != nil {
+		t.Fatalf("resolveRoot() error = %v", err)
+	}
+	if got != scratch {
+		t.Fatalf("resolveRoot() = %q, want scratch %q", got, scratch)
+	}
+
+	if _, err := (Options{Root: "."}).resolveRoot(); err == nil {
+		t.Fatal("resolveRoot(.) should error")
+	}
+}
+
+func TestPreflightWith_InvalidNetMode(t *testing.T) {
+	opts := Options{Enabled: true, Root: t.TempDir(), NetMode: "bogus"}
+	if err := PreflightWith(opts); err == nil ||
+		!strings.Contains(err.Error(), "net mode") {
+		t.Fatalf("PreflightWith() expected invalid net mode error: %v", err)
+	}
+	// Disabled isolation ignores the knob — nothing is enforced either way.
+	opts.Enabled = false
+	if err := PreflightWith(opts); err != nil {
+		t.Fatalf("PreflightWith(disabled) error = %v", err)
+	}
+}
+
+func TestPrepareCommandWith_DisabledLeavesCommand(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "true")
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", "exit", "0")
+	}
+	if err := PrepareCommandWith(cmd, Options{Enabled: false}); err != nil {
+		t.Fatalf("PrepareCommandWith(disabled) error = %v", err)
+	}
+	if cmd.Env != nil {
+		t.Fatalf("disabled isolation must not touch cmd.Env: %v", cmd.Env)
+	}
+}
+
+func TestPrepareCommandWith_ScratchRootUserEnv(t *testing.T) {
+	if !isSupportedOn(runtime.GOOS) {
+		t.Skipf("isolation not supported on %s", runtime.GOOS)
+	}
+	if runtime.GOOS == "linux" {
+		binDir := filepath.Join(t.TempDir(), "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatalf("os.MkdirAll() error = %v", err)
+		}
+		fakeBwrap := filepath.Join(binDir, "bwrap")
+		if err := os.WriteFile(fakeBwrap, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("os.WriteFile() error = %v", err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	scratch := filepath.Join(t.TempDir(), "acp-sandbox", "peer")
+	cmd := exec.Command("sh", "-c", "true")
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", "exit", "0")
+	}
+	opts := Options{Enabled: true, Root: scratch}
+	if err := PrepareCommandWith(cmd, opts); err != nil {
+		t.Fatalf("PrepareCommandWith() error = %v", err)
+	}
+	wantHome := filepath.Join(scratch, "runtime-user-env", "home")
+	hasHome := false
+	for _, env := range cmd.Env {
+		if env == "HOME="+wantHome {
+			hasHome = true
+			break
+		}
+	}
+	if !hasHome {
+		t.Fatalf("PrepareCommandWith() must redirect HOME into the scratch root %q; env=%v",
+			wantHome, cmd.Env)
 	}
 }

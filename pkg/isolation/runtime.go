@@ -68,6 +68,66 @@ func CurrentConfig() config.IsolationConfig {
 	return currentIsolation
 }
 
+// Options.NetMode values.
+const (
+	// NetModeInherit keeps the host's network view (the default posture).
+	NetModeInherit = "inherit"
+	// NetModeNone drops child-process network access where the platform
+	// backend supports it: --unshare-net under bubblewrap on Linux, a
+	// sandbox-exec profile without network-outbound on macOS. Backends that
+	// cannot enforce it (Windows job objects, unsupported OSes) return an
+	// explicit error rather than silently running unsandboxed.
+	NetModeNone = "none"
+)
+
+// Options carries the per-invocation isolation configuration consumed by
+// StartWith, RunWith, PrepareCommandWith, and PreflightWith. The
+// process-global Configure path derives its Options from
+// config.IsolationConfig; per-binding ACP sandboxes construct Options
+// directly so sibling agents can run under different isolation postures.
+type Options struct {
+	// Enabled gates all platform isolation work; false prepares nothing.
+	Enabled bool
+	// Backend selects the platform backend ("" / "auto" resolve per OS);
+	// interpreted by the backend validators in PreflightWith.
+	Backend string
+	// Root overrides the instance root used for the isolated filesystem
+	// view and the redirected user environment; empty resolves the process
+	// home via ResolveInstanceRoot.
+	Root string
+	// NetMode selects the child network posture: "" or NetModeInherit
+	// keeps host networking; NetModeNone drops network access where the
+	// platform backend supports it.
+	NetMode string
+	// ExposePaths merges over DefaultExposePaths(Root).
+	ExposePaths []config.ExposePath
+}
+
+// OptionsFromConfig builds the per-invocation view of a
+// config.IsolationConfig.
+func OptionsFromConfig(isolation config.IsolationConfig) Options {
+	return Options{
+		Enabled:     isolation.Enabled,
+		Backend:     isolation.Backend,
+		ExposePaths: isolation.ExposePaths,
+	}
+}
+
+func currentOptions() Options {
+	return OptionsFromConfig(CurrentConfig())
+}
+
+func (o Options) resolveRoot() (string, error) {
+	if o.Root == "" {
+		return ResolveInstanceRoot()
+	}
+	root := filepath.Clean(o.Root)
+	if root == "." {
+		return "", fmt.Errorf("isolation root resolved to current directory")
+	}
+	return root, nil
+}
+
 // ResolveInstanceRoot resolves the instance root used to build the isolated
 // filesystem and redirected user environment.
 func ResolveInstanceRoot() (string, error) {
@@ -356,18 +416,17 @@ func validateWindowsExposePaths(items []config.ExposePath) error {
 	return fmt.Errorf("windows isolation does not yet support expose_paths filesystem rules")
 }
 
-func validateDarwinExposePaths(items []config.ExposePath) error {
-	isolation := CurrentConfig()
-	switch isolation.Backend {
+func validateDarwinBackend(backend string) error {
+	switch backend {
 	case "", "auto", "sandbox-exec", "none":
 		// ok
 	default:
 		return fmt.Errorf(
 			"invalid isolation backend %q for darwin; must be one of auto, sandbox-exec, none",
-			isolation.Backend,
+			backend,
 		)
 	}
-	if _, err := os.Stat("/usr/bin/sandbox-exec"); isolation.Backend != "none" && err != nil {
+	if _, err := os.Stat("/usr/bin/sandbox-exec"); backend != "none" && err != nil {
 		if _, err := exec.LookPath("sandbox-exec"); err != nil {
 			return fmt.Errorf("macOS isolation requires sandbox-exec: %w", err)
 		}
@@ -393,45 +452,58 @@ func isSupportedOn(goos string) bool {
 // Preflight validates the configured isolation state and prepares the instance
 // runtime directories before any child process is launched.
 func Preflight() error {
-	isolation := CurrentConfig()
-	if !isolation.Enabled {
+	return PreflightWith(currentOptions())
+}
+
+// PreflightWith is the per-invocation form of Preflight for Options-driven
+// callers such as per-binding ACP sandboxes.
+func PreflightWith(opts Options) error {
+	if !opts.Enabled {
 		return nil
+	}
+	switch opts.NetMode {
+	case "", NetModeInherit, NetModeNone:
+	default:
+		return fmt.Errorf(
+			"invalid isolation net mode %q: must be \"inherit\" or \"none\"",
+			opts.NetMode,
+		)
 	}
 	if !IsSupported() {
 		return fmt.Errorf("subprocess isolation is not supported on %s", runtime.GOOS)
 	}
-	root, err := ResolveInstanceRoot()
+	root, err := opts.resolveRoot()
 	if err != nil {
 		return err
 	}
 	if err := PrepareInstanceRoot(root); err != nil {
 		return err
 	}
-	if err := ValidateExposePaths(isolation.ExposePaths); err != nil {
+	if err := ValidateExposePaths(opts.ExposePaths); err != nil {
 		return err
 	}
 	if runtime.GOOS == "linux" {
-		for _, rule := range BuildLinuxMountPlan(root, isolation.ExposePaths) {
+		for _, rule := range BuildLinuxMountPlan(root, opts.ExposePaths) {
 			if rule.Source == "" || rule.Target == "" {
 				return fmt.Errorf("invalid linux mount rule")
 			}
 		}
 	}
 	if runtime.GOOS == "windows" {
-		if err := validateWindowsExposePaths(isolation.ExposePaths); err != nil {
+		if err := validateWindowsExposePaths(opts.ExposePaths); err != nil {
 			return err
 		}
-		for _, rule := range BuildWindowsAccessRules(root, isolation.ExposePaths) {
+		for _, rule := range BuildWindowsAccessRules(root, opts.ExposePaths) {
 			if rule.Path == "" {
 				return fmt.Errorf("invalid windows access rule")
 			}
 		}
 	}
 	if runtime.GOOS == "darwin" {
-		if err := validateDarwinExposePaths(isolation.ExposePaths); err != nil {
+		if err := validateDarwinBackend(opts.Backend); err != nil {
 			return err
 		}
-		for _, rule := range BuildDarwinAccessRules(root, isolation.ExposePaths) {
+		for _, rule := range BuildDarwinAccessRules(root, opts.ExposePaths) {
 			if rule.Path == "" {
 				return fmt.Errorf("invalid darwin access rule")
 			}
@@ -443,24 +515,29 @@ func Preflight() error {
 // Start prepares isolation for the command, starts it, and applies any
 // post-start platform hooks required by the active backend.
 func Start(cmd *exec.Cmd) error {
-	if err := PrepareCommand(cmd); err != nil {
+	return StartWith(cmd, currentOptions())
+}
+
+// StartWith is the per-invocation form of Start for Options-driven callers
+// such as per-binding ACP sandboxes.
+func StartWith(cmd *exec.Cmd, opts Options) error {
+	if err := PrepareCommandWith(cmd, opts); err != nil {
 		return err
 	}
 	if err := cmd.Start(); err != nil {
 		cleanupPendingPlatformResources(cmd)
 		return err
 	}
-	isolation := CurrentConfig()
 	root := ""
-	if isolation.Enabled {
+	if opts.Enabled {
 		var err error
-		root, err = ResolveInstanceRoot()
+		root, err = opts.resolveRoot()
 		if err != nil {
 			terminateStartedCommand(cmd)
 			return err
 		}
 	}
-	if err := postStartPlatformIsolation(cmd, isolation, root); err != nil {
+	if err := postStartPlatformIsolation(cmd, opts, root); err != nil {
 		terminateStartedCommand(cmd)
 		return err
 	}
@@ -470,24 +547,28 @@ func Start(cmd *exec.Cmd) error {
 // Run is the Start-and-Wait helper that keeps the same isolation behavior as
 // Start while returning the command's final exit status.
 func Run(cmd *exec.Cmd) error {
-	if err := PrepareCommand(cmd); err != nil {
+	return RunWith(cmd, currentOptions())
+}
+
+// RunWith is the per-invocation form of Run for Options-driven callers.
+func RunWith(cmd *exec.Cmd, opts Options) error {
+	if err := PrepareCommandWith(cmd, opts); err != nil {
 		return err
 	}
 	if err := cmd.Start(); err != nil {
 		cleanupPendingPlatformResources(cmd)
 		return err
 	}
-	isolation := CurrentConfig()
 	root := ""
-	if isolation.Enabled {
+	if opts.Enabled {
 		var err error
-		root, err = ResolveInstanceRoot()
+		root, err = opts.resolveRoot()
 		if err != nil {
 			terminateStartedCommand(cmd)
 			return err
 		}
 	}
-	if err := postStartPlatformIsolation(cmd, isolation, root); err != nil {
+	if err := postStartPlatformIsolation(cmd, opts, root); err != nil {
 		terminateStartedCommand(cmd)
 		return err
 	}
@@ -506,17 +587,22 @@ func terminateStartedCommand(cmd *exec.Cmd) {
 // PrepareCommand mutates the command in-place so it inherits the configured
 // isolated environment before being started by the caller.
 func PrepareCommand(cmd *exec.Cmd) error {
-	isolation := CurrentConfig()
-	if err := Preflight(); err != nil {
+	return PrepareCommandWith(cmd, currentOptions())
+}
+
+// PrepareCommandWith is the per-invocation form of PrepareCommand for
+// Options-driven callers.
+func PrepareCommandWith(cmd *exec.Cmd, opts Options) error {
+	if err := PreflightWith(opts); err != nil {
 		return err
 	}
-	if isolation.Enabled {
-		root, err := ResolveInstanceRoot()
+	if opts.Enabled {
+		root, err := opts.resolveRoot()
 		if err != nil {
 			return err
 		}
 		ApplyUserEnv(cmd, root)
-		if err := applyPlatformIsolation(cmd, isolation, root); err != nil {
+		if err := applyPlatformIsolation(cmd, opts, root); err != nil {
 			return err
 		}
 	}

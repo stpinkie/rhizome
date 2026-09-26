@@ -45,17 +45,20 @@ type RemoteDialer func(ctx context.Context, agentID, remote string) (io.ReadWrit
 // via agents.list[].acp. Processes are spawned lazily on first use, reused
 // across delegations, and restarted when the connection dies.
 //
-// Trust posture: the external agent runs as a plain child process (NOT under
-// pkg/isolation's sandbox) because it needs its own filesystem layout and
-// environment. Rhizome's contribution to safety is (a) the fs.* capabilities
-// we serve back are workspace-sandboxed and (b) permission requests are
-// answered by acp.client.permission_policy. Treat acp-bound agents like
-// running the agent's own CLI yourself.
+// Trust posture: acp.client.runtime / agents.list[].acp.runtime pick how a
+// local binding runs — "exec" (default) is a plain child process, "sandbox"
+// wraps it in pkg/isolation with a per-agent scratch root, and "container"
+// runs it under docker|podman. Remote bindings stay a mesh transport.
+// Regardless of runtime, (a) the fs.* capabilities we serve back are
+// workspace-sandboxed and (b) permission requests are answered by
+// acp.client.permission_policy. Treat "exec"-bound agents like running the
+// agent's own CLI yourself.
 type ClientManager struct {
 	cfg        *config.Config
 	registry   func() *agent.AgentRegistry // resolved lazily: registry swaps on config reload
 	policy     string
 	termPolicy string
+	runtime    string
 	media      media.MediaStore // optional; media:// refs degrade without it
 
 	mu       sync.Mutex
@@ -67,6 +70,10 @@ type ClientManager struct {
 	// remoteDial opens remote ACP transports for acp.remote bindings;
 	// nil when no mesh-backed dialer was injected.
 	remoteDial RemoteDialer
+	// spawners is the per-runtime spawn-dispatch seam; tests inject fakes.
+	spawners map[string]func(
+		ctx context.Context, agentID string, inst *agent.AgentInstance,
+	) (*agentProcess, error)
 }
 
 // NewClientManager builds a manager. getRegistry is resolved lazily because
@@ -87,15 +94,33 @@ func NewClientManager(cfg *config.Config, getRegistry func() *agent.AgentRegistr
 	if !found {
 		return nil
 	}
+	rt := normalizeACPRuntime(cfg.ACP.Client.Runtime)
+	if rt == "" {
+		if strings.TrimSpace(cfg.ACP.Client.Runtime) != "" {
+			// Unreachable via config load (ACPConfig.Validate rejects it);
+			// defensive for hand-constructed configs.
+			logger.WarnCF("acp", "unknown acp.client.runtime; using exec",
+				map[string]any{"value": cfg.ACP.Client.Runtime})
+		}
+		rt = acpRuntimeExec
+	}
 	m := &ClientManager{
 		cfg:        cfg,
 		registry:   getRegistry,
 		policy:     normalizeClientPolicy(cfg.ACP.Client.PermissionPolicy),
 		termPolicy: normalizeTerminalPolicy(cfg.ACP.Client.TerminalPolicy),
+		runtime:    rt,
 		procs:      make(map[string]*agentProcess),
 		sessions:   make(map[string]acpsdk.SessionId),
 	}
 	m.dial = m.spawn
+	m.spawners = map[string]func(
+		ctx context.Context, agentID string, inst *agent.AgentInstance,
+	) (*agentProcess, error){
+		acpRuntimeExec:      m.spawnExec,
+		acpRuntimeSandbox:   m.spawnSandbox,
+		acpRuntimeContainer: m.spawnContainer,
+	}
 	return m
 }
 
@@ -654,7 +679,8 @@ func (m *ClientManager) Close() {
 }
 
 // spawn starts the configured ACP subprocess or remote connection and
-// performs the ACP initialize handshake.
+// performs the ACP initialize handshake. Local bindings dispatch on the
+// effective runtime (exec/sandbox/container); remote bindings always dial.
 func (m *ClientManager) spawn(
 	ctx context.Context,
 	agentID string,
@@ -662,8 +688,27 @@ func (m *ClientManager) spawn(
 ) (*agentProcess, error) {
 	binding := inst.ACP
 	if remote := strings.TrimSpace(binding.Remote); remote != "" {
+		if rt := m.runtimeFor(inst); rt != acpRuntimeExec {
+			logger.WarnCF("acp", "acp.runtime ignored for remote agent binding",
+				map[string]any{"agent_id": agentID, "runtime": rt})
+		}
 		return m.spawnRemote(ctx, agentID, inst, remote)
 	}
+	spawner := m.spawners[m.runtimeFor(inst)]
+	if spawner == nil {
+		spawner = m.spawnExec
+	}
+	return spawner(ctx, agentID, inst)
+}
+
+// spawnExec starts the agent command as a plain child process — the
+// pre-runtime-modes behavior, and the default.
+func (m *ClientManager) spawnExec(
+	ctx context.Context,
+	agentID string,
+	inst *agent.AgentInstance,
+) (*agentProcess, error) {
+	binding := inst.ACP
 	command := strings.TrimSpace(binding.Command)
 	if command == "" {
 		return nil, fmt.Errorf("agent %q acp.command is empty", agentID)
@@ -732,8 +777,9 @@ func (m *ClientManager) spawnRemote(
 }
 
 // connect builds the client handler, binds the ACP transport, and runs the
-// initialize + authenticate handshake. Shared by the exec and remote spawn
-// paths; kill terminates the underlying process/connection on failure.
+// initialize + authenticate handshake. Shared by the exec, sandbox,
+// container, and remote spawn paths; kill terminates the underlying
+// process/connection on failure.
 func (m *ClientManager) connect(
 	ctx context.Context,
 	agentID string,
@@ -809,14 +855,30 @@ func (m *ClientManager) connect(
 // sessionCwd picks the cwd sent in session/new. For remote bindings the
 // value is interpreted on the remote peer's filesystem, so only an
 // explicit acp.cwd is sent — "." lets the remote resolve its own default
-// (the wire requires a non-empty cwd). For exec bindings: explicit
-// acp.cwd, then the agent workspace, then the daemon workspace.
+// (the wire requires a non-empty cwd). Sandbox bindings send the per-agent
+// scratch root (the workspace is not mounted inside the sandbox);
+// container bindings send acp.cwd or "/" (the agent workspace lives on the
+// host, not in the image). For exec bindings: explicit acp.cwd, then the
+// agent workspace, then the daemon workspace.
 func (m *ClientManager) sessionCwd(inst *agent.AgentInstance) string {
 	if inst != nil && inst.ACP != nil && strings.TrimSpace(inst.ACP.Remote) != "" {
 		if cwd := strings.TrimSpace(inst.ACP.Cwd); cwd != "" {
 			return cwd
 		}
 		return "."
+	}
+	switch m.runtimeFor(inst) {
+	case acpRuntimeSandbox:
+		if inst != nil && inst.ACP != nil {
+			return acpSandboxRoot(inst.ID)
+		}
+	case acpRuntimeContainer:
+		if inst != nil && inst.ACP != nil {
+			if cwd := strings.TrimSpace(inst.ACP.Cwd); cwd != "" {
+				return cwd
+			}
+		}
+		return "/"
 	}
 	return m.handlerWorkspace(inst)
 }

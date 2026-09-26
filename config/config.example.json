@@ -28,6 +28,7 @@
         "acp": {
           "command": "gemini",
           "remote": "",
+          "runtime": "exec",
           "args": ["--acp"],
           "env": {},
           "cwd": "",
@@ -675,9 +676,22 @@
     }
   },
   "acp": {
-    "_comment": "Agent Client Protocol. server: tool-permission policy for `rhizome acp` (prompt|allow|deny) plus remote: serve ACP to trusted mesh peers over /rhizome/acp/1.0.0 (requires mesh.enabled). client: policy for externally bound agents (deny|allow-read-only|allow); terminal_policy gates the ACP terminal/* bridge onto the guarded shell path — deny (default) advertises no terminal capability.",
+    "_comment": "Agent Client Protocol. server: tool-permission policy for `rhizome acp` (prompt|allow|deny) plus remote: serve ACP to trusted mesh peers over /rhizome/acp/1.0.0 (requires mesh.enabled). client: policy for externally bound agents (deny|allow-read-only|allow); terminal_policy gates the ACP terminal/* bridge onto the guarded shell path — deny (default) advertises no terminal capability. runtime picks how local ACP-bound agents run: exec (default; plain child process), sandbox (pkg/isolation wrapper over a per-agent scratch root; sandbox.network=none drops net access where the platform can enforce it — errors, never silently unsandboxed, on ones that can't), container (docker|podman run -i --rm with ACP over stdio; container.engine=auto tries docker then podman; pull=missing|never; network=none|bridge|allowlist — allowlist not implemented yet, errors at spawn). agents.list[].acp.runtime overrides client.runtime per binding.",
     "server": { "permission_policy": "prompt", "remote": false },
-    "client": { "permission_policy": "deny", "terminal_policy": "deny" }
+    "client": {
+      "permission_policy": "deny",
+      "terminal_policy": "deny",
+      "runtime": "exec",
+      "sandbox": { "network": "inherit" },
+      "container": {
+        "engine": "auto",
+        "image": "",
+        "network": "bridge",
+        "mem_mb": 0,
+        "cpus": 0,
+        "pull": "missing"
+      }
+    }
   },
   "mesh": {
     "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md. routing.role_aware (default true): workers get a ranking bonus for task ops (delegate/spawn), fulls for infra ops (sync); also feeds role-preferred swarm coordinator election.",

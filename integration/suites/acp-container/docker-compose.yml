@@ -1,0 +1,6 @@
+services:
+  # The container-runtime test shells out to `docker run -i --rm` from inside
+  # the runner; mounting the host socket makes it a sibling-container spawn.
+  integration-runner:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

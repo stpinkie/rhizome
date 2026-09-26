@@ -3482,3 +3482,66 @@ func testChannelsConfigWithTokens() ChannelsConfig {
 	}
 	return channels
 }
+
+func TestACPConfig_Validate(t *testing.T) {
+	valid := func(mut func(*ACPConfig)) ACPConfig {
+		a := ACPConfig{}
+		if mut != nil {
+			mut(&a)
+		}
+		return a
+	}
+	cases := []struct {
+		name    string
+		cfg     ACPConfig
+		wantErr string
+	}{
+		{name: "empty", cfg: valid(nil)},
+		{name: "exec", cfg: valid(func(a *ACPConfig) { a.Client.Runtime = "exec" })},
+		{name: "sandbox", cfg: valid(func(a *ACPConfig) { a.Client.Runtime = "sandbox" })},
+		{name: "bad runtime", cfg: valid(func(a *ACPConfig) {
+			a.Client.Runtime = "vm"
+		}), wantErr: "acp.client.runtime"},
+		{name: "container without image", cfg: valid(func(a *ACPConfig) {
+			a.Client.Runtime = "container"
+		}), wantErr: "container.image"},
+		{name: "container ok", cfg: valid(func(a *ACPConfig) {
+			a.Client.Runtime = "container"
+			a.Client.Container = &ACPContainerConfig{Image: "img:1", Engine: "auto",
+				Network: "none", MemMB: 256, Cpus: 0.5, Pull: "missing"}
+		})},
+		{name: "bad engine", cfg: valid(func(a *ACPConfig) {
+			a.Client.Container = &ACPContainerConfig{Engine: "rkt"}
+		}), wantErr: "container.engine"},
+		{name: "bad network", cfg: valid(func(a *ACPConfig) {
+			a.Client.Container = &ACPContainerConfig{Image: "i", Network: "host"}
+		}), wantErr: "container.network"},
+		{name: "bad pull", cfg: valid(func(a *ACPConfig) {
+			a.Client.Container = &ACPContainerConfig{Image: "i", Pull: "always"}
+		}), wantErr: "container.pull"},
+		{name: "negative mem", cfg: valid(func(a *ACPConfig) {
+			a.Client.Container = &ACPContainerConfig{Image: "i", MemMB: -1}
+		}), wantErr: "mem_mb"},
+		{name: "negative cpus", cfg: valid(func(a *ACPConfig) {
+			a.Client.Container = &ACPContainerConfig{Image: "i", Cpus: -0.5}
+		}), wantErr: "cpus"},
+		{name: "bad sandbox network", cfg: valid(func(a *ACPConfig) {
+			a.Client.Sandbox = &ACPSandboxConfig{Network: "nat"}
+		}), wantErr: "sandbox.network"},
+		{name: "sandbox none ok", cfg: valid(func(a *ACPConfig) {
+			a.Client.Sandbox = &ACPSandboxConfig{Network: "none"}
+		})},
+	}
+	for _, tc := range cases {
+		err := tc.cfg.Validate()
+		if tc.wantErr == "" {
+			if err != nil {
+				t.Errorf("%s: Validate() error = %v, want nil", tc.name, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: Validate() = %v, want error containing %q", tc.name, err, tc.wantErr)
+		}
+	}
+}

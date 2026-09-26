@@ -715,6 +715,9 @@ type ACPAgentConfig struct {
 	// (peer ID or full multiaddr) over /rhizome/acp/1.0.0 instead of a
 	// local command. Command/Args/Env/Cwd are ignored when set.
 	Remote string `json:"remote,omitempty"`
+	// Runtime overrides acp.client.runtime for this binding: "exec"
+	// (default), "sandbox", or "container". Ignored for remote bindings.
+	Runtime string `json:"runtime,omitempty"`
 }
 
 type SubagentsConfig struct {
@@ -946,6 +949,115 @@ type ACPPolicyConfig struct {
 	// trusted mesh peers in addition to `rhizome acp` stdio. Ignored under
 	// acp.client.
 	Remote bool `json:"remote,omitempty"`
+	// Runtime (client side only) selects how external ACP agent processes
+	// run: "exec" (default) spawns a plain child process, "sandbox" wraps
+	// the process in pkg/isolation with a per-agent scratch root, and
+	// "container" runs the agent via `docker|podman run -i --rm` (see
+	// Container). agents.list[].acp.runtime overrides this per binding.
+	// Ignored under acp.server and for agents.list[].acp.remote bindings.
+	Runtime string `json:"runtime,omitempty"`
+	// Container (client side only) configures runtime="container" agents.
+	Container *ACPContainerConfig `json:"container,omitempty"`
+	// Sandbox (client side only) configures runtime="sandbox" agents.
+	Sandbox *ACPSandboxConfig `json:"sandbox,omitempty"`
+}
+
+// ACPContainerConfig configures runtime="container" ACP agents: the agent
+// binary runs inside an operator-supplied image, spawned with
+// `docker|podman run -i --rm` so ACP still travels over stdin/stdout.
+type ACPContainerConfig struct {
+	// Engine selects the container engine: "auto" (default; resolves
+	// docker, then podman, then a named error), "docker", or "podman".
+	Engine string `json:"engine,omitempty"`
+	// Image is the container image the agent runs in; required when
+	// acp.client.runtime="container".
+	Image string `json:"image,omitempty"`
+	// Network selects container networking: "none", "bridge" (default),
+	// or "allowlist" (accepted by the schema; spawn fails with an explicit
+	// error until egress allowlisting lands).
+	Network string `json:"network,omitempty"`
+	// MemMB caps container memory (--memory, in MiB); 0 leaves the engine
+	// default.
+	MemMB int `json:"mem_mb,omitempty"`
+	// Cpus caps container CPU (--cpus); 0 leaves the engine default.
+	Cpus float64 `json:"cpus,omitempty"`
+	// Pull selects the image pull policy: "missing" (default; pull when
+	// the image is absent locally) or "never" (error when absent).
+	Pull string `json:"pull,omitempty"`
+}
+
+// ACPSandboxConfig configures runtime="sandbox" ACP agents: the process is
+// wrapped in pkg/isolation with a per-agent scratch root under
+// <RHIZOME_HOME>/acp-sandbox/.
+type ACPSandboxConfig struct {
+	// Network selects sandbox networking: "inherit" (default) or "none"
+	// (platform-enforced isolation — errors rather than silently running
+	// unsandboxed on platforms without support).
+	Network string `json:"network,omitempty"`
+}
+
+// Validate checks the ACP bridge configuration: the client runtime enum and
+// the container/sandbox sub-blocks. Per-binding agents.list[].acp.runtime is
+// resolved with warn-and-inherit semantics at spawn time instead.
+func (a ACPConfig) Validate() error {
+	mode := a.Client.Runtime
+	switch mode {
+	case "", "exec", "sandbox", "container":
+	default:
+		return fmt.Errorf(
+			"acp.client.runtime must be \"exec\", \"sandbox\", or \"container\", got %q",
+			mode,
+		)
+	}
+	if c := a.Client.Container; c != nil {
+		switch c.Engine {
+		case "", "auto", "docker", "podman":
+		default:
+			return fmt.Errorf(
+				"acp.client.container.engine must be \"auto\", \"docker\", or \"podman\", got %q",
+				c.Engine,
+			)
+		}
+		switch c.Network {
+		case "", "none", "bridge", "allowlist":
+		default:
+			return fmt.Errorf(
+				"acp.client.container.network must be \"none\", \"bridge\", or \"allowlist\", got %q",
+				c.Network,
+			)
+		}
+		switch c.Pull {
+		case "", "missing", "never":
+		default:
+			return fmt.Errorf(
+				"acp.client.container.pull must be \"missing\" or \"never\", got %q",
+				c.Pull,
+			)
+		}
+		if c.MemMB < 0 {
+			return fmt.Errorf("acp.client.container.mem_mb must be >= 0, got %d", c.MemMB)
+		}
+		if c.Cpus < 0 {
+			return fmt.Errorf("acp.client.container.cpus must be >= 0, got %v", c.Cpus)
+		}
+	}
+	if s := a.Client.Sandbox; s != nil {
+		switch s.Network {
+		case "", "inherit", "none":
+		default:
+			return fmt.Errorf(
+				"acp.client.sandbox.network must be \"inherit\" or \"none\", got %q",
+				s.Network,
+			)
+		}
+	}
+	if mode == "container" &&
+		(a.Client.Container == nil || a.Client.Container.Image == "") {
+		return fmt.Errorf(
+			"acp.client.container.image is required when acp.client.runtime = \"container\"",
+		)
+	}
+	return nil
 }
 
 func (c StreamingConfig) IsZero() bool {
@@ -2348,6 +2460,11 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Validate mesh/DHT configuration
 	if err = cfg.Mesh.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Validate ACP runtime/container configuration
+	if err = cfg.ACP.Validate(); err != nil {
 		return nil, err
 	}
 

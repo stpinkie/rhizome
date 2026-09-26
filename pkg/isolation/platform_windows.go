@@ -11,7 +11,6 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
@@ -31,14 +30,23 @@ var (
 	procCreateRestrictedToken    = advapi32.NewProc("CreateRestrictedToken")
 )
 
-func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {
-	if !isolation.Enabled || cmd == nil {
+func applyPlatformIsolation(cmd *exec.Cmd, opts Options, root string) error {
+	if !opts.Enabled || cmd == nil {
 		return nil
+	}
+	// Windows job objects cannot scope per-process networking and the
+	// restricted-token path has no network filter; deny net isolation rather
+	// than silently running the child with the host network view.
+	if opts.NetMode == NetModeNone {
+		return fmt.Errorf(
+			"isolation net mode %q is not supported on windows; use acp.client.sandbox.network=inherit or a container runtime for network isolation",
+			opts.NetMode,
+		)
 	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	rules := BuildWindowsAccessRules(root, isolation.ExposePaths)
+	rules := BuildWindowsAccessRules(root, opts.ExposePaths)
 	logger.InfoCF("isolation", "windows isolation process constraints",
 		map[string]any{
 			"root":    root,
@@ -58,8 +66,8 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 	return nil
 }
 
-func postStartPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {
-	if !isolation.Enabled || cmd == nil || cmd.Process == nil {
+func postStartPlatformIsolation(cmd *exec.Cmd, opts Options, root string) error {
+	if !opts.Enabled || cmd == nil || cmd.Process == nil {
 		return nil
 	}
 	resourcesAny, loaded := windowsPendingResources.LoadAndDelete(cmd)

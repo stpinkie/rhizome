@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
@@ -23,12 +22,12 @@ type darwinProcessResources struct {
 // applyPlatformIsolation rewrites the command to run under sandbox-exec with a
 // generated Seatbelt profile. It keeps the command line semantics by prepending
 // sandbox-exec and a profile file to the original executable.
-func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {
-	if !isolation.Enabled || cmd == nil {
+func applyPlatformIsolation(cmd *exec.Cmd, opts Options, root string) error {
+	if !opts.Enabled || cmd == nil {
 		return nil
 	}
 
-	backend := isolation.Backend
+	backend := opts.Backend
 	if backend == "" || backend == "auto" {
 		backend = "sandbox-exec"
 	}
@@ -74,7 +73,7 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 		return err
 	}
 
-	rules := BuildDarwinAccessRules(root, isolation.ExposePaths)
+	rules := BuildDarwinAccessRules(root, opts.ExposePaths)
 
 	// Ensure the binary and its directory are reachable. macOS sandbox-exec
 	// does not support source->target remapping, so we use the real host path.
@@ -97,7 +96,7 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 
 	userEnv := ResolveUserEnv(root)
 
-	profile, err := buildDarwinSandboxProfile(rules, root, userEnv)
+	profile, err := buildDarwinSandboxProfile(rules, root, userEnv, opts.NetMode)
 	if err != nil {
 		return fmt.Errorf("macOS isolation: build sandbox profile: %w", err)
 	}
@@ -128,7 +127,7 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 	return nil
 }
 
-func postStartPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {
+func postStartPlatformIsolation(cmd *exec.Cmd, opts Options, root string) error {
 	cleanupDarwinPendingResources(cmd)
 	return nil
 }
@@ -152,14 +151,21 @@ func cleanupDarwinPendingResources(cmd *exec.Cmd) {
 	_ = os.Remove(res.profilePath)
 }
 
-func buildDarwinSandboxProfile(rules []AccessRule, root string, userEnv UserEnv) (string, error) {
+func buildDarwinSandboxProfile(
+	rules []AccessRule,
+	root string,
+	userEnv UserEnv,
+	netMode string,
+) (string, error) {
 	var b strings.Builder
 	b.WriteString("(version 1)\n\n")
 	b.WriteString("(deny default)\n")
 	b.WriteString("(allow process-exec)\n")
 	b.WriteString("(allow process-fork)\n")
 	b.WriteString("(allow signal)\n")
-	b.WriteString("(allow network-outbound)\n")
+	if netMode != NetModeNone {
+		b.WriteString("(allow network-outbound)\n")
+	}
 	b.WriteString("(allow mach-lookup)\n")
 	b.WriteString("(allow system-info)\n")
 	b.WriteString("(allow sysctl-read)\n")

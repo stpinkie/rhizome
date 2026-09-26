@@ -21,7 +21,7 @@ func TestBuildLinuxBwrapArgs_IncludesNamespaceFlagsAndExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := BuildLinuxMountPlan(root, []config.ExposePath{{Source: binaryDir, Target: binaryDir, Mode: "ro"}})
-	args, err := buildLinuxBwrapArgs(binaryPath, binaryPath, []string{binaryPath, "--flag"}, root, plan)
+	args, err := buildLinuxBwrapArgs(binaryPath, binaryPath, []string{binaryPath, "--flag"}, root, plan, "")
 	if err != nil {
 		t.Fatalf("buildLinuxBwrapArgs() error = %v", err)
 	}
@@ -45,6 +45,43 @@ func TestBuildLinuxBwrapArgs_IncludesNamespaceFlagsAndExec(t *testing.T) {
 	}
 	if !hasIPC || !hasExec {
 		t.Fatalf("bwrap args missing required items: %v", args)
+	}
+}
+
+func TestBuildLinuxBwrapArgs_UnshareNetUnderNetModeNone(t *testing.T) {
+	root := t.TempDir()
+	binaryDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binaryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binaryPath := filepath.Join(binaryDir, "tool")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := BuildLinuxMountPlan(root, nil)
+	args, err := buildLinuxBwrapArgs(binaryPath, binaryPath, []string{binaryPath}, root, plan, NetModeNone)
+	if err != nil {
+		t.Fatalf("buildLinuxBwrapArgs() error = %v", err)
+	}
+	hasNet := false
+	for _, arg := range args {
+		if arg == "--unshare-net" {
+			hasNet = true
+			break
+		}
+	}
+	if !hasNet {
+		t.Fatalf("bwrap args missing --unshare-net under net_mode=none: %v", args)
+	}
+	// "inherit" keeps the shared network view.
+	args, err = buildLinuxBwrapArgs(binaryPath, binaryPath, []string{binaryPath}, root, plan, NetModeInherit)
+	if err != nil {
+		t.Fatalf("buildLinuxBwrapArgs() error = %v", err)
+	}
+	for _, arg := range args {
+		if arg == "--unshare-net" {
+			t.Fatalf("bwrap args should not unshare net under net_mode=inherit: %v", args)
+		}
 	}
 }
 
@@ -99,7 +136,7 @@ func TestBuildLinuxBwrapArgs_UsesResolvedPathForRelativeCommand(t *testing.T) {
 		{Source: execDir, Target: execDir, Mode: "rw"},
 		{Source: resolvedPath, Target: resolvedPath, Mode: "ro"},
 	}
-	args, err := buildLinuxBwrapArgs("./hook.sh", resolvedPath, []string{"./hook.sh"}, execDir, plan)
+	args, err := buildLinuxBwrapArgs("./hook.sh", resolvedPath, []string{"./hook.sh"}, execDir, plan, "")
 	if err != nil {
 		t.Fatalf("buildLinuxBwrapArgs() error = %v", err)
 	}

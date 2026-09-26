@@ -10,12 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
-func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {
-	if !isolation.Enabled {
+func applyPlatformIsolation(cmd *exec.Cmd, opts Options, root string) error {
+	if !opts.Enabled {
 		return nil
 	}
 	// Bubblewrap is the only supported Linux backend right now. Fail closed when
@@ -56,7 +55,7 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 	// Start from the configured mount plan, then add only the executable, its
 	// resolved path, the effective working directory, and any absolute path
 	// arguments needed to preserve the original command semantics.
-	plan := BuildLinuxMountPlan(root, isolation.ExposePaths)
+	plan := BuildLinuxMountPlan(root, opts.ExposePaths)
 	plan = ensureLinuxMountRule(plan, resolvedPath, resolvedPath, "ro")
 	plan = ensureLinuxMountRule(plan, filepath.Dir(resolvedPath), filepath.Dir(resolvedPath), "ro")
 	if resolved, resolveErr := filepath.EvalSymlinks(resolvedPath); resolveErr == nil && resolved != resolvedPath {
@@ -77,7 +76,9 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 			"working_dir": execDir,
 			"mounts":      formatLinuxMountPlan(plan),
 		})
-	bwrapArgs, err := buildLinuxBwrapArgs(originalPath, resolvedPath, originalArgs, execDir, plan)
+	bwrapArgs, err := buildLinuxBwrapArgs(
+		originalPath, resolvedPath, originalArgs, execDir, plan, opts.NetMode,
+	)
 	if err != nil {
 		return err
 	}
@@ -105,7 +106,7 @@ func formatLinuxMountPlan(plan []MountRule) []map[string]string {
 	return formatted
 }
 
-func postStartPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {
+func postStartPlatformIsolation(cmd *exec.Cmd, opts Options, root string) error {
 	return nil
 }
 
@@ -120,14 +121,20 @@ func buildLinuxBwrapArgs(
 	originalArgs []string,
 	execDir string,
 	plan []MountRule,
+	netMode string,
 ) ([]string, error) {
 	bwrapArgs := []string{
 		"bwrap",
 		"--die-with-parent",
 		"--unshare-ipc",
+	}
+	if netMode == NetModeNone {
+		bwrapArgs = append(bwrapArgs, "--unshare-net")
+	}
+	bwrapArgs = append(bwrapArgs,
 		"--proc", "/proc",
 		"--dev", "/dev",
-	}
+	)
 	for _, rule := range plan {
 		flag, err := linuxBindFlag(rule)
 		if err != nil {
