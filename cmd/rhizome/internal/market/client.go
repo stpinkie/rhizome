@@ -128,7 +128,8 @@ func (c *apiClient) call(ctx context.Context, verb string, body any) ([]byte, in
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf(
-			"rhizome-market module API unreachable at %s — module may be stopped; check `rhizome module status %s`",
+			"rhizome-market module API unreachable at %s — module may be stopped; "+
+				"check `rhizome module status %s`",
 			c.addr, marketModuleID)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -143,18 +144,18 @@ func (c *apiClient) call(ctx context.Context, verb string, body any) ([]byte, in
 // find/buy/session/receipt payloads).
 const advertBodyMaxBytes = 1 << 20
 
-func readBounded(path string, max int64) (string, error) {
+func readBounded(path string, limit int64) (string, error) {
 	f, err := os.Open(path) //nolint:gosec // G304: path is under the module dir.
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return "", err
 	}
-	if int64(len(data)) > max {
-		return "", fmt.Errorf("%s exceeds %d bytes", filepath.Base(path), max)
+	if int64(len(data)) > limit {
+		return "", fmt.Errorf("%s exceeds %d bytes", filepath.Base(path), limit)
 	}
 	return string(data), nil
 }

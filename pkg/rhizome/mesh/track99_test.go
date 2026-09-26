@@ -25,7 +25,10 @@ func TestTrack99ModuleAdvertsAnnounced(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	advert := json.RawMessage(`{"offers":[{"id":"web-search","price_sheet":{"per_task":"0.01 USDC"}}],"payout":{"chain_id":8453,"asset":"USDC"}}`)
+	advert := json.RawMessage(
+		`{"offers":[{"id":"web-search","price_sheet":{"per_task":"0.01 USDC"}}],` +
+			`"payout":{"chain_id":8453,"asset":"USDC"}}`,
+	)
 	f.meshB.SetModuleAdvertProvider(func() map[string]json.RawMessage {
 		return map[string]json.RawMessage{"rhizome-market": advert}
 	})
