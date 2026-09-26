@@ -199,6 +199,7 @@ subcommand) and `ipfs-kubo` (IPFS node — all platforms; `.zip` extraction,
 - `rhizome module validate` — check the `modules` config section against the catalog.
 - `rhizome module verify <id>` — re-hash the installed binary against its install-time sha256 record (drift detection; daemonless).
 - `rhizome module catalog [--out f] [--sign-with-env VAR]` — emit the embedded catalog as canonical `catalog.json` (+ `.sig`); `rhizome module catalog-keygen` (hidden) generates a signing keypair.
+- `rhizome market find|buy|session|receipt` (v0.14.0, Track 99) — thin verbs over the `rhizome-market` module's loopback API (`<module_dir>/api.addr` + `bridge-token` bearer); absent → "rhizome-market module not installed". Serving modules advertise via `<module_dir>/advert.json` (≤16 KiB JSON, gated on `serve_enabled`), merged into the signed capability manifest as `module_adverts` + `allows.market_serve`.
 
 Daemon endpoints (bearer auth): `GET /modules`, `GET /modules/<id>`,
 `GET /modules/<id>/logs?tail=N`, `POST /modules/<id>` `{action,

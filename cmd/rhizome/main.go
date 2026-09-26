@@ -24,6 +24,7 @@ import (
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/cron"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/daemon"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/gateway"
+	marketcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/market"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/mcp"
 	meshcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/mesh"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/migrate"
@@ -153,6 +154,7 @@ rhizome --no-color status`,
 		meshcmd.NewMeshCommand(),
 		swarmcmd.NewSwarmCommand(),
 		modulecmd.NewModuleCommand(),
+		marketcmd.NewMarketCommand(),
 		wallet.NewWalletCommand(),
 		web3cmd.NewWeb3Command(),
 		skills.NewSkillsCommand(),
