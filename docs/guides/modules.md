@@ -104,6 +104,55 @@ claimed by another enabled module, are skipped with a warning.
 it's only core-claimed while `acp.server.remote` serves, so a module may
 declare it when core is not.
 
+## Capability adverts + module localhost API
+
+A serving module can publish a capability advert that rides inside the
+node's **signed** mesh capability manifest — the same authenticated
+channel that carries models, skills, and agent manifests:
+
+- The module writes `<module_dir>/advert.json` — at most **16 KiB** of
+  valid JSON. The shape is module-defined (offers, price sheet, payout,
+  runtime posture); core treats it as opaque bytes.
+- The daemon includes the advert as
+  `Capability.ModuleAdverts["<module id>"]` only when the module is
+  catalog-known, `enabled`, **and** has a truthy `serve_enabled` field —
+  the explicit opt-in, because the manifest broadcasts to **every**
+  connected peer, trusted or not. Adverts are deliberately public data:
+  never put secrets, keys, or private topology in `advert.json`.
+- When any advert is included the manifest also sets
+  `allows.market_serve: true` — the map key an old build can re-marshal
+  unchanged. The `module_adverts` field itself is emit-when-set (the
+  `Role` precedent): an old build drops it on decode, fails the signature
+  check, and rejects the whole manifest — acceptable because advert
+  consumers require the new build anyway.
+- Oversized, invalid, or unreadable `advert.json` files are dropped with
+  a warning/debug log — advert serving never blocks manifest signing.
+  The receiving side enforces the same 16 KiB bound per advert (64 KiB
+  total per manifest) post-verification.
+
+The market module also publishes a **loopback HTTP API** for the CLI:
+
+- `<module_dir>/api.addr` — its `127.0.0.1:<port>` listener. The CLI
+  refuses non-loopback values so a tampered file can't leak the token
+  off-host.
+- `<module_dir>/bridge-token` — the per-module bearer minted at install;
+  reused to authenticate the API (`Authorization: Bearer <token>`).
+
+`rhizome market` is a thin client over that API (`POST /v1/<verb>`):
+
+```
+rhizome market find <service>
+rhizome market buy <provider> <offer> <task> [--max-cost <amt>]
+rhizome market session <id>
+rhizome market receipt <id>
+```
+
+Without the module the verbs print `rhizome-market module not installed —
+run \`rhizome module install rhizome-market\``; an installed-but-not-
+serving module points at `rhizome module status rhizome-market`. The API
+payload schemas are defined by the market tracks (sell-side, buy-side,
+escrow).
+
 ## Catalog
 
 ### `nimbus-verified-proxy` (daemon)

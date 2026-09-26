@@ -71,6 +71,16 @@ type Capability struct {
 	// cannot be verified by them, which is acceptable because worker-aware
 	// consumers require this version anyway.
 	Role string `json:"role,omitempty"`
+	// ModuleAdverts carries per-module capability adverts (module id → raw
+	// advert JSON) for serving modules — enabled modules whose serve_enabled
+	// field is truthy and that published a valid advert.json. Emit-when-set
+	// with the same wire-compat posture as Role: old builds drop the field on
+	// decode, fail signature verification on re-marshal, and reject the whole
+	// manifest — accepted because advert consumers require this build anyway.
+	// The advert bytes are module-authored and deliberately public (they
+	// broadcast to every connected peer); the outer signature authenticates
+	// them as issued by PeerID.
+	ModuleAdverts map[string]json.RawMessage `json:"module_adverts,omitempty"`
 	// Signature covers the canonical encoding of all fields above, proving
 	// the manifest was issued by PeerID. Unsigned manifests are rejected
 	// unless mesh.require_signed_caps is disabled; a mesh.cap.unsigned
@@ -192,6 +202,12 @@ type Mesh struct {
 	// concurrently (announce loop, caps stream handler) and sinks are not
 	// required to be goroutine-safe — the gateway sink writes manifest files.
 	manifestInvokeMu sync.Mutex
+
+	// moduleAdvertProvider supplies per-module advert JSON for the signed
+	// capability manifest (the daemon wires the modules.Manager reader).
+	// Invoked on each localCapability build; reads must be cheap.
+	moduleAdvertProvider   func() map[string]json.RawMessage
+	moduleAdvertProviderMu sync.RWMutex
 
 	skillsLoader   *skills.SkillsLoader
 	skillsLoaderMu sync.RWMutex
@@ -1016,6 +1032,20 @@ func (m *Mesh) localCapability() Capability {
 		}
 		m.manifestInvokeMu.Unlock()
 	}
+
+	// Serving modules contribute capability adverts — module-authored JSON
+	// merged into the signed manifest. Presence opts the node into
+	// allows.market_serve (the map key that survives old-build re-marshal).
+	m.moduleAdvertProviderMu.RLock()
+	advertFn := m.moduleAdvertProvider
+	m.moduleAdvertProviderMu.RUnlock()
+	if advertFn != nil {
+		if adverts := advertFn(); len(adverts) > 0 {
+			c.ModuleAdverts = adverts
+			c.Allows["market_serve"] = true
+		}
+	}
+
 	m.signCapability(&c)
 	return c
 }
@@ -1060,6 +1090,7 @@ func (m *Mesh) verifyCapability(from peer.ID, c *Capability) error {
 			return fmt.Errorf("unsigned capability manifest from peer %s", from)
 		}
 		c.AgentManifests = m.filterAgentManifests(from, c.AgentManifests)
+		c.ModuleAdverts = m.filterModuleAdverts(from, c.ModuleAdverts)
 		return nil
 	}
 
@@ -1091,6 +1122,7 @@ func (m *Mesh) verifyCapability(from peer.ID, c *Capability) error {
 	// sender's key and drop forgeries rather than rejecting the whole manifest.
 	// Runs after the outer signature check since it covers the manifest list.
 	c.AgentManifests = m.filterAgentManifests(from, c.AgentManifests)
+	c.ModuleAdverts = m.filterModuleAdverts(from, c.ModuleAdverts)
 	return nil
 }
 
@@ -1129,6 +1161,43 @@ func (m *Mesh) filterAgentManifests(from peer.ID, manifests []agentmanifest.Mani
 	return valid
 }
 
+const (
+	// moduleAdvertMaxBytes bounds one advert entry — the same bound the
+	// module-side reader enforces on advert.json files.
+	moduleAdvertMaxBytes = 16 << 10
+	// moduleAdvertTotalMaxBytes bounds the whole ModuleAdverts map per
+	// manifest; adverts are informational so oversized entries are dropped
+	// rather than failing the manifest.
+	moduleAdvertTotalMaxBytes = 64 << 10
+)
+
+// filterModuleAdverts drops module adverts that exceed the per-entry and
+// total byte bounds. Runs after the outer signature check (the bytes were
+// authentic — we simply decline to store oversized payloads).
+func (m *Mesh) filterModuleAdverts(from peer.ID, adverts map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(adverts) == 0 {
+		return adverts
+	}
+	total := 0
+	dropped := 0
+	for id, adv := range adverts {
+		if len(adv) > moduleAdvertMaxBytes || total+len(adv) > moduleAdvertTotalMaxBytes {
+			delete(adverts, id)
+			dropped++
+			continue
+		}
+		total += len(adv)
+	}
+	if dropped > 0 {
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":   "capability.module_advert",
+			"error":   fmt.Sprintf("dropped %d oversized module advert(s)", dropped),
+			"peer_id": from.String(),
+		})
+	}
+	return adverts
+}
+
 // SetAgentLister sets the function used to enumerate local agent ids for
 // capability advertisement. It is called each time a capability is built so
 // reloads are reflected without further wiring.
@@ -1154,6 +1223,17 @@ func (m *Mesh) SetManifestSink(fn func(agentmanifest.Manifest)) {
 	m.manifestMu.Lock()
 	defer m.manifestMu.Unlock()
 	m.manifestSink = fn
+}
+
+// SetModuleAdvertProvider sets the function that supplies per-module
+// capability adverts (module id → advert JSON). The daemon wires the
+// modules manager's reader over <module_dir>/advert.json. Called on every
+// localCapability build so advert changes propagate on the next announce;
+// a non-empty result opts the manifest into allows.market_serve.
+func (m *Mesh) SetModuleAdvertProvider(fn func() map[string]json.RawMessage) {
+	m.moduleAdvertProviderMu.Lock()
+	defer m.moduleAdvertProviderMu.Unlock()
+	m.moduleAdvertProvider = fn
 }
 
 // QueryCapability fetches the current capability from a trusted peer.

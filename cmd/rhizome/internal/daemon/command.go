@@ -270,6 +270,12 @@ func NewDaemonCommand() *cobra.Command {
 			defer moduleSup.StopAll() // modules stop before mesh teardown (LIFO)
 			gateway.SetModuleManager(moduleMgr)
 
+			// Module capability adverts: serving modules' advert.json files
+			// ride inside the signed mesh manifest (allows.market_serve).
+			if rhizomeMesh != nil {
+				rhizomeMesh.SetModuleAdvertProvider(moduleMgr.ModuleAdverts)
+			}
+
 			fmt.Printf("%s Rhizome daemon online\n", internal.Logo)
 			fmt.Printf("  Name:    %s\n", name)
 			fmt.Printf("  Peer ID: %s\n", node.PeerID())
