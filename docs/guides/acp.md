@@ -234,6 +234,59 @@ Media attachments (`media://` refs, e.g. mesh task attachments) are sent
 as ACP image blocks when the agent advertises `promptCapabilities.image`;
 anything else degrades to a text reference in the prompt.
 
+### Process runtimes (`acp.client.runtime`)
+
+`acp.client.runtime` picks how each local (non-`remote`) ACP-bound agent
+process runs; `agents.list[].acp.runtime` overrides it per binding:
+
+| Runtime     | Behaviour                                                                                          |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| `exec`      | *(default)* plain child process — the pre-runtime behavior, no sandbox.                              |
+| `sandbox`   | the process runs under `pkg/isolation` rooted at a per-agent scratch dir (`<RHIZOME_HOME>/acp-sandbox/<agent-id>`), not `RHIZOME_HOME`. Requires the platform backend (bwrap / sandbox-exec); the spawn fails closed when it is unavailable. |
+| `container` | the agent runs inside an operator-supplied image via `docker\|podman run -i --rm`; ACP still travels over stdin/stdout — zero protocol change. |
+
+```json
+{
+  "acp": {
+    "client": {
+      "runtime": "exec",
+      "sandbox": { "network": "inherit" },
+      "container": {
+        "engine": "auto",
+        "image": "ghcr.io/example/acp-agent:latest",
+        "network": "bridge",
+        "mem_mb": 512,
+        "cpus": 1.0,
+        "pull": "missing"
+      }
+    }
+  }
+}
+```
+
+- `acp.client.sandbox.network`: `inherit` *(default)* keeps host
+  networking; `none` drops it — `--unshare-net` under bubblewrap on Linux,
+  a sandbox profile without `network-outbound` on macOS. **Windows cannot
+  scope per-process networking** (job objects don't cover it), so
+  `network=none` fails the spawn with an explicit error there rather than
+  silently running unsandboxed — use `container` with `--network none`
+  for Windows network isolation.
+- `acp.client.container.engine`: `auto` *(default)* tries `docker`, then
+  `podman`, then errors naming both. `pull`: `missing` *(default)* pulls
+  when the image is absent locally, `never` errors instead. `network`:
+  `bridge` *(default)*, `none`, or `allowlist` — `allowlist` is accepted
+  by the schema but fails the spawn with an explicit error (egress
+  allowlisting needs a proxy network and isn't implemented yet).
+- For `container` bindings the `command`/`args` append after the image
+  (an empty `command` uses the image entrypoint) and `cwd` maps to `-w`.
+  Containers get a `rhizome-acp-<agent>-…` name so teardown kills the
+  container, not just the engine CLI.
+- `runtime` has no effect on `acp.remote` bindings (a warning is logged if
+  both are set); sandbox/container apply to local spawns only.
+- A sandboxed agent's `session/new` cwd is its scratch root — the agent
+  workspace is not mounted inside the sandbox. File access still works
+  through the workspace-sandboxed `fs.*` bridge below.
+
 ### What the external agent can do
 
 Rhizome answers client-bound ACP requests like this:
@@ -348,8 +401,10 @@ stream protocol `/rhizome/acp/1.0.0`:
 
 ### Trust posture
 
-The external agent runs as a **plain child process** with its own
-filesystem and environment — it is not sandboxed by `pkg/isolation`.
-Rhizome's controls are the sandboxed fs bridge and the permission policy.
-Treat an `acp` binding with the same trust you'd give running that agent's
-CLI yourself.
+With the default `exec` runtime the external agent runs as a **plain child
+process** with its own filesystem and environment — it is not sandboxed by
+`pkg/isolation`. `runtime=sandbox` and `runtime=container` add process- or
+container-level confinement per the table above, and Rhizome's
+runtime-independent controls are the sandboxed fs bridge and the
+permission policy. Treat an `exec` binding with the same trust you'd give
+running that agent's CLI yourself.
