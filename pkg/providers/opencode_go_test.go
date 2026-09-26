@@ -90,7 +90,7 @@ func TestCreateProviderFromConfig_OpenCodeGo(t *testing.T) {
 				gotSession = r.Header.Get("X-Opencode-Session")
 				gotAuth = r.Header.Get("Authorization")
 				if tt.wantType == "*anthropicmessages.Provider" {
-					gotAuth = r.Header.Get("X-API-Key")
+					gotAuth = r.Header.Get("X-Api-Key")
 				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(tt.responseBody))
