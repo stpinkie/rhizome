@@ -166,7 +166,12 @@ func (m *MockRail) lock(sessionID string, details [32]byte) (string, error) {
 
 // Resolve applies the arbiter award with the contract's exact-sum
 // constraint: awards must total balance − balance/DefaultResolutionRate.
-func (m *MockRail) Resolve(_ context.Context, sessionID string, clientAward, providerAward *big.Int, _ [32]byte) (string, error) {
+func (m *MockRail) Resolve(
+	_ context.Context,
+	sessionID string,
+	clientAward, providerAward *big.Int,
+	_ [32]byte,
+) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, err := m.mustEscrow(sessionID)
@@ -196,9 +201,8 @@ func (m *MockRail) Resolve(_ context.Context, sessionID string, clientAward, pro
 	return m.txHash(sessionID, m.txSeq), nil
 }
 
-// Expire fast-forwards past termination — a test helper paired with
-// SetNowFunc, kept in-package so Tests 102/103 can drive the clawback
-// posture without sleeping.
+// EscrowBalance reports the escrow's token balance — a test helper for
+// 102/103 so the clawback posture is inspectable without chain state.
 func (m *MockRail) EscrowBalance(sessionID string) (*big.Int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

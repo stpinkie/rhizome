@@ -71,7 +71,12 @@ type Rail interface {
 	// clientAward + providerAward must equal balance −
 	// balance/resolutionRate (the resolver's fee); the rail surfaces the
 	// contract's ResolutionMismatch revert rather than pre-validating.
-	Resolve(ctx context.Context, sessionID string, clientAward, providerAward *big.Int, details [32]byte) (txHash string, err error)
+	Resolve(
+		ctx context.Context,
+		sessionID string,
+		clientAward, providerAward *big.Int,
+		details [32]byte,
+	) (txHash string, err error)
 }
 
 // SettlementRail is the spec-named alias for Rail — the design docs say

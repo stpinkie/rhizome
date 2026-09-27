@@ -493,7 +493,9 @@ func (fc *FakeChain) txFactory(from string, data []byte) ([]*fakeLog, *rpcError)
 		amts[i], _ = new(big.Int).SetString(s, 10)
 		total.Add(total, amts[i])
 	}
-	rate := int64(fc.rates[normAddr(init.resolver)])
+	rate := int64(
+		fc.rates[normAddr(init.resolver)],
+	) //nolint:gosec // G115: resolver rates are small divisors set by tests
 	if rate == 0 {
 		rate = DefaultResolutionRate
 	}
@@ -543,21 +545,18 @@ func (fc *FakeChain) decodeInitData(initHex string) (*fakeInit, *rpcError) {
 	if err != nil {
 		return nil, rpcErr(-32602, "fakechain: init decode: "+err.Error())
 	}
-	term, _ := strconv.ParseInt(vals[4].(string), 10, 64)
-	rt, _ := strconv.Atoi(vals[1].(string))
 	var details [32]byte
-	if s, ok := vals[5].(string); ok {
-		b, _ := hex.DecodeString(trimHex(s))
+	if b, derr := hex.DecodeString(trimHex(mustStr(vals[5]))); derr == nil {
 		copy(details[:], b)
 	}
 	return &fakeInit{
-		client:          vals[0].(string),
-		resolverType:    rt,
-		resolver:        vals[2].(string),
-		token:           vals[3].(string),
-		terminationTime: term,
+		client:          mustStr(vals[0]),
+		resolverType:    int(mustInt64(vals[1])),
+		resolver:        mustStr(vals[2]),
+		token:           mustStr(vals[3]),
+		terminationTime: mustInt64(vals[4]),
 		details:         details,
-		wrapped:         vals[6].(string),
+		wrapped:         mustStr(vals[6]),
 	}, nil
 }
 
@@ -853,6 +852,7 @@ func topicAddr(addr string) string {
 }
 
 func topicUint(v uint64) string {
+	//nolint:gosec // G115: topics carry counters/ids, far below int64 range.
 	return "0x" + hex.EncodeToString(wordBig(big.NewInt(int64(v))))
 }
 
@@ -872,6 +872,25 @@ func mustBig(v any) *big.Int {
 	n, _ := new(big.Int).SetString(s, 10)
 	if n == nil {
 		return new(big.Int)
+	}
+	return n
+}
+
+// mustStr/mustInt64 extract decoded-ABI values whose Go shapes the codec
+// guarantees (address→checksummed string, uint→decimal string, bool→bool).
+// A wrong shape means the decoder itself is broken — panic, like sel().
+func mustStr(v any) string {
+	s, ok := v.(string)
+	if !ok {
+		panic(fmt.Sprintf("fakechain: decode produced %T, want string", v))
+	}
+	return s
+}
+
+func mustInt64(v any) int64 {
+	n, err := strconv.ParseInt(mustStr(v), 10, 64)
+	if err != nil {
+		panic(fmt.Sprintf("fakechain: decode produced bad int64 %v", v))
 	}
 	return n
 }

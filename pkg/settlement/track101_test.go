@@ -126,14 +126,25 @@ func TestBundledABIs(t *testing.T) {
 		sigs []sig
 	}{
 		{factoryABI, []sig{
-			{"create", 4}, {"createDeterministic", 5},
-			{"predictDeterministicAddress", 2}, {"resolutionRateOf", 1},
+			{"create", 4},
+			{"createDeterministic", 5},
+			{"predictDeterministicAddress", 2},
+			{"resolutionRateOf", 1},
 		}},
 		{escrowABI, []sig{
-			{"token", 0}, {"client", 0}, {"provider", 0}, {"total", 0},
-			{"released", 0}, {"locked", 0}, {"terminationTime", 0},
-			{"release", 0}, {"release", 1}, {"lock", 1}, {"resolve", 3},
-			{"withdraw", 0}, {"getAmounts", 0},
+			{"token", 0},
+			{"client", 0},
+			{"provider", 0},
+			{"total", 0},
+			{"released", 0},
+			{"locked", 0},
+			{"terminationTime", 0},
+			{"release", 0},
+			{"release", 1},
+			{"lock", 1},
+			{"resolve", 3},
+			{"withdraw", 0},
+			{"getAmounts", 0},
 		}},
 		{erc20ABI, []sig{
 			{"transfer", 2}, {"balanceOf", 1}, {"allowance", 2},
@@ -180,7 +191,10 @@ func TestMockRailLifecycle(t *testing.T) {
 	if ok, err = rail.VerifyLock(ctx, addr, bad); err != nil || ok {
 		t.Fatalf("mismatched amount verify = %v, %v; want false, nil", ok, err)
 	}
-	if _, err := rail.VerifyLock(ctx, "0x9000000000000000000000000000000000000009", terms); !errors.Is(err, ErrNotFound) {
+	if _, err := rail.VerifyLock(ctx, "0x9000000000000000000000000000000000000009", terms); !errors.Is(
+		err,
+		ErrNotFound,
+	) {
 		t.Fatalf("unknown session verify err = %v; want ErrNotFound", err)
 	}
 
@@ -376,7 +390,10 @@ func TestRPCRailVerifyLockMismatches(t *testing.T) {
 		t.Fatalf("exact-termination verify = %v, %v", ok, err)
 	}
 	// Un-deployed address → ErrNotFound surfaced as an error.
-	if _, err := fx.rail.VerifyLock(ctx, "0x9000000000000000000000000000000000000009", terms); !errors.Is(err, ErrNotFound) {
+	if _, err := fx.rail.VerifyLock(ctx, "0x9000000000000000000000000000000000000009", terms); !errors.Is(
+		err,
+		ErrNotFound,
+	) {
 		t.Fatalf("un-deployed verify err = %v; want ErrNotFound", err)
 	}
 }

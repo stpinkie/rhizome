@@ -312,7 +312,12 @@ func (r *RPCRail) Dispute(ctx context.Context, sessionID string, details [32]byt
 
 // Resolve sends escrow.resolve(clientAward, providerAward, details) —
 // resolver-only on-chain, INDIVIDUAL resolver type.
-func (r *RPCRail) Resolve(ctx context.Context, sessionID string, clientAward, providerAward *big.Int, details [32]byte) (string, error) {
+func (r *RPCRail) Resolve(
+	ctx context.Context,
+	sessionID string,
+	clientAward, providerAward *big.Int,
+	details [32]byte,
+) (string, error) {
 	if clientAward == nil || providerAward == nil || clientAward.Sign() < 0 || providerAward.Sign() < 0 {
 		return "", fmt.Errorf("resolve: awards must be non-negative")
 	}
