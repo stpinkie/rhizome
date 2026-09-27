@@ -705,6 +705,27 @@
       "_comment": "Companion sidecar modules; `rhizome module list` shows the catalog. Secret fields go to .security.yml via `rhizome module set --secret`. Catalog schema v3 adds optional upstream signature declarations (cosign-blob/minisign/gpg) verified at install when present.",
       "enabled": false,
       "fields": { "endpoint_url": "https://mainnet.infura.io/v3/YOUR_KEY" }
+    },
+    "rhizome-market": {
+      "_comment": "First-party market module (daemon, claims /rhizome/acp/1.0.0 — mutually exclusive with acp.server.remote). offers_json is a JSON string of offers; <module_dir>/offers.json overrides it when present. escrow_contract unset = fixture rail. See docs/guides/modules.md.",
+      "enabled": false,
+      "fields": {
+        "serve_enabled": "false",
+        "runtime": "sandbox",
+        "payout_chain_id": "8453",
+        "payout_address": "0xYOUR_PAYOUT_ADDRESS",
+        "payout_asset": "USDC",
+        "max_concurrent_sessions": "4",
+        "session_ttl": "30m",
+        "buy_max_cost_per_task": "5.00",
+        "buy_max_cost_per_day": "25.00",
+        "export_allow_attachments": "false",
+        "export_redact": "true",
+        "export_require_review": "prompt",
+        "market_index_enabled": "false",
+        "escrow_chain_id": "11155111",
+        "escrow_dispute_window": "86400"
+      }
     }
   },
   "module_index": {

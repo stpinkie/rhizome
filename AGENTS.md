@@ -186,7 +186,20 @@ light client — linux/darwin, env-var config behind the `ethereum`
 subcommand) and `ipfs-kubo` (IPFS node — all platforms; `.zip` extraction,
 `ipfs init` behind `init_marker`, `ipfs config Addresses.*` per launch via
 `setup_args`, `IPFS_PATH`/`repo_dir` under the module dir via the
-`{module_dir}` placeholder; catalog schema v2).
+`{module_dir}` placeholder; catalog schema v2). `rhizome-market`
+(first-party market module, `cmd/rhizome-market`; `kind:daemon`,
+`protocols:["/rhizome/acp/1.0.0"]`, github-release on this repo — the
+entry's `releases:[]` is intentionally uninstallable until the first
+digest pin) self-reads `modules.rhizome-market.fields`/`.secrets` (no
+Arg/Env mappings — secrets never enter argv/env), serves the loopback API
+(`api.addr` + `bridge-token` bearer) that `rhizome market` dials, accepts
+bridged ACP streams (`bridge.addr` + token-verified hello), and writes
+`advert.json` (merged into the signed manifest when `serve_enabled`,
+omitted on invalid serving config, removed on shutdown) +
+`market-audit.jsonl`. In v0.14.0 Track 100 the `/v1/{find,buy,session,
+receipt}` verbs return track-tagged 501s — session/buy logic is Tracks
+102/103. `acp.server.remote` and market serving are mutually exclusive —
+the bridge claims `/rhizome/acp/1.0.0` once.
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.

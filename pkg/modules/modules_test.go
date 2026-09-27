@@ -1040,18 +1040,18 @@ func TestCatalogVersionBump(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Emitted version is the lowest covering the content: the embedded
-	// catalog uses v2 fields (asset_templates etc.) but no v3 signature
-	// declarations, so it stays 2 and older binaries keep working.
-	if env.CatalogVersion != 2 {
-		t.Fatalf("MarshalCatalog emitted catalog_version %d, want 2", env.CatalogVersion)
+	// catalog carries a protocols-declaring module (rhizome-market, v4)
+	// but no v3 signature declarations, so it emits 4.
+	if env.CatalogVersion != 4 {
+		t.Fatalf("MarshalCatalog emitted catalog_version %d, want 4", env.CatalogVersion)
 	}
-	// v1 catalogs still parse (additive schema), v4 refuses.
+	// v1 catalogs still parse (additive schema), v5 refuses.
 	if _, err := parseCatalogEnvelope(
 		[]byte(`{"catalog_version":1,"modules":[]}`)); err != nil {
 		t.Fatalf("v1 catalog refused: %v", err)
 	}
 	if _, err := parseCatalogEnvelope(data); err != nil {
-		t.Fatalf("v2 catalog refused: %v", err)
+		t.Fatalf("v4 catalog refused: %v", err)
 	}
 	if _, err := parseCatalogEnvelope(
 		[]byte(`{"catalog_version":3,"modules":[]}`)); err != nil {
@@ -1064,5 +1064,44 @@ func TestCatalogVersionBump(t *testing.T) {
 	if _, err := parseCatalogEnvelope(
 		[]byte(`{"catalog_version":5,"modules":[]}`)); err == nil {
 		t.Fatal("v5 catalog accepted")
+	}
+}
+
+// TestRhizomeMarketEntry pins the first-party module's catalog contract:
+// daemon kind, the ACP protocol claim, the releases:[] chicken-and-egg
+// posture, and asset-name resolution per platform.
+func TestRhizomeMarketEntry(t *testing.T) {
+	spec, ok := Lookup("rhizome-market")
+	if !ok {
+		t.Fatal("rhizome-market missing from catalog")
+	}
+	if spec.Kind != KindDaemon {
+		t.Fatalf("kind = %q", spec.Kind)
+	}
+	if err := ValidateProtocols(spec.ID, spec.Protocols); err != nil {
+		t.Fatalf("protocols invalid: %v", err)
+	}
+	if len(spec.Protocols) != 1 || spec.Protocols[0] != "/rhizome/acp/1.0.0" {
+		t.Fatalf("protocols = %v", spec.Protocols)
+	}
+	// releases:[] → present but uninstallable until the first pin.
+	if _, ok := spec.Release(""); ok {
+		t.Fatal("empty releases must not resolve")
+	}
+	// Asset templates only use placeholders Asset() can expand —
+	// {goos}/{goarch}/{version}/{build}; a stray placeholder (e.g. {ext})
+	// would ship a literal in the resolved filename.
+	templates := make([]string, 0, 1+len(spec.Install.AssetTemplates))
+	templates = append(templates, spec.Install.AssetTemplate)
+	for _, over := range spec.Install.AssetTemplates {
+		templates = append(templates, over)
+	}
+	for _, tmpl := range templates {
+		for _, ph := range []string{"{goos}", "{goarch}", "{version}", "{build}"} {
+			tmpl = strings.ReplaceAll(tmpl, ph, "")
+		}
+		if strings.Contains(tmpl, "{") {
+			t.Fatalf("unresolvable placeholder in asset template %q", tmpl)
+		}
 	}
 }

@@ -151,7 +151,10 @@ Without the module the verbs print `rhizome-market module not installed —
 run \`rhizome module install rhizome-market\``; an installed-but-not-
 serving module points at `rhizome module status rhizome-market`. The API
 payload schemas are defined by the market tracks (sell-side, buy-side,
-escrow).
+escrow); until they land, `find`/`buy`/`session`/`receipt` return an
+honest `501 {"error":{"code":"not_implemented","track":N}}` — only
+`GET /v1/health` is live (version, uptime, `serve_enabled`, offer count,
+bridge state, escrow posture, config errors).
 
 ## Catalog
 
@@ -283,6 +286,52 @@ zero-binary answer on any platform.
 rhizome module set ethereum-rpc endpoint_url=https://mainnet.infura.io/v3/KEY
 rhizome module enable ethereum-rpc
 ```
+
+### `rhizome-market` (daemon)
+
+First-party market module (ships from this repo): the sell/buy side of the
+open agent work market. Supervised daemon; claims the
+`/rhizome/acp/1.0.0` stream protocol (bridged); serves the loopback API the
+`rhizome market` verbs dial; writes `advert.json` (merged into the signed
+mesh manifest when `serve_enabled`) and a bounded `market-audit.jsonl`.
+
+| Field | Secret | Default |
+| ----- | ------ | ------- |
+| `serve_enabled` | no | `false` |
+| `offers_json` | no | — |
+| `runtime` | no | `sandbox` |
+| `payout_chain_id` / `payout_address` / `payout_asset` | no | — / — / `USDC` |
+| `max_concurrent_sessions` / `session_ttl` | no | `4` / `30m` |
+| `buy_max_cost_per_task` / `buy_max_cost_per_day` | no | — |
+| `export_allow_attachments` / `export_redact` / `export_require_review` | no | `false` / `true` / `prompt` |
+| `market_index_enabled` / `market_index_url` | no / yes | `false` / — |
+| `escrow_chain_id` / `escrow_contract` / `escrow_token` / `escrow_arbiter` / `escrow_dispute_window` | no | — (unset contract = fixture rail) |
+
+```bash
+rhizome module install rhizome-market   # once a release is pinned
+rhizome module set rhizome-market serve_enabled=true \
+  payout_address=0x… payout_chain_id=8453 \
+  offers_json='[{"id":"research","agent_binding":"main","price_sheet":{"per_task":"0.50","asset":"USDC","chain_id":8453}}]'
+rhizome module enable rhizome-market
+```
+
+Notes:
+
+- `offers.json` under the module dir overrides `offers_json` when present —
+  larger offer sets stay editable without rewriting config.
+- `advert.json` is only emitted for a *valid* serving config
+  (`serve_enabled` + `payout_address` + ≥1 offer); it carries `runtime` +
+  `runtime_available` so an advert never claims a runtime the host lacks.
+  The file is removed on graceful shutdown so a stopped module stops
+  advertising.
+- `/rhizome/acp/1.0.0` is conditionally core-claimed: while
+  `acp.server.remote` serves, the bridge skips the module's claim — market
+  serving and remote ACP are mutually exclusive per daemon.
+- `escrow_contract` unset ⇒ the fixture `SettlementRail` posture; setting
+  it opts into Smart Invoice (`escrow_dispute_window` is seconds →
+  `terminationTime`).
+- `releases: []` until the first digest pin (Track 107) — the entry is
+  visible but not installable yet.
 
 ## Security model
 

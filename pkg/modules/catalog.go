@@ -640,6 +640,75 @@ var catalog = []ModuleSpec{
 			"every start. API/gateway bind loopback; swarm listens on all " +
 			"interfaces for DHT participation.",
 	},
+	{
+		ID: "rhizome-market", Name: "Rhizome Market",
+		Kind:    KindDaemon,
+		License: "MIT",
+		Description: "Open-agent work market: sell-side serving under an " +
+			"isolated runtime + buy-side purchasing with escrow settlement. " +
+			"First-party module — shares RHIZOME_HOME identity and wallet; " +
+			"install is a real trust decision mitigated by digest-pinned " +
+			"delivery.",
+		// First-party: ships as rhizome-market_{goos}_{goarch} assets on the
+		// same repo release. Platforms are narrower than the base binary —
+		// the container serving runtime is the constraint.
+		Platforms: []string{
+			"linux/amd64", "linux/arm64",
+			"darwin/amd64", "darwin/arm64",
+			"windows/amd64", "windows/arm64",
+		},
+		Install: InstallSpec{
+			Method:        "github-release",
+			Repo:          "stpinkie/rhizome",
+			TagTemplate:   "v{version}",
+			AssetTemplate: "rhizome-market_{goos}_{goarch}.tar.gz",
+			AssetTemplates: map[string]string{
+				"windows": "rhizome-market_{goos}_{goarch}.zip",
+			},
+			Binary: "rhizome-market",
+			// Chicken-and-egg: pinned digests need released assets, so the
+			// entry lands uninstallable (releases:[]) — the first pin is
+			// added in Track 107 or emitted by the release pipeline.
+			Releases: []ReleasePin{},
+		},
+		// The module self-reads modules.rhizome-market.fields/.secrets via
+		// the config loader — no Arg/Env mappings, so secrets never touch
+		// argv or the process environment.
+		Run:       RunSpec{Workdir: "."},
+		Protocols: []string{"/rhizome/acp/1.0.0"},
+		ConfigFields: []ConfigField{
+			{Key: "serve_enabled", Label: "Advertise sell-side serving in the mesh manifest", Default: "false"},
+			{
+				Key:   "offers_json",
+				Label: "Offer list JSON [{id, agent_binding, price_sheet{…}}]; overridden by <module_dir>/offers.json",
+			},
+			{Key: "runtime", Label: "Serving runtime (sandbox|container)", Default: "sandbox"},
+			{Key: "payout_chain_id", Label: "Payout chain id (e.g. 8453 Base, 11155111 Sepolia)"},
+			{Key: "payout_address", Label: "Payout address (0x… — public; lands in advert.json)"},
+			{Key: "payout_asset", Label: "Payout asset symbol", Default: "USDC"},
+			{Key: "max_concurrent_sessions", Label: "Max simultaneous market sessions", Default: "4"},
+			{Key: "session_ttl", Label: "Session idle TTL (e.g. 30m)", Default: "30m"},
+			{Key: "buy_max_cost_per_task", Label: "Buy-side per-task spend cap"},
+			{Key: "buy_max_cost_per_day", Label: "Buy-side daily spend cap"},
+			{Key: "export_allow_attachments", Label: "Allow attachments in outbound tasks", Default: "false"},
+			{Key: "export_redact", Label: "Run pkg/redact on outbound tasks", Default: "true"},
+			{Key: "export_require_review", Label: "Review before send (prompt|always|never)", Default: "prompt"},
+			{Key: "market_index_enabled", Label: "Query a curated provider index", Default: "false"},
+			{Key: "market_index_url", Label: "Provider index URL (https://…)", Secret: true},
+			{Key: "escrow_chain_id", Label: "Escrow chain id (11155111 Sepolia)"},
+			{Key: "escrow_contract", Label: "Smart Invoice factory address (unset = fixture rail)"},
+			{Key: "escrow_token", Label: "Escrow ERC-20 token address"},
+			{Key: "escrow_arbiter", Label: "Escrow resolver (arbiter) address"},
+			{Key: "escrow_dispute_window", Label: "Dispute window in seconds"},
+		},
+		Notes: "Loopback API for `rhizome market` (api.addr + bridge-token " +
+			"auth). Claims /rhizome/acp/1.0.0 — mutually exclusive with " +
+			"acp.server.remote: the bridge claims the protocol for whichever " +
+			"registers first (daemon skips the module claim while core " +
+			"serves). releases is intentionally empty — installable only " +
+			"once a released asset is pinned (Track 107). Audit trail: " +
+			"market-audit.jsonl under the module dir.",
+	},
 }
 
 // Catalog returns the static list of companion modules.
