@@ -413,6 +413,32 @@ everything runs through the minimal ABI codec and the human-approval queue.
   (`pkg/commands/cmd_web3.go`), and the runtime callbacks are only wired
   when `tools.web3.enabled` + a non-empty allowlist.
 
+## Settlement Rail (v0.14.0, Track 101)
+
+`pkg/settlement` is the market's escrow abstraction (survey:
+`docs/design/escrow-survey.md`). `Rail` (alias `SettlementRail`) =
+`Open/VerifyLock/Release/Claim/Dispute/Resolve`; session_id = the
+per-session escrow clone address, derived via `PredictEscrowAddr` /
+`CorrelationSalt(correlationID)`.
+
+- **RPCRail** — Smart Invoice on `pkg/web3` (`Sender` seam; `DirectSender`
+  for unlocked/test endpoints, `WalletSender` in Track 104). `Open` =
+  `createDeterministic` (salt = keccak256(correlationID)) + ERC-20
+  `transfer`; `VerifyLock` is pure `eth_call` (exists, live, unlocked,
+  unfunded, terms match) — Track 102's pre-spend gate. `Claim` has no
+  unilateral seller-pull on Smart Invoice: it maps to provider `lock()`
+  → arbiter `resolve()` — see the survey's mapping table.
+- **MockRail** — deterministic in-memory fixture for 102/103 (`NowFunc`
+  clock seam, contract-faithful resolve fee = balance/20).
+- **FakeChain** — `httptest` JSON-RPC emulating the factory, per-session
+  escrow state machine (real guards: `NotClient`/`NotParty`/
+  `ResolutionMismatch`/`Terminated`), and ERC-20 ledgers; `Advance`
+  drives block time.
+- **`ConfigFromFields`** resolves module `escrow_{chain_id,contract,
+  token,arbiter,dispute_window}` → `RailConfig` (unset contract ⇒ nil =
+  fixture-default posture); bundled ABIs live in `pkg/settlement/abi.go`
+  (Sepolia factory `0x8227…17c20`).
+
 ## ACP (Agent Client Protocol)
 
 `rhizome acp [--agent <id>]` serves ACP over stdio (Zed/JetBrains drive
