@@ -40,7 +40,7 @@ type FakeChain struct {
 	txSeq    int
 	escrows  map[string]*fakeEscrow
 	tokens   map[string]map[string]*big.Int // token -> holder -> balance
-	rates    map[string]uint64              // resolver -> resolutionRate
+	rates    map[string]int64               // resolver -> resolutionRate
 	receipts map[string]*fakeReceipt
 	logs     []*fakeLog
 }
@@ -83,7 +83,7 @@ func NewFakeChain(t *testing.T, cfg RailConfig) *FakeChain {
 		now:      time.Now().Unix(),
 		escrows:  map[string]*fakeEscrow{},
 		tokens:   map[string]map[string]*big.Int{},
-		rates:    map[string]uint64{},
+		rates:    map[string]int64{},
 		receipts: map[string]*fakeReceipt{},
 	}
 	fc.srv = httptest.NewServer(http.HandlerFunc(fc.handle))
@@ -139,7 +139,7 @@ func (fc *FakeChain) Balance(token, holder string) *big.Int {
 
 // SetResolutionRate configures a resolver's rate (the factory's
 // resolutionRateOf); zero mirrors the contract's default-20 fallback.
-func (fc *FakeChain) SetResolutionRate(resolver string, rate uint64) {
+func (fc *FakeChain) SetResolutionRate(resolver string, rate int64) {
 	fc.mu.Lock()
 	fc.rates[normAddr(resolver)] = rate
 	fc.mu.Unlock()
@@ -314,7 +314,7 @@ func (fc *FakeChain) factoryView(data []byte) (any, *rpcError) {
 		}
 		resolver, _ := args[0].(string)
 		rate := fc.rates[normAddr(resolver)]
-		return encRet([]string{"uint256"}, []any{strconv.FormatUint(rate, 10)})
+		return encRet([]string{"uint256"}, []any{strconv.FormatInt(rate, 10)})
 	}
 	return nil, rpcErr(-32601, "fakechain: unknown factory selector")
 }
@@ -493,9 +493,7 @@ func (fc *FakeChain) txFactory(from string, data []byte) ([]*fakeLog, *rpcError)
 		amts[i], _ = new(big.Int).SetString(s, 10)
 		total.Add(total, amts[i])
 	}
-	rate := int64(
-		fc.rates[normAddr(init.resolver)],
-	) //nolint:gosec // G115: resolver rates are small divisors set by tests
+	rate := fc.rates[normAddr(init.resolver)]
 	if rate == 0 {
 		rate = DefaultResolutionRate
 	}
