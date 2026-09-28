@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,13 +71,13 @@ func (m *MockRail) Open(_ context.Context, correlationID string, t Terms) (strin
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	addr := m.PredictEscrowAddr(correlationID)
-	if _, exists := m.escrows[addr]; exists {
+	if _, exists := m.escrows[mockKey(addr)]; exists {
 		return "", fmt.Errorf("settlement: escrow for correlation %q already open at %s", correlationID, addr)
 	}
 	if t.TerminationTime == 0 {
 		t.TerminationTime = m.nowFn().Unix() + m.cfg.DisputeWindowSecs
 	}
-	m.escrows[addr] = &mockEscrow{
+	m.escrows[mockKey(addr)] = &mockEscrow{
 		terms:       t,
 		correlation: correlationID,
 		balance:     new(big.Int).Set(t.Amount),
@@ -96,7 +97,7 @@ func (m *MockRail) VerifyLock(_ context.Context, sessionID string, t Terms) (boo
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	e, ok := m.escrows[sessionID]
+	e, ok := m.escrows[mockKey(sessionID)]
 	if !ok {
 		return false, fmt.Errorf("%w: %s", ErrNotFound, sessionID)
 	}
@@ -108,6 +109,7 @@ func (m *MockRail) VerifyLock(_ context.Context, sessionID string, t Terms) (boo
 		!e.locked &&
 		e.balance.Cmp(e.terms.Amount) >= 0 &&
 		e.terms.TerminationTime > m.nowFn().Unix() &&
+		(t.TaskHash == ([32]byte{}) || e.terms.TaskHash == t.TaskHash) &&
 		(t.TerminationTime == 0 || e.terms.TerminationTime == t.TerminationTime)
 	return ok, nil
 }
@@ -225,12 +227,17 @@ func (m *MockRail) EscrowLocked(sessionID string) (bool, error) {
 }
 
 func (m *MockRail) mustEscrow(sessionID string) (*mockEscrow, error) {
-	e, ok := m.escrows[sessionID]
+	e, ok := m.escrows[mockKey(sessionID)]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, sessionID)
 	}
 	return e, nil
 }
+
+// mockKey normalizes escrow map keys — EVM addresses are
+// case-insensitive, so a buyer presenting the lowercase form of a
+// checksummed session_id must still hit the lock.
+func mockKey(addr string) string { return strings.ToLower(addr) }
 
 func (m *MockRail) txHash(seed string, seq int) string {
 	h := web3.Keccak256([]byte(fmt.Sprintf("mocktx:%s:%d", seed, seq)))

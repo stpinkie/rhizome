@@ -149,12 +149,16 @@ rhizome market receipt <id>
 
 Without the module the verbs print `rhizome-market module not installed —
 run \`rhizome module install rhizome-market\``; an installed-but-not-
-serving module points at `rhizome module status rhizome-market`. The API
-payload schemas are defined by the market tracks (sell-side, buy-side,
-escrow); until they land, `find`/`buy`/`session`/`receipt` return an
-honest `501 {"error":{"code":"not_implemented","track":N}}` — only
-`GET /v1/health` is live (version, uptime, `serve_enabled`, offer count,
-bridge state, escrow posture, config errors).
+serving module points at `rhizome module status rhizome-market`. Track 102
+made the sell-side verbs real: `POST /v1/session {session_id}` reports a
+live session's state/offer/peer/duration and `POST /v1/receipt
+{session_id}` serves the signed receipt JSON (live session or persisted
+under `<module_dir>/receipts/`); both 404 on an unknown session.
+`find`/`buy` remain an honest
+`501 {"error":{"code":"not_implemented","track":103}}` until the buy-side
+track lands. `GET /v1/health` reports version, uptime, `serve_enabled`,
+offer count, live session count, bridge state, escrow posture, config
+errors.
 
 ## Catalog
 
@@ -314,6 +318,35 @@ rhizome module set rhizome-market serve_enabled=true \
   offers_json='[{"id":"research","agent_binding":"main","price_sheet":{"per_task":"0.50","asset":"USDC","chain_id":8453}}]'
 rhizome module enable rhizome-market
 ```
+
+Sell-side sessions (Track 102): a bridged `/rhizome/acp/1.0.0` peer opens
+work with the `_rhizome.session_open` extension method —
+
+```json
+{"session_id": "0x<escrow clone addr>", "task_hash": "0x<sha256 prompt>",
+ "offer_id": "…", "buyer": "0x<buyer EVM>",
+ "terms": {"amount": "<base units>", "token": "0x…", "chain_id": 8453}}
+```
+
+The gate rejects before any spawn: `serve_enabled`, per-peer rate limit
+(12 opens/min), offer enabled, `amount` equals the offer's `per_task`
+price in token base units, then `SettlementRail.VerifyLock` — the escrow
+must exist, hold ≥ the locked amount, be unreleased/unlocked/live, and
+carry the same `task_hash` in its on-chain `details`. `session/new` then
+spawns the offer's `agent_binding` under `runtime` with
+`permission_policy=deny`, no fs/terminal capabilities, a per-session
+scratch cwd, and forced `--network none`/sandbox `NetModeNone` (the
+allowlist egress mode is unimplemented — none is the only honest bound).
+Prompt text must hash to `task_hash` (single-prompt sessions); agent
+`session/update` relays to the buyer verbatim; duration + optional
+`_rhizome.usage` self-report meter the session. Completion, close,
+conn-drop, or `session_ttl` expiry mints a `_rhizome.receipt` —
+`{session_id, offer_id, seller_peer_id, buyer, duration_ms, usage,
+result_sha256, terms{price(base units), asset, chain_id}, settlement,
+interrupted, issued_at, signature}` — Ed25519-signed by the node identity
+over the signature-stripped canonical JSON, persisted to
+`receipts/<session_id>.json`, verifiable against `seller_peer_id`. An
+unencrypted-missing identity mints unsigned receipts honestly.
 
 Notes:
 

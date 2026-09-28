@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/web3"
@@ -127,6 +128,9 @@ type RPCRail struct {
 	snd       Sender
 	nowFn     func(ctx context.Context) (int64, error) // seam: defaults to snd.Now
 	confirmTo time.Duration
+
+	decMu    sync.Mutex
+	decimals *uint8 // cached TokenDecimals result — token decimals are immutable
 }
 
 // NewRPCRail validates cfg and returns the rail.
@@ -282,6 +286,17 @@ func (r *RPCRail) VerifyLock(ctx context.Context, sessionID string, t Terms) (bo
 	if err != nil {
 		return false, fmt.Errorf("verify lock: chain time: %w", err)
 	}
+	// A non-zero TaskHash additionally binds the escrow to the committed
+	// task: the buyer writes it into init `details` at Open (Track 103), so
+	// a hash mismatch means this escrow pays for different work.
+	detailsOK := true
+	if t.TaskHash != ([32]byte{}) {
+		details, err := r.viewBytes32(ctx, sessionID, "details")
+		if err != nil {
+			return false, err
+		}
+		detailsOK = details == t.TaskHash
+	}
 	ok := addrEq(token, t.Token) &&
 		addrEq(client, t.Buyer) &&
 		addrEq(provider, t.Seller) &&
@@ -290,8 +305,47 @@ func (r *RPCRail) VerifyLock(ctx context.Context, sessionID string, t Terms) (bo
 		!locked &&
 		balance.Cmp(total) >= 0 &&
 		termination.Int64() > now &&
+		detailsOK &&
 		(t.TerminationTime == 0 || termination.Int64() == t.TerminationTime)
 	return ok, nil
+}
+
+// TokenDecimals resolves the configured payment token's decimals() — the
+// exponent market code needs to turn human price strings ("0.50") into
+// base units. Cached: decimals never change.
+func (r *RPCRail) TokenDecimals(ctx context.Context) (uint8, error) {
+	r.decMu.Lock()
+	defer r.decMu.Unlock()
+	if r.decimals != nil {
+		return *r.decimals, nil
+	}
+	m, err := erc20ABI.Method("decimals", 0)
+	if err != nil {
+		return 0, err
+	}
+	data, err := m.PackArgs(nil)
+	if err != nil {
+		return 0, err
+	}
+	out, err := r.snd.Call(ctx, r.cfg.Token, data)
+	if err != nil {
+		return 0, fmt.Errorf("decimals on %s: %w", r.cfg.Token, err)
+	}
+	if len(out) == 0 {
+		return 0, fmt.Errorf("decimals on %s: %w", r.cfg.Token, ErrNotFound)
+	}
+	vals, err := m.UnpackOutputs(out)
+	if err != nil {
+		return 0, fmt.Errorf("decimals on %s: %w", r.cfg.Token, err)
+	}
+	s, _ := vals[0].(string)
+	n, err := strconv.ParseUint(s, 10, 8)
+	if err != nil {
+		return 0, fmt.Errorf("decimals: bad uint8 output %v", vals[0])
+	}
+	d := uint8(n)
+	r.decimals = &d
+	return d, nil
 }
 
 // Release sends escrow.release() — client-only on-chain.
@@ -414,6 +468,21 @@ func (r *RPCRail) viewBool(ctx context.Context, escrow, name string) (bool, erro
 		return false, fmt.Errorf("%s: bad bool output %v", name, v)
 	}
 	return b, nil
+}
+
+func (r *RPCRail) viewBytes32(ctx context.Context, escrow, name string) ([32]byte, error) {
+	var out [32]byte
+	v, err := r.view(ctx, escrow, name)
+	if err != nil {
+		return out, err
+	}
+	s, _ := v.(string)
+	raw, err := web3.ParseHexBytes(s)
+	if err != nil || len(raw) != 32 {
+		return out, fmt.Errorf("%s: bad bytes32 output %v", name, v)
+	}
+	copy(out[:], raw)
+	return out, nil
 }
 
 func (r *RPCRail) view(ctx context.Context, escrow, name string) (any, error) {

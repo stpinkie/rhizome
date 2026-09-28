@@ -708,7 +708,16 @@ func (m *ClientManager) spawnExec(
 	agentID string,
 	inst *agent.AgentInstance,
 ) (*agentProcess, error) {
-	binding := inst.ACP
+	pio, err := spawnExecIO(agentID, inst.ACP, m.handlerWorkspace(inst))
+	if err != nil {
+		return nil, err
+	}
+	return m.connect(ctx, agentID, inst, pio.stdin, pio.stdout, pio.kill, pio.fields)
+}
+
+// spawnExecIO is the transport half of the exec spawn — shared with the
+// bound (per-session) spawn path, which supplies its own working dir.
+func spawnExecIO(agentID string, binding *config.ACPAgentConfig, dir string) (*procIO, error) {
 	command := strings.TrimSpace(binding.Command)
 	if command == "" {
 		return nil, fmt.Errorf("agent %q acp.command is empty", agentID)
@@ -720,7 +729,7 @@ func (m *ClientManager) spawnExec(
 
 	//nolint:gosec // G204: command is the operator-configured agent binding
 	cmd := exec.CommandContext(context.Background(), resolved, binding.Args...)
-	cmd.Dir = m.handlerWorkspace(inst)
+	cmd.Dir = dir
 	cmd.Env = os.Environ()
 	for k, v := range binding.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -746,10 +755,15 @@ func (m *ClientManager) spawnExec(
 	// transport and must stay protocol-clean.
 	go drainStderr(agentID, stderr)
 
-	return m.connect(ctx, agentID, inst, stdin, stdout, func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}, map[string]any{"command": command, "pid": cmd.Process.Pid})
+	return &procIO{
+		stdin:  stdin,
+		stdout: stdout,
+		kill: func() {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		},
+		fields: map[string]any{"command": command, "pid": cmd.Process.Pid},
+	}, nil
 }
 
 // spawnRemote dials a trusted peer's ACP server over acp.remote and binds

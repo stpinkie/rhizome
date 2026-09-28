@@ -26,6 +26,16 @@ const (
 	acpRuntimeContainer = "container" // docker|podman run -i --rm
 )
 
+// procIO is the stdio transport of a spawned agent before the ACP
+// connection is laid on it — the spawn result the daemon's agentProcess
+// path and the bound (per-session) spawn path share.
+type procIO struct {
+	stdin  io.Writer
+	stdout io.Reader
+	kill   func()
+	fields map[string]any
+}
+
 // runtimeFor resolves the effective process runtime for a binding:
 // agents.list[].acp.runtime wins over the acp.client global; "exec" is the
 // default. Unknown per-binding values warn and inherit, matching policyFor.
@@ -71,10 +81,14 @@ func acpSandboxRoot(agentID string) string {
 // the opt-in), rooted at the agent scratch dir, with the global
 // expose_paths/backend preserved as the operator's escape hatch.
 func (m *ClientManager) sandboxOptions(root string) isolation.Options {
-	opts := isolation.OptionsFromConfig(m.cfg.Isolation)
+	return sandboxOptionsFor(m.cfg, root)
+}
+
+func sandboxOptionsFor(cfg *config.Config, root string) isolation.Options {
+	opts := isolation.OptionsFromConfig(cfg.Isolation)
 	opts.Enabled = true
 	opts.Root = root
-	if sb := m.cfg.ACP.Client.Sandbox; sb != nil &&
+	if sb := cfg.ACP.Client.Sandbox; sb != nil &&
 		strings.EqualFold(strings.TrimSpace(sb.Network), isolation.NetModeNone) {
 		opts.NetMode = isolation.NetModeNone
 	}
@@ -92,7 +106,24 @@ func (m *ClientManager) spawnSandbox(
 	agentID string,
 	inst *agent.AgentInstance,
 ) (*agentProcess, error) {
-	binding := inst.ACP
+	root := acpSandboxRoot(agentID)
+	pio, err := spawnSandboxIO(m.cfg, agentID, inst.ACP, root, false)
+	if err != nil {
+		return nil, err
+	}
+	return m.connect(ctx, agentID, inst, pio.stdin, pio.stdout, pio.kill, pio.fields)
+}
+
+// spawnSandboxIO is the transport half of the sandbox spawn — shared by the
+// daemon path and bound (per-session) spawns, which lay their own handler
+// and capability posture on the connection.
+func spawnSandboxIO(
+	cfg *config.Config,
+	agentID string,
+	binding *config.ACPAgentConfig,
+	root string,
+	noEgress bool,
+) (*procIO, error) {
 	command := strings.TrimSpace(binding.Command)
 	if command == "" {
 		return nil, fmt.Errorf("agent %q acp.command is empty", agentID)
@@ -102,11 +133,13 @@ func (m *ClientManager) spawnSandbox(
 		return nil, fmt.Errorf("acp command %q for agent %q not found on PATH: %w", command, agentID, err)
 	}
 
-	root := acpSandboxRoot(agentID)
 	if err := isolation.PrepareInstanceRoot(root); err != nil {
 		return nil, fmt.Errorf("acp agent %q sandbox root: %w", agentID, err)
 	}
-	opts := m.sandboxOptions(root)
+	opts := sandboxOptionsFor(cfg, root)
+	if noEgress {
+		opts.NetMode = isolation.NetModeNone
+	}
 
 	//nolint:gosec // G204: command is the operator-configured agent binding
 	cmd := exec.CommandContext(context.Background(), resolved, binding.Args...)
@@ -136,15 +169,20 @@ func (m *ClientManager) spawnSandbox(
 	// transport and must stay protocol-clean.
 	go drainStderr(agentID, stderr)
 
-	return m.connect(ctx, agentID, inst, stdin, stdout, func() {
-		// Killing the wrapper (bwrap/sandbox-exec) takes the child down via
-		// --die-with-parent / process-group teardown.
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}, map[string]any{
-		"command": command, "pid": cmd.Process.Pid, "runtime": acpRuntimeSandbox,
-		"sandbox_root": root,
-	})
+	return &procIO{
+		stdin:  stdin,
+		stdout: stdout,
+		kill: func() {
+			// Killing the wrapper (bwrap/sandbox-exec) takes the child down via
+			// --die-with-parent / process-group teardown.
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		},
+		fields: map[string]any{
+			"command": command, "pid": cmd.Process.Pid, "runtime": acpRuntimeSandbox,
+			"sandbox_root": root,
+		},
+	}, nil
 }
 
 // spawnContainer runs the agent inside a docker|podman container with
@@ -156,11 +194,23 @@ func (m *ClientManager) spawnContainer(
 	agentID string,
 	inst *agent.AgentInstance,
 ) (*agentProcess, error) {
-	binding := inst.ACP
-	cc := m.cfg.ACP.Client.Container
-	if cc == nil || strings.TrimSpace(cc.Image) == "" {
-		return nil, fmt.Errorf(
-			"agent %q runtime=container requires acp.client.container.image", agentID)
+	pio, err := spawnContainerIO(ctx, m.cfg, agentID, inst.ACP, false)
+	if err != nil {
+		return nil, err
+	}
+	return m.connect(ctx, agentID, inst, pio.stdin, pio.stdout, pio.kill, pio.fields)
+}
+
+func spawnContainerIO(
+	ctx context.Context,
+	cfg *config.Config,
+	agentID string,
+	binding *config.ACPAgentConfig,
+	noEgress bool,
+) (*procIO, error) {
+	cc, err := containerConfigFor(cfg, agentID, noEgress)
+	if err != nil {
+		return nil, err
 	}
 	engine, err := resolveContainerEngine(cc.Engine)
 	if err != nil {
@@ -198,18 +248,23 @@ func (m *ClientManager) spawnContainer(
 
 	go drainStderr(agentID, stderr)
 
-	return m.connect(ctx, agentID, inst, stdin, stdout, func() {
-		// The engine CLI only proxies stdio/signals — kill the container by
-		// name first so it cannot outlive the session, then reap the CLI.
-		ctx2, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		_ = containerProbe(ctx2, engine, "kill", cname)
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}, map[string]any{
-		"runtime": acpRuntimeContainer, "engine": engine, "image": cc.Image,
-		"container": cname, "pid": cmd.Process.Pid,
-	})
+	return &procIO{
+		stdin:  stdin,
+		stdout: stdout,
+		kill: func() {
+			// The engine CLI only proxies stdio/signals — kill the container by
+			// name first so it cannot outlive the session, then reap the CLI.
+			ctx2, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = containerProbe(ctx2, engine, "kill", cname)
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		},
+		fields: map[string]any{
+			"runtime": acpRuntimeContainer, "engine": engine, "image": cc.Image,
+			"container": cname, "pid": cmd.Process.Pid,
+		},
+	}, nil
 }
 
 // containerNameCounter keeps container names unique even on platforms with
@@ -235,6 +290,26 @@ func containerNameFor(agentID string) string {
 	}
 	return fmt.Sprintf("rhizome-acp-%s-%d-%d",
 		name, time.Now().UnixNano(), containerNameCounter.Add(1))
+}
+
+// containerConfigFor resolves the container config for one spawn; a nil
+// image is an error either way. noEgress forces --network none (the
+// market sell-side posture) — the allowlist mode is unimplemented, so
+// none is the only egress bound the runtime can honestly enforce.
+func containerConfigFor(
+	cfg *config.Config, agentID string, noEgress bool,
+) (*config.ACPContainerConfig, error) {
+	cc := cfg.ACP.Client.Container
+	if cc == nil || strings.TrimSpace(cc.Image) == "" {
+		return nil, fmt.Errorf(
+			"agent %q runtime=container requires acp.client.container.image", agentID)
+	}
+	if noEgress && !strings.EqualFold(strings.TrimSpace(cc.Network), "none") {
+		forced := *cc
+		forced.Network = "none"
+		cc = &forced
+	}
+	return cc, nil
 }
 
 // containerEngineLookPath is the engine-resolution seam for tests.

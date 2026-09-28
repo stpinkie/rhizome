@@ -23,7 +23,8 @@ func startTestBridge(t *testing.T, token string, connCap int) (*bridgeServer, st
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", token)
-	b, err := startBridge(dir, newTokenProvider(dir), &marketAgent{}, connCap, newAuditLogger(""))
+	mgr := newSessionMgr(dir, newAuditLogger(""))
+	b, err := startBridge(dir, newTokenProvider(dir), mgr, connCap, newAuditLogger(""))
 	if err != nil {
 		t.Fatalf("startBridge: %v", err)
 	}
@@ -172,7 +173,8 @@ func TestBridge_ConnCapRefuses(t *testing.T) {
 func TestBridge_CloseRemovesAddrFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
-	b, err := startBridge(dir, newTokenProvider(dir), &marketAgent{}, 4, newAuditLogger(""))
+	b, err := startBridge(dir, newTokenProvider(dir),
+		newSessionMgr(dir, newAuditLogger("")), 4, newAuditLogger(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +235,8 @@ func TestAuditTrail_StreamEvents(t *testing.T) {
 	auditPath := filepath.Join(dir, auditFile)
 	audit := newAuditLogger(auditPath)
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
-	b, err := startBridge(dir, newTokenProvider(dir), &marketAgent{}, 4, audit)
+	b, err := startBridge(dir, newTokenProvider(dir),
+		newSessionMgr(dir, audit), 4, audit)
 	if err != nil {
 		t.Fatal(err)
 	}

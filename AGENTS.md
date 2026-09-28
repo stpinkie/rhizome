@@ -196,10 +196,17 @@ Arg/Env mappings — secrets never enter argv/env), serves the loopback API
 bridged ACP streams (`bridge.addr` + token-verified hello), and writes
 `advert.json` (merged into the signed manifest when `serve_enabled`,
 omitted on invalid serving config, removed on shutdown) +
-`market-audit.jsonl`. In v0.14.0 Track 100 the `/v1/{find,buy,session,
-receipt}` verbs return track-tagged 501s — session/buy logic is Tracks
-102/103. `acp.server.remote` and market serving are mutually exclusive —
-the bridge claims `/rhizome/acp/1.0.0` once.
+`market-audit.jsonl`. Track 102 added the sell-side: bridged peers open
+escrowed sessions via `_rhizome.session_open` (`{session_id, task_hash,
+offer_id, buyer, terms}` — session_id is the escrow clone), gated by
+`SettlementRail.VerifyLock` (balance/liveness/`details`==task_hash)
+before any spawn; `session/new` then runs the offer's `agent_binding` via
+`acp.SpawnBound` (deny-all handler, scratch cwd, forced no-egress),
+single-prompt forwards, and mints an Ed25519-signed `_rhizome.receipt`
+persisted under `receipts/`. `/v1/session` + `/v1/receipt` are live;
+`/v1/{find,buy}` stay 501 until Track 103. `acp.server.remote` and market
+serving are mutually exclusive — the bridge claims `/rhizome/acp/1.0.0`
+once.
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.

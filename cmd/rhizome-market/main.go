@@ -5,10 +5,9 @@
 
 // Command rhizome-market is the market companion module: a daemon-kind
 // process supervised by pkg/modules that serves the loopback API behind
-// `rhizome market`, bridges /rhizome/acp/1.0.0 streams, and writes
-// advert.json for the signed mesh manifest. Track 100 is the skeleton —
-// config, listeners, auth, advert, audit are real; session/buy business
-// logic lands in Tracks 102/103.
+// `rhizome market`, bridges /rhizome/acp/1.0.0 streams, runs escrow-gated
+// sell-side sessions with signed receipts, and writes advert.json for the
+// signed mesh manifest. Buy-side verbs land in Track 103.
 package main
 
 import (
@@ -24,6 +23,8 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
+	"github.com/stpinkie/rhizome/pkg/settlement"
+	"github.com/stpinkie/rhizome/pkg/web3"
 )
 
 func main() {
@@ -66,25 +67,35 @@ func run(ctx context.Context) error {
 		logger.WarnCF("market", "config problem", map[string]any{"error": e})
 	}
 
-	peerID := loadPeerID(p.home)
+	ident := loadIdentity(p.home)
+	peerID := ""
+	if ident != nil {
+		peerID = ident.PeerID
+	}
 	token := newTokenProvider(p.moduleDir)
 	if token.token() == "" {
 		logger.WarnCF("market", "no bridge token yet — /v1/* will 503 until the daemon mints one", nil)
 	}
 
-	api, err := startAPI(p.moduleDir, token, audit, config.FormatVersion())
+	mgr := newSessionMgr(p.moduleDir, audit)
+	if ident != nil {
+		mgr.ident.Store(ident)
+	}
+	mgr.setConfig(mc, cfg, agentBindingsFromConfig(cfg), assembleRail(ctx, cfg, mc))
+	go mgr.runReaper(ctx)
+
+	api, err := startAPI(p.moduleDir, token, mgr, audit, config.FormatVersion())
 	if err != nil {
 		return err
 	}
 	defer api.Close()
 	logger.InfoCF("market", "api listening", map[string]any{"addr": api.ln.Addr().String()})
 
-	agent := &marketAgent{}
 	connCap := mc.maxSessions * 4
 	if connCap < 32 {
 		connCap = 32
 	}
-	bridge, err := startBridge(p.moduleDir, token, agent, connCap, audit)
+	bridge, err := startBridge(p.moduleDir, token, mgr, connCap, audit)
 	if err != nil {
 		return err
 	}
@@ -124,6 +135,9 @@ func run(ctx context.Context) error {
 				} else {
 					cur = loadMarketConfig(cfg2, p.moduleDir)
 					api.setConfig(cur)
+					mgr.setConfig(
+						cur, cfg2, agentBindingsFromConfig(cfg2),
+						assembleRail(ctx, cfg2, cur))
 					audit.log("market.config.reload", map[string]any{"errors": len(cur.errs)})
 				}
 			}
@@ -132,30 +146,66 @@ func run(ctx context.Context) error {
 	}
 }
 
-// loadPeerID best-effort loads the node identity for advert peer_id —
-// the module is non-interactive, so an encrypted identity without a
-// keyring/env passphrase just omits the field rather than prompting.
-func loadPeerID(home string) string {
+// loadIdentity best-effort loads the node identity — advert peer_id and
+// receipt signing both come from it. The module is non-interactive, so an
+// encrypted identity without a keyring/env passphrase degrades honestly:
+// adverts omit peer_id, receipts mint unsigned.
+func loadIdentity(home string) *identity.Derived {
 	dir := filepath.Join(home, "identity")
 	d, _, err := identity.Load(dir)
 	if err == nil {
-		return d.PeerID
+		return d
 	}
 	if !errors.Is(err, identity.ErrIdentityEncrypted) {
-		logger.WarnCF("market", "identity load failed; advert omits peer_id",
+		logger.WarnCF("market", "identity load failed; unsigned receipts, no advert peer_id",
 			map[string]any{"error": err.Error()})
-		return ""
+		return nil
 	}
 	if d, _, err = identity.LoadWithProvider(dir, &identity.KeyringProvider{}); err == nil {
-		return d.PeerID
+		return d
 	}
 	if pp := os.Getenv("RHIZOME_IDENTITY_PASSPHRASE"); pp != "" {
 		if d, _, err = identity.LoadWithProvider(dir, &identity.ScryptProvider{Passphrase: pp}); err == nil {
-			return d.PeerID
+			return d
 		}
 	}
-	logger.WarnCF("market", "identity encrypted; advert omits peer_id", nil)
-	return ""
+	logger.WarnCF("market", "identity encrypted; unsigned receipts, no advert peer_id", nil)
+	return nil
+}
+
+// assembleRail builds the settlement rail for the resolved config:
+//   - escrow_contract unset → MockRail fixture (the module only verifies
+//     locks presented against escrows its own callers opened — honest
+//     posture for tests and dev loops, never fakes a chain read);
+//   - configured → RPCRail over the web3-resolved endpoint. VerifyLock is
+//     pure eth_call, so the DirectSender needs no key — payout_address
+//     stamps the tx identity for send verbs (claims) when used.
+//
+// A configured-but-unresolvable rail returns nil — sessions then refuse
+// with rail_unavailable rather than silently falling back to fixture.
+func assembleRail(ctx context.Context, cfg *config.Config, mc *marketConfig) settlement.Rail {
+	if mc == nil || mc.rail == nil {
+		return settlement.NewMockRail(settlement.RailConfig{})
+	}
+	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ep, err := web3.NewProvider(cfg).Resolve(rctx)
+	if err != nil {
+		logger.WarnCF("market", "escrow endpoint unresolved; sessions refuse until it resolves",
+			map[string]any{"error": err.Error()})
+		return nil
+	}
+	snd := settlement.NewDirectSender(
+		web3.NewClient(ep.URL, ep.APIKey, nil), mc.payoutAddress)
+	rail, err := settlement.NewRPCRail(*mc.rail, snd)
+	if err != nil {
+		logger.WarnCF("market", "escrow rail invalid", map[string]any{"error": err.Error()})
+		return nil
+	}
+	logger.InfoCF("market", "settlement rail configured", map[string]any{
+		"chain_id": mc.rail.ChainID, "source": string(ep.Source),
+	})
+	return rail
 }
 
 // mtimeOf returns a fingerprint string of the given files' mtimes — a

@@ -38,6 +38,7 @@ type apiServer struct {
 	token     *tokenProvider
 	cfg       atomic.Pointer[marketConfig]
 	bridge    func() bridgeStatus // live bridge state for /v1/health
+	mgr       *sessionMgr         // live sessions for /v1/session + /v1/receipt
 	audit     *auditLogger
 	started   time.Time
 	version   string
@@ -52,7 +53,8 @@ type bridgeStatus struct {
 // startAPI binds the loopback listener, publishes api.addr, and serves.
 // The returned server owns the listener; Close removes api.addr.
 func startAPI(
-	moduleDir string, token *tokenProvider, audit *auditLogger, version string,
+	moduleDir string, token *tokenProvider, mgr *sessionMgr,
+	audit *auditLogger, version string,
 ) (*apiServer, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -62,6 +64,7 @@ func startAPI(
 		ln:        ln,
 		moduleDir: moduleDir,
 		token:     token,
+		mgr:       mgr,
 		audit:     audit,
 		started:   time.Now(),
 		version:   version,
@@ -71,8 +74,8 @@ func startAPI(
 	mux.HandleFunc("GET /v1/health", s.wrap(s.handleHealth))
 	mux.HandleFunc("POST /v1/find", s.wrap(s.handleNotImplemented("find", 103)))
 	mux.HandleFunc("POST /v1/buy", s.wrap(s.handleNotImplemented("buy", 103)))
-	mux.HandleFunc("POST /v1/session", s.wrap(s.handleNotImplemented("session", 102)))
-	mux.HandleFunc("POST /v1/receipt", s.wrap(s.handleNotImplemented("receipt", 102)))
+	mux.HandleFunc("POST /v1/session", s.wrap(s.handleSession))
+	mux.HandleFunc("POST /v1/receipt", s.wrap(s.handleReceipt))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{"code": "not_found", "detail": "unknown endpoint"},
@@ -168,8 +171,121 @@ func (s *apiServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 			resp["config_error"] = strings.Join(mc.errs, "; ")
 		}
 	}
+	if s.mgr != nil {
+		resp["sessions_live"] = s.mgr.sessionCount()
+	}
 	s.auditAPI(r, http.StatusOK, time.Now())
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// sessionLookup is the request shape /v1/session and /v1/receipt share.
+type sessionLookup struct {
+	SessionID string `json:"session_id"`
+}
+
+// handleSession reports the live state of a sell-side session — the
+// local operator's view of what the module is serving right now.
+func (s *apiServer) handleSession(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req sessionLookup
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.mgr == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{"code": "not_ready", "detail": "session manager not up"},
+		})
+		s.auditAPI(r, http.StatusServiceUnavailable, start)
+		return
+	}
+	sess := s.mgr.lookup(req.SessionID)
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{
+				"code":   "not_found",
+				"detail": "no live session " + req.SessionID,
+			},
+		})
+		s.auditAPI(r, http.StatusNotFound, start)
+		return
+	}
+	sess.mu.Lock()
+	resp := map[string]any{
+		"session_id":  sess.ID,
+		"state":       sess.State,
+		"offer_id":    sess.Offer.ID,
+		"peer":        sess.Peer,
+		"duration_ms": sess.durationMS(),
+		"opened_at":   sess.OpenedAt.UTC().Format(time.RFC3339),
+	}
+	if !sess.EndedAt.IsZero() {
+		resp["ended_at"] = sess.EndedAt.UTC().Format(time.RFC3339)
+	}
+	if sess.usage != nil {
+		resp["usage"] = sess.usage
+	}
+	if sess.receipt != nil {
+		resp["result_sha256"] = sess.receipt.ResultSHA256
+	}
+	sess.mu.Unlock()
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleReceipt serves the signed receipt for a finished session — the
+// artifact a buyer presents to justify escrow release, and the seller's
+// own claim-path record.
+func (s *apiServer) handleReceipt(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req sessionLookup
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.mgr != nil {
+		if sess := s.mgr.lookup(req.SessionID); sess != nil {
+			sess.mu.Lock()
+			rc := sess.receipt
+			sess.mu.Unlock()
+			if rc != nil {
+				s.auditAPI(r, http.StatusOK, start)
+				writeJSON(w, http.StatusOK, rc)
+				return
+			}
+		}
+	}
+	rc, err := loadReceipt(s.moduleDir, req.SessionID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{
+				"code":   "not_found",
+				"detail": "no receipt for session " + req.SessionID,
+			},
+		})
+		s.auditAPI(r, http.StatusNotFound, start)
+		return
+	}
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, rc)
+}
+
+// decodeBody reads a bounded JSON body; false = response already written.
+func (s *apiServer) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	body, err := io.ReadAll(io.LimitReader(r.Body, apiBodyMaxBytes+1))
+	if err != nil || len(body) > apiBodyMaxBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": "bad_request", "detail": "body unreadable or >1 MiB"},
+		})
+		return false
+	}
+	if err := json.Unmarshal(body, v); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": "bad_request", "detail": "body is not a JSON object"},
+		})
+		return false
+	}
+	return true
 }
 
 // handleNotImplemented returns the honest posture for verbs whose business
