@@ -114,6 +114,31 @@ builds:
       - arm64
     main: ./cmd/rhizome
 
+  # rhizome-market companion module (v0.14.0 Track 100): a separate build +
+  # archive so it never lands in the base archives; checksums.txt covers it
+  # for catalog digest pinning.
+  - id: rhizome-market
+    binary: rhizome-market
+    env:
+      - CGO_ENABLED=0
+    tags:
+      - goolm
+      - stdjson
+    ldflags:
+      - -s -w
+      - -X github.com/stpinkie/rhizome/pkg/config.Version={{ .Version }}
+      - -X github.com/stpinkie/rhizome/pkg/config.GitCommit={{ .ShortCommit }}
+      - -X github.com/stpinkie/rhizome/pkg/config.BuildTime={{ .Date }}
+      - -X github.com/stpinkie/rhizome/pkg/config.GoVersion={{ with index .Env "GOVERSION" }}{{ . }}{{ else }}unknown{{ end }}
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    main: ./cmd/rhizome-market
+
 # Docker images default to stpinkie/rhizome on Docker Hub.
 # Override DOCKERHUB_IMAGE_NAME to publish from a fork.
 dockers_v2:
@@ -197,6 +222,17 @@ archives:
       {{- title .Os }}_
       {{- .Arch }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
+
+  # rhizome-market ships as rhizome-market_{goos}_{goarch}.{tar.gz|zip} —
+  # the shape the catalog's asset_template expects — in its own archive id.
+  - id: rhizome-market
+    formats: [tar.gz]
+    ids:
+      - rhizome-market
+    name_template: "rhizome-market_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
 
 nfpms:
   - id: rhizome
