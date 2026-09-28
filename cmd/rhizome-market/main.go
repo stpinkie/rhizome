@@ -81,10 +81,13 @@ func run(ctx context.Context) error {
 	if ident != nil {
 		mgr.ident.Store(ident)
 	}
-	mgr.setConfig(mc, cfg, agentBindingsFromConfig(cfg), assembleRail(ctx, cfg, mc))
+	rail, epClient := assembleRail(ctx, cfg, mc, p.home)
+	mgr.setConfig(mc, cfg, agentBindingsFromConfig(cfg), rail)
+	pm := newPurchaseMgr(p.moduleDir, p.home, audit)
+	pm.setConfig(mc, rail, epClient)
 	go mgr.runReaper(ctx)
 
-	api, err := startAPI(p.moduleDir, token, mgr, audit, config.FormatVersion())
+	api, err := startAPI(p.moduleDir, token, mgr, pm, audit, config.FormatVersion())
 	if err != nil {
 		return err
 	}
@@ -135,9 +138,9 @@ func run(ctx context.Context) error {
 				} else {
 					cur = loadMarketConfig(cfg2, p.moduleDir)
 					api.setConfig(cur)
-					mgr.setConfig(
-						cur, cfg2, agentBindingsFromConfig(cfg2),
-						assembleRail(ctx, cfg2, cur))
+					r2, c2 := assembleRail(ctx, cfg2, cur, p.home)
+					mgr.setConfig(cur, cfg2, agentBindingsFromConfig(cfg2), r2)
+					pm.setConfig(cur, r2, c2)
 					audit.log("market.config.reload", map[string]any{"errors": len(cur.errs)})
 				}
 			}
@@ -177,15 +180,21 @@ func loadIdentity(home string) *identity.Derived {
 //   - escrow_contract unset → MockRail fixture (the module only verifies
 //     locks presented against escrows its own callers opened — honest
 //     posture for tests and dev loops, never fakes a chain read);
-//   - configured → RPCRail over the web3-resolved endpoint. VerifyLock is
-//     pure eth_call, so the DirectSender needs no key — payout_address
-//     stamps the tx identity for send verbs (claims) when used.
+//   - configured → RPCRail over the web3-resolved endpoint. Reads are
+//     eth_call; send verbs go through the configured signer —
+//     settlement_signer=approval queues each tx into web3-pending.json
+//     for human sign-off (the default), =direct talks to unlocked/dev
+//     endpoints (anvil, FakeChain).
 //
-// A configured-but-unresolvable rail returns nil — sessions then refuse
+// The endpoint client is returned alongside so the buy path can build
+// per-purchase senders (buyer `from` + pending-id attribution). A
+// configured-but-unresolvable rail returns (nil, nil) — sessions refuse
 // with rail_unavailable rather than silently falling back to fixture.
-func assembleRail(ctx context.Context, cfg *config.Config, mc *marketConfig) settlement.Rail {
+func assembleRail(
+	ctx context.Context, cfg *config.Config, mc *marketConfig, home string,
+) (settlement.Rail, *web3.Client) {
 	if mc == nil || mc.rail == nil {
-		return settlement.NewMockRail(settlement.RailConfig{})
+		return settlement.NewMockRail(settlement.RailConfig{}), nil
 	}
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -193,19 +202,27 @@ func assembleRail(ctx context.Context, cfg *config.Config, mc *marketConfig) set
 	if err != nil {
 		logger.WarnCF("market", "escrow endpoint unresolved; sessions refuse until it resolves",
 			map[string]any{"error": err.Error()})
-		return nil
+		return nil, nil
 	}
-	snd := settlement.NewDirectSender(
-		web3.NewClient(ep.URL, ep.APIKey, nil), mc.payoutAddress)
+	client := web3.NewClient(ep.URL, ep.APIKey, nil)
+	var snd settlement.Sender
+	if mc.signerMode == "direct" {
+		snd = settlement.NewDirectSender(client, mc.payoutAddress)
+	} else {
+		snd = settlement.NewQueuedSender(
+			web3.OpenPendingStore(web3.WalletDir(home)), client,
+			mc.payoutAddress, mc.rail.ChainID)
+	}
 	rail, err := settlement.NewRPCRail(*mc.rail, snd)
 	if err != nil {
 		logger.WarnCF("market", "escrow rail invalid", map[string]any{"error": err.Error()})
-		return nil
+		return nil, nil
 	}
 	logger.InfoCF("market", "settlement rail configured", map[string]any{
 		"chain_id": mc.rail.ChainID, "source": string(ep.Source),
+		"signer": mc.signerMode,
 	})
-	return rail
+	return rail, client
 }
 
 // mtimeOf returns a fingerprint string of the given files' mtimes — a

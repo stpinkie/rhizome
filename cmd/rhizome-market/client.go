@@ -120,19 +120,27 @@ func (h *marketClientHandler) WaitForTerminalExit(
 
 var _ acpsdk.Client = (*marketClientHandler)(nil)
 
-// promptText extracts the text from a buyer's prompt — market sessions
-// accept text blocks only; anything else is refused by the caller.
+// promptText extracts the text from a buyer's prompt — the task_hash
+// commits to text content only. resource_link blocks are accepted as
+// inert URI references the spawned agent may dereference (the buyer's
+// export_allow_attachments already gated them); embedded image/resource
+// blocks are refused — their bytes aren't covered by the task hash.
 func promptText(blocks []acpsdk.ContentBlock) (string, error) {
 	var b strings.Builder
 	for i, blk := range blocks {
-		if blk.Text == nil {
+		switch {
+		case blk.Text != nil:
+			b.WriteString(blk.Text.Text)
+		case blk.ResourceLink != nil:
+			// URI references pass through to the agent unchanged — they
+			// carry no bytes, so the task-hash text binding is unaffected.
+		default:
 			return "", &gateError{
 				code: "unsupported_block",
-				msg: "market sessions accept text content blocks only " +
-					"(block " + strconv.Itoa(i) + " carries a non-text variant)",
+				msg: "market sessions accept text and resource_link blocks only " +
+					"(block " + strconv.Itoa(i) + " carries an embedded/unsupported variant)",
 			}
 		}
-		b.WriteString(blk.Text.Text)
 	}
 	return b.String(), nil
 }

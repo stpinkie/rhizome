@@ -6,6 +6,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -72,6 +74,10 @@ type marketConfig struct {
 	exportRequireReview    string
 	indexEnabled           bool
 	indexURL               string
+	indexPubKey            string                 // curator Ed25519 pubkey (base64); empty = baked release key
+	buyerAddress           string                 // purchaser EVM identity; empty = web3 wallet default
+	buyAutoRelease         bool                   // release() immediately after receipt verify
+	signerMode             string                 // approval|direct|wallet (wallet lands in Track 104)
 	rail                   *settlement.RailConfig // nil = fixture posture
 	errs                   []string
 }
@@ -138,6 +144,29 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 			mc.errs = append(mc.errs,
 				"market_index_url must be https (or loopback for testing)")
 		}
+	}
+	mc.indexPubKey = strField(mc, values, "market_index_pubkey", "")
+	if mc.indexPubKey != "" {
+		if raw, err := base64.StdEncoding.DecodeString(mc.indexPubKey); err != nil ||
+			len(raw) != ed25519.PublicKeySize {
+			mc.errs = append(mc.errs,
+				"market_index_pubkey must be a base64 Ed25519 public key")
+		}
+	}
+	mc.buyerAddress = strField(mc, values, "buyer_address", "")
+	if mc.buyerAddress != "" && !web3.IsAddress(mc.buyerAddress) {
+		mc.errs = append(mc.errs, "buyer_address is not a valid 0x address")
+	}
+	mc.buyAutoRelease = truthyDefault(values["buy_auto_release"], true)
+	mc.signerMode = strField(mc, values, "settlement_signer", "approval")
+	switch mc.signerMode {
+	case "approval", "direct":
+	case "wallet":
+		mc.errs = append(mc.errs,
+			"settlement_signer=wallet lands in Track 104 — use approval|direct for now")
+	default:
+		mc.errs = append(mc.errs,
+			"settlement_signer must be approval|direct|wallet")
 	}
 
 	mc.offers = loadOffers(mc, values, moduleDir)

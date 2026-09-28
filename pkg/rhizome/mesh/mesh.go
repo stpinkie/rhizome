@@ -29,6 +29,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
+	"github.com/stpinkie/rhizome/pkg/rhizome/peeradverts"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 	rsync "github.com/stpinkie/rhizome/pkg/rhizome/sync"
 	"github.com/stpinkie/rhizome/pkg/skills"
@@ -1272,11 +1273,20 @@ func (m *Mesh) TrustAndDiscover(ctx context.Context, pid peer.ID) (Capability, e
 	return capability, nil
 }
 
-// SetCapability stores a capability received from a peer.
+// SetCapability stores a capability received from a peer and journals its
+// module adverts so companion modules can discover peer-side services via
+// <RHIZOME_HOME>/peer-adverts.json.
 func (m *Mesh) SetCapability(pid peer.ID, c Capability) {
 	m.capsMu.Lock()
 	m.caps[pid] = c
 	m.capsMu.Unlock()
+	if err := peeradverts.Record(
+		config.GetHome(), pid.String(), m.isTrusted(pid), c.ModuleAdverts,
+	); err != nil {
+		logger.WarnCF("mesh", "peer advert journal write failed", map[string]any{
+			"peer_id": pid.String(), "error": err.Error(),
+		})
+	}
 
 	m.publishMeshEvent(runtimeevents.KindMeshCapabilityReceived, map[string]any{
 		"peer_id":      pid.String(),
