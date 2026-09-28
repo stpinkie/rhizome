@@ -77,7 +77,9 @@ type marketConfig struct {
 	indexPubKey            string                 // curator Ed25519 pubkey (base64); empty = baked release key
 	buyerAddress           string                 // purchaser EVM identity; empty = web3 wallet default
 	buyAutoRelease         bool                   // release() immediately after receipt verify
-	signerMode             string                 // approval|direct|wallet (wallet lands in Track 104)
+	signerMode             string                 // approval|direct|wallet
+	allowMainnet           bool                   // escrow_allow_mainnet — chain 1 opt-in
+	watchInterval          time.Duration          // escrow event scan cadence; 0 disables
 	rail                   *settlement.RailConfig // nil = fixture posture
 	errs                   []string
 }
@@ -160,13 +162,18 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 	mc.buyAutoRelease = truthyDefault(values["buy_auto_release"], true)
 	mc.signerMode = strField(mc, values, "settlement_signer", "approval")
 	switch mc.signerMode {
-	case "approval", "direct":
-	case "wallet":
-		mc.errs = append(mc.errs,
-			"settlement_signer=wallet lands in Track 104 — use approval|direct for now")
+	case "approval", "direct", "wallet":
 	default:
 		mc.errs = append(mc.errs,
 			"settlement_signer must be approval|direct|wallet")
+	}
+	mc.allowMainnet = truthy(values["escrow_allow_mainnet"])
+	mc.watchInterval = durationField(
+		mc, values, "escrow_watch_interval", time.Minute)
+	if mc.watchInterval != 0 &&
+		(mc.watchInterval < 15*time.Second || mc.watchInterval > time.Hour) {
+		mc.errs = append(mc.errs,
+			"escrow_watch_interval must be 0 (off) or 15s–1h")
 	}
 
 	mc.offers = loadOffers(mc, values, moduleDir)
@@ -176,6 +183,11 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 		mc.errs = append(mc.errs, fmt.Sprintf("escrow config: %s", err))
 	} else {
 		mc.rail = rail
+	}
+	if mc.rail == nil && (mc.signerMode == "wallet" || mc.signerMode == "direct") {
+		mc.errs = append(mc.errs,
+			"settlement_signer="+mc.signerMode+
+				" has no effect without escrow_contract (fixture rail signs nothing)")
 	}
 	return mc
 }

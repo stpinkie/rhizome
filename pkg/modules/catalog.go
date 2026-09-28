@@ -700,9 +700,11 @@ var catalog = []ModuleSpec{
 			{Key: "buy_auto_release", Label: "Auto-release escrow on verified receipt", Default: "true"},
 			{
 				Key:     "settlement_signer",
-				Label:   "Tx signing mode (approval|direct; wallet in a later track)",
+				Label:   "Tx signing mode (approval|direct|wallet — wallet signs autonomously)",
 				Default: "approval",
 			},
+			{Key: "escrow_allow_mainnet", Label: "Permit escrow on chain 1 (default refuse)", Default: "false"},
+			{Key: "escrow_watch_interval", Label: "Escrow event scan interval (0=off)", Default: "60s"},
 			{Key: "escrow_chain_id", Label: "Escrow chain id (11155111 Sepolia)"},
 			{Key: "escrow_contract", Label: "Smart Invoice factory address (unset = fixture rail)"},
 			{Key: "escrow_token", Label: "Escrow ERC-20 token address"},

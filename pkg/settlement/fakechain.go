@@ -43,6 +43,7 @@ type FakeChain struct {
 	rates    map[string]int64               // resolver -> resolutionRate
 	receipts map[string]*fakeReceipt
 	logs     []*fakeLog
+	nonces   map[string]uint64 // sender -> tx count (eth_getTransactionCount)
 }
 
 type fakeEscrow struct {
@@ -85,6 +86,7 @@ func NewFakeChain(t *testing.T, cfg RailConfig) *FakeChain {
 		tokens:   map[string]map[string]*big.Int{},
 		rates:    map[string]int64{},
 		receipts: map[string]*fakeReceipt{},
+		nonces:   map[string]uint64{},
 	}
 	fc.srv = httptest.NewServer(http.HandlerFunc(fc.handle))
 	t.Cleanup(fc.srv.Close)
@@ -229,6 +231,14 @@ func (fc *FakeChain) dispatch(req rpcReq) (any, *rpcError) {
 		return fc.ethCall(req.Params)
 	case "eth_sendTransaction":
 		return fc.ethSendTransaction(req.Params)
+	case "eth_sendRawTransaction":
+		return fc.ethSendRawTransaction(req.Params)
+	case "eth_getTransactionCount":
+		return fc.ethGetTransactionCount(req.Params)
+	case "eth_estimateGas":
+		return "0x186a0", nil // 100 000 — enough headroom for escrow verbs
+	case "eth_gasPrice":
+		return "0x3b9aca00", nil // 1 gwei — legacy pricing path
 	case "eth_getTransactionReceipt":
 		return fc.ethGetReceipt(req.Params)
 	case "eth_getLogs":
@@ -427,8 +437,45 @@ func (fc *FakeChain) ethSendTransaction(params []json.RawMessage) (any, *rpcErro
 		return nil, rpcErr(-32602, "invalid eth_sendTransaction params")
 	}
 	data, _ := hex.DecodeString(trimHex(c.Data))
-	from := normAddr(c.From)
-	to := normAddr(c.To)
+	return fc.applyTx(normAddr(c.From), normAddr(c.To), data, c.To)
+}
+
+// ethSendRawTransaction decodes a signed tx (sender recovered from the
+// signature, chain id pinned) and applies it through the same path.
+func (fc *FakeChain) ethSendRawTransaction(params []json.RawMessage) (any, *rpcError) {
+	var hexRaw string
+	if len(params) == 0 || json.Unmarshal(params[0], &hexRaw) != nil {
+		return nil, rpcErr(-32602, "invalid eth_sendRawTransaction params")
+	}
+	dt, err := web3.ParseSignedTxHex(hexRaw)
+	if err != nil {
+		return nil, rpcErr(-32602, "fakechain: raw tx decode: "+err.Error())
+	}
+	if dt.ChainID != fc.chainID {
+		return nil, revert(fmt.Sprintf(
+			"chain id mismatch: tx signed for %d, chain is %d", dt.ChainID, fc.chainID))
+	}
+	if want := fc.nonces[normAddr(dt.From)]; dt.Nonce != want {
+		return nil, revert(fmt.Sprintf("nonce %d, expected %d", dt.Nonce, want))
+	}
+	return fc.applyTx(normAddr(dt.From), normAddr(dt.To), dt.Data, dt.To)
+}
+
+// ethGetTransactionCount returns the sender's mined-tx count.
+func (fc *FakeChain) ethGetTransactionCount(params []json.RawMessage) (any, *rpcError) {
+	var addr string
+	if len(params) == 0 || json.Unmarshal(params[0], &addr) != nil {
+		return nil, rpcErr(-32602, "invalid eth_getTransactionCount params")
+	}
+	return "0x" + strconv.FormatUint(fc.nonces[normAddr(addr)], 16), nil
+}
+
+// applyTx dispatches a mined-immediately transaction and bumps the
+// sender nonce — the shared core of eth_sendTransaction and
+// eth_sendRawTransaction.
+func (fc *FakeChain) applyTx(
+	from, to string, data []byte, toLabel string,
+) (any, *rpcError) {
 	if len(data) < 4 {
 		return nil, revert("empty calldata")
 	}
@@ -442,13 +489,14 @@ func (fc *FakeChain) ethSendTransaction(params []json.RawMessage) (any, *rpcErro
 	case fc.escrows[to] != nil:
 		logs, rerr = fc.txEscrow(from, to, data)
 	default:
-		rerr = revert("no code at " + c.To)
+		rerr = revert("no code at " + toLabel)
 	}
 	if rerr != nil {
 		return nil, rerr
 	}
 	fc.block++
 	fc.txSeq++
+	fc.nonces[from]++
 	hash := "0x" + hex.EncodeToString(web3.Keccak256(
 		[]byte(fmt.Sprintf("faketx:%d:%s:%s", fc.txSeq, from, hex.EncodeToString(data)))))
 	for i, l := range logs {
