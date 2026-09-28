@@ -364,6 +364,23 @@ func (r *RPCRail) Dispute(ctx context.Context, sessionID string, details [32]byt
 	return r.verb(ctx, sessionID, "lock", []any{bytes32Hex(details)})
 }
 
+// Withdraw sends escrow.withdraw() — the client-only refund path that
+// unlocks once terminationTime has lapsed.
+func (r *RPCRail) Withdraw(ctx context.Context, sessionID string) (string, error) {
+	return r.verb(ctx, sessionID, "withdraw", nil)
+}
+
+// WithSender returns a rail sharing this rail's config but sending
+// through s — buys scope a per-purchase sender (pending-id attribution,
+// per-party `from`) without mutating the parent's identity. The decimals
+// cache does not carry over (it's per-sender state under a mutex — a
+// fresh rail re-reads it once).
+func (r *RPCRail) WithSender(s Sender) *RPCRail {
+	return &RPCRail{
+		cfg: r.cfg, snd: s, nowFn: r.nowFn, confirmTo: r.confirmTo,
+	}
+}
+
 // Resolve sends escrow.resolve(clientAward, providerAward, details) —
 // resolver-only on-chain, INDIVIDUAL resolver type.
 func (r *RPCRail) Resolve(

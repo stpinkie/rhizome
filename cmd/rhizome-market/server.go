@@ -39,6 +39,7 @@ type apiServer struct {
 	cfg       atomic.Pointer[marketConfig]
 	bridge    func() bridgeStatus // live bridge state for /v1/health
 	mgr       *sessionMgr         // live sessions for /v1/session + /v1/receipt
+	buyer     *purchaseMgr        // purchases for /v1/find|buy|dispute|refund|release
 	audit     *auditLogger
 	started   time.Time
 	version   string
@@ -53,7 +54,7 @@ type bridgeStatus struct {
 // startAPI binds the loopback listener, publishes api.addr, and serves.
 // The returned server owns the listener; Close removes api.addr.
 func startAPI(
-	moduleDir string, token *tokenProvider, mgr *sessionMgr,
+	moduleDir string, token *tokenProvider, mgr *sessionMgr, buyer *purchaseMgr,
 	audit *auditLogger, version string,
 ) (*apiServer, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -65,6 +66,7 @@ func startAPI(
 		moduleDir: moduleDir,
 		token:     token,
 		mgr:       mgr,
+		buyer:     buyer,
 		audit:     audit,
 		started:   time.Now(),
 		version:   version,
@@ -72,8 +74,11 @@ func startAPI(
 	s.bridge = func() bridgeStatus { return bridgeStatus{} }
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", s.wrap(s.handleHealth))
-	mux.HandleFunc("POST /v1/find", s.wrap(s.handleNotImplemented("find", 103)))
-	mux.HandleFunc("POST /v1/buy", s.wrap(s.handleNotImplemented("buy", 103)))
+	mux.HandleFunc("POST /v1/find", s.wrap(s.handleFind))
+	mux.HandleFunc("POST /v1/buy", s.wrap(s.handleBuy))
+	mux.HandleFunc("POST /v1/dispute", s.wrap(s.handleDispute))
+	mux.HandleFunc("POST /v1/refund", s.wrap(s.handleRefund))
+	mux.HandleFunc("POST /v1/release", s.wrap(s.handleRelease))
 	mux.HandleFunc("POST /v1/session", s.wrap(s.handleSession))
 	mux.HandleFunc("POST /v1/receipt", s.wrap(s.handleReceipt))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
@@ -179,8 +184,19 @@ func (s *apiServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionLookup is the request shape /v1/session and /v1/receipt share.
+// The thin CLI sends {"id": ...}; the ACP-facing name is session_id —
+// both resolve to the same lookup key.
 type sessionLookup struct {
 	SessionID string `json:"session_id"`
+	ID        string `json:"id"`
+}
+
+// id resolves either spelling to the lookup key.
+func (r sessionLookup) id() string {
+	if r.SessionID != "" {
+		return r.SessionID
+	}
+	return r.ID
 }
 
 // handleSession reports the live state of a sell-side session — the
@@ -199,12 +215,26 @@ func (s *apiServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		s.auditAPI(r, http.StatusServiceUnavailable, start)
 		return
 	}
-	sess := s.mgr.lookup(req.SessionID)
+	sess := s.mgr.lookup(req.id())
+	if sess == nil && s.buyer != nil {
+		// Buyer-role records: keyed by purchase_id or escrow session id.
+		// Snapshots (not live pointers) — the orchestrator mutates them.
+		if p := s.buyer.lookup(req.id()); p != nil {
+			s.auditAPI(r, http.StatusOK, start)
+			writeJSON(w, http.StatusOK, s.buyer.snapshot(p))
+			return
+		}
+		for _, p := range s.buyer.bySession(req.id()) {
+			s.auditAPI(r, http.StatusOK, start)
+			writeJSON(w, http.StatusOK, s.buyer.snapshot(p))
+			return
+		}
+	}
 	if sess == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{
 				"code":   "not_found",
-				"detail": "no live session " + req.SessionID,
+				"detail": "no live session or purchase " + req.id(),
 			},
 		})
 		s.auditAPI(r, http.StatusNotFound, start)
@@ -244,7 +274,7 @@ func (s *apiServer) handleReceipt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.mgr != nil {
-		if sess := s.mgr.lookup(req.SessionID); sess != nil {
+		if sess := s.mgr.lookup(req.id()); sess != nil {
 			sess.mu.Lock()
 			rc := sess.receipt
 			sess.mu.Unlock()
@@ -255,12 +285,30 @@ func (s *apiServer) handleReceipt(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	rc, err := loadReceipt(s.moduleDir, req.SessionID)
+	if s.buyer != nil {
+		// Buyer-role records: resolve by purchase id or escrow session id —
+		// the same dual lookup dispute/refund/release advertise.
+		var matches []*purchase
+		if p := s.buyer.lookup(req.id()); p != nil {
+			matches = []*purchase{p}
+		} else {
+			matches = s.buyer.bySession(req.id())
+		}
+		for _, p := range matches {
+			snap := s.buyer.snapshot(p)
+			if snap.Receipt != nil {
+				s.auditAPI(r, http.StatusOK, start)
+				writeJSON(w, http.StatusOK, snap.Receipt)
+				return
+			}
+		}
+	}
+	rc, err := loadReceipt(s.moduleDir, req.id())
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{
 				"code":   "not_found",
-				"detail": "no receipt for session " + req.SessionID,
+				"detail": "no receipt for session " + req.id(),
 			},
 		})
 		s.auditAPI(r, http.StatusNotFound, start)
@@ -268,6 +316,166 @@ func (s *apiServer) handleReceipt(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditAPI(r, http.StatusOK, start)
 	writeJSON(w, http.StatusOK, rc)
+}
+
+// handleFind executes `market find <query>` — index query or the
+// daemon-journaled peer adverts.
+func (s *apiServer) handleFind(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req struct {
+		Query string `json:"query"`
+	}
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.buyer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{"code": "not_ready", "detail": "buy side not up"},
+		})
+		s.auditAPI(r, http.StatusServiceUnavailable, start)
+		return
+	}
+	resp, err := s.buyer.runFind(r.Context(), req.Query)
+	status := http.StatusOK
+	if err != nil {
+		status = http.StatusBadRequest
+		resp = errBody(err)
+	}
+	s.auditAPI(r, status, start)
+	writeJSON(w, status, resp)
+}
+
+// handleBuy starts a purchase or confirms a pending review. Returns the
+// purchase record — the async orchestrator drives the lifecycle.
+func (s *apiServer) handleBuy(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req buyRequest
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.buyer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{"code": "not_ready", "detail": "buy side not up"},
+		})
+		s.auditAPI(r, http.StatusServiceUnavailable, start)
+		return
+	}
+	p, reviewID, err := s.buyer.begin(r.Context(), req)
+	if err != nil {
+		status := http.StatusBadRequest
+		if be, ok := err.(*buyError); ok &&
+			(be.code == "not_ready" || be.code == "rail_unavailable" ||
+				be.code == "index_unavailable" || be.code == "peer_adverts") {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, errBody(err))
+		s.auditAPI(r, status, start)
+		return
+	}
+	snap := s.buyer.snapshot(p)
+	resp := map[string]any{"purchase": snap}
+	if reviewID != "" {
+		resp["state"] = purchasePendingReview
+		resp["review_id"] = reviewID
+		resp["preview"] = map[string]any{
+			"task_sent":   snap.Task, // the exact (post-redact) text the seller will see
+			"provider":    snap.Provider,
+			"offer_id":    snap.OfferID,
+			"price":       snap.Price,
+			"asset":       snap.Asset,
+			"session_id":  snap.SessionID,
+			"attachments": snap.Attachments,
+		}
+		resp["confirm"] = "rhizome market buy --confirm " + reviewID
+	}
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleDispute locks the escrow via lock(details) — buyer-initiated.
+func (s *apiServer) handleDispute(w http.ResponseWriter, r *http.Request) {
+	s.buyAction(w, r, "dispute",
+		func(ctx context.Context, id string, extra map[string]any) (*purchase, error) {
+			reason, _ := extra["reason"].(string)
+			return s.buyer.dispute(ctx, id, reason)
+		})
+}
+
+// handleRefund calls escrow.withdraw() — the post-termination clawback.
+func (s *apiServer) handleRefund(w http.ResponseWriter, r *http.Request) {
+	s.buyAction(w, r, "refund",
+		func(ctx context.Context, id string, _ map[string]any) (*purchase, error) {
+			return s.buyer.refund(ctx, id)
+		})
+}
+
+// handleRelease manually releases a verified purchase (auto-release off).
+func (s *apiServer) handleRelease(w http.ResponseWriter, r *http.Request) {
+	s.buyAction(w, r, "release",
+		func(ctx context.Context, id string, _ map[string]any) (*purchase, error) {
+			return s.buyer.releaseByID(ctx, id)
+		})
+}
+
+// buyAction is the shared {id}+verb plumbing for dispute/refund/release —
+// each submits a settlement tx (queued for approval on real chains) and
+// returns the updated purchase.
+func (s *apiServer) buyAction(
+	w http.ResponseWriter, r *http.Request, verb string,
+	fn func(context.Context, string, map[string]any) (*purchase, error),
+) {
+	start := time.Now()
+	var req struct {
+		ID     string `json:"id"`
+		Reason string `json:"reason,omitempty"`
+	}
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.buyer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{"code": "not_ready", "detail": "buy side not up"},
+		})
+		s.auditAPI(r, http.StatusServiceUnavailable, start)
+		return
+	}
+	if strings.TrimSpace(req.ID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": "bad_request", "detail": "id required"},
+		})
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	p, err := fn(r.Context(), req.ID, map[string]any{"reason": req.Reason})
+	if err != nil {
+		var be *buyError
+		status := http.StatusInternalServerError
+		if errors.As(err, &be) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, errBody(err))
+		s.auditAPI(r, status, start)
+		return
+	}
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"purchase": s.buyer.snapshot(p), "verb": verb,
+	})
+}
+
+// errBody wraps an error into the API's {"error":{code,detail}} shape;
+// buyError codes pass through, everything else gets "internal".
+func errBody(err error) map[string]any {
+	code := "internal"
+	if be, ok := err.(*buyError); ok {
+		code = be.code
+	}
+	return map[string]any{
+		"error": map[string]any{"code": code, "detail": err.Error()},
+	}
 }
 
 // decodeBody reads a bounded JSON body; false = response already written.
@@ -286,39 +494,6 @@ func (s *apiServer) decodeBody(w http.ResponseWriter, r *http.Request, v any) bo
 		return false
 	}
 	return true
-}
-
-// handleNotImplemented returns the honest posture for verbs whose business
-// logic lands in Tracks 102/103 — a track-tagged JSON-RPC-style error, not
-// a fake empty result.
-func (s *apiServer) handleNotImplemented(verb string, track int) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		body, err := io.ReadAll(io.LimitReader(r.Body, apiBodyMaxBytes+1))
-		if err != nil || len(body) > apiBodyMaxBytes {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": map[string]any{"code": "bad_request", "detail": "body unreadable or >1 MiB"},
-			})
-			s.auditAPI(r, http.StatusBadRequest, start)
-			return
-		}
-		var v map[string]any
-		if err := json.Unmarshal(body, &v); err != nil && len(strings.TrimSpace(string(body))) > 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": map[string]any{"code": "bad_request", "detail": "body is not a JSON object"},
-			})
-			s.auditAPI(r, http.StatusBadRequest, start)
-			return
-		}
-		writeJSON(w, http.StatusNotImplemented, map[string]any{
-			"error": map[string]any{
-				"code":   "not_implemented",
-				"detail": fmt.Sprintf("market %s lands in Track %d — this build serves the skeleton only", verb, track),
-				"track":  track,
-			},
-		})
-		s.auditAPI(r, http.StatusNotImplemented, start)
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

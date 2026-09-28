@@ -308,7 +308,8 @@ mesh manifest when `serve_enabled`) and a bounded `market-audit.jsonl`.
 | `max_concurrent_sessions` / `session_ttl` | no | `4` / `30m` |
 | `buy_max_cost_per_task` / `buy_max_cost_per_day` | no | — |
 | `export_allow_attachments` / `export_redact` / `export_require_review` | no | `false` / `true` / `prompt` |
-| `market_index_enabled` / `market_index_url` | no / yes | `false` / — |
+| `market_index_enabled` / `market_index_url` / `market_index_pubkey` | no / yes / no | `false` / — / release key |
+| `buyer_address` / `buy_auto_release` / `settlement_signer` | no | default wallet / `true` / `approval` |
 | `escrow_chain_id` / `escrow_contract` / `escrow_token` / `escrow_arbiter` / `escrow_dispute_window` | no | — (unset contract = fixture rail) |
 
 ```bash
@@ -347,6 +348,35 @@ interrupted, issued_at, signature}` — Ed25519-signed by the node identity
 over the signature-stripped canonical JSON, persisted to
 `receipts/<session_id>.json`, verifiable against `seller_peer_id`. An
 unencrypted-missing identity mints unsigned receipts honestly.
+
+Buy-side purchases (Track 103): `rhizome market buy <provider> <offer>
+<task> [--max-cost]` is asynchronous — it returns a persisted purchase
+record (`purchases/<id>.json` under the module dir) and the lifecycle runs
+in the background: escrow open → bridge dial → `_rhizome.session_open` →
+single prompt → `_rhizome.receipt` → release. `rhizome market session
+<id>` reports the live state (`queued → escrow_opening → session →
+awaiting_receipt → awaiting_release|disputable → completed|disputed|
+refunded|failed`). Providers resolve from the daemon's
+`peer-adverts.json` journal (direct-peer discovery) or, when
+`market_index_enabled`+`market_index_url` are set, from a signed
+`<url>/index.json` verified against `market_index_pubkey` (the release
+key when unset) with a 1 h cache and stale-serve on outage. Every
+purchase enforces `buy_max_cost_per_task`, `buy_max_cost_per_day`, and
+`--max-cost` (exact decimal arithmetic); `export_redact` runs
+`pkg/redact` on the task text; `export_allow_attachments` gates
+URI-reference attachments (ACP `resource_link` blocks — bytes never
+leave the module); `export_require_review` (`prompt`|`always`|`never`)
+mints a short-lived `review_id` the `buy --confirm <id>` call replays —
+the preview binds the exact post-redact task, so confirming can't
+substitute a different task. Settlement signing is human-gated by
+default: `settlement_signer=approval` queues each escrow tx into the
+shared `web3-pending.json` (`pending_ids` land on the purchase record);
+`direct` talks to unlocked/dev endpoints (anvil, FakeChain); `wallet`
+arrives in Track 104. `buy_auto_release=false` parks verified purchases
+in `awaiting_release` for `rhizome market release <id>`; failures park
+in `disputable` — `rhizome market dispute <id> [reason]` locks the
+escrow, `rhizome market refund <id>` withdraws after termination. A
+receipt that fails signature or hash verification never releases.
 
 Notes:
 

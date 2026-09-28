@@ -219,7 +219,7 @@ once.
 - `rhizome module validate` — check the `modules` config section against the catalog.
 - `rhizome module verify <id>` — re-hash the installed binary against its install-time sha256 record (drift detection; daemonless).
 - `rhizome module catalog [--out f] [--sign-with-env VAR]` — emit the embedded catalog as canonical `catalog.json` (+ `.sig`); `rhizome module catalog-keygen` (hidden) generates a signing keypair.
-- `rhizome market find|buy|session|receipt` (v0.14.0, Track 99) — thin verbs over the `rhizome-market` module's loopback API (`<module_dir>/api.addr` + `bridge-token` bearer); absent → "rhizome-market module not installed". Serving modules advertise via `<module_dir>/advert.json` (≤16 KiB JSON, gated on `serve_enabled`), merged into the signed capability manifest as `module_adverts` + `allows.market_serve`.
+- `rhizome market find|buy|session|receipt|dispute|refund|release` (v0.14.0, Track 99 stubs; real since 102/103) — thin verbs over the `rhizome-market` module's loopback API (`<module_dir>/api.addr` + `bridge-token` bearer); absent → "rhizome-market module not installed". `buy` is asynchronous — returns a `purchases/<id>.json` record; `buy --confirm <review_id>` replays a pending review; `session`/`receipt` take a purchase id or escrow session id. Serving modules advertise via `<module_dir>/advert.json` (≤16 KiB JSON, gated on `serve_enabled`), merged into the signed capability manifest as `module_adverts` + `allows.market_serve`; the daemon also journals every peer's adverts to `<RHIZOME_HOME>/peer-adverts.json` for direct-peer `find`.
 
 Daemon endpoints (bearer auth): `GET /modules`, `GET /modules/<id>`,
 `GET /modules/<id>/logs?tail=N`, `POST /modules/<id>` `{action,

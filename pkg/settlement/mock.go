@@ -145,6 +145,29 @@ func (m *MockRail) Dispute(_ context.Context, sessionID string, details [32]byte
 	return m.lock(sessionID, details)
 }
 
+// Withdraw refunds the balance to the client once terminationTime has
+// lapsed — the contract's buyer safety valve.
+func (m *MockRail) Withdraw(_ context.Context, sessionID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, err := m.mustEscrow(sessionID)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case e.locked:
+		return "", fmt.Errorf("withdraw %s: escrow is locked", sessionID)
+	case e.balance.Sign() == 0:
+		return "", fmt.Errorf("withdraw %s: balance is zero", sessionID)
+	case e.terms.TerminationTime > m.nowFn().Unix():
+		return "", fmt.Errorf("withdraw %s: escrow still live until %d",
+			sessionID, e.terms.TerminationTime)
+	}
+	e.balance.SetInt64(0)
+	m.txSeq++
+	return m.txHash(sessionID, m.txSeq), nil
+}
+
 func (m *MockRail) lock(sessionID string, details [32]byte) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

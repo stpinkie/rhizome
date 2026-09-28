@@ -28,7 +28,7 @@ func startTestAPI(t *testing.T, token string) (*apiServer, string) {
 		tp = newTokenProvider(dir)
 	}
 	s, err := startAPI(dir, tp, newSessionMgr(dir, newAuditLogger("")),
-		newAuditLogger(""), "test")
+		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "test")
 	if err != nil {
 		t.Fatalf("startAPI: %v", err)
 	}
@@ -127,19 +127,21 @@ func TestAPI_TokenMissingGives503(t *testing.T) {
 
 func TestAPI_VerbsNotImplemented(t *testing.T) {
 	_, addr := startTestAPI(t, "tok")
-	// find/buy stay 501 until Track 103; session/receipt went live in 102.
-	tracks := map[string]int{"find": 103, "buy": 103}
-	for verb, track := range tracks {
-		code, body := apiPost(t, addr, "tok", verb, `{"x":1}`)
-		if code != http.StatusNotImplemented {
-			t.Fatalf("%s: %d", verb, code)
-		}
-		e, _ := body["error"].(map[string]any)
-		if e["code"] != "not_implemented" || int(e["track"].(float64)) != track {
-			t.Fatalf("%s: %v", verb, body)
-		}
+	// All verbs are live since Track 103 — the module config is unset
+	// here, so find answers not_ready rather than faking results.
+	code, body := apiPost(t, addr, "tok", "find", `{"query":"x"}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("find unconfigured: %d %v", code, body)
 	}
-	// The live verbs answer honestly — unknown sessions 404, never fake.
+	if e, _ := body["error"].(map[string]any); e["code"] != "not_ready" {
+		t.Fatalf("find error shape: %v", body)
+	}
+	// buy validates before touching rails — missing provider is a 400.
+	code, body = apiPost(t, addr, "tok", "buy", `{"x":1}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("buy bad request: %d %v", code, body)
+	}
+	// session/receipt answer honestly — unknown ids 404, never fake.
 	for _, verb := range []string{"session", "receipt"} {
 		code, body := apiPost(t, addr, "tok", verb,
 			`{"session_id":"0x00000000000000000000000000000000000000aa"}`)
@@ -152,7 +154,7 @@ func TestAPI_VerbsNotImplemented(t *testing.T) {
 		t.Fatalf("malformed: %d", code)
 	}
 	// Unknown route → JSON 404.
-	code, body := apiGet(t, addr, "tok", "/v1/nope")
+	code, body = apiGet(t, addr, "tok", "/v1/nope")
 	if code != http.StatusNotFound {
 		t.Fatalf("unknown: %d %v", code, body)
 	}
@@ -179,7 +181,8 @@ func TestAPI_CloseRemovesAddrFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
 	s, err := startAPI(dir, newTokenProvider(dir),
-		newSessionMgr(dir, newAuditLogger("")), newAuditLogger(""), "test")
+		newSessionMgr(dir, newAuditLogger("")),
+		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,13 +199,15 @@ func TestAPI_ConflictOnSecondBind(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
 	s1, err := startAPI(dir, newTokenProvider(dir),
-		newSessionMgr(dir, newAuditLogger("")), newAuditLogger(""), "a")
+		newSessionMgr(dir, newAuditLogger("")),
+		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s1.Close()
 	s2, err := startAPI(dir, newTokenProvider(dir),
-		newSessionMgr(dir, newAuditLogger("")), newAuditLogger(""), "b")
+		newSessionMgr(dir, newAuditLogger("")),
+		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +235,10 @@ func TestAPI_ClientContractParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Fatalf("want 501, got %d", resp.StatusCode)
+	// Track 103 made /v1/find live — an unset module config answers
+	// not_ready (400); the parity pin is that the route exists and
+	// returns the structured error shape, not a dead 501/404.
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400 not_ready, got %d", resp.StatusCode)
 	}
 }

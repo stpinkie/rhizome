@@ -723,6 +723,9 @@
         "export_redact": "true",
         "export_require_review": "prompt",
         "market_index_enabled": "false",
+        "buyer_address": "",
+        "buy_auto_release": "true",
+        "settlement_signer": "approval",
         "escrow_chain_id": "11155111",
         "escrow_dispute_window": "86400"
       }

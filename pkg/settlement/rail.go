@@ -66,6 +66,12 @@ type Rail interface {
 	// indexed sender records who pulled it.
 	Dispute(ctx context.Context, sessionID string, details [32]byte) (txHash string, err error)
 
+	// Withdraw is the buyer's post-termination safety valve:
+	// escrow.withdraw() returns the remaining balance to client() once
+	// terminationTime has lapsed. The contract reverts pre-termination
+	// and while locked; the rail surfaces those reverts.
+	Withdraw(ctx context.Context, sessionID string) (txHash string, err error)
+
 	// Resolve is the arbiter's path: resolve(clientAward, providerAward,
 	// details), ADR.INDIVIDUAL resolvers only. On-chain constraint:
 	// clientAward + providerAward must equal balance −

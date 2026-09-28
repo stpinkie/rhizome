@@ -22,6 +22,9 @@ func NewMarketCommand() *cobra.Command {
 		newBuyCommand(),
 		newSessionCommand(),
 		newReceiptCommand(),
+		newDisputeCommand(),
+		newRefundCommand(),
+		newReleaseCommand(),
 	)
 	return cmd
 }
@@ -57,21 +60,41 @@ func newFindCommand() *cobra.Command {
 }
 
 func newBuyCommand() *cobra.Command {
-	var maxCost string
+	var maxCost, confirm string
 	cmd := &cobra.Command{
 		Use:   "buy <provider> <offer> <task>",
 		Short: "Purchase a task from a market provider",
-		Args:  cobra.ExactArgs(3),
+		Long: "Purchase a task from a market provider. The purchase is " +
+			"asynchronous — settlement transactions queue into " +
+			"web3-pending.json for approval by default. When export review " +
+			"is required the response carries a review_id; confirm with " +
+			"`rhizome market buy --confirm <review_id>` (provider/offer/task " +
+			"args may be omitted — the stored decision is replayed).",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if confirm != "" {
+				if len(args) > 0 {
+					return fmt.Errorf(
+						"--confirm replays the stored purchase; provider/offer/task are ignored")
+				}
+				return nil
+			}
+			return cobra.ExactArgs(3)(cmd, args)
+		},
 		Run: func(cmd *cobra.Command, args []string) {
-			runVerb(cmd, "buy", map[string]any{
-				"provider": args[0],
-				"offer":    args[1],
-				"task":     args[2],
-				"max_cost": maxCost,
-			})
+			body := map[string]any{}
+			if confirm != "" {
+				body["confirm_review_id"] = confirm
+			} else {
+				body["provider"] = args[0]
+				body["offer"] = args[1]
+				body["task"] = args[2]
+				body["max_cost"] = maxCost
+			}
+			runVerb(cmd, "buy", body)
 		},
 	}
 	cmd.Flags().StringVar(&maxCost, "max-cost", "", "Maximum spend for this purchase")
+	cmd.Flags().StringVar(&confirm, "confirm", "", "Confirm a pending-review purchase by review id")
 	return cmd
 }
 
@@ -93,6 +116,46 @@ func newReceiptCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			runVerb(cmd, "receipt", map[string]any{"id": args[0]})
+		},
+	}
+}
+
+func newDisputeCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "dispute <purchase-id-or-session> [reason]",
+		Short: "Lock a purchase's escrow (buyer-initiated dispute)",
+		Args:  cobra.RangeArgs(1, 2),
+		Run: func(cmd *cobra.Command, args []string) {
+			body := map[string]any{"id": args[0]}
+			if len(args) > 1 {
+				body["reason"] = args[1]
+			}
+			runVerb(cmd, "dispute", body)
+		},
+	}
+}
+
+func newRefundCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "refund <purchase-id-or-session>",
+		Short: "Withdraw a purchase's escrow funds after termination",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			runVerb(cmd, "refund", map[string]any{"id": args[0]})
+		},
+	}
+}
+
+func newReleaseCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "release <purchase-id-or-session>",
+		Short: "Release a verified purchase's escrow to the seller",
+		Long: "Release a verified purchase's escrow to the seller. Only " +
+			"needed when the module's buy_auto_release is off — verified " +
+			"purchases then wait in awaiting_release for this call.",
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			runVerb(cmd, "release", map[string]any{"id": args[0]})
 		},
 	}
 }
