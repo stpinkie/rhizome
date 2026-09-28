@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -39,14 +40,15 @@ type bridgeHello struct {
 }
 
 // bridgeServer owns the inbound accept listener plus the conn cap; each
-// verified connection is handed to serveConn (the ACP dispatch).
+// verified connection gets its own marketAgent bound to the authenticated
+// peer id and a conn sequence id the session manager finalizes on drop.
 type bridgeServer struct {
 	ln        net.Listener
 	moduleDir string
 	token     *tokenProvider
 	audit     *auditLogger
+	mgr       *sessionMgr
 	sem       chan struct{} // concurrent-connection cap
-	agent     *marketAgent
 	wg        sync.WaitGroup
 	closed    chan struct{}
 	once      sync.Once
@@ -54,10 +56,10 @@ type bridgeServer struct {
 
 // startBridge binds the module's accept listener and publishes bridge.addr.
 // connCap bounds simultaneous bridged streams (hello-gated, peer-verified
-// — the cap is a cheap DoS bound until Track 102's session manager owns
-// per-session limits).
+// — the session manager's per-peer and global caps bound the work
+// underneath each connection).
 func startBridge(
-	moduleDir string, token *tokenProvider, agent *marketAgent,
+	moduleDir string, token *tokenProvider, mgr *sessionMgr,
 	connCap int, audit *auditLogger,
 ) (*bridgeServer, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -69,8 +71,8 @@ func startBridge(
 		moduleDir: moduleDir,
 		token:     token,
 		audit:     audit,
+		mgr:       mgr,
 		sem:       make(chan struct{}, connCap),
-		agent:     agent,
 		closed:    make(chan struct{}),
 	}
 	if err := writeFileAtomic(
@@ -154,15 +156,24 @@ func (b *bridgeServer) serveConn(conn net.Conn) {
 		"peer": hello.Peer, "protocol": hello.Protocol,
 	})
 	// bufferedConn keeps any post-hello bytes the reader already consumed.
-	b.serveACP(bufferedConn{Conn: conn, r: br})
+	agent := newConnAgent(hello.Peer, b.mgr.nextConnID(), b.mgr, b.audit)
+	b.serveACP(bufferedConn{Conn: conn, r: br}, agent)
 }
 
-// serveACP runs one verified peer connection through the ACP agent side.
-// Blocks until the transport closes.
-func (b *bridgeServer) serveACP(conn net.Conn) {
-	defer func() { _ = conn.Close() }()
-	agentConn := newAgentConn(b.agent, conn, conn)
+// serveACP runs one verified peer connection through the ACP agent side —
+// transport-agnostic by construction (any io.ReadWriteCloser), so the
+// Track 110 HTTPS path can drive the same gate/session machinery without
+// touching it. Blocks until the transport closes, then finalizes the
+// conn's sessions (a dropped peer can never leave an agent running).
+func (b *bridgeServer) serveACP(rwc io.ReadWriteCloser, a *marketAgent) {
+	defer func() { _ = rwc.Close() }()
+	agentConn := newAgentConn(a, rwc, rwc)
+	a.attachUpstream(agentConn)
 	<-agentConn.Done()
+	a.onConnClose()
+	if b.mgr != nil {
+		b.mgr.finalizeConn(a.connID)
+	}
 }
 
 // Close stops accepting, closes the listener, and removes bridge.addr.

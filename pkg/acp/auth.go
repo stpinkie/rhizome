@@ -8,6 +8,7 @@ import (
 	acpsdk "github.com/coder/acp-go-sdk"
 
 	"github.com/stpinkie/rhizome/pkg/agent"
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/logger"
 )
 
@@ -22,10 +23,31 @@ func (m *ClientManager) authenticate(
 	conn *acpsdk.ClientSideConnection,
 	methods []acpsdk.AuthMethod,
 ) error {
+	var binding *config.ACPAgentConfig
+	if inst != nil {
+		binding = inst.ACP
+	}
+	return authenticateBound(
+		ctx, agentID, binding, conn, methods,
+		m.termPolicyFor(inst) == TerminalPolicyAllow)
+}
+
+// authenticateBound is the binding-level auth handshake shared by the
+// daemon path and bound (per-session) spawns: terminal-backed auth methods
+// are only satisfiable when the caller's posture allows terminals — bound
+// market sessions always deny, so env_var methods are their only path.
+func authenticateBound(
+	ctx context.Context,
+	agentID string,
+	binding *config.ACPAgentConfig,
+	conn *acpsdk.ClientSideConnection,
+	methods []acpsdk.AuthMethod,
+	terminalAllowed bool,
+) error {
 	if len(methods) == 0 {
 		return nil
 	}
-	id, err := m.pickAuthMethod(agentID, inst, methods)
+	id, err := pickAuthMethodBound(agentID, binding, methods, terminalAllowed)
 	if err != nil {
 		return err
 	}
@@ -37,24 +59,25 @@ func (m *ClientManager) authenticate(
 	return nil
 }
 
-// pickAuthMethod selects an advertised auth method. The binding's
+// pickAuthMethodBound selects an advertised auth method. The binding's
 // acp.auth_method pin wins when set; otherwise the first satisfiable
 // method is used.
-func (m *ClientManager) pickAuthMethod(
+func pickAuthMethodBound(
 	agentID string,
-	inst *agent.AgentInstance,
+	binding *config.ACPAgentConfig,
 	methods []acpsdk.AuthMethod,
+	terminalAllowed bool,
 ) (string, error) {
 	want := ""
-	if inst != nil && inst.ACP != nil {
-		want = strings.TrimSpace(inst.ACP.AuthMethod)
+	if binding != nil {
+		want = strings.TrimSpace(binding.AuthMethod)
 	}
 	if want != "" {
 		for _, am := range methods {
 			if authMethodID(am) != want {
 				continue
 			}
-			if err := m.checkAuthSatisfiable(inst, am); err != nil {
+			if err := authSatisfiable(binding, am, terminalAllowed); err != nil {
 				return "", fmt.Errorf(
 					"acp agent %q auth method %q is not satisfiable: %w",
 					agentID, want, err)
@@ -69,7 +92,7 @@ func (m *ClientManager) pickAuthMethod(
 	var reasons []string
 	for _, am := range methods {
 		id := authMethodID(am)
-		if err := m.checkAuthSatisfiable(inst, am); err != nil {
+		if err := authSatisfiable(binding, am, terminalAllowed); err != nil {
 			reasons = append(reasons, fmt.Sprintf("%s (%v)", id, err))
 			continue
 		}
@@ -80,11 +103,16 @@ func (m *ClientManager) pickAuthMethod(
 		agentID, strings.Join(reasons, "; "))
 }
 
-// checkAuthSatisfiable reports whether a method can be completed locally:
+// authSatisfiable reports whether a method can be completed locally:
 // env_var needs every required var present (and non-empty) in the binding's
 // env; terminal and agent-driven auth need the terminal capability, which
-// is gated by acp.client.terminal_policy=allow.
-func (m *ClientManager) checkAuthSatisfiable(inst *agent.AgentInstance, am acpsdk.AuthMethod) error {
+// is gated by the caller's terminal allowance (daemon: terminal_policy;
+// bound sessions: always denied).
+func authSatisfiable(
+	binding *config.ACPAgentConfig,
+	am acpsdk.AuthMethod,
+	terminalAllowed bool,
+) error {
 	switch {
 	case am.EnvVar != nil:
 		var missing []string
@@ -92,7 +120,7 @@ func (m *ClientManager) checkAuthSatisfiable(inst *agent.AgentInstance, am acpsd
 			if v.Optional {
 				continue
 			}
-			if inst == nil || inst.ACP == nil || inst.ACP.Env[v.Name] == "" {
+			if binding == nil || binding.Env[v.Name] == "" {
 				missing = append(missing, v.Name)
 			}
 		}
@@ -103,13 +131,13 @@ func (m *ClientManager) checkAuthSatisfiable(inst *agent.AgentInstance, am acpsd
 		}
 		return nil
 	case am.Terminal != nil:
-		if m.termPolicyFor(inst) != TerminalPolicyAllow {
+		if !terminalAllowed {
 			return fmt.Errorf("terminal auth requires acp.client.terminal_policy=allow")
 		}
 		return nil
 	case am.Agent != nil:
 		// The agent drives its own flow, which may need terminal methods.
-		if m.termPolicyFor(inst) != TerminalPolicyAllow {
+		if !terminalAllowed {
 			return fmt.Errorf("agent-driven auth requires acp.client.terminal_policy=allow")
 		}
 		return nil

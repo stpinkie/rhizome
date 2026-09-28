@@ -27,7 +27,8 @@ func startTestAPI(t *testing.T, token string) (*apiServer, string) {
 		t.Setenv("RHIZOME_BRIDGE_TOKEN", token)
 		tp = newTokenProvider(dir)
 	}
-	s, err := startAPI(dir, tp, newAuditLogger(""), "test")
+	s, err := startAPI(dir, tp, newSessionMgr(dir, newAuditLogger("")),
+		newAuditLogger(""), "test")
 	if err != nil {
 		t.Fatalf("startAPI: %v", err)
 	}
@@ -126,7 +127,8 @@ func TestAPI_TokenMissingGives503(t *testing.T) {
 
 func TestAPI_VerbsNotImplemented(t *testing.T) {
 	_, addr := startTestAPI(t, "tok")
-	tracks := map[string]int{"find": 103, "buy": 103, "session": 102, "receipt": 102}
+	// find/buy stay 501 until Track 103; session/receipt went live in 102.
+	tracks := map[string]int{"find": 103, "buy": 103}
 	for verb, track := range tracks {
 		code, body := apiPost(t, addr, "tok", verb, `{"x":1}`)
 		if code != http.StatusNotImplemented {
@@ -135,6 +137,14 @@ func TestAPI_VerbsNotImplemented(t *testing.T) {
 		e, _ := body["error"].(map[string]any)
 		if e["code"] != "not_implemented" || int(e["track"].(float64)) != track {
 			t.Fatalf("%s: %v", verb, body)
+		}
+	}
+	// The live verbs answer honestly — unknown sessions 404, never fake.
+	for _, verb := range []string{"session", "receipt"} {
+		code, body := apiPost(t, addr, "tok", verb,
+			`{"session_id":"0x00000000000000000000000000000000000000aa"}`)
+		if code != http.StatusNotFound {
+			t.Fatalf("%s unknown session: %d %v", verb, code, body)
 		}
 	}
 	// Malformed body → 400, not a panic.
@@ -168,7 +178,8 @@ func TestAPI_HealthReflectsConfig(t *testing.T) {
 func TestAPI_CloseRemovesAddrFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
-	s, err := startAPI(dir, newTokenProvider(dir), newAuditLogger(""), "test")
+	s, err := startAPI(dir, newTokenProvider(dir),
+		newSessionMgr(dir, newAuditLogger("")), newAuditLogger(""), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,12 +195,14 @@ func TestAPI_ConflictOnSecondBind(t *testing.T) {
 	// behavior (supervisor prevents the real double-run).
 	dir := t.TempDir()
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
-	s1, err := startAPI(dir, newTokenProvider(dir), newAuditLogger(""), "a")
+	s1, err := startAPI(dir, newTokenProvider(dir),
+		newSessionMgr(dir, newAuditLogger("")), newAuditLogger(""), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s1.Close()
-	s2, err := startAPI(dir, newTokenProvider(dir), newAuditLogger(""), "b")
+	s2, err := startAPI(dir, newTokenProvider(dir),
+		newSessionMgr(dir, newAuditLogger("")), newAuditLogger(""), "b")
 	if err != nil {
 		t.Fatal(err)
 	}
