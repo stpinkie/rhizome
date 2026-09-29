@@ -39,6 +39,10 @@ const (
 	DraftStatusCandidate   DraftStatus = "candidate"
 	DraftStatusQuarantined DraftStatus = "quarantined"
 	DraftStatusAccepted    DraftStatus = "accepted"
+	// DraftStatusRejected is a terminal operator refusal. Rejected drafts
+	// keep occupying their source-pattern slot (unlike quarantined drafts)
+	// so the cold path does not auto-regenerate a refused draft.
+	DraftStatusRejected DraftStatus = "rejected"
 )
 
 type SkillStatus string

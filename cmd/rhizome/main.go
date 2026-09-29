@@ -23,6 +23,7 @@ import (
 	configcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/config"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/cron"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/daemon"
+	evolutioncmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/evolution"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/gateway"
 	marketcmd "github.com/stpinkie/rhizome/cmd/rhizome/internal/market"
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal/mcp"
@@ -152,6 +153,7 @@ rhizome --no-color status`,
 		migrate.NewMigrateCommand(),
 		networkcmd.NewNetworkCommand(),
 		meshcmd.NewMeshCommand(),
+		evolutioncmd.NewEvolutionCommand(),
 		swarmcmd.NewSwarmCommand(),
 		modulecmd.NewModuleCommand(),
 		marketcmd.NewMarketCommand(),

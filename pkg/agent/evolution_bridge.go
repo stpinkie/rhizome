@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,9 @@ type evolutionBridge struct {
 
 	scheduledMu         sync.Mutex
 	scheduledWorkspaces map[string]struct{}
+
+	runsMu     sync.Mutex
+	runHistory map[string]EvolutionRunRecord
 }
 
 const evolutionDirectDeliveryAttr = "evolution_direct_delivery"
@@ -225,7 +229,9 @@ func (b *evolutionBridge) handleTurnEndAsync(meta EventMeta, payload TurnEndPayl
 			return
 		}
 		if b.coldPathRunner != nil && b.cfg.RunsColdPathAfterTurn() {
-			b.coldPathRunner.Trigger(input.Workspace)
+			if b.coldPathRunner.Trigger(input.Workspace) {
+				b.recordRun(input.Workspace, "after_turn", "trigger", "")
+			}
 		}
 	}()
 	return true
@@ -290,7 +296,9 @@ func (b *evolutionBridge) startScheduledColdPath(workspace string, times []strin
 			select {
 			case <-timer.C:
 				for _, workspace := range b.scheduledColdPathWorkspaces() {
-					b.coldPathRunner.Trigger(workspace)
+					if b.coldPathRunner.Trigger(workspace) {
+						b.recordRun(workspace, "scheduled", "trigger", "")
+					}
 				}
 			case <-b.bgCtx.Done():
 				if !timer.Stop() {
@@ -415,6 +423,114 @@ func nextColdPathScheduledTime(now time.Time, schedule []coldPathScheduleTime) t
 	first := schedule[0]
 	tomorrow := now.AddDate(0, 0, 1)
 	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), first.hour, first.minute, 0, 0, now.Location())
+}
+
+// workspaces returns every workspace with a live registered agent.
+func (b *evolutionBridge) workspaces() []string {
+	if b == nil {
+		return nil
+	}
+	return registryWorkspaces(b.registry)
+}
+
+// runColdPathSummary executes one cold-path run synchronously — the manual
+// trigger path behind `rhizome evolution run` and POST /evolution/run.
+func (b *evolutionBridge) runColdPathSummary(
+	ctx context.Context,
+	workspace string,
+) (evolution.ColdPathRunSummary, error) {
+	if b == nil || b.runtime == nil {
+		return evolution.ColdPathRunSummary{Workspace: workspace}, errors.New("evolution runtime unavailable")
+	}
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return evolution.ColdPathRunSummary{}, errors.New("workspace required")
+	}
+	summary := b.runtime.RunColdPathSummary(ctx, workspace)
+	b.recordRunSummary(workspace, "manual", summary)
+	if summary.Error != "" {
+		return summary, errors.New(summary.Error)
+	}
+	return summary, nil
+}
+
+func (b *evolutionBridge) previewColdPath(workspace string) evolution.ColdPathRunSummary {
+	if b == nil || b.runtime == nil {
+		return evolution.ColdPathRunSummary{Workspace: workspace, DryRun: true, Note: "evolution runtime unavailable"}
+	}
+	return b.runtime.PreviewColdPath(workspace)
+}
+
+func (b *evolutionBridge) acceptDraft(
+	ctx context.Context,
+	workspace, draftID string,
+	force bool,
+) (evolution.SkillDraft, error) {
+	if b == nil || b.runtime == nil {
+		return evolution.SkillDraft{}, errors.New("evolution runtime unavailable")
+	}
+	return b.runtime.AcceptDraft(ctx, workspace, draftID, force)
+}
+
+func (b *evolutionBridge) rejectDraft(workspace, draftID, reason string) (evolution.SkillDraft, error) {
+	if b == nil || b.runtime == nil {
+		return evolution.SkillDraft{}, errors.New("evolution runtime unavailable")
+	}
+	return b.runtime.RejectDraft(workspace, draftID, reason)
+}
+
+// recordRun remembers the latest cold-path activity for a workspace so
+// `evolution status` can show it. Kind is "trigger" (async run scheduled
+// through the coalescing runner) or "run" (completed synchronous run).
+func (b *evolutionBridge) recordRun(workspace, source, kind, errStr string) {
+	if b == nil || workspace == "" {
+		return
+	}
+	b.runsMu.Lock()
+	defer b.runsMu.Unlock()
+	if b.runHistory == nil {
+		b.runHistory = make(map[string]EvolutionRunRecord)
+	}
+	b.runHistory[workspace] = EvolutionRunRecord{
+		At:     time.Now(),
+		Source: source,
+		Kind:   kind,
+		Error:  errStr,
+	}
+}
+
+// recordRunSummary records a completed synchronous run with its outcome
+// counts.
+func (b *evolutionBridge) recordRunSummary(workspace, source string, s evolution.ColdPathRunSummary) {
+	if b == nil || workspace == "" {
+		return
+	}
+	b.runsMu.Lock()
+	defer b.runsMu.Unlock()
+	if b.runHistory == nil {
+		b.runHistory = make(map[string]EvolutionRunRecord)
+	}
+	b.runHistory[workspace] = EvolutionRunRecord{
+		At:            time.Now(),
+		Source:        source,
+		Kind:          "run",
+		DraftsCreated: s.DraftsCreated,
+		DraftsApplied: s.DraftsApplied,
+		Error:         s.Error,
+	}
+}
+
+func (b *evolutionBridge) lastRuns() map[string]EvolutionRunRecord {
+	if b == nil {
+		return nil
+	}
+	b.runsMu.Lock()
+	defer b.runsMu.Unlock()
+	out := make(map[string]EvolutionRunRecord, len(b.runHistory))
+	for ws, rec := range b.runHistory {
+		out[ws] = rec
+	}
+	return out
 }
 
 func toEvolutionSkillContextSnapshots(input []SkillContextSnapshot) []evolution.SkillContextSnapshot {
