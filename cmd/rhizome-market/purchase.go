@@ -47,6 +47,7 @@ const (
 	purchaseDisputable    = "disputable"       // verify failed — lock or withdraw
 	purchaseCompleted     = "completed"        // released
 	purchaseDisputed      = "disputed"         // lock() submitted
+	purchaseResolved      = "resolved"         // arbiter resolve() split the escrow
 	purchaseRefunded      = "refunded"         // withdraw() after termination
 	purchaseFailed        = "failed"           // pre-session failure
 )
@@ -86,7 +87,8 @@ type purchase struct {
 	ReceiptOK     *bool         `json:"receipt_verified,omitempty"`
 	Error         string        `json:"error,omitempty"`
 	ErrCode       string        `json:"error_code,omitempty"`
-	Settlement    string        `json:"settlement"` // "fixture" | "configured"
+	Settlement    string        `json:"settlement"`            // "fixture" | "configured"
+	WatchBlock    uint64        `json:"watch_block,omitempty"` // last scanned block (event watcher)
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
 }
@@ -108,7 +110,7 @@ type purchaseMgr struct {
 
 	cfg      atomic.Pointer[marketConfig]
 	rail     atomic.Pointer[settlement.Rail]
-	epClient atomic.Pointer[web3.Client] // resolved endpoint for configured rails
+	endpoint atomic.Pointer[web3.Endpoint] // resolved endpoint for configured rails
 
 	// dial is the bridge-dial seam (tests inject net.Pipe plumbing);
 	// spawn runs the orchestration goroutine body.
@@ -136,17 +138,18 @@ func newPurchaseMgr(moduleDir, home string, audit *auditLogger) *purchaseMgr {
 	return pm
 }
 
-// setConfig publishes the resolved config + rail + endpoint client on
-// each (re)load; epClient is nil under the fixture posture.
+// setConfig publishes the resolved config + rail + endpoint on each
+// (re)load; endpoint is nil under the fixture posture.
 func (pm *purchaseMgr) setConfig(
-	mc *marketConfig, rail settlement.Rail, epClient *web3.Client,
+	mc *marketConfig, rail settlement.Rail, ep *web3.Endpoint,
 ) {
 	pm.cfg.Store(mc)
 	pm.rail.Store(&rail)
-	if epClient != nil {
-		pm.epClient.Store(epClient)
+	if ep != nil {
+		epc := *ep
+		pm.endpoint.Store(&epc)
 	} else {
-		pm.epClient.Store(nil)
+		pm.endpoint.Store(nil)
 	}
 }
 
@@ -307,7 +310,8 @@ func (pm *purchaseMgr) boundLocked() {
 
 func isTerminalPurchase(state string) bool {
 	switch state {
-	case purchaseCompleted, purchaseDisputed, purchaseRefunded, purchaseFailed:
+	case purchaseCompleted, purchaseDisputed, purchaseResolved,
+		purchaseRefunded, purchaseFailed:
 		return true
 	}
 	return false

@@ -67,7 +67,11 @@ func validateAttachmentURIs(attachments []string) error {
 	}
 	for _, uri := range attachments {
 		if len(uri) > attachmentMaxBytes {
-			return buyErr("attachments_denied", "attachment URI exceeds %d bytes", attachmentMaxBytes)
+			return buyErr(
+				"attachments_denied",
+				"attachment URI exceeds %d bytes",
+				attachmentMaxBytes,
+			)
 		}
 		u := strings.ToLower(strings.TrimSpace(uri))
 		if !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
@@ -303,12 +307,29 @@ func (pm *purchaseMgr) resolveProvider(
 }
 
 // buyerAddress resolves the purchaser's EVM identity: the buyer_address
-// field wins; otherwise the shared web3 wallet's default account.
+// field wins; otherwise the shared web3 wallet's default account. Wallet
+// signer mode additionally requires the resolved key to be present in
+// the store — a resolvable address without key material fails honestly
+// at buy time rather than mid-purchase at the first send.
 func (pm *purchaseMgr) buyerAddress(mc *marketConfig) (string, error) {
+	ws := web3.OpenWalletStore(web3.WalletDir(pm.home))
+	if mc.signerMode == "wallet" {
+		cand := mc.buyerAddress
+		if cand == "" {
+			if def, err := ws.Default(); err == nil && web3.IsAddress(def) {
+				cand = def
+			}
+		}
+		if cand == "" || !ws.Has(cand) {
+			return "", buyErr("no_buyer_key",
+				"settlement_signer=wallet needs buyer_address present in the web3 "+
+					"wallet store (or a default wallet) — `rhizome web3 wallet create`")
+		}
+		return cand, nil
+	}
 	if mc.buyerAddress != "" {
 		return mc.buyerAddress, nil
 	}
-	ws := web3.OpenWalletStore(web3.WalletDir(pm.home))
 	if def, err := ws.Default(); err == nil && web3.IsAddress(def) {
 		return def, nil
 	}
@@ -429,12 +450,21 @@ func priceBaseUnits(
 // the shared web3-pending.json with per-purchase pending-id attribution.
 func (pm *purchaseMgr) senderFor(p *purchase) settlement.Sender {
 	mc := pm.cfg.Load()
-	client := pm.epClient.Load()
-	if mc == nil || mc.rail == nil || client == nil {
+	ep := pm.endpoint.Load()
+	if mc == nil || mc.rail == nil || ep == nil {
 		return nil
 	}
-	if mc.signerMode == "direct" {
+	client := web3.NewClient(ep.URL, ep.APIKey, nil)
+	switch mc.signerMode {
+	case "direct":
 		return settlement.NewDirectSender(client, p.Buyer)
+	case "wallet":
+		// Local-signing opt-in: the buyer's key must live in the shared
+		// web3 wallet store — PrivateKey decrypts per send.
+		return settlement.NewWalletSender(
+			client, web3.NewStaticProvider(ep.URL, ep.APIKey),
+			web3.OpenWalletStore(web3.WalletDir(pm.home)),
+			p.Buyer, mc.rail.ChainID)
 	}
 	q := settlement.NewQueuedSender(pm.pendingStore(), client, p.Buyer, mc.rail.ChainID)
 	q.SetOnSubmit(func(e *web3.PendingEntry) { pm.recordPending(p, e.ID) })

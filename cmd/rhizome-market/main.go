@@ -74,18 +74,23 @@ func run(ctx context.Context) error {
 	}
 	token := newTokenProvider(p.moduleDir)
 	if token.token() == "" {
-		logger.WarnCF("market", "no bridge token yet — /v1/* will 503 until the daemon mints one", nil)
+		logger.WarnCF(
+			"market",
+			"no bridge token yet — /v1/* will 503 until the daemon mints one",
+			nil,
+		)
 	}
 
 	mgr := newSessionMgr(p.moduleDir, audit)
 	if ident != nil {
 		mgr.ident.Store(ident)
 	}
-	rail, epClient := assembleRail(ctx, cfg, mc, p.home)
+	rail, ep := assembleRail(ctx, cfg, mc, p.home)
 	mgr.setConfig(mc, cfg, agentBindingsFromConfig(cfg), rail)
 	pm := newPurchaseMgr(p.moduleDir, p.home, audit)
-	pm.setConfig(mc, rail, epClient)
+	pm.setConfig(mc, rail, ep)
 	go mgr.runReaper(ctx)
+	go pm.runWatcher(ctx)
 
 	api, err := startAPI(p.moduleDir, token, mgr, pm, audit, config.FormatVersion())
 	if err != nil {
@@ -133,14 +138,18 @@ func run(ctx context.Context) error {
 			if mods != lastMod {
 				lastMod = mods
 				if cfg2, err := config.LoadConfig(p.configPath); err != nil {
-					logger.WarnCF("market", "config reload failed", map[string]any{"error": err.Error()})
+					logger.WarnCF(
+						"market",
+						"config reload failed",
+						map[string]any{"error": err.Error()},
+					)
 					audit.log("market.config.error", map[string]any{"error": err.Error()})
 				} else {
 					cur = loadMarketConfig(cfg2, p.moduleDir)
 					api.setConfig(cur)
-					r2, c2 := assembleRail(ctx, cfg2, cur, p.home)
+					r2, ep2 := assembleRail(ctx, cfg2, cur, p.home)
 					mgr.setConfig(cur, cfg2, agentBindingsFromConfig(cfg2), r2)
-					pm.setConfig(cur, r2, c2)
+					pm.setConfig(cur, r2, ep2)
 					audit.log("market.config.reload", map[string]any{"errors": len(cur.errs)})
 				}
 			}
@@ -186,13 +195,13 @@ func loadIdentity(home string) *identity.Derived {
 //     for human sign-off (the default), =direct talks to unlocked/dev
 //     endpoints (anvil, FakeChain).
 //
-// The endpoint client is returned alongside so the buy path can build
+// The resolved endpoint is returned alongside so the buy path can build
 // per-purchase senders (buyer `from` + pending-id attribution). A
 // configured-but-unresolvable rail returns (nil, nil) — sessions refuse
 // with rail_unavailable rather than silently falling back to fixture.
 func assembleRail(
 	ctx context.Context, cfg *config.Config, mc *marketConfig, home string,
-) (settlement.Rail, *web3.Client) {
+) (settlement.Rail, *web3.Endpoint) {
 	if mc == nil || mc.rail == nil {
 		return settlement.NewMockRail(settlement.RailConfig{}), nil
 	}
@@ -205,10 +214,44 @@ func assembleRail(
 		return nil, nil
 	}
 	client := web3.NewClient(ep.URL, ep.APIKey, nil)
+
+	// Chain pinning: the configured rail must match the endpoint's live
+	// eth_chainId — a mis-pointed endpoint refuses the whole rail rather
+	// than signing into the wrong network. Mainnet is refused unless the
+	// operator opted in (escrow_allow_mainnet); the market ships
+	// experimental and the Sepolia posture is the documented path.
+	if mc.rail.ChainID == 1 && !mc.allowMainnet {
+		logger.WarnCF(
+			"market",
+			"escrow_chain_id=1 refused — set escrow_allow_mainnet=true to opt in",
+			nil,
+		)
+		return nil, nil
+	}
+	live, err := web3.ChainID(ctx, web3.NewStaticProvider(ep.URL, ep.APIKey))
+	if err != nil {
+		logger.WarnCF("market", "escrow chain check failed — rail unavailable",
+			map[string]any{"error": err.Error()})
+		return nil, nil
+	}
+	if live != mc.rail.ChainID {
+		logger.WarnCF("market", "escrow chain pin mismatch — rail unavailable",
+			map[string]any{"live": live, "pinned": mc.rail.ChainID})
+		return nil, nil
+	}
+
 	var snd settlement.Sender
-	if mc.signerMode == "direct" {
+	switch mc.signerMode {
+	case "direct":
 		snd = settlement.NewDirectSender(client, mc.payoutAddress)
-	} else {
+	case "wallet":
+		// Local-signing path: keys from the shared web3 wallet store,
+		// decrypted per send (keyring or RHIZOME_WALLET_PASSPHRASE).
+		snd = settlement.NewWalletSender(
+			client, web3.NewStaticProvider(ep.URL, ep.APIKey),
+			web3.OpenWalletStore(web3.WalletDir(home)),
+			mc.payoutAddress, mc.rail.ChainID)
+	default: // approval
 		snd = settlement.NewQueuedSender(
 			web3.OpenPendingStore(web3.WalletDir(home)), client,
 			mc.payoutAddress, mc.rail.ChainID)
@@ -222,7 +265,7 @@ func assembleRail(
 		"chain_id": mc.rail.ChainID, "source": string(ep.Source),
 		"signer": mc.signerMode,
 	})
-	return rail, client
+	return rail, ep
 }
 
 // mtimeOf returns a fingerprint string of the given files' mtimes — a

@@ -311,6 +311,7 @@ mesh manifest when `serve_enabled`) and a bounded `market-audit.jsonl`.
 | `market_index_enabled` / `market_index_url` / `market_index_pubkey` | no / yes / no | `false` / — / release key |
 | `buyer_address` / `buy_auto_release` / `settlement_signer` | no | default wallet / `true` / `approval` |
 | `escrow_chain_id` / `escrow_contract` / `escrow_token` / `escrow_arbiter` / `escrow_dispute_window` | no | — (unset contract = fixture rail) |
+| `escrow_allow_mainnet` / `escrow_watch_interval` | no | `false` / `60s` |
 
 ```bash
 rhizome module install rhizome-market   # once a release is pinned
@@ -372,11 +373,22 @@ substitute a different task. Settlement signing is human-gated by
 default: `settlement_signer=approval` queues each escrow tx into the
 shared `web3-pending.json` (`pending_ids` land on the purchase record);
 `direct` talks to unlocked/dev endpoints (anvil, FakeChain); `wallet`
-arrives in Track 104. `buy_auto_release=false` parks verified purchases
-in `awaiting_release` for `rhizome market release <id>`; failures park
-in `disputable` — `rhizome market dispute <id> [reason]` locks the
-escrow, `rhizome market refund <id>` withdraws after termination. A
-receipt that fails signature or hash verification never releases.
+(Track 104) signs locally with the buyer's key from the shared web3
+wallet store (keyring/`RHIZOME_WALLET_PASSPHRASE` decrypt, zeroed after
+each sign) — autonomous spend power, so `buyer_address` must resolve to
+a wallet-store key and `buy_max_cost_*` caps apply as usual. Chain
+pinning guards every real rail: the endpoint's live `eth_chainId` must
+equal `escrow_chain_id` at startup and on each wallet sign, and chain 1
+is refused unless `escrow_allow_mainnet=true`. On configured rails the
+module also runs an escrow event watcher — `eth_getLogs` per
+non-terminal purchase at `escrow_watch_interval` (0 disables) —
+transitioning purchases on observed Release/Lock/Withdraw/Resolve and
+auditing `market.escrow.event`. `buy_auto_release=false` parks verified
+purchases in `awaiting_release` for `rhizome market release <id>`;
+failures park in `disputable` — `rhizome market dispute <id> [reason]`
+locks the escrow, `rhizome market refund <id>` withdraws after
+termination. A receipt that fails signature or hash verification never
+releases.
 
 Notes:
 
@@ -392,7 +404,11 @@ Notes:
   serving and remote ACP are mutually exclusive per daemon.
 - `escrow_contract` unset ⇒ the fixture `SettlementRail` posture; setting
   it opts into Smart Invoice (`escrow_dispute_window` is seconds →
-  `terminationTime`).
+  `terminationTime`). The canonical Sepolia deployments the survey
+  pinned: factory `0x8227b9868e00B8eE951F17B480D369b84Cd17c20`, `escrow`
+  implementation `0x49B76dE305933d75fC0eAd6ef090F555bcCD9735` — the
+  escrow path stays **experimental** until the recorded testnet E2E
+  (v0.16.0 Track 132) lands.
 - `releases: []` until the first digest pin (Track 107) — the entry is
   visible but not installable yet.
 
