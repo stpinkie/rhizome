@@ -184,13 +184,33 @@ func (m *Manager) missingRequired(spec ModuleSpec) []string {
 	return missing
 }
 
-// binaryPath returns the installed binary path for a module.
+// binaryPath returns the installed binary path for a module. A spec with
+// Install.BinaryPath keeps the archive-relative layout — the binary
+// resolves under <version>/<binary_path> next to its bundled libraries.
 func (m *Manager) binaryPath(spec ModuleSpec) string {
+	dir := filepath.Join(m.Dir(spec.ID), m.installedVersion(spec.ID))
+	ver := m.installedVersion(spec.ID)
+	pin, ok := spec.Release(ver)
+	if !ok || pin.Version != ver {
+		// Uninstalled/stale install — expand {version} against the actual
+		// on-disk version dir, not the catalog's latest pin.
+		pin = ReleasePin{Version: ver}
+	}
+	rel := spec.BinaryRelPath(pin)
+	if rel != "" {
+		bp := filepath.Clean(filepath.FromSlash(rel))
+		if runtime.GOOS == "windows" && !strings.HasSuffix(bp, ".exe") {
+			if _, err := os.Stat(filepath.Join(dir, bp)); err == nil {
+				return filepath.Join(dir, bp)
+			}
+			bp += ".exe"
+		}
+		return filepath.Join(dir, bp)
+	}
 	name := spec.Install.Binary
 	if name == "" {
 		name = spec.ID
 	}
-	dir := filepath.Join(m.Dir(spec.ID), m.installedVersion(spec.ID))
 	if runtime.GOOS == "windows" && !strings.HasSuffix(name, ".exe") {
 		// Archives normally ship the .exe; a bare-name fallback keeps
 		// extensionless members (and tests) working.

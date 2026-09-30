@@ -93,7 +93,9 @@ func (m *Manager) installRelease(ctx context.Context, spec ModuleSpec, version s
 	if err := os.MkdirAll(dest, 0o700); err != nil {
 		return err
 	}
-	binPath, err := extractArchive(tmpPath, dest, spec.Install.Binary, spec.Asset(release))
+	binPath, err := extractArchive(
+		tmpPath, dest, spec.Install.Binary, spec.Asset(release),
+		spec.BinaryRelPath(release))
 	if err != nil {
 		_ = os.RemoveAll(dest)
 		return fmt.Errorf("module %q: extract failed: %w", spec.ID, err)
@@ -159,13 +161,15 @@ func (m *Manager) download(ctx context.Context, url string, w io.Writer) error {
 const maxMemberBytes = 512 << 20
 
 // extractArchive dispatches on the resolved asset suffix: .zip → extractZip,
-// .tar.gz/.tgz → extractTarGz, anything else refuses.
-func extractArchive(archivePath, dest, binaryName, assetName string) (string, error) {
+// .tar.gz/.tgz → extractTarGz, anything else refuses. binaryRelPath selects
+// layout-preserving extraction (no flatten — the binary stays at its
+// archive-relative location so co-packaged shared libraries resolve).
+func extractArchive(archivePath, dest, binaryName, assetName, binaryRelPath string) (string, error) {
 	switch {
 	case strings.HasSuffix(assetName, ".zip"):
-		return extractZip(archivePath, dest, binaryName)
+		return extractZip(archivePath, dest, binaryName, binaryRelPath)
 	case strings.HasSuffix(assetName, ".tar.gz"), strings.HasSuffix(assetName, ".tgz"):
-		return extractTarGz(archivePath, dest, binaryName)
+		return extractTarGz(archivePath, dest, binaryName, binaryRelPath)
 	default:
 		return "", fmt.Errorf("unsupported archive format: %s", assetName)
 	}
@@ -174,8 +178,11 @@ func extractArchive(archivePath, dest, binaryName, assetName string) (string, er
 // extractTarGz unpacks a .tar.gz into dest. It finds the module binary by
 // basename (allowing archives that wrap contents in a top-level directory),
 // marks it executable, refuses path-traversal entries, and returns the path
-// of the extracted binary ("" when binaryName is empty).
-func extractTarGz(archivePath, dest, binaryName string) (string, error) {
+// of the extracted binary ("" when binaryName is empty). When binaryRelPath
+// is set the archive layout is preserved — the binary is matched by its
+// full member path (binary_path), not flattened. Symlink and hardlink
+// members are refused outright (parity with extractZip).
+func extractTarGz(archivePath, dest, binaryName, binaryRelPath string) (string, error) {
 	//nolint:gosec // G304: archivePath is the download temp file just written.
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -189,6 +196,7 @@ func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 	defer func() { _ = gz.Close() }()
 
 	wantBase := binaryName
+	wantRel := filepath.Clean(filepath.FromSlash(binaryRelPath))
 	tr := tar.NewReader(gz)
 	binaryPath := ""
 	foundBinary := false
@@ -208,6 +216,9 @@ func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 		}
 		target := filepath.Join(dest, name)
 		switch hdr.Typeflag {
+		case tar.TypeSymlink, tar.TypeLink:
+			return "", fmt.Errorf(
+				"archive contains link member %q; links are not allowed", hdr.Name)
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o700); err != nil {
 				return "", err
@@ -217,7 +228,11 @@ func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 				return "", fmt.Errorf("archive member %q exceeds %d-byte cap", hdr.Name, maxMemberBytes)
 			}
 			base := filepath.Base(name)
-			if base == wantBase || base == wantBase+".exe" {
+			isBinary := base == wantBase || base == wantBase+".exe"
+			if binaryRelPath != "" {
+				// Layout-preserving mode: match the full member path.
+				isBinary = name == wantRel || name == wantRel+".exe"
+			} else if isBinary {
 				// Flatten the module binary to the version dir root so
 				// binaryPath finds it regardless of archive layout
 				// (e.g. nimbus ships it under build/).
@@ -247,7 +262,7 @@ func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 			if err := out.Close(); err != nil {
 				return "", err
 			}
-			if base == wantBase || base == wantBase+".exe" {
+			if isBinary {
 				//nolint:gosec // G302: the module binary must be executable.
 				_ = os.Chmod(target, 0o755)
 				binaryPath = target
@@ -255,8 +270,12 @@ func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 			}
 		}
 	}
-	if wantBase != "" && !foundBinary {
-		return "", fmt.Errorf("archive does not contain binary %q", wantBase)
+	if (wantBase != "" || binaryRelPath != "") && !foundBinary {
+		want := wantBase
+		if binaryRelPath != "" {
+			want = binaryRelPath
+		}
+		return "", fmt.Errorf("archive does not contain binary %q", want)
 	}
 	return binaryPath, nil
 }
@@ -267,8 +286,9 @@ func extractTarGz(archivePath, dest, binaryName string) (string, error) {
 // foundBinary error when absent. Windows-built zips may carry
 // File.Mode()==0 — members default to 0600, the binary to 0755. Zip-encoded
 // symlinks are rejected outright (a symlink member followed by a regular
-// member would let content escape dest through the link).
-func extractZip(archivePath, dest, binaryName string) (string, error) {
+// member would let content escape dest through the link). binaryRelPath
+// selects layout-preserving extraction (same semantics as extractTarGz).
+func extractZip(archivePath, dest, binaryName, binaryRelPath string) (string, error) {
 	zr, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("invalid zip: %w", err)
@@ -276,6 +296,7 @@ func extractZip(archivePath, dest, binaryName string) (string, error) {
 	defer func() { _ = zr.Close() }()
 
 	wantBase := binaryName
+	wantRel := filepath.Clean(filepath.FromSlash(binaryRelPath))
 	destClean := filepath.Clean(dest)
 	binaryPath := ""
 	foundBinary := false
@@ -311,7 +332,10 @@ func extractZip(archivePath, dest, binaryName string) (string, error) {
 		}
 		base := filepath.Base(name)
 		isBinary := base == wantBase || base == wantBase+".exe"
-		if isBinary {
+		if binaryRelPath != "" {
+			// Layout-preserving mode: match the full member path.
+			isBinary = name == wantRel || name == wantRel+".exe"
+		} else if isBinary {
 			// Flatten the module binary to the version dir root.
 			target = filepath.Join(dest, base)
 		}
@@ -352,10 +376,107 @@ func extractZip(archivePath, dest, binaryName string) (string, error) {
 			foundBinary = true
 		}
 	}
-	if wantBase != "" && !foundBinary {
-		return "", fmt.Errorf("archive does not contain binary %q", wantBase)
+	if (wantBase != "" || binaryRelPath != "") && !foundBinary {
+		want := wantBase
+		if binaryRelPath != "" {
+			want = binaryRelPath
+		}
+		return "", fmt.Errorf("archive does not contain binary %q", want)
 	}
 	return binaryPath, nil
+}
+
+// fetchFileSidecar is the marker written beside a fetched artifact —
+// "<dest>.digest" holds the verified sha256 so later starts can skip the
+// download when the pinned digest is unchanged.
+const fetchDigestSuffix = ".digest"
+
+// runFetches resolves and performs a module's catalog-declared downloads.
+// Each entry templates url/sha256/dest against the resolved field values;
+// entries whose url expands empty are skipped unless required. A fetched
+// file carries a <dest>.digest sidecar — a start is cheap when the pinned
+// digest is unchanged (the file is only re-read to hash when the marker
+// is absent or stale).
+func (m *Manager) runFetches(ctx context.Context, spec ModuleSpec) error {
+	if len(spec.Install.Fetch) == 0 {
+		return nil
+	}
+	values := m.resolvedFields(spec, true)
+	for i, f := range spec.Install.Fetch {
+		url := expand(f.URL, values)
+		if url == "" || strings.Contains(url, "{") {
+			// Unset field (placeholder left literal) behaves as empty.
+			if f.Required {
+				return fmt.Errorf(
+					"module %q: fetch %d url resolved empty (required field unset?)", spec.ID, i)
+			}
+			continue
+		}
+		want := strings.ToLower(expand(f.SHA256, values))
+		if want == "" || strings.Contains(want, "{") {
+			return fmt.Errorf(
+				"module %q: fetch %d has a url but no sha256 — digest-pin the download", spec.ID, i)
+		}
+		dest := expand(f.Dest, values)
+		if dest == "" || strings.Contains(dest, "{") {
+			return fmt.Errorf("module %q: fetch %d dest resolved empty", spec.ID, i)
+		}
+		if !filepath.IsAbs(dest) {
+			return fmt.Errorf("module %q: fetch %d dest %q is not absolute", spec.ID, i, dest)
+		}
+		if err := m.fetchOne(ctx, spec.ID, url, want, dest); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fetchOne downloads url to dest when the recorded digest doesn't already
+// match want. The stream is hashed while writing — a mismatch refuses
+// before the file lands at dest.
+func (m *Manager) fetchOne(ctx context.Context, id, url, want, dest string) error {
+	if !strings.HasPrefix(url, "https://") && !isLoopbackURL(url) {
+		return fmt.Errorf("module %q: fetch url is not HTTPS: %s", id, url)
+	}
+	marker := dest + fetchDigestSuffix
+	//nolint:gosec // G304: marker derives from the catalog-declared dest.
+	if cur, err := os.ReadFile(marker); err == nil {
+		if strings.TrimSpace(string(cur)) == want {
+			if _, err := os.Stat(dest); err == nil {
+				return nil // already fetched and digest-verified
+			}
+		}
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".fetch-*")
+	if err != nil {
+		if mkerr := os.MkdirAll(filepath.Dir(dest), 0o700); mkerr != nil {
+			return err
+		}
+		if tmp, err = os.CreateTemp(filepath.Dir(dest), ".fetch-*"); err != nil {
+			return err
+		}
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	sum := sha256.New()
+	if err := m.download(ctx, url, io.MultiWriter(tmp, sum)); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("module %q: fetch %s failed: %w", id, url, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(sum.Sum(nil)); got != want {
+		return fmt.Errorf(
+			"module %q: fetch %s sha256 mismatch — got %s, want %s (refusing)", id, url, got, want)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return fmt.Errorf("module %q: fetch rename: %w", id, err)
+	}
+	return os.WriteFile(marker, []byte(want+"\n"), 0o600)
 }
 
 // detectBinary resolves a "detect"-method module by finding its binary on
