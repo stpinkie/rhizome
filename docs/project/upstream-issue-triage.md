@@ -11,6 +11,41 @@ Issue numbers below refer to `sipeed/picoclaw` issues. Links of the form
 `stpinkie/rhizome/issues/NNN` in `ROADMAP.md` are rebrand-rewrites of these
 upstream numbers and do not resolve to a live Rhizome tracker.
 
+## v0.18.0 Track 148 sweep (2026-09-30)
+
+**Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) —
+`git rev-list bbf6893c..upstream/main` returns 0. **No new upstream commits
+to cherry-pick**; upstream merges are dormant (latest merged PR is #3286,
+2026-07-23). This is the first executed sweep since Track 108 — the
+v0.15.0–v0.17.0 sweeps were planned but their sprints have not run.
+
+**Picked**: none — nothing to pick.
+
+**New issues filed since the last sweep** (2026-09-25 → 2026-09-30):
+
+| Item | What | Verdict |
+|---|---|---|
+| Issue #3408 | Web UI queues sends while the agent is busy, then silently drops them when the queue fills; asks for a queue/events surface | **Verify** — Rhizome's chat path is WebSocket-based (`web/frontend/src/features/chat/websocket.ts`) and diverged post-fork; no `queuedMessages`/`sendQueue` surface found, but busy-turn drop behavior is unconfirmed |
+| Issue #3407 | Web UI session vanishes from the list while the model is still thinking ("ghost session") | **Verify** — same caveat: rewritten web session handling; not confirmed applicable |
+| Issue #3404 | "Reliability fixes with reproducers (wave 1)" tracking issue | **Watch** — check for linked fix PRs next sweep; port applicable reproducer fixes |
+| Issue #3394 | QQ channel: upstream reports QQ's API drifted and the channel no longer works | **Verify** — `pkg/channels/qq` is inherited code; check against current QQ bot API before next release |
+| Issue #3406 | Feature: clearer working indicator, session archiving | Deferred — feature, not a fix |
+| Issue #3397 | Feature: Tsubasa OpenAI-compatible provider preset | Deferred — `openai-compatible` preset already covers the mechanism |
+| Issue #3395 | Feature: OneBot `reaction_enabled` setting | Deferred — feature, not a fix |
+| Issue #3398 | Fork maintenance notice | Not applicable — informational |
+| Issue #3405 | Private vulnerability reporting request | Not applicable — upstream repo process, not Rhizome code |
+| Issue #3392 | CLAassistant signature detection | Not applicable — upstream CI plumbing |
+
+**Watch list** (carried, statuses re-verified this sweep):
+
+| Item | State 2026-09-30 |
+|---|---|
+| PR #3381 (OpenAI → Responses API) | Still **open**, unmerged — keep waiting; an unmerged wire-protocol switch stays unportable |
+| `dingtalk-stream-sdk-go` fix for #3382 | Still **blocked** — latest tag remains `v0.9.2-beta.1` (unverifiable beta); issue #3382 open; restore waits on a stable release |
+| PR #3371 (opencode-go) | Still open — ported adapted in Track 108; keep watching for follow-ups |
+| Feature-PR sign-off batch (#3370, #3354, #3368, #3259, #3222, #1951) | All still open — batch stays queued v0.20.0+ |
+| Issues #3404/#3394/#3407/#3408 | New watch entries — see verdicts above |
+
 ## v0.14.0 Track 108 sweep (2026-09-25)
 
 **Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) — the GitHub

@@ -777,6 +777,13 @@ func setupAndStartServices(
 		}
 	}
 
+	evolutionHdl := newEvolutionHandler(agentLoop, cfg, authToken)
+	for _, path := range []string{"/evolution", "/evolution/"} {
+		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, evolutionHdl); err != nil {
+			return nil, fmt.Errorf("error registering evolution handler %s: %w", path, err)
+		}
+	}
+
 	// Log watches poll eth_getLogs into web3.event runtime events.
 	if cfg.Tools.Web3.Enabled && len(cfg.Tools.Web3.Watches) > 0 {
 		stack, werr := web3.OpenSigningStack(homePath, &cfg.Tools.Web3.Signing)

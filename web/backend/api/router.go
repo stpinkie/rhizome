@@ -123,6 +123,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Network mesh and DHT status
 	h.registerNetworkRoutes(mux)
 
+	// Agent self-evolution (proxied to the daemon's /evolution/*)
+	h.registerEvolutionRoutes(mux)
+
 	// WeChat QR login flow
 	h.registerWeixinRoutes(mux)
 
