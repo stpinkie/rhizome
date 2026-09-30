@@ -96,7 +96,10 @@ func (s *Supervisor) StartEnabled() {
 	}
 }
 
-// Start launches a daemon-kind module and begins supervising it.
+// Start launches a module through the supervisor. Daemon-kind modules
+// get restart-on-exit supervision; ondemand modules launch once — the
+// process exits on its own terms and is never restarted (llama-server
+// posture: a long-lived server the operator starts and stops).
 func (s *Supervisor) Start(id string) error {
 	if s.closed.Load() {
 		return fmt.Errorf("module supervisor is shut down")
@@ -108,14 +111,12 @@ func (s *Supervisor) Start(id string) error {
 	if spec.Kind == KindConfig {
 		return fmt.Errorf("module %q is config-only — nothing to run", id)
 	}
-	if spec.Kind == KindOnDemand {
-		return fmt.Errorf("module %q is on-demand — it is launched by its consumer, not supervised", id)
-	}
 	return s.launch(spec, restartMinDelay)
 }
 
 // launch starts one process instance and hands it to a monitor goroutine.
-// delay is the restart backoff seed (restartMinDelay for a fresh start).
+// delay is the restart backoff seed (restartMinDelay for a fresh start);
+// KindOnDemand modules are monitored but never restarted on exit.
 func (s *Supervisor) launch(spec ModuleSpec, delay time.Duration) error {
 	s.mu.Lock()
 	if _, running := s.running[spec.ID]; running {
@@ -130,6 +131,12 @@ func (s *Supervisor) launch(spec ModuleSpec, delay time.Duration) error {
 
 	cmd, err := s.mgr.buildCommand(s.ctx, spec)
 	if err != nil {
+		return err
+	}
+	// Declared fetches (e.g. model weights) run before the process
+	// launches — a download failure fails the start, never half-launches.
+	// Ordered after buildCommand so a missing binary errors cheaply.
+	if err := s.mgr.runFetches(s.ctx, spec); err != nil {
 		return err
 	}
 	stdout, stderr, err := openLogs(s.mgr.Dir(spec.ID))
@@ -230,6 +237,15 @@ func (s *Supervisor) monitor(spec ModuleSpec, p *proc, stdout, stderr *os.File, 
 		s.mgr.publish("module.stopped", map[string]any{"module": spec.ID})
 		return
 	}
+	if spec.Kind == KindOnDemand {
+		// On-demand exit is final — the consumer's request ended or the
+		// operator stopped it; no restart supervision.
+		_ = s.mgr.saveState(spec.ID, st)
+		s.mgr.publish("module.stopped", map[string]any{
+			"module": spec.ID, "exit": st.LastExit,
+		})
+		return
+	}
 	st.Restarts++
 	_ = s.mgr.saveState(spec.ID, st)
 
@@ -324,7 +340,15 @@ func (m *Manager) buildCommand(ctx context.Context, spec ModuleSpec) (*exec.Cmd,
 	values := m.resolvedFields(spec, true)
 	var args []string
 	for _, f := range spec.ConfigFields {
-		if f.Arg == "" || values[f.Key] == "" {
+		if values[f.Key] == "" {
+			continue
+		}
+		if f.Split && f.Arg == "" {
+			// Free-form field: whitespace-split, appended verbatim.
+			args = append(args, strings.Fields(values[f.Key])...)
+			continue
+		}
+		if f.Arg == "" {
 			continue
 		}
 		if f.Flag {

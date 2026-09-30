@@ -40,11 +40,15 @@ const (
 // modules.<id>.secrets and masked in logs/UI; everything else lives under
 // modules.<id>.fields.
 type ConfigField struct {
-	Key      string `json:"key"`                // modules.<id>.fields/secrets key
-	Label    string `json:"label"`              // UI label
-	Env      string `json:"env,omitempty"`      // env var passed to the module process
-	Arg      string `json:"arg,omitempty"`      // CLI flag passed as --<arg>=<value>
-	Flag     bool   `json:"flag,omitempty"`     // with Arg: emit bare --<arg> when value is truthy (true/1/yes/on)
+	Key   string `json:"key"`            // modules.<id>.fields/secrets key
+	Label string `json:"label"`          // UI label
+	Env   string `json:"env,omitempty"`  // env var passed to the module process
+	Arg   string `json:"arg,omitempty"`  // CLI flag passed as --<arg>=<value>
+	Flag  bool   `json:"flag,omitempty"` // with Arg: emit bare --<arg> when value is truthy (true/1/yes/on)
+	// Split, with Arg unset, splits the value on whitespace and appends each
+	// element verbatim to argv — the free-form escape hatch (extra_args).
+	// No quoting/escaping is honored; values with spaces cannot be expressed.
+	Split    bool   `json:"split,omitempty"`
 	Secret   bool   `json:"secret,omitempty"`   // store under secrets, mask in logs/UI
 	Required bool   `json:"required,omitempty"` // required to run/enable the module
 	Default  string `json:"default,omitempty"`  // applied when unset
@@ -122,15 +126,57 @@ type InstallSpec struct {
 	// differ — e.g. {"darwin": "macos"} for projects that label macOS
 	// assets "macos".
 	OSAliases map[string]string `json:"os_aliases,omitempty"`
+	// ArchAliases maps GOARCH names to the upstream asset naming when they
+	// differ — e.g. {"amd64": "x64"} for projects that label x86-64
+	// assets "x64" (llama.cpp). Applies to asset/signature templates.
+	ArchAliases map[string]string `json:"arch_aliases,omitempty"`
 	// Releases pins installable versions (newest last). Empty means "no
 	// pinned releases yet" — the module cannot be installed.
 	Releases []ReleasePin `json:"releases,omitempty"`
 	// Binary is the executable name inside the archive / on PATH.
 	Binary string `json:"binary,omitempty"`
+	// BinaryPath is the archive-relative location of the executable when
+	// the archive must keep its layout (multi-binary + shared-library
+	// distributions like llama.cpp where flattening orphans the loader's
+	// libs — e.g. "bin/llama-server"). Supports {version}/{goos}/{goarch}/
+	// {build} placeholders (aliases applied). When set, extraction does
+	// not flatten and the run binary resolves to <version>/<binary_path>.
+	// Absent → the named Binary is flattened to the version-dir root.
+	BinaryPath string `json:"binary_path,omitempty"`
+	// BinaryPaths overrides BinaryPath per runtime GOOS name — e.g.
+	// {"windows": "llama-server"} when one platform's archive is flat but
+	// others nest the binary in a directory.
+	BinaryPaths map[string]string `json:"binary_paths,omitempty"`
+	// Fetch lists additional downloads resolved before the module starts —
+	// e.g. digest-pinned model weights for llama.cpp. Destinations live
+	// outside <version>/ so reinstalling the binary never re-downloads.
+	Fetch []FetchSpec `json:"fetch,omitempty"`
 	// NpmPackage is the package name for the "npm" method (defaults to Binary).
 	NpmPackage string `json:"npm_package,omitempty"`
 	// Hint is shown when Method is "detect" or an install fails.
 	Hint string `json:"hint,omitempty"`
+}
+
+// FetchSpec is one extra download a module performs before starting —
+// template-expanded against resolved field values, sha256-verified on
+// the wire exactly like installRelease. A fetched artifact carries a
+// "<dest>.digest" sidecar so later starts skip the download when the
+// pinned digest is unchanged.
+type FetchSpec struct {
+	// URL is the download URL; "{key}" placeholders resolve from the
+	// module's field values (e.g. "{model_url}"). An empty resolved URL
+	// skips the fetch unless Required.
+	URL string `json:"url"`
+	// SHA256 is the expected lowercase hex digest; "{key}" placeholders
+	// resolve from fields (e.g. "{model_sha256}"). Required whenever the
+	// resolved URL is non-empty — fetches are never TLS-only.
+	SHA256 string `json:"sha256"`
+	// Dest is the destination path; "{key}" placeholders resolve from
+	// fields, and "{module_dir}" resolves to the module directory.
+	Dest string `json:"dest"`
+	// Required makes an empty resolved URL a start-time error instead of
+	// a skip.
+	Required bool `json:"required,omitempty"`
 }
 
 // RunSpec describes how a daemon/on-demand module is launched.
@@ -275,6 +321,7 @@ func (s ModuleSpec) Tag(r ReleasePin) string {
 // Asset resolves the asset filename for a pin and platform.
 func (s ModuleSpec) Asset(r ReleasePin) string {
 	goos := runtime.GOOS
+	goarch := runtime.GOARCH
 	tmpl := s.Install.AssetTemplate
 	if t := s.Install.AssetTemplates[goos]; t != "" {
 		tmpl = t
@@ -282,9 +329,40 @@ func (s ModuleSpec) Asset(r ReleasePin) string {
 	if alias, ok := s.Install.OSAliases[goos]; ok {
 		goos = alias
 	}
+	if alias, ok := s.Install.ArchAliases[goarch]; ok {
+		goarch = alias
+	}
 	return expand(tmpl, map[string]string{
 		"goos":    goos,
-		"goarch":  runtime.GOARCH,
+		"goarch":  goarch,
+		"version": r.Version,
+		"build":   r.Build,
+	})
+}
+
+// BinaryRelPath resolves the archive-relative binary path for a pin —
+// BinaryPaths[GOOS] wins over BinaryPath, then {version}/{goos}/{goarch}/
+// {build} placeholders expand (with the same OS/arch aliasing as Asset).
+// Empty means "flatten mode": the named Binary lands at the dir root.
+func (s ModuleSpec) BinaryRelPath(r ReleasePin) string {
+	tmpl := s.Install.BinaryPath
+	if t := s.Install.BinaryPaths[runtime.GOOS]; t != "" {
+		tmpl = t
+	}
+	if tmpl == "" {
+		return ""
+	}
+	goos := runtime.GOOS
+	if alias, ok := s.Install.OSAliases[goos]; ok {
+		goos = alias
+	}
+	goarch := runtime.GOARCH
+	if alias, ok := s.Install.ArchAliases[goarch]; ok {
+		goarch = alias
+	}
+	return expand(tmpl, map[string]string{
+		"goos":    goos,
+		"goarch":  goarch,
 		"version": r.Version,
 		"build":   r.Build,
 	})
@@ -315,11 +393,15 @@ func (s ModuleSpec) SignatureURL(r ReleasePin) string {
 	if alias, ok := s.Install.OSAliases[goos]; ok {
 		goos = alias
 	}
+	goarch := runtime.GOARCH
+	if alias, ok := s.Install.ArchAliases[goarch]; ok {
+		goarch = alias
+	}
 	return expand(r.Signature.URL, map[string]string{
 		"version": r.Version,
 		"build":   r.Build,
 		"goos":    goos,
-		"goarch":  runtime.GOARCH,
+		"goarch":  goarch,
 		"asset":   s.Asset(r),
 		"tag":     s.Tag(r),
 	})
@@ -719,6 +801,215 @@ var catalog = []ModuleSpec{
 			"once a released asset is pinned (Track 107). Audit trail: " +
 			"market-audit.jsonl under the module dir.",
 	},
+	{
+		ID: "llama-cpp", Name: "llama.cpp server (CPU)",
+		Kind:    KindOnDemand,
+		License: "MIT",
+		Description: "Local OpenAI-compatible LLM serving via llama-server " +
+			"(ggml-org/llama.cpp). On-demand module: `module start` launches " +
+			"the server once — an exit is final, never auto-restarted. The " +
+			"CPU build is the everywhere baseline; macOS binaries already " +
+			"include Metal acceleration.",
+		// Upstream ships llama-{ver}-bin-{ubuntu|macos|win-cpu}-{x64|arm64}
+		// — nested dir layout on tar.gz, flat on zip.
+		Platforms: []string{
+			"linux/amd64", "linux/arm64",
+			"darwin/amd64", "darwin/arm64",
+			"windows/amd64", "windows/arm64",
+		},
+		Install: InstallSpec{
+			Method:      "github-release",
+			Repo:        "ggml-org/llama.cpp",
+			TagTemplate: "{version}",
+			AssetTemplates: map[string]string{
+				"linux":   "llama-{version}-bin-ubuntu-{goarch}.tar.gz",
+				"darwin":  "llama-{version}-bin-macos-{goarch}.tar.gz",
+				"windows": "llama-{version}-bin-win-cpu-{goarch}.zip",
+			},
+			ArchAliases: map[string]string{"amd64": "x64"},
+			Binary:      "llama-server",
+			BinaryPath:  "llama-{version}/llama-server",
+			BinaryPaths: map[string]string{
+				// The windows zip ships flat — no nesting dir.
+				"windows": "llama-server",
+			},
+			// Model weights are a declared fetch: digest-pinned, stored
+			// outside <version>/ so binary upgrades never re-download.
+			Fetch: []FetchSpec{
+				{
+					URL:      "{model_url}",
+					SHA256:   "{model_sha256}",
+					Dest:     "{model_path}",
+					Required: true,
+				},
+			},
+			Releases: []ReleasePin{
+				{
+					Version: "b11280",
+					SHA256: map[string]string{
+						"linux/amd64":   "cffc2435c44b5dde73cf0f201497f27d68b49e31377a880ced8fa994bc1041f0",
+						"linux/arm64":   "8c59358a4068e3d219a5283844d8e140e1e6990832b33e411ed963a4ccbaa9e6",
+						"darwin/amd64":  "ef82c4261d3b6c388bd99525320c3a9e1245254bcbb4036ed30f10e3a28f8796",
+						"darwin/arm64":  "75ebf3cb0fe6f0b8111ace58ee84a49eb65c7108a1af7747bfc8a5b099ae6abd",
+						"windows/amd64": "656679929d893164f970b2d4b622c32ad9c51245ba820c736159a932683e0df9",
+						"windows/arm64": "d216e6d4686d487b9910908fd55a0f2efada7b70f8f684c0004631d50a0a6182",
+					},
+				},
+			},
+		},
+		Run:    RunSpec{Workdir: "."},
+		Health: HealthSpec{Type: "http", Target: "http://127.0.0.1:{port}", Method: "/health"},
+		ConfigFields: []ConfigField{
+			{
+				Key:      "model_url",
+				Label:    "Model weights URL (https://… — GGUF, fetched once, digest-verified)",
+				Secret:   true, // URLs may embed a signed token — treat as sensitive
+				Required: true,
+			},
+			{
+				Key:      "model_sha256",
+				Label:    "Model weights sha256 (lowercase hex — fetch refuses on mismatch)",
+				Required: true,
+			},
+			{
+				Key:     "model_path",
+				Label:   "On-disk model path (fetch destination + --model arg)",
+				Arg:     "model",
+				Default: "{module_dir}/models/model.gguf",
+			},
+			{Key: "port", Label: "Listen port (loopback)", Arg: "port", Default: "8080"},
+			{Key: "ctx_size", Label: "Context size (tokens)", Arg: "ctx-size", Default: "4096"},
+			{Key: "threads", Label: "CPU threads (unset = llama-server default)", Arg: "threads"},
+			{
+				Key:     "gpu_layers",
+				Label:   "Layers offloaded to GPU (0 = CPU-only; on the CPU build keep 0)",
+				Arg:     "n-gpu-layers",
+				Default: "0",
+			},
+			{
+				Key:    "api_key",
+				Label:  "Bearer key for the OpenAI API (lands in argv — llama-server has no env secret)",
+				Arg:    "api-key",
+				Secret: true,
+			},
+			{Key: "mlock", Label: "Lock model into RAM (--mlock)", Arg: "mlock", Flag: true},
+			{
+				Key:     "flash_attn",
+				Label:   "Flash attention (--flash-attn)",
+				Arg:     "flash-attn",
+				Flag:    true,
+				Default: "true",
+			},
+			{
+				Key:   "extra_args",
+				Label: "Extra llama-server args (whitespace-separated, appended verbatim)",
+				Split: true,
+			},
+		},
+		Notes: "OpenAI-compatible endpoint at http://127.0.0.1:{port}/v1 " +
+			"once /health reports ready. The model_url/model_sha256 pair is " +
+			"required — the weights fetch runs before every start but skips " +
+			"when the recorded digest is unchanged. macOS builds include " +
+			"Metal already; use llama-cpp-vulkan for discrete GPUs. CUDA is " +
+			"deferred: upstream ships it as a companion cudart archive this " +
+			"single-pin model cannot express yet.",
+	},
+	{
+		ID: "llama-cpp-vulkan", Name: "llama.cpp server (Vulkan)",
+		Kind:    KindOnDemand,
+		License: "MIT",
+		Description: "llama-server with Vulkan GPU offload (ggml-org/llama.cpp). " +
+			"Same field surface as llama-cpp — gpu_layers defaults to " +
+			"offloading everything. Requires a working Vulkan driver.",
+		// Vulkan builds ship for ubuntu-{x64,arm64} and win-x64 only.
+		Platforms: []string{"linux/amd64", "linux/arm64", "windows/amd64"},
+		Install: InstallSpec{
+			Method:      "github-release",
+			Repo:        "ggml-org/llama.cpp",
+			TagTemplate: "{version}",
+			AssetTemplates: map[string]string{
+				"linux":   "llama-{version}-bin-ubuntu-vulkan-{goarch}.tar.gz",
+				"windows": "llama-{version}-bin-win-vulkan-{goarch}.zip",
+			},
+			ArchAliases: map[string]string{"amd64": "x64"},
+			Binary:      "llama-server",
+			BinaryPath:  "llama-{version}/llama-server",
+			BinaryPaths: map[string]string{
+				"windows": "llama-server",
+			},
+			Fetch: []FetchSpec{
+				{
+					URL:      "{model_url}",
+					SHA256:   "{model_sha256}",
+					Dest:     "{model_path}",
+					Required: true,
+				},
+			},
+			Releases: []ReleasePin{
+				{
+					Version: "b11280",
+					SHA256: map[string]string{
+						"linux/amd64":   "cf44fce20242cbdcaeb2bd52266143d894a1c598890ed798d98c1214143ff8a0",
+						"linux/arm64":   "4e68e106194b7e732fdaa90b32dff8bd696f677edd5d21dfcd8fcf17da5cb7c5",
+						"windows/amd64": "439f6d1b958522e25566f40d717babea56b4067c9c9bd08e3f4107295fd155bd",
+					},
+				},
+			},
+		},
+		Run:    RunSpec{Workdir: "."},
+		Health: HealthSpec{Type: "http", Target: "http://127.0.0.1:{port}", Method: "/health"},
+		ConfigFields: []ConfigField{
+			{
+				Key:      "model_url",
+				Label:    "Model weights URL (https://… — GGUF, fetched once, digest-verified)",
+				Secret:   true,
+				Required: true,
+			},
+			{
+				Key:      "model_sha256",
+				Label:    "Model weights sha256 (lowercase hex — fetch refuses on mismatch)",
+				Required: true,
+			},
+			{
+				Key:     "model_path",
+				Label:   "On-disk model path (fetch destination + --model arg)",
+				Arg:     "model",
+				Default: "{module_dir}/models/model.gguf",
+			},
+			{Key: "port", Label: "Listen port (loopback)", Arg: "port", Default: "8080"},
+			{Key: "ctx_size", Label: "Context size (tokens)", Arg: "ctx-size", Default: "4096"},
+			{Key: "threads", Label: "CPU threads (unset = llama-server default)", Arg: "threads"},
+			{
+				Key:     "gpu_layers",
+				Label:   "Layers offloaded to GPU (99 = all; lower to share VRAM)",
+				Arg:     "n-gpu-layers",
+				Default: "99",
+			},
+			{
+				Key:    "api_key",
+				Label:  "Bearer key for the OpenAI API (lands in argv — llama-server has no env secret)",
+				Arg:    "api-key",
+				Secret: true,
+			},
+			{Key: "mlock", Label: "Lock model into RAM (--mlock)", Arg: "mlock", Flag: true},
+			{
+				Key:     "flash_attn",
+				Label:   "Flash attention (--flash-attn)",
+				Arg:     "flash-attn",
+				Flag:    true,
+				Default: "true",
+			},
+			{
+				Key:   "extra_args",
+				Label: "Extra llama-server args (whitespace-separated, appended verbatim)",
+				Split: true,
+			},
+		},
+		Notes: "Same contract as llama-cpp — required model_url/" +
+			"model_sha256 fetch, OpenAI-compatible API on 127.0.0.1:{port}. " +
+			"CUDA is deferred (companion cudart archive); on macOS the CPU " +
+			"module's binaries already carry Metal.",
+	},
 }
 
 // Catalog returns the static list of companion modules.
@@ -756,7 +1047,10 @@ func Lookup(id string) (ModuleSpec, bool) {
 // v4 adds ModuleSpec.protocols — a binary that cannot bridge a declared
 // protocol must not silently drop it, so catalogs declaring protocols must
 // declare version 4.
-const catalogVersionSupported = 4
+// v5 adds InstallSpec.binary_path/arch_aliases/fetch — a binary that
+// flattens archives or skips fetches would misrun layout-preserving
+// modules, so catalogs using them must declare version 5.
+const catalogVersionSupported = 5
 
 // catalogVersionRequired returns the lowest schema version that covers the
 // given module set — MarshalCatalog emits it rather than always emitting
@@ -776,6 +1070,10 @@ func catalogVersionRequired(specs []ModuleSpec) int {
 		}
 		if len(spec.Protocols) > 0 {
 			v = 4
+		}
+		if spec.Install.BinaryPath != "" || len(spec.Install.BinaryPaths) > 0 ||
+			len(spec.Install.ArchAliases) > 0 || len(spec.Install.Fetch) > 0 {
+			v = 5
 		}
 	}
 	return v

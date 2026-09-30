@@ -494,7 +494,7 @@ func TestExtractTarGzRejectsTraversal(t *testing.T) {
 	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := extractTarGz(archive, t.TempDir(), ""); err == nil ||
+	if _, err := extractTarGz(archive, t.TempDir(), "", ""); err == nil ||
 		!strings.Contains(err.Error(), "unsafe path") {
 		t.Fatalf("expected traversal rejection, got %v", err)
 	}
@@ -766,7 +766,7 @@ func TestExtractZipRejectsTraversal(t *testing.T) {
 	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := extractZip(archive, t.TempDir(), ""); err == nil ||
+	if _, err := extractZip(archive, t.TempDir(), "", ""); err == nil ||
 		!strings.Contains(err.Error(), "unsafe path") {
 		t.Fatalf("expected traversal rejection, got %v", err)
 	}
@@ -788,7 +788,7 @@ func TestExtractZipRejectsSymlink(t *testing.T) {
 	if err := os.WriteFile(archive, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := extractZip(archive, t.TempDir(), ""); err == nil ||
+	if _, err := extractZip(archive, t.TempDir(), "", ""); err == nil ||
 		!strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("expected symlink rejection, got %v", err)
 	}
@@ -800,7 +800,7 @@ func TestExtractZipRejectsMissingBinary(t *testing.T) {
 	if err := os.WriteFile(archive, asset, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := extractZip(archive, t.TempDir(), "wantedbin"); err == nil ||
+	if _, err := extractZip(archive, t.TempDir(), "wantedbin", ""); err == nil ||
 		!strings.Contains(err.Error(), "does not contain binary") {
 		t.Fatalf("expected missing-binary error, got %v", err)
 	}
@@ -1040,18 +1040,18 @@ func TestCatalogVersionBump(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Emitted version is the lowest covering the content: the embedded
-	// catalog carries a protocols-declaring module (rhizome-market, v4)
-	// but no v3 signature declarations, so it emits 4.
-	if env.CatalogVersion != 4 {
-		t.Fatalf("MarshalCatalog emitted catalog_version %d, want 4", env.CatalogVersion)
+	// catalog carries fetch/binary_path users (llama-*, v5), so it
+	// emits 5.
+	if env.CatalogVersion != 5 {
+		t.Fatalf("MarshalCatalog emitted catalog_version %d, want 5", env.CatalogVersion)
 	}
-	// v1 catalogs still parse (additive schema), v5 refuses.
+	// v1 catalogs still parse (additive schema), v6 refuses.
 	if _, err := parseCatalogEnvelope(
 		[]byte(`{"catalog_version":1,"modules":[]}`)); err != nil {
 		t.Fatalf("v1 catalog refused: %v", err)
 	}
 	if _, err := parseCatalogEnvelope(data); err != nil {
-		t.Fatalf("v4 catalog refused: %v", err)
+		t.Fatalf("v5 catalog refused: %v", err)
 	}
 	if _, err := parseCatalogEnvelope(
 		[]byte(`{"catalog_version":3,"modules":[]}`)); err != nil {
@@ -1062,8 +1062,8 @@ func TestCatalogVersionBump(t *testing.T) {
 		t.Fatalf("v4 catalog refused: %v", err)
 	}
 	if _, err := parseCatalogEnvelope(
-		[]byte(`{"catalog_version":5,"modules":[]}`)); err == nil {
-		t.Fatal("v5 catalog accepted")
+		[]byte(`{"catalog_version":6,"modules":[]}`)); err == nil {
+		t.Fatal("v6 catalog accepted")
 	}
 }
 

@@ -10,7 +10,7 @@ Three module kinds:
 | Kind       | Lifecycle                                                          |
 | ---------- | ------------------------------------------------------------------ |
 | `daemon`   | Long-running supervised process; autostarts with `rhizome daemon`.    |
-| `ondemand` | Binary spawned per use; installed and health-checked, not supervised. |
+| `ondemand` | `module start` launches once — exit is final, never auto-restarted.    |
 | `config`   | No process — exposes a configured endpoint to the rest of the system. |
 
 ## CLI
@@ -412,6 +412,49 @@ Notes:
 - `releases: []` until the first digest pin (Track 107) — the entry is
   visible but not installable yet.
 
+### `llama-cpp` / `llama-cpp-vulkan` (ondemand)
+
+[llama.cpp](https://github.com/ggml-org/llama.cpp) — a local OpenAI-compatible
+LLM server (`llama-server`). On-demand: `module start` launches it once and an
+exit is final — no restart supervision. `llama-cpp` is the CPU build (macOS
+binaries already carry Metal); `llama-cpp-vulkan` is the discrete-GPU variant
+for linux/windows hosts with a working Vulkan driver. CUDA is deferred —
+upstream ships it as a companion `cudart` archive pair a single release pin
+cannot express yet.
+
+| Field | Secret | Required | Default |
+| ----- | ------ | -------- | ------- |
+| `model_url` | yes | yes | — |
+| `model_sha256` | no | yes | — |
+| `model_path` | no | no | `{module_dir}/models/model.gguf` |
+| `port` | no | no | `8080` |
+| `ctx_size` / `threads` / `gpu_layers` | no | no | `4096` / — / `0` (`99` on vulkan) |
+| `api_key` | yes | no | — (lands in argv — no env-secret support upstream) |
+| `mlock` / `flash_attn` | no | no | off / `true` |
+| `extra_args` | no | no | — (whitespace-split, appended verbatim) |
+
+The model weights are a **declared fetch**: before every start the module
+downloads `model_url` to `model_path`, verifies it against `model_sha256`
+(sha256 is required whenever a URL resolves — fetches are never TLS-only),
+and skips the download entirely when the `<dest>.digest` sidecar already
+matches. `model_url` is a secret — it may embed a signed-token URL. Archives
+keep their upstream layout (`binary_path`): the nested `llama-bNNNNN/` dir
+on linux/macos, flat on windows, so the co-packaged shared libraries resolve
+next to the binary.
+
+```bash
+rhizome module install llama-cpp
+rhizome module set --secret llama-cpp model_url=https://…/model.gguf
+rhizome module set llama-cpp model_sha256=<lowercase hex>
+rhizome module start llama-cpp
+# OpenAI-compatible API: http://127.0.0.1:8080/v1  (health: GET /health)
+```
+
+Point Rhizome's provider config at `http://127.0.0.1:{port}/v1` once
+`/health` reports ready. Platforms: cpu on linux amd64/arm64, darwin
+amd64/arm64, windows amd64/arm64; vulkan on linux amd64/arm64 +
+windows amd64.
+
 ## Security model
 
 - Releases are **pinned** in the catalog: exact version + build plus a
@@ -420,8 +463,10 @@ Notes:
   the digest, then extracts; tampered or truncated downloads are rejected.
 - No user-supplied download URLs — the catalog is the only source of truth.
 - `.tar.gz` and `.zip` archives extract under traversal/size guards (no
-  `..`/absolute members, no symlinks, per-member size cap); the module
-  binary is flattened to the version-dir root.
+  `..`/absolute members, no symlinks/hardlinks, per-member size cap); the
+  module binary is flattened to the version-dir root unless the entry
+  declares `binary_path` (schema v5), which keeps the archive layout so
+  co-packaged shared libraries resolve (llama.cpp's nested dir).
 - Catalog `run` blocks may declare one-time `init_args` (guarded by
   `init_marker`) and per-launch `setup_args` for repo/config writes —
   kubo uses these for `ipfs init` and `ipfs config Addresses.*`.
@@ -448,6 +493,12 @@ Notes:
   splice; a token resolves to exactly one module and its declared
   allowlist. Inbound peer streams additionally require the peer to be in
   `mesh.trusted_peers` — refused before a single byte reaches the module.
+- **Declared fetches (catalog schema v5)** — an entry's `fetch` list is
+  resolved before every start: each URL is field-templated (`{model_url}`),
+  always digest-pinned (sha256 is required when a URL resolves), HTTPS-only,
+  and skipped when the `<dest>.digest` sidecar already matches. Destinations
+  must be absolute — keep them under `{module_dir}` but outside `<version>/`
+  so binary upgrades never re-download weights.
 
 Daemon-kind modules emit `module.started`/`module.stopped`/`module.crashed`
 events (plus `installed`/`uninstalled`/`enabled`/`disabled`), visible in the
