@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -65,8 +66,9 @@ type purchaseTerms struct {
 type purchase struct {
 	V             int           `json:"v"`
 	PurchaseID    string        `json:"purchase_id"`
-	Provider      string        `json:"provider"`            // as requested — peer id or /p2p/ multiaddr
-	DialAddr      string        `json:"dial_addr,omitempty"` // resolved dial (index multiaddr or Provider)
+	Provider      string        `json:"provider"`              // as requested — peer id or /p2p/ multiaddr
+	DialAddr      string        `json:"dial_addr,omitempty"`   // resolved dial (index multiaddr, wss:// endpoint, or Provider)
+	DialTLSFP     string        `json:"dial_tls_fp,omitempty"` // pinned cert sha256 for wss dials (TOFU)
 	SellerPeerID  string        `json:"seller_peer_id"`
 	Seller        string        `json:"seller"` // advert payout.address — escrow provider()
 	Buyer         string        `json:"buyer"`  // escrow client() — purchaser's EVM address
@@ -113,10 +115,12 @@ type purchaseMgr struct {
 	endpoint atomic.Pointer[web3.Endpoint] // resolved endpoint for configured rails
 
 	// dial is the bridge-dial seam (tests inject net.Pipe plumbing);
+	// dialSecure is the wss/TOFU path for advert-advertised endpoints;
 	// spawn runs the orchestration goroutine body.
-	dial  func(peer, protocol string) (net.Conn, error)
-	spawn func(context.Context, *purchaseMgr, *purchase)
-	nowFn func() time.Time
+	dial       func(peer, protocol string) (net.Conn, error)
+	dialSecure func(endpoint, fingerprint string) (io.ReadWriteCloser, error)
+	spawn      func(context.Context, *purchaseMgr, *purchase)
+	nowFn      func() time.Time
 
 	mu      sync.Mutex
 	byID    map[string]*purchase
@@ -125,13 +129,14 @@ type purchaseMgr struct {
 
 func newPurchaseMgr(moduleDir, home string, audit *auditLogger) *purchaseMgr {
 	pm := &purchaseMgr{
-		moduleDir: moduleDir,
-		home:      home,
-		audit:     audit,
-		dial:      dialPeer,
-		nowFn:     time.Now,
-		byID:      map[string]*purchase{},
-		reviews:   map[string]*pendingReview{},
+		moduleDir:  moduleDir,
+		home:       home,
+		audit:      audit,
+		dial:       dialPeer,
+		dialSecure: dialWSS,
+		nowFn:      time.Now,
+		byID:       map[string]*purchase{},
+		reviews:    map[string]*pendingReview{},
 	}
 	pm.spawn = runPurchase
 	pm.loadAll()

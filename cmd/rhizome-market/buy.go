@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"strings"
 	"time"
@@ -119,7 +120,7 @@ func (pm *purchaseMgr) begin(
 	}
 
 	// Provider advert: peer journal (direct-peer discovery) or the index.
-	adv, dialAddr, err := pm.resolveProvider(ctx, req.Provider)
+	adv, dialAddr, dialFP, err := pm.resolveProvider(ctx, req.Provider)
 	if err != nil {
 		return nil, "", err
 	}
@@ -206,6 +207,7 @@ func (pm *purchaseMgr) begin(
 		PurchaseID:    randomHex(8),
 		Provider:      req.Provider,
 		DialAddr:      dialAddr,
+		DialTLSFP:     dialFP,
 		SellerPeerID:  adv.PeerID,
 		Seller:        adv.Payout.Address,
 		Buyer:         buyer,
@@ -257,13 +259,31 @@ func (pm *purchaseMgr) begin(
 // connected-peer journal first (fresh, trust-flagged), index rows second.
 // A /p2p/ multiaddr resolves to its peer id for journal matching; an
 // index-sourced provider dials its advertised multiaddr (bare peer ids
-// only reach already-connected peers through the bridge).
+// only reach already-connected peers through the bridge). When the advert
+// carries endpoints + tls_fingerprint (Track 110), the first wss endpoint
+// wins — a direct TLS dial works whether or not the mesh peer is
+// connected. Returns the advert, dial address, and TLS fingerprint
+// ("" for mesh dials).
 func (pm *purchaseMgr) resolveProvider(
 	ctx context.Context, provider string,
-) (*advert, string, error) {
+) (*advert, string, string, error) {
 	pid := provider
 	if i := strings.LastIndex(provider, "/p2p/"); i >= 0 {
 		pid = provider[i+5:]
+	}
+	// wssEndpoint picks the first advertised wss endpoint when the advert
+	// pins a fingerprint — without the pin there is nothing to TOFU
+	// against, so endpoint-less adverts keep the mesh dial.
+	wssEndpoint := func(a *advert) (string, string) {
+		if a.TLSFingerprint == "" || len(a.Endpoints) == 0 {
+			return "", ""
+		}
+		for _, ep := range a.Endpoints {
+			if strings.HasPrefix(ep, "wss://") || strings.HasPrefix(ep, "https://") {
+				return ep, a.TLSFingerprint
+			}
+		}
+		return "", ""
 	}
 	rows, err := peeradverts.Load(pm.home)
 	if err == nil {
@@ -280,7 +300,10 @@ func (pm *purchaseMgr) resolveProvider(
 				if a.PeerID == "" {
 					a.PeerID = r.PeerID
 				}
-				return &a, provider, nil
+				if ep, fp := wssEndpoint(&a); ep != "" {
+					return &a, ep, fp, nil
+				}
+				return &a, provider, "", nil
 			}
 		}
 	}
@@ -294,15 +317,18 @@ func (pm *purchaseMgr) resolveProvider(
 				if a.PeerID == "" {
 					a.PeerID = pr.PeerID
 				}
+				if ep, fp := wssEndpoint(&a); ep != "" {
+					return &a, ep, fp, nil
+				}
 				dial := provider
 				if pr.Multiaddr != "" {
 					dial = pr.Multiaddr
 				}
-				return &a, dial, nil
+				return &a, dial, "", nil
 			}
 		}
 	}
-	return nil, "", buyErr("provider_unknown",
+	return nil, "", "", buyErr("provider_unknown",
 		"no advert for provider %q — run market find to refresh peer/index discovery", provider)
 }
 
@@ -516,13 +542,14 @@ func runPurchase(ctx context.Context, pm *purchaseMgr, p *purchase) {
 	}
 	pm.recordTx(p, tx)
 
-	// 2. Bridge dial + ACP session.
+	// 2. Dial + ACP session — wss endpoint (TOFU-pinned) when the advert
+	// advertised one, the mesh bridge otherwise.
 	dialAddr := p.DialAddr
 	if dialAddr == "" {
 		dialAddr = p.Provider
 	}
 	pm.transition(p, purchaseSession, "", "")
-	conn, err := pm.dial(dialAddr, acpMarketProtocol)
+	conn, err := pm.dialProvider(dialAddr, p.DialTLSFP)
 	if err != nil {
 		// Escrow is open — funds are recoverable, not lost: disputable.
 		pm.transition(p, purchaseDisputable, "dial_failed", err.Error())
@@ -543,7 +570,7 @@ func runPurchase(ctx context.Context, pm *purchaseMgr, p *purchase) {
 
 	// 3. Receipt fetch + verify.
 	pm.transition(p, purchaseAwaitReceipt, "", "")
-	conn, err = pm.dial(dialAddr, acpMarketProtocol)
+	conn, err = pm.dialProvider(dialAddr, p.DialTLSFP)
 	if err != nil {
 		pm.transition(p, purchaseDisputable, "receipt_dial", err.Error())
 		return
@@ -575,6 +602,16 @@ func runPurchase(ctx context.Context, pm *purchaseMgr, p *purchase) {
 		return
 	}
 	pm.release(ctx, p, rail)
+}
+
+// dialProvider picks the transport: a wss/https dial address goes direct
+// with the advert's TLS fingerprint (Track 110); anything else routes
+// through the mesh bridge.
+func (pm *purchaseMgr) dialProvider(addr, tlsFP string) (io.ReadWriteCloser, error) {
+	if strings.HasPrefix(addr, "wss://") || strings.HasPrefix(addr, "https://") {
+		return pm.dialSecure(addr, tlsFP)
+	}
+	return pm.dial(addr, acpMarketProtocol)
 }
 
 // release submits escrow.release() for a verified purchase.

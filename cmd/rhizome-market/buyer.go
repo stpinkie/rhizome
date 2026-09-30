@@ -9,7 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -127,7 +127,7 @@ type buyerSessionResult struct {
 // the receipt's result_sha256 must hash to.
 func runBuyerSession(
 	ctx context.Context,
-	conn net.Conn,
+	conn io.ReadWriteCloser,
 	p *purchase,
 ) (*buyerSessionResult, error) {
 	handler := &buyerClientHandler{}
@@ -195,10 +195,10 @@ func runBuyerSession(
 	}, nil
 }
 
-// fetchReceipt asks the seller for the session's signed receipt over the
-// same bridged conn — called after the prompt completes.
+// fetchReceipt asks the seller for the session's signed receipt over a
+// fresh conn — called after the prompt completes.
 func fetchReceipt(
-	ctx context.Context, conn net.Conn, sessionID string,
+	ctx context.Context, conn io.ReadWriteCloser, sessionID string,
 ) (*receipt, error) {
 	handler := &buyerClientHandler{}
 	cli := acpsdk.NewClientSideConnection(handler, conn, conn)

@@ -207,7 +207,10 @@ single-prompt forwards, and mints an Ed25519-signed `_rhizome.receipt`
 persisted under `receipts/`. `/v1/session` + `/v1/receipt` are live;
 `/v1/{find,buy}` stay 501 until Track 103. `acp.server.remote` and market
 serving are mutually exclusive — the bridge claims `/rhizome/acp/1.0.0`
-once.
+once. Track 110 added optional `serve_https_listen` TLS/wss transport:
+`wss://` upgrades at `/rhizome/acp` carry raw ACP ndjson through the same
+gate (peer label `https:<ip>`); the advert's `endpoints` +
+`tls_fingerprint` let mesh-less buyers dial directly with TOFU pinning.
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.

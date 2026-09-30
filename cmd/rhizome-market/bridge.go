@@ -127,7 +127,10 @@ func (b *bridgeServer) serveConn(conn net.Conn) {
 	hello, err := readBridgeHello(br)
 	_ = conn.SetDeadline(time.Time{})
 	if err != nil {
-		b.audit.log("market.stream.rejected", map[string]any{"reason": "hello read: " + err.Error()})
+		b.audit.log(
+			"market.stream.rejected",
+			map[string]any{"reason": "hello read: " + err.Error()},
+		)
 		_ = conn.Close()
 		return
 	}
@@ -138,7 +141,10 @@ func (b *bridgeServer) serveConn(conn net.Conn) {
 	}
 	tok := b.token.token()
 	if tok == "" || subtle.ConstantTimeCompare([]byte(hello.Token), []byte(tok)) != 1 {
-		b.audit.log("market.stream.rejected", map[string]any{"peer": hello.Peer, "reason": "bad token"})
+		b.audit.log(
+			"market.stream.rejected",
+			map[string]any{"peer": hello.Peer, "reason": "bad token"},
+		)
 		_ = conn.Close()
 		return
 	}
@@ -166,14 +172,7 @@ func (b *bridgeServer) serveConn(conn net.Conn) {
 // touching it. Blocks until the transport closes, then finalizes the
 // conn's sessions (a dropped peer can never leave an agent running).
 func (b *bridgeServer) serveACP(rwc io.ReadWriteCloser, a *marketAgent) {
-	defer func() { _ = rwc.Close() }()
-	agentConn := newAgentConn(a, rwc, rwc)
-	a.attachUpstream(agentConn)
-	<-agentConn.Done()
-	a.onConnClose()
-	if b.mgr != nil {
-		b.mgr.finalizeConn(a.connID)
-	}
+	serveAgentConn(rwc, a, b.mgr)
 }
 
 // Close stops accepting, closes the listener, and removes bridge.addr.
@@ -240,7 +239,9 @@ func readBridgeHello(r *bufio.Reader) (bridgeHello, error) {
 func dialPeer(peer, protocol string) (net.Conn, error) {
 	addr := os.Getenv("RHIZOME_BRIDGE_ADDR")
 	if addr == "" {
-		return nil, fmt.Errorf("RHIZOME_BRIDGE_ADDR unset — module not running under the daemon bridge")
+		return nil, fmt.Errorf(
+			"RHIZOME_BRIDGE_ADDR unset — module not running under the daemon bridge",
+		)
 	}
 	return dialBridge(addr, newTokenProvider("").token(), peer, protocol)
 }

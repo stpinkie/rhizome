@@ -116,7 +116,23 @@ func run(ctx context.Context) error {
 	}
 	api.setConfig(mc)
 
-	aw := newAdvertWriter(p.moduleDir, config.FormatVersion(), peerID, audit)
+	// Track 110: optional TLS/wss listener for non-mesh buyers — serves the
+	// identical session_open → gate → session path over a websocket-adapted
+	// byte stream. Bind failure is fatal like the other listeners: the
+	// operator explicitly asked for this endpoint.
+	var https *httpsServer
+	if mc.httpsListen != "" {
+		https, err = startHTTPS(mc, p.moduleDir, mgr, mgr.nextConnID, audit)
+		if err != nil {
+			return err
+		}
+		defer https.Close()
+		logger.InfoCF("market", "https listener up", map[string]any{
+			"addr": https.ln.Addr().String(), "tls_fingerprint": https.fingerprint,
+		})
+	}
+
+	aw := newAdvertWriter(p.moduleDir, config.FormatVersion(), peerID, audit, https)
 	aw.refresh(mc)
 	defer aw.remove()
 
