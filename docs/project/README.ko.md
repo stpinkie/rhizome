@@ -1,7 +1,7 @@
 <div align="center">
 <img src="../../assets/logo.webp" alt="Rhizome" width="512">
 
-<h1>Rhizome: Go 기반 초고효율 AI 어시스턴트</h1>
+<h1>Rhizome: 당신의 AI 에이전트, 어디서나</h1>
 
 <h3>Any Machine · Single Binary · ms Boot · Let's Go, Rhizome!</h3>
   <p>
