@@ -736,6 +736,21 @@
         "serve_https_max_conns": "64",
         "serve_https_advertise": ""
       }
+    },
+    "llama-cpp": {
+      "_comment": "llama.cpp OpenAI-compatible local inference (ondemand — `rhizome module start` launches once, exit is final). model_url/model_sha256 are required: the digest-verified weights fetch runs before first start. Set model_url via `module set --secret` (signed-token URLs are sensitive). `llama-cpp-vulkan` is the discrete-GPU variant; macOS builds already carry Metal. See docs/guides/modules.md.",
+      "enabled": false,
+      "fields": {
+        "model_sha256": "",
+        "model_path": "{module_dir}/models/model.gguf",
+        "port": "8080",
+        "ctx_size": "4096",
+        "threads": "",
+        "gpu_layers": "0",
+        "mlock": "false",
+        "flash_attn": "true",
+        "extra_args": ""
+      }
     }
   },
   "module_index": {

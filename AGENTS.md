@@ -175,7 +175,8 @@ installed under `<RHIZOME_HOME>/modules/<id>/<version>/`, verified against a
 catalog-pinned sha256/sha512 digest at install time, and supervised by the
 daemon. Modules extend Rhizome without
 growing the base binary. Kinds: `daemon` (supervised, restart-on-exit with
-backoff), `ondemand` (spawned by a consumer), `config` (endpoint descriptor,
+backoff), `ondemand` (`module start` launches once — exit is final, no
+restart supervision), `config` (endpoint descriptor,
 no process). `nimbus-verified-proxy` (status-im/nimbus-eth1 verified
 Ethereum RPC) is the first daemon-kind entry — fields `execution_api_url`,
 `trusted_block_root` (required; URLs are secrets), `p2p` (default true:
@@ -187,7 +188,10 @@ light client — linux/darwin, env-var config behind the `ethereum`
 subcommand) and `ipfs-kubo` (IPFS node — all platforms; `.zip` extraction,
 `ipfs init` behind `init_marker`, `ipfs config Addresses.*` per launch via
 `setup_args`, `IPFS_PATH`/`repo_dir` under the module dir via the
-`{module_dir}` placeholder; catalog schema v2). `rhizome-market`
+`{module_dir}` placeholder; catalog schema v2). Track 109 (v0.14.0) added
+`llama-cpp` + `llama-cpp-vulkan` (ondemand `llama-server` — schema v5:
+`binary_path(s)` layout-preserving extraction, arch aliases, digest-pinned
+`fetch` for GGUF weights outside the version dir, `Split` args). `rhizome-market`
 (first-party market module, `cmd/rhizome-market`; `kind:daemon`,
 `protocols:["/rhizome/acp/1.0.0"]`, github-release on this repo — the
 entry's `releases:[]` is intentionally uninstallable until the first
@@ -204,10 +208,13 @@ offer_id, buyer, terms}` — session_id is the escrow clone), gated by
 before any spawn; `session/new` then runs the offer's `agent_binding` via
 `acp.SpawnBound` (deny-all handler, scratch cwd, forced no-egress),
 single-prompt forwards, and mints an Ed25519-signed `_rhizome.receipt`
-persisted under `receipts/`. `/v1/session` + `/v1/receipt` are live;
-`/v1/{find,buy}` stay 501 until Track 103. `acp.server.remote` and market
-serving are mutually exclusive — the bridge claims `/rhizome/acp/1.0.0`
-once. Track 110 added optional `serve_https_listen` TLS/wss transport:
+persisted under `receipts/`. Tracks 103–104 made the buy-side real:
+`/v1/find`/`buy`/`dispute`/`refund`/`release` over async `purchases/<id>.json`
+records, `settlement_signer=approval|direct|wallet`, chain pinning +
+`escrow_allow_mainnet`, and an `eth_getLogs` escrow watcher per purchase.
+`acp.server.remote` and market serving are mutually exclusive — the bridge
+claims `/rhizome/acp/1.0.0` once. Track 110 added optional `serve_https_listen`
+TLS/wss transport:
 `wss://` upgrades at `/rhizome/acp` carry raw ACP ndjson through the same
 gate (peer label `https:<ip>`); the advert's `endpoints` +
 `tls_fingerprint` let mesh-less buyers dial directly with TOFU pinning.
