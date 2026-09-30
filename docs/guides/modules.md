@@ -312,6 +312,7 @@ mesh manifest when `serve_enabled`) and a bounded `market-audit.jsonl`.
 | `buyer_address` / `buy_auto_release` / `settlement_signer` | no | default wallet / `true` / `approval` |
 | `escrow_chain_id` / `escrow_contract` / `escrow_token` / `escrow_arbiter` / `escrow_dispute_window` | no | — (unset contract = fixture rail) |
 | `escrow_allow_mainnet` / `escrow_watch_interval` | no | `false` / `60s` |
+| `serve_https_listen` / `serve_https_cert` / `serve_https_key` / `serve_https_max_conns` / `serve_https_advertise` | no | — / — / — / `64` / — |
 
 ```bash
 rhizome module install rhizome-market   # once a release is pinned
@@ -389,6 +390,25 @@ failures park in `disputable` — `rhizome market dispute <id> [reason]`
 locks the escrow, `rhizome market refund <id>` withdraws after
 termination. A receipt that fails signature or hash verification never
 releases.
+
+HTTPS/WSS transport (Track 110): `serve_https_listen` binds an optional
+TLS listener for buyers with no Rhizome mesh identity — `wss://` requests
+to `/rhizome/acp` upgrade to a websocket carrying raw ACP ndjson bytes,
+then run the identical `_rhizome.session_open` → gate → session path as
+the bridged stream (peer label `https:<remote-ip>`; conn cap via
+`serve_https_max_conns`). Cert posture: configured `serve_https_cert` +
+`serve_https_key`, else a self-signed ECDSA pair persisted under the
+module dir so the fingerprint survives restarts. While the listener is
+bound and `serve_enabled`, the advert carries `endpoints` (`wss://…` —
+`serve_https_advertise` overrides the bound host for NAT/DNS cases; a
+wildcard listen without it advertises nothing) and `tls_fingerprint`
+(SHA-256 of the leaf cert DER). Buyers prefer an advertised wss endpoint
+over the mesh dial and pin the connection to that fingerprint — CA
+verification is bypassed but the leaf sha256 must match exactly (TOFU;
+the pin is persisted as `dial_tls_fp` on the purchase record). Invalid
+`serve_https_*` values are reported via `/v1/health`'s `config_error`
+and neutralized; a valid listen that fails to bind fails module start
+like `api.addr`/`bridge.addr`.
 
 Notes:
 

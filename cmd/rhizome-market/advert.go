@@ -37,13 +37,17 @@ const (
 // deliberately public: offers, payout, runtime posture — anything in here
 // broadcasts to every connected peer, so secrets are never rendered.
 type advert struct {
-	V                int           `json:"v"`
-	Module           string        `json:"module"`
-	ModuleVersion    string        `json:"module_version"`
-	GeneratedAt      string        `json:"generated_at"`
-	ExpiresAt        string        `json:"expires_at"`
-	PeerID           string        `json:"peer_id,omitempty"`
-	Protocols        []string      `json:"protocols"`
+	V             int      `json:"v"`
+	Module        string   `json:"module"`
+	ModuleVersion string   `json:"module_version"`
+	GeneratedAt   string   `json:"generated_at"`
+	ExpiresAt     string   `json:"expires_at"`
+	PeerID        string   `json:"peer_id,omitempty"`
+	Protocols     []string `json:"protocols"`
+	// Endpoints lists non-mesh transports (wss://…) buyers can dial
+	// directly; TLSFingerprint pins the serving cert's sha256 for TOFU.
+	Endpoints        []string      `json:"endpoints,omitempty"`
+	TLSFingerprint   string        `json:"tls_fingerprint,omitempty"`
 	ServeEnabled     bool          `json:"serve_enabled"`
 	Runtime          string        `json:"runtime"`
 	RuntimeAvailable bool          `json:"runtime_available"`
@@ -73,14 +77,20 @@ type advertWriter struct {
 	version   string
 	peerID    string
 	audit     *auditLogger
+	https     *httpsServer // non-nil while the wss listener is up
 
 	mu      sync.Mutex
 	lastRaw []byte // last rendered advert for change-detection
 	lastExp time.Time
 }
 
-func newAdvertWriter(moduleDir, version, peerID string, audit *auditLogger) *advertWriter {
-	return &advertWriter{moduleDir: moduleDir, version: version, peerID: peerID, audit: audit}
+func newAdvertWriter(
+	moduleDir, version, peerID string, audit *auditLogger, https *httpsServer,
+) *advertWriter {
+	return &advertWriter{
+		moduleDir: moduleDir, version: version, peerID: peerID,
+		audit: audit, https: https,
+	}
 }
 
 // render builds the advert for the current config. Serving requires
@@ -108,6 +118,15 @@ func (w *advertWriter) render(mc *marketConfig) ([]byte, string) {
 		ServeEnabled:     mc.serveEnabled,
 		Runtime:          mc.runtime,
 		RuntimeAvailable: runtimeAvailable(mc.runtime),
+	}
+	// HTTPS endpoint advert: emitted only while the listener is actually
+	// up AND serving is enabled — a configured-but-unstarted endpoint
+	// (or one whose sessions the gate would refuse) must never be claimed.
+	if w.https != nil && mc.serveEnabled {
+		if ep := w.https.advertiseEndpoint(); ep != "" {
+			a.Endpoints = []string{ep}
+			a.TLSFingerprint = w.https.fingerprint
+		}
 	}
 	if mc.serveEnabled {
 		a.Payout = &advertPayout{

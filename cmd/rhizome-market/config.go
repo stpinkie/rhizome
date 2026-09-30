@@ -80,6 +80,11 @@ type marketConfig struct {
 	signerMode             string                 // approval|direct|wallet
 	allowMainnet           bool                   // escrow_allow_mainnet — chain 1 opt-in
 	watchInterval          time.Duration          // escrow event scan cadence; 0 disables
+	httpsListen            string                 // serve_https_listen — TLS/wss ACP endpoint (empty=off)
+	httpsCert              string                 // serve_https_cert — unset = persisted self-signed
+	httpsKey               string                 // serve_https_key — paired with cert
+	httpsMaxConns          int                    // serve_https_max_conns — simultaneous wss streams
+	httpsAdvertise         string                 // serve_https_advertise — public host[:port] or wss:// URL
 	rail                   *settlement.RailConfig // nil = fixture posture
 	errs                   []string
 }
@@ -167,6 +172,47 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 		mc.errs = append(mc.errs,
 			"settlement_signer must be approval|direct|wallet")
 	}
+	mc.httpsListen = strField(mc, values, "serve_https_listen", "")
+	if mc.httpsListen != "" {
+		if _, _, err := net.SplitHostPort(mc.httpsListen); err != nil {
+			mc.errs = append(mc.errs,
+				"serve_https_listen must be host:port: "+err.Error())
+			// Neutralize: an invalid listen must not reach startHTTPS —
+			// the errs model keeps the module up and reports instead of
+			// letting an optional listener fail the process.
+			mc.httpsListen = ""
+		}
+	}
+	mc.httpsCert = strField(mc, values, "serve_https_cert", "")
+	mc.httpsKey = strField(mc, values, "serve_https_key", "")
+	if (mc.httpsCert == "") != (mc.httpsKey == "") {
+		mc.errs = append(mc.errs,
+			"serve_https_cert and serve_https_key must be set together")
+		// Neutralize — a half-pair reaching loadOrGenHTTPSCert would fail
+		// the optional listener hard instead of reporting via errs.
+		mc.httpsCert, mc.httpsKey = "", ""
+	}
+	mc.httpsMaxConns = intFieldDef(mc, values, "serve_https_max_conns", 64)
+	if mc.httpsMaxConns < 1 || mc.httpsMaxConns > 4096 {
+		mc.errs = append(mc.errs, "serve_https_max_conns must be 1–4096")
+	}
+	mc.httpsAdvertise = strField(mc, values, "serve_https_advertise", "")
+	if mc.httpsAdvertise != "" {
+		u := mc.httpsAdvertise
+		if strings.HasPrefix(u, "https://") {
+			u = "wss://" + strings.TrimPrefix(u, "https://")
+		}
+		if strings.Contains(u, "://") && !strings.HasPrefix(u, "wss://") {
+			mc.errs = append(mc.errs,
+				"serve_https_advertise must be host:port or a wss:// URL")
+		} else if !strings.HasPrefix(u, "wss://") {
+			if _, _, err := net.SplitHostPort(u); err != nil {
+				mc.errs = append(mc.errs,
+					"serve_https_advertise must be host:port or a wss:// URL")
+			}
+		}
+	}
+
 	mc.allowMainnet = truthy(values["escrow_allow_mainnet"])
 	mc.watchInterval = durationField(
 		mc, values, "escrow_watch_interval", time.Minute)

@@ -25,7 +25,7 @@ func servingCfg(t *testing.T) *marketConfig {
 }
 
 func TestAdvert_RenderServing(t *testing.T) {
-	w := newAdvertWriter(t.TempDir(), "v0.0.0-test", "12D3peer", newAuditLogger(""))
+	w := newAdvertWriter(t.TempDir(), "v0.0.0-test", "12D3peer", newAuditLogger(""), nil)
 	data, reason := w.render(servingCfg(t))
 	if data == nil {
 		t.Fatalf("advert omitted: %s", reason)
@@ -52,7 +52,7 @@ func TestAdvert_RenderServing(t *testing.T) {
 }
 
 func TestAdvert_OmitOnInvalid(t *testing.T) {
-	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""))
+	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""), nil)
 
 	// serve_enabled without payout_address → omit.
 	mc := loadMarketConfig(cfgWith(t, map[string]string{
@@ -86,7 +86,7 @@ func TestAdvert_NonServingStillWritten(t *testing.T) {
 	// A non-serving module still publishes posture (serve_enabled:false,
 	// escrow fixture/configured) — the daemon gates on the field anyway.
 	dir := t.TempDir()
-	w := newAdvertWriter(dir, "v", "", newAuditLogger(""))
+	w := newAdvertWriter(dir, "v", "", newAuditLogger(""), nil)
 	mc := loadMarketConfig(cfgWith(t, nil, nil), dir)
 	w.refresh(mc)
 	data, err := os.ReadFile(filepath.Join(dir, advertFile))
@@ -106,7 +106,7 @@ func TestAdvert_NonServingStillWritten(t *testing.T) {
 }
 
 func TestAdvert_ConfiguredEscrowRendered(t *testing.T) {
-	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""))
+	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""), nil)
 	mc := loadMarketConfig(cfgWith(t, map[string]string{
 		"escrow_chain_id":       "11155111",
 		"escrow_contract":       "0x8227b9868e00B8eE951F17B480D369b84Cd17c20",
@@ -127,7 +127,7 @@ func TestAdvert_ConfiguredEscrowRendered(t *testing.T) {
 func TestAdvert_ChangeDetectionAndRemove(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, advertFile)
-	w := newAdvertWriter(dir, "v", "", newAuditLogger(""))
+	w := newAdvertWriter(dir, "v", "", newAuditLogger(""), nil)
 	mc := loadMarketConfig(cfgWith(t, nil, nil), dir)
 
 	w.refresh(mc)
@@ -170,7 +170,7 @@ func TestAdvert_OfferBoundRespected(t *testing.T) {
 		"offers_json":    sb.String(),
 		"payout_address": "0x8227b9868e00B8eE951F17B480D369b84Cd17c20",
 	}, nil), dir)
-	w := newAdvertWriter(dir, "v", "", newAuditLogger(""))
+	w := newAdvertWriter(dir, "v", "", newAuditLogger(""), nil)
 	data, reason := w.render(mc)
 	if data != nil && len(data) > advertMaxBytes {
 		t.Fatalf("over-bound advert written: %d bytes", len(data))

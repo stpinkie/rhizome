@@ -729,7 +729,12 @@
         "escrow_chain_id": "11155111",
         "escrow_dispute_window": "86400",
         "escrow_allow_mainnet": "false",
-        "escrow_watch_interval": "60s"
+        "escrow_watch_interval": "60s",
+        "serve_https_listen": "",
+        "serve_https_cert": "",
+        "serve_https_key": "",
+        "serve_https_max_conns": "64",
+        "serve_https_advertise": ""
       }
     }
   },
