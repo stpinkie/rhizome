@@ -1,7 +1,7 @@
 <div align="center">
 <img src="../../assets/logo.webp" alt="Rhizome" width="512">
 
-<h1>Rhizome: Assistente de IA Ultra-Eficiente em Go</h1>
+<h1>Rhizome: Seu Agente de IA, em Qualquer Lugar</h1>
 
 <h3>Any Machine · Single Binary · ms Boot · Let's Go, Rhizome!</h3>
   <p>

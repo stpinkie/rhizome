@@ -1,7 +1,7 @@
 <div align="center">
 <img src="../../assets/logo.webp" alt="Rhizome" width="512">
 
-<h1>Rhizome: Trợ lý AI Siêu Nhẹ viết bằng Go</h1>
+<h1>Rhizome: AI Agent của bạn, ở mọi nơi</h1>
 
 <h3>Any Machine · Single Binary · ms Boot · Let's Go, Rhizome!</h3>
   <p>

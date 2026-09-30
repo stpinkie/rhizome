@@ -1,7 +1,7 @@
 <div align="center">
 <img src="../../assets/logo.webp" alt="Rhizome" width="512">
 
-<h1>Rhizome: Pembantu AI Ultra-Efisien Berasaskan Go</h1>
+<h1>Rhizome: Ejen AI Anda, di Mana-mana</h1>
 
 <h3>Any Machine · Single Binary · ms Boot · Let's Go, Rhizome!</h3>
   <p>
