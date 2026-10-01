@@ -92,6 +92,11 @@ this sprint).
 
 - Daemon idles at ~55 MB RSS (v0.10.0, measured); libp2p (DHT + relay +
   connection pools) dominates steady-state usage.
+- v0.14.0 re-measure (WSL2, stripped linux/amd64, 75.6 MB binary):
+  worker profile steady ~50.5 MiB RSS (31 ms cold start), full daemon
+  ~56.7 MiB (4.9 s cold start — DHT/relay warm-up dominates). No creep
+  across v0.10.0→v0.14.0 despite the market module, llama.cpp catalog,
+  and web3/settlement additions — none run in the base daemon.
 - **`mesh.role: "worker"`** drops the DHT client, circuit-relay service, and
   AutoNAT service entirely — the role wins over `mesh.dht_enabled`,
   `mesh.relay_service`, and `mesh.nat_service` (contradictions warn at

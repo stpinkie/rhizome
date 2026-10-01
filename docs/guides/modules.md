@@ -60,11 +60,13 @@ Required fields gate `enabled`: a module with missing required config stays
 `configured: false` and won't start until every required field is set
 (`module status <id>` lists what's missing).
 
-## Wire protocols (catalog schema v4) + stream bridge
+## Wire protocols (catalog schema v4+) + stream bridge
 
 A module can declare libp2p `protocols` in its catalog entry (schema v4 —
 emitted only when a module actually declares one, so older binaries keep
-working on v1–v3 catalogs):
+working on v1–v3 catalogs; the current catalog is **v5** — v5 adds
+`binary_path`/`binary_paths` layout-preserving extraction, per-GOOS arch
+aliases, and the `fetch` list):
 
 ```json
 {
@@ -154,9 +156,11 @@ made the sell-side verbs real: `POST /v1/session {session_id}` reports a
 live session's state/offer/peer/duration and `POST /v1/receipt
 {session_id}` serves the signed receipt JSON (live session or persisted
 under `<module_dir>/receipts/`); both 404 on an unknown session.
-`find`/`buy` remain an honest
-`501 {"error":{"code":"not_implemented","track":103}}` until the buy-side
-track lands. `GET /v1/health` reports version, uptime, `serve_enabled`,
+Track 103 made the buy-side real: `/v1/find` searches direct-peer +
+signed-index offers, `/v1/buy` starts the async purchase lifecycle, and
+`/v1/{dispute,refund,release}` drive the dispute path (see the
+`rhizome-market` section below and `docs/guides/market.md`).
+`GET /v1/health` reports version, uptime, `serve_enabled`,
 offer count, live session count, bridge state, escrow posture, config
 errors.
 
@@ -429,8 +433,10 @@ Notes:
   implementation `0x49B76dE305933d75fC0eAd6ef090F555bcCD9735` — the
   escrow path stays **experimental** until the recorded testnet E2E
   (v0.16.0 Track 132) lands.
-- `releases: []` until the first digest pin (Track 107) — the entry is
-  visible but not installable yet.
+- `releases: []` until the first digest pin: the v0.14.0 release builds
+  `rhizome-market_{goos}_{goarch}` archives with digests in
+  `checksums.txt` — a post-tag follow-up pins them into the catalog
+  (digests can't be known before the artifacts exist).
 
 ### `llama-cpp` / `llama-cpp-vulkan` (ondemand)
 
