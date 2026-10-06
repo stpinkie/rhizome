@@ -18,12 +18,15 @@ type RunRecord struct {
 	RunID      string          `json:"run_id"`
 	SwarmID    string          `json:"swarm_id"`
 	Goal       string          `json:"goal"`
-	Status     string          `json:"status"` // running | done | partial | failed
+	Status     string          `json:"status"` // running | done | partial | failed | cancelled | interrupted
 	Subtasks   []SubtaskResult `json:"subtasks,omitempty"`
 	Summary    string          `json:"summary,omitempty"`
 	StartedAt  time.Time       `json:"started_at"`
 	FinishedAt time.Time       `json:"finished_at,omitempty"`
 	DurationMS int64           `json:"duration_ms,omitempty"`
+	// RetryOf links a run created by `swarm run-retry` back to the run it
+	// re-offered subtasks from.
+	RetryOf string `json:"retry_of,omitempty"`
 }
 
 // runStore keeps recent orchestration runs in memory and, when a path is
@@ -89,19 +92,24 @@ func (rs *runStore) Get(runID string) (RunRecord, bool) {
 }
 
 // Load reads the persisted run file; missing/corrupt files are tolerated.
-func (rs *runStore) Load() error {
+// Records still marked "running" cannot resume — their goroutines died with
+// the process — so they are swept to "interrupted" (the TaskStore.Load
+// "daemon restarted" precedent) and returned for event emission.
+func (rs *runStore) Load() ([]RunRecord, error) {
 	if rs.path == "" {
-		return nil
+		return nil, nil
 	}
 	f, err := os.Open(rs.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("open run store: %w", err)
+		return nil, fmt.Errorf("open run store: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
+	var interrupted []RunRecord
+	now := time.Now().UTC()
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	dec := json.NewDecoder(f)
@@ -111,25 +119,45 @@ func (rs *runStore) Load() error {
 			if err == io.EOF {
 				break
 			}
-			return fmt.Errorf("decode run record: %w", err)
+			return nil, fmt.Errorf("decode run record: %w", err)
+		}
+		if rec.Status == "running" {
+			rec.Status = "interrupted"
+			rec.FinishedAt = now
+			interrupted = append(interrupted, rec)
 		}
 		rs.runs = append(rs.runs, rec)
 	}
 	if len(rs.runs) > maxStoredRuns {
 		rs.runs = rs.runs[len(rs.runs)-maxStoredRuns:]
 	}
-	return nil
+	if len(interrupted) > 0 {
+		// Close the read handle before the atomic rewrite — os.Rename
+		// cannot replace a still-open destination on Windows.
+		_ = f.Close()
+		snapshot := append([]RunRecord(nil), rs.runs...)
+		rs.save(snapshot)
+	}
+	return interrupted, nil
 }
 
 // save rewrites the run file atomically.
 func (rs *runStore) save(records []RunRecord) {
-	if rs.path == "" {
+	saveJSONL(rs.path, records)
+}
+
+// saveJSONL atomically rewrites path with records (tmp-write + rename).
+// The run store and offer store share it so file format and failure
+// semantics stay identical. Callers must not hold an open handle to path —
+// os.Rename cannot replace a still-open destination on Windows.
+func saveJSONL[T any](path string, records []T) {
+	if path == "" {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(rs.path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
-	f, err := os.CreateTemp(filepath.Dir(rs.path), filepath.Base(rs.path)+".tmp.*")
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
 	if err != nil {
 		return
 	}
@@ -146,7 +174,7 @@ func (rs *runStore) save(records []RunRecord) {
 		_ = os.Remove(tmp)
 		return
 	}
-	if err := os.Rename(tmp, rs.path); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 	}
 }

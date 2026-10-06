@@ -143,10 +143,11 @@ func New(
 		ctx:          ctx,
 		cancel:       cancel,
 	}
+	var interruptedRuns []RunRecord
 	if homeDir != "" {
 		s.path = filepath.Join(homeDir, "swarms.json")
 		s.orch.runs = newRunStore(filepath.Join(homeDir, "swarm-runs.jsonl"))
-		_ = s.orch.runs.Load()
+		interruptedRuns, _ = s.orch.runs.Load()
 	}
 	if cfg.AuditLog {
 		s.auditLog = newAuditLogger(defaultSwarmAuditPath(homeDir))
@@ -155,6 +156,16 @@ func New(
 	s.localBus = newLocalBus()
 	s.bc = newDirectBroadcaster(s, s.localBus)
 	s.queue = newWorkQueue(s)
+	if homeDir != "" {
+		s.queue.store = newOfferStore(filepath.Join(homeDir, "swarm-offers.jsonl"))
+	}
+	for _, rec := range interruptedRuns {
+		s.publishEvent(runtimeevents.KindSwarmRunInterrupted, map[string]any{
+			"run_id":   rec.RunID,
+			"swarm_id": rec.SwarmID,
+			"goal":     rec.Goal,
+		})
+	}
 	return s
 }
 
@@ -254,6 +265,7 @@ func (s *Swarm) Start(ctx context.Context) error {
 
 	s.startPresence()
 	s.queue.start()
+	s.redriveOffers(s.ctx)
 	if s.cfg.CoordinationEnabled() {
 		s.wg.Add(1)
 		go s.sharedStateLoop(s.ctx)
