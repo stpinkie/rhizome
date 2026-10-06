@@ -694,14 +694,31 @@
     }
   },
   "mesh": {
-    "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md. routing.role_aware (default true): workers get a ranking bonus for task ops (delegate/spawn), fulls for infra ops (sync); also feeds role-preferred swarm coordinator election. max_concurrent_tasks (default 8) caps inbound remote tasks — saturated submissions get a 'capacity:' rejection and callers fail over; mesh.acl[].max_concurrent sets a per-peer cap (negative = exempt). activity_log (default true) persists the activity feed to mesh-activity.jsonl; score_half_life (default 168h) decays peer-score evidence per idle window (0 disables).",
+    "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md. routing.role_aware (default true): workers get a ranking bonus for task ops (delegate/spawn), fulls for infra ops (sync); also feeds role-preferred swarm coordinator election. max_concurrent_tasks (default 8) caps inbound remote tasks — saturated submissions get a 'capacity:' rejection and callers fail over; mesh.acl[].max_concurrent sets a per-peer cap (negative = exempt). activity_log (default true) persists the activity feed to mesh-activity.jsonl; score_half_life (default 168h) decays peer-score evidence per idle window (0 disables). advertise_models/advertise_skills publish the local model/skill lists in the capability manifest so --require-model/--require-skill picks can see them (skill_share also implies skill advertising).",
     "enabled": false,
     "role": "full",
     "trusted_peers": [],
+    "advertise_models": false,
+    "advertise_skills": false,
     "max_concurrent_tasks": 8,
     "activity_log": true,
     "score_half_life": "168h",
-    "routing": { "role_aware": true }
+    "routing": { "role_aware": true },
+    "acl": [
+      {
+        "peer_id": "12D3KooW…",
+        "max_concurrent": 4,
+        "rate_limit": 30
+      }
+    ]
+  },
+  "swarm": {
+    "_comment": "Decentralised work swarms over the mesh. memberships lists swarm ids to join on daemon start. coordination.prefer_connected (default false) excludes currently-disconnected members from coordinator election — trades deterministic whole-roster election for an always-live coordinator.",
+    "enabled": false,
+    "memberships": [],
+    "coordination": {
+      "prefer_connected": false
+    }
   },
   "modules": {
     "ethereum-rpc": {

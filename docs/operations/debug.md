@@ -99,3 +99,72 @@ RHIZOME_AGENTS_DEFAULTS_TOOL_FEEDBACK_MAX_ARGS_LENGTH=300
 ```
 
 > **Note:** `tool_feedback` is independent of `--debug` mode. It works in production and does not require the gateway to be started with any special flag.
+
+## Mesh & Swarm Observability
+
+When the daemon is running, these verbs answer "what happened on the
+mesh" without digging through raw logs.
+
+### Activity feed (persistent)
+
+```bash
+rhizome mesh activity --tail 50
+rhizome mesh activity --kind 'swarm.*' --swarm ops --since 1h
+rhizome mesh activity --peer 12D3KooW… --kind mesh.task.update
+```
+
+`mesh.*`/`swarm.*` runtime events from the daemon feed. Filters:
+`--kind` (exact or `prefix.*`), `--peer` (any attribute mention),
+`--swarm` (exact `swarm_id`), `--since` (Go duration or RFC3339). With
+`mesh.activity_log` on (default), the feed persists to
+`~/.rhizome/mesh-activity.jsonl` (rotated like the audit trail) so
+`--since` reads back across restarts.
+
+### Correlated traces
+
+```bash
+rhizome mesh trace  <task-id>
+rhizome swarm trace <offer-id|run-id>
+```
+
+Assembles a report for one id from the task store, published and
+observed swarm offers, run records, matching activity events, and the
+audit tail — one command instead of grepping four files. Daemon
+endpoint: `GET /network/trace?task=|offer=|run=|id=`.
+
+### Peer score detail
+
+```bash
+rhizome mesh peer <peer-id>
+```
+
+Live peer detail: connections, score, and — since v0.15.0 — per-op
+counters (`delegate`, `spawn`, `submit`, `status`, `result`, `cancel`,
+`list`) plus evidence **decay**: peer scores halve per idle
+`mesh.score_half_life` window (default `168h`, `0` disables). A peer
+that was reliable last month but silent since shows as "stale" rather
+than permanently trusted. Raw counters persist; only the read views
+decay.
+
+### Swarm health
+
+```bash
+rhizome swarm doctor <swarm-id>
+```
+
+Per-member diagnostic query (bounded, 5s each): asymmetric rosters
+(members who don't list you), undiscovered members, coordinator
+reachability, per-member epoch drift. Also `GET
+/network/swarms/<id>/doctor` (and `/health`). `swarm status` shows
+`last_state_write` freshness for the coordinator's shared state.
+
+### Durable records on disk
+
+| File | Contents |
+| ---- | -------- |
+| `~/.rhizome/mesh-audit.jsonl` | signed audit trail of mesh ops |
+| `~/.rhizome/mesh-activity.jsonl` | persisted activity feed |
+| `~/.rhizome/mesh-tasks.jsonl` | remote task records |
+| `~/.rhizome/swarm-offers.jsonl` | published offer queue (re-driven on restart) |
+| `~/.rhizome/swarm-runs.jsonl` | goal run records (`interrupted` after restart sweep) |
+
