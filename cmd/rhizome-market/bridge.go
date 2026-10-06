@@ -33,10 +33,20 @@ const (
 )
 
 type bridgeHello struct {
-	Token    string `json:"token"`
-	Action   string `json:"action"`
-	Peer     string `json:"peer"`
-	Protocol string `json:"protocol"`
+	Token     string `json:"token"`
+	Action    string `json:"action"`
+	Peer      string `json:"peer"`
+	Protocol  string `json:"protocol,omitempty"`
+	Op        string `json:"op,omitempty"`
+	Outcome   string `json:"outcome,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	ValueHash string `json:"value_hash,omitempty"`
+}
+
+// bridgeResponse mirrors pkg/modules' non-splice answer line.
+type bridgeResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // bridgeServer owns the inbound accept listener plus the conn cap; each
@@ -267,4 +277,43 @@ func dialBridge(addr, token, peer, protocol string) (net.Conn, error) {
 	}
 	_ = conn.SetDeadline(time.Time{})
 	return conn, nil
+}
+
+// reportOutcome sends a peer_score report to the daemon over the bridge —
+// the module's write path into the mesh's peer-score store. Best-effort:
+// settlement reporting must never stall a session state transition, so the
+// caller logs-and-drops errors (audit line carries the attempt).
+func reportOutcome(peerID, op, outcome, sessionID, valueHash string) error {
+	addr := os.Getenv("RHIZOME_BRIDGE_ADDR")
+	if addr == "" {
+		return fmt.Errorf("RHIZOME_BRIDGE_ADDR unset")
+	}
+	conn, err := net.DialTimeout("tcp", addr, bridgeDialTimeout)
+	if err != nil {
+		return fmt.Errorf("bridge dial %s: %w", addr, err)
+	}
+	defer func() { _ = conn.Close() }()
+	hello, err := json.Marshal(bridgeHello{
+		Token: newTokenProvider("").token(), Action: "peer_score",
+		Peer: peerID, Op: op, Outcome: outcome, Ref: sessionID, ValueHash: valueHash,
+	})
+	if err != nil {
+		return err
+	}
+	_ = conn.SetDeadline(time.Now().Add(bridgeHelloTimeout))
+	if _, err := conn.Write(append(hello, '\n')); err != nil {
+		return fmt.Errorf("bridge hello write: %w", err)
+	}
+	line, err := bufio.NewReaderSize(conn, bridgeHelloMaxBytes).ReadBytes('\n')
+	if err != nil {
+		return fmt.Errorf("bridge response read: %w", err)
+	}
+	var resp bridgeResponse
+	if err := json.Unmarshal(line, &resp); err != nil {
+		return fmt.Errorf("bridge response parse: %w", err)
+	}
+	if !resp.OK {
+		return fmt.Errorf("peer_score refused: %s", resp.Error)
+	}
+	return nil
 }

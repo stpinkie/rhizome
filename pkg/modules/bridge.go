@@ -17,6 +17,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -61,15 +62,33 @@ const (
 )
 
 // bridgeHello is the single JSON line exchanged on the loopback wire before
-// raw byte splicing begins. Action is "dial" (module-initiated outbound) or
-// "accept" (daemon-initiated inbound). Peer is a peer ID or full multiaddr
-// for "dial", and the inbound source peer ID for "accept".
+// raw byte splicing begins. Action is "dial" (module-initiated outbound),
+// "accept" (daemon-initiated inbound), or a request/response action —
+// currently "peer_score" — which answers with one JSON response line on the
+// same conn instead of splicing. Peer is a peer ID or full multiaddr for
+// "dial", the inbound source peer ID for "accept", and the scored peer ID
+// for "peer_score". Op/Outcome/Ref/ValueHash are the peer_score payload.
 type bridgeHello struct {
-	Token    string `json:"token"`
-	Action   string `json:"action"`
-	Peer     string `json:"peer"`
-	Protocol string `json:"protocol"`
+	Token     string `json:"token"`
+	Action    string `json:"action"`
+	Peer      string `json:"peer"`
+	Protocol  string `json:"protocol,omitempty"`
+	Op        string `json:"op,omitempty"`
+	Outcome   string `json:"outcome,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	ValueHash string `json:"value_hash,omitempty"`
 }
+
+// bridgeResponse is the single JSON line written back to the module for
+// non-splice actions. The conn closes after it — no bytes are spliced.
+type bridgeResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// PeerScoreRecorder records a market outcome for a peer — the seam into the
+// mesh's PeerScoreStore. Injected by the daemon (nil refuses peer_score).
+type PeerScoreRecorder func(pid peer.ID, op, outcome, ref, valueHash string) error
 
 // Bridge owns the module stream bridge: a loopback listener, the per-module
 // token map, and the libp2p stream handlers claimed for declared protocols.
@@ -78,6 +97,8 @@ type Bridge struct {
 	mgr       *Manager
 	ln        net.Listener
 	isTrusted func(peer.ID) bool // inbound peer gate; nil refuses all inbound
+
+	scoreRecorder PeerScoreRecorder // peer_score sink; nil refuses
 
 	mu       sync.Mutex
 	claims   map[protocol.ID]string // protocol → owning module ID
@@ -112,13 +133,27 @@ func (b *Bridge) Addr() string {
 	return b.ln.Addr().String()
 }
 
+// SetPeerScoreRecorder installs the peer_score write path — typically the
+// mesh's RecordPeerOutcome. Called by daemon wiring; nil leaves the action
+// refused.
+func (b *Bridge) SetPeerScoreRecorder(fn PeerScoreRecorder) {
+	b.mu.Lock()
+	b.scoreRecorder = fn
+	b.mu.Unlock()
+}
+
 // Start mints/refreshes per-module bridge tokens for every enabled
 // protocol-declaring module, claims their declared protocols as libp2p
 // stream handlers (skipping protocols already owned by core or another
 // registrant), and begins serving module dial requests.
 func (b *Bridge) Start() {
 	for _, spec := range b.mgr.specs() {
-		if len(spec.Protocols) == 0 || !b.mgr.moduleConfig(spec.ID).Enabled {
+		if !b.mgr.moduleConfig(spec.ID).Enabled {
+			continue
+		}
+		// Token mint is shared: protocol modules splice; bridge_actions
+		// modules get request/response verbs. Either needs auth.
+		if len(spec.Protocols) == 0 && len(spec.BridgeActions) == 0 {
 			continue
 		}
 		id := spec.ID
@@ -299,16 +334,22 @@ func (b *Bridge) serveOutbound(conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
-	if hello.Action != "dial" {
-		logger.WarnCF("modules", "bridge hello refused: unsupported action", map[string]any{
+	moduleID, ok := b.moduleForToken(hello.Token)
+	if !ok {
+		logger.WarnCF("modules", "bridge hello refused: bad token", map[string]any{
 			"action": hello.Action,
 		})
 		_ = conn.Close()
 		return
 	}
-	moduleID, ok := b.moduleForToken(hello.Token)
-	if !ok {
-		logger.WarnCF("modules", "bridge dial refused: bad token", nil)
+	if hello.Action == "peer_score" {
+		b.servePeerScore(conn, moduleID, hello)
+		return
+	}
+	if hello.Action != "dial" {
+		logger.WarnCF("modules", "bridge hello refused: unsupported action", map[string]any{
+			"module": moduleID, "action": hello.Action,
+		})
 		_ = conn.Close()
 		return
 	}
@@ -337,6 +378,51 @@ func (b *Bridge) serveOutbound(conn net.Conn) {
 	}
 	logger.DebugCF("modules", "outbound module stream bridged", fields)
 	splice(bufferedConn{Conn: conn, r: br}, stream)
+}
+
+// servePeerScore answers a non-splice peer_score request: the module's spec
+// must declare the action in bridge_actions, the peer id must decode, and
+// the recorder (mesh score store) validates the op/outcome/bounds. One JSON
+// response line, then the conn closes — request/response over the same
+// 4 KiB-bounded hello framing, no splice.
+func (b *Bridge) servePeerScore(conn net.Conn, moduleID string, hello bridgeHello) {
+	defer func() { _ = conn.Close() }()
+	answer := func(ok bool, err error) {
+		resp := bridgeResponse{OK: ok}
+		if err != nil {
+			resp.Error = err.Error()
+		}
+		line, _ := json.Marshal(resp)
+		_ = conn.SetDeadline(time.Now().Add(bridgeHelloTimeout))
+		_, _ = conn.Write(append(line, '\n'))
+	}
+
+	fields := map[string]any{"module": moduleID, "peer": hello.Peer, "op": hello.Op}
+	spec, _, ok := b.mgr.lookupSpec(moduleID)
+	if !ok || !slices.Contains(spec.BridgeActions, "peer_score") {
+		logger.WarnCF("modules", "peer_score refused: undeclared bridge action", fields)
+		answer(false, fmt.Errorf("peer_score not declared for module %q", moduleID))
+		return
+	}
+	b.mu.Lock()
+	recorder := b.scoreRecorder
+	b.mu.Unlock()
+	if recorder == nil {
+		answer(false, fmt.Errorf("peer_score unavailable: no score store"))
+		return
+	}
+	pid, err := peer.Decode(hello.Peer)
+	if err != nil {
+		answer(false, fmt.Errorf("peer_score: bad peer id: %w", err))
+		return
+	}
+	if err := recorder(pid, hello.Op, hello.Outcome, hello.Ref, hello.ValueHash); err != nil {
+		fields["error"] = err.Error()
+		logger.WarnCF("modules", "peer_score refused", fields)
+		answer(false, err)
+		return
+	}
+	answer(true, nil)
 }
 
 // resolvePeer accepts a bare peer ID or a full peer multiaddr; a multiaddr's

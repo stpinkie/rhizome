@@ -35,6 +35,42 @@ type OpStat struct {
 	AvgLatency time.Duration `json:"avg_latency_ns,omitempty"`
 }
 
+// Market operation labels recorded in PeerScore.OpStats. The market module
+// reports session outcomes through the module bridge's peer_score action;
+// they land here so the same decay/rank math applies to market quality.
+const (
+	OpMarketBuy  = "market_buy"  // local node bought; peer was the seller
+	OpMarketSell = "market_sell" // local node sold; peer was the buyer
+)
+
+// Market outcome labels carried on peer_score reports. disputed marks a
+// pending outcome — it lands in Outcomes but does not move the counters
+// until a later resolved_* report closes it out.
+const (
+	OutcomeCompleted       = "completed"             // released clean
+	OutcomeFailed          = "failed"                // pre-settlement failure
+	OutcomeDisputed        = "disputed"              // pending; resolve follows
+	OutcomeResolvedForPeer = "resolved_for_peer"     // arbiter ruled for the peer
+	OutcomeResolvedAgainst = "resolved_against_peer" // arbiter ruled against
+	OutcomeResolved        = "resolved"              // split ruling; direction undecoded
+	OutcomeRefunded        = "refunded"              // buyer withdrew; neutral
+	OutcomeExpired         = "expired"               // session aged out
+)
+
+// PeerOutcome is one recorded market outcome for a peer — the ref list the
+// score view renders. value_hash commits to the settled value so the graph
+// is verifiable without amounts ever touching the score file.
+type PeerOutcome struct {
+	Op        string `json:"op"`                   // OpMarketBuy / OpMarketSell
+	Outcome   string `json:"outcome"`              // Outcome* label
+	SessionID string `json:"session_id,omitempty"` // module-side session ref
+	ValueHash string `json:"value_hash,omitempty"` // sha256 commitment, hex
+	At        int64  `json:"at"`                   // unix seconds
+}
+
+// maxPeerOutcomes bounds the per-peer outcome ref list; newest wins when full.
+const maxPeerOutcomes = 32
+
 // PeerScore tracks observed quality of a mesh peer over time.
 type PeerScore struct {
 	PeerID      string            `json:"peer_id"`
@@ -45,6 +81,7 @@ type PeerScore struct {
 	LastSeen    time.Time         `json:"last_seen"`
 	LastError   string            `json:"last_error,omitempty"`
 	OpStats     map[string]OpStat `json:"op_stats,omitempty"`
+	Outcomes    []PeerOutcome     `json:"outcomes,omitempty"`
 
 	// halfLife is the read-time decay window stamped by the store from
 	// mesh.score_half_life. Counters are stored raw; Score() evaluates the
@@ -112,6 +149,7 @@ type peerScoreRecord struct {
 	LastSeen    int64             `json:"last_seen_ns"`
 	LastError   string            `json:"last_error,omitempty"`
 	OpStats     map[string]OpStat `json:"op_stats,omitempty"`
+	Outcomes    []PeerOutcome     `json:"outcomes,omitempty"`
 }
 
 // PeerScoreStore persists a bounded history of call quality per peer.
@@ -191,6 +229,7 @@ func (s *PeerScoreStore) Load() error {
 			LastSeen:    time.Unix(0, rec.LastSeen),
 			LastError:   rec.LastError,
 			OpStats:     rec.OpStats,
+			Outcomes:    rec.Outcomes,
 			halfLife:    s.halfLife,
 		}
 	}
@@ -227,6 +266,7 @@ func (s *PeerScoreStore) Save() error {
 			LastSeen:    sc.LastSeen.UnixNano(),
 			LastError:   sc.LastError,
 			OpStats:     sc.OpStats,
+			Outcomes:    sc.Outcomes,
 		})
 	}
 	s.mu.RUnlock()
@@ -421,6 +461,93 @@ func (s *PeerScoreStore) Record(
 			st.Failures = int(float64(st.Failures) * ratio)
 		}
 		sc.OpStats[op] = st
+	}
+
+	s.mu.Unlock()
+	s.scheduleSave()
+}
+
+// outcomeCounter maps a market outcome label to the counter it moves:
+// true → success, false → failure. Neutral outcomes (disputed pending,
+// refunded, expired) return no counter — they land in Outcomes only.
+func outcomeCounter(outcome string) (success, count bool) {
+	switch outcome {
+	case OutcomeCompleted, OutcomeResolvedForPeer:
+		return true, true
+	case OutcomeFailed, OutcomeResolvedAgainst:
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// ValidMarketOutcome reports whether outcome is a known label.
+func ValidMarketOutcome(outcome string) bool {
+	switch outcome {
+	case OutcomeCompleted, OutcomeFailed, OutcomeDisputed,
+		OutcomeResolvedForPeer, OutcomeResolvedAgainst, OutcomeResolved,
+		OutcomeRefunded, OutcomeExpired:
+		return true
+	}
+	return false
+}
+
+// RecordOutcome records a market-session outcome for a peer. Terminal
+// outcomes (completed/failed/resolved_*) move the op's success/failure
+// counters; the report itself lands in the bounded Outcomes ref list either
+// way. No latency and no raw amounts — valueHash is the commitment.
+func (s *PeerScoreStore) RecordOutcome(
+	pid peer.ID,
+	op, outcome, sessionID, valueHash string,
+) {
+	s.mu.Lock()
+
+	sc, ok := s.scores[pid]
+	if !ok {
+		sc = &PeerScore{PeerID: pid.String()}
+		s.scores[pid] = sc
+	}
+	sc.halfLife = s.halfLife
+	sc.LastSeen = time.Now().UTC()
+
+	if success, count := outcomeCounter(outcome); count {
+		if success {
+			sc.Successes++
+		} else {
+			sc.Failures++
+		}
+		total := sc.Successes + sc.Failures
+		if total > maxScoreSamples {
+			ratio := float64(maxScoreSamples) / float64(total)
+			sc.Successes = int(float64(sc.Successes) * ratio)
+			sc.Failures = int(float64(sc.Failures) * ratio)
+		}
+		if sc.OpStats == nil {
+			sc.OpStats = make(map[string]OpStat, 4)
+		}
+		st := sc.OpStats[op]
+		if success {
+			st.Successes++
+		} else {
+			st.Failures++
+		}
+		if tot := st.Successes + st.Failures; tot > maxScoreSamples {
+			r := float64(maxScoreSamples) / float64(tot)
+			st.Successes = int(float64(st.Successes) * r)
+			st.Failures = int(float64(st.Failures) * r)
+		}
+		sc.OpStats[op] = st
+	}
+
+	sc.Outcomes = append(sc.Outcomes, PeerOutcome{
+		Op:        op,
+		Outcome:   outcome,
+		SessionID: sessionID,
+		ValueHash: valueHash,
+		At:        time.Now().Unix(),
+	})
+	if len(sc.Outcomes) > maxPeerOutcomes {
+		sc.Outcomes = sc.Outcomes[len(sc.Outcomes)-maxPeerOutcomes:]
 	}
 
 	s.mu.Unlock()

@@ -110,11 +110,14 @@ func (m *Manager) Supervisor() *Supervisor { return m.sup }
 func (m *Manager) SetBridgeAddr(addr string) { m.bridgeAddr = addr }
 
 // AnyEnabledProtocolModules reports whether any enabled module declares
-// stream protocols — the daemon gates bridge creation on this so the
-// loopback listener only binds when a module can use it.
+// stream protocols or bridge actions — the daemon gates bridge creation on
+// this so the loopback listener only binds when a module can use it.
 func (m *Manager) AnyEnabledProtocolModules() bool {
 	for _, spec := range m.specs() {
-		if len(spec.Protocols) > 0 && m.moduleConfig(spec.ID).Enabled {
+		if !m.moduleConfig(spec.ID).Enabled {
+			continue
+		}
+		if len(spec.Protocols) > 0 || len(spec.BridgeActions) > 0 {
 			return true
 		}
 	}

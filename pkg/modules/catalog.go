@@ -233,7 +233,12 @@ type ModuleSpec struct {
 	// on them through the bridge. Empty means no wire access (catalog
 	// schema v4).
 	Protocols []string `json:"protocols,omitempty"`
-	Notes     string   `json:"notes,omitempty"`
+	// BridgeActions lists non-splice bridge verbs the module may call
+	// (e.g. "peer_score", "dht_provide", "dht_find"). Token-gated
+	// request/response actions — the daemon answers with one JSON line on
+	// the same conn instead of splicing. Empty means splice-only.
+	BridgeActions []string `json:"bridge_actions,omitempty"`
+	Notes         string   `json:"notes,omitempty"`
 }
 
 // Platform returns the current runtime platform in "goos/goarch" form.
@@ -758,6 +763,9 @@ var catalog = []ModuleSpec{
 		// argv or the process environment.
 		Run:       RunSpec{Workdir: "."},
 		Protocols: []string{"/rhizome/acp/1.0.0"},
+		// peer_score reports settled-session outcomes to the mesh's
+		// PeerScoreStore — market reputation never touches the file itself.
+		BridgeActions: []string{"peer_score"},
 		ConfigFields: []ConfigField{
 			{
 				Key:     "serve_enabled",

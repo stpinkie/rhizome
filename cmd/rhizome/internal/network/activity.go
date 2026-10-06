@@ -307,6 +307,26 @@ func printPeerDetail(w io.Writer, p *mesh.PeerStatus) {
 				fmt.Fprintln(w, line)
 			}
 		}
+		if len(p.Score.Outcomes) > 0 {
+			fmt.Fprintln(w, "    market outcomes:")
+			for _, o := range p.Score.Outcomes {
+				line := fmt.Sprintf("      %s %s", o.Op, o.Outcome)
+				if o.SessionID != "" {
+					line += fmt.Sprintf(" session=%s", o.SessionID)
+				}
+				if o.ValueHash != "" {
+					vh := o.ValueHash
+					if len(vh) > 12 {
+						vh = vh[:12]
+					}
+					line += fmt.Sprintf(" value=%s", vh)
+				}
+				if o.At > 0 {
+					line += fmt.Sprintf(" at %s", time.Unix(o.At, 0).UTC().Format(time.RFC3339))
+				}
+				fmt.Fprintln(w, line)
+			}
+		}
 	}
 	if p.LastSeen != "" {
 		fmt.Fprintf(w, "  last seen: %s\n", p.LastSeen)

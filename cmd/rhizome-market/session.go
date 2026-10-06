@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -347,6 +348,7 @@ func (m *sessionMgr) finish(s *marketSession, state, reason string) {
 		"duration_ms": s.durationMS(),
 		"usage_set":   usage != nil,
 	})
+	m.reportOutcome(s, state, reason)
 	if s.scratchDir != "" {
 		_ = os.RemoveAll(s.scratchDir)
 	}
@@ -366,6 +368,46 @@ func (m *sessionMgr) finish(s *marketSession, state, reason string) {
 		}
 	}
 	m.mu.Unlock()
+}
+
+// sessionOutcome maps a terminal session state to the peer_score outcome
+// label reported for the buyer peer — "" means no report.
+func sessionOutcome(state, reason string) string {
+	switch state {
+	case sessionCompleted, sessionClosed:
+		return "completed"
+	case sessionFailed:
+		if strings.Contains(reason, "expired") {
+			return "expired"
+		}
+		return "failed"
+	default:
+		return ""
+	}
+}
+
+// reportOutcome records the buyer peer's market outcome in the mesh
+// peer-score store via the peer_score bridge action — async, best-effort,
+// never blocking session teardown.
+func (m *sessionMgr) reportOutcome(s *marketSession, state, reason string) {
+	outcome := sessionOutcome(state, reason)
+	if outcome == "" || s.Peer == "" {
+		return
+	}
+	var amount string
+	if s.Terms.Amount != nil {
+		amount = s.Terms.Amount.String()
+	}
+	vh := valueHash(amount, s.Terms.Token, hex.EncodeToString(s.taskHash[:]))
+	peerID, sessionID := s.Peer, s.ID
+	go func() {
+		if err := reportOutcome(peerID, "market_sell", outcome, sessionID, vh); err != nil && m.audit != nil {
+			m.audit.log("market.peer_score.failed", map[string]any{
+				"session_id": sessionID, "peer": peerID,
+				"outcome": outcome, "error": err.Error(),
+			})
+		}
+	}()
 }
 
 // reapSessions closes sessions that outlive session_ttl — the DoS bound
