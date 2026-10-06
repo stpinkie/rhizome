@@ -592,6 +592,40 @@ func (s *TaskStore) ActiveCount() int {
 	return n
 }
 
+// ActiveCountFor returns the number of non-terminal tasks owned by the
+// given peer — the per-peer load checked by mesh.acl[].max_concurrent.
+func (s *TaskStore) ActiveCountFor(owner peer.ID) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, t := range s.tasks {
+		if t.Owner == owner && !t.Status.Terminal() {
+			n++
+		}
+	}
+	return n
+}
+
+// getByCorr returns the existing task for (owner, corrID), if any. Used to
+// skip capacity checks on idempotent resubmits.
+func (s *TaskStore) getByCorr(owner peer.ID, corrID string) (MeshTaskSnapshot, bool) {
+	var zero MeshTaskSnapshot
+	if corrID == "" {
+		return zero, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.byCorr[owner][corrID]
+	if !ok {
+		return zero, false
+	}
+	t, ok := s.tasks[id]
+	if !ok {
+		return zero, false
+	}
+	return t.snapshot(), true
+}
+
 // List returns info for every task owned by the given peer.
 func (s *TaskStore) List(owner peer.ID) []agenttask.TaskInfo {
 	s.mu.Lock()

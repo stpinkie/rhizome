@@ -166,6 +166,11 @@ type MeshConfig struct {
 	// RateLimitGlobal caps the total inbound remote agent request rate across
 	// all peers, in requests per minute. 0 means unlimited. Defaults to 300.
 	RateLimitGlobal float64 `json:"rate_limit_global,omitempty"`
+	// MaxConcurrentTasks caps the number of non-terminal remote tasks this
+	// node will run at once; submissions beyond the cap are rejected with a
+	// "capacity:" class error so callers fail over to another peer. Defaults
+	// to 8; 0 means unlimited (the 256-entry store bound stays the backstop).
+	MaxConcurrentTasks int `json:"max_concurrent_tasks,omitempty"`
 	// AuditLog enables the append-only mesh audit trail at
 	// ~/.rhizome/mesh-audit.jsonl. Defaults to true.
 	AuditLog bool `json:"audit_log"`
@@ -222,6 +227,10 @@ type MeshACLRule struct {
 	// RateLimit overrides the per-peer rate limit (requests per minute).
 	// 0 means "use the global per-peer default"; negative means unlimited.
 	RateLimit float64 `json:"rate_limit,omitempty"`
+	// MaxConcurrent caps how many remote tasks this peer may run here at
+	// once. 0 means "no per-peer cap" (the global cap still applies);
+	// negative exempts the peer from capacity checks entirely.
+	MaxConcurrent int `json:"max_concurrent,omitempty"`
 }
 
 func (m *MeshConfig) MarshalJSON() ([]byte, error) {
@@ -390,6 +399,9 @@ func (m *MeshConfig) Validate() error {
 	}
 	if m.RateLimitGlobal < 0 {
 		return fmt.Errorf("mesh.rate_limit_global must be non-negative")
+	}
+	if m.MaxConcurrentTasks < 0 {
+		return fmt.Errorf("mesh.max_concurrent_tasks must be non-negative")
 	}
 	for i, rule := range m.ACL {
 		if strings.TrimSpace(rule.PeerID) == "" {

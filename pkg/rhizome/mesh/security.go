@@ -195,6 +195,35 @@ func (m *Mesh) checkRemoteAllowed(pid peer.ID, op, agentID string) error {
 	return nil
 }
 
+// --- Inbound task capacity ---
+
+// checkCapacity enforces the inbound remote-task caps before a submission is
+// admitted: the per-peer mesh.acl[].max_concurrent cap first (a negative
+// value exempts the peer entirely), then the global mesh.max_concurrent_tasks
+// cap. Errors carry the stable "capacity:" class — callers recognise the
+// class and fail over to the next candidate instead of retrying the same
+// peer.
+func (m *Mesh) checkCapacity(pid peer.ID) error {
+	if rule := m.aclRuleFor(pid); rule != nil {
+		if rule.MaxConcurrent < 0 {
+			return nil // explicitly exempt from all capacity checks
+		}
+		if rule.MaxConcurrent > 0 {
+			if n := m.tasks.ActiveCountFor(pid); n >= rule.MaxConcurrent {
+				return fmt.Errorf("capacity: peer at %d/%d", n, rule.MaxConcurrent)
+			}
+		}
+	}
+	limit := m.cfg.MaxConcurrentTasks
+	if limit <= 0 {
+		return nil // unlimited
+	}
+	if n := m.tasks.ActiveCount(); n >= limit {
+		return fmt.Errorf("capacity: node at %d/%d remote tasks", n, limit)
+	}
+	return nil
+}
+
 // --- Rate limiting ---
 
 // allowRate checks the per-peer and global inbound rate limits. Limits are

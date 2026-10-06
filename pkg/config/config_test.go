@@ -3366,6 +3366,34 @@ func TestMeshConfig_RequireSignedCapsDefaultAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMeshConfig_ValidateMaxConcurrent(t *testing.T) {
+	if DefaultMeshConfig().MaxConcurrentTasks != 8 {
+		t.Fatalf("max_concurrent_tasks should default to 8, got %d",
+			DefaultMeshConfig().MaxConcurrentTasks)
+	}
+
+	// The global cap rejects negatives; 0 means unlimited.
+	cfg := MeshConfig{MaxConcurrentTasks: -1}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation error for negative max_concurrent_tasks")
+	}
+	cfg.MaxConcurrentTasks = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("max_concurrent_tasks=0 (unlimited) rejected: %v", err)
+	}
+
+	// Per-peer ACL caps accept positive caps and the negative exemption.
+	cfg = MeshConfig{
+		ACL: []MeshACLRule{
+			{PeerID: "12D3KooWRn6WAW9iG9TqCSG4YH9Y6iGXwJ8QzD8RTHvJQL2hQeYV", MaxConcurrent: -1},
+			{PeerID: "12D3KooWAaa6WAW9iG9TqCSG4YH9Y6iGXwJ8QzD8RTHvJQL2hQeYV", MaxConcurrent: 3},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("ACL max_concurrent values rejected: %v", err)
+	}
+}
+
 func TestMeshConfig_Role(t *testing.T) {
 	// Default is "full" whether the field is absent or explicit.
 	for _, role := range []string{"", MeshRoleFull} {
