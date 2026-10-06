@@ -230,6 +230,17 @@ TLS/wss transport:
 `wss://` upgrades at `/rhizome/acp` carry raw ACP ndjson through the same
 gate (peer label `https:<ip>`); the advert's `endpoints` +
 `tls_fingerprint` let mesh-less buyers dial directly with TOFU pinning.
+Track 128 added session-drawdown settlement: `escrow_settlement=drawdown`
+(rhizome rail or fixture only — Smart Invoice has no amount-based release)
+funds one budgeted session (`session_budget`, decimal) that repeated buys
+draw down via `release(sessionId, amount)`; `draw_interval` (seconds, 0 =
+unpaced) spaces on-chain draws. The buyer-side `drawdowns/<sid>.json`
+ledger reserves headroom at acquire, stamps tx on release, rolls back on
+failure, and sweeps expired sessions (drawdown `withdraw` fires at the
+deadline — the contract disables seller `claim` on budget sessions).
+Wire additions: `terms.drawdown` + `task_nonce` (the buyer's purchase id —
+seller session keys are `escrow#nonce` composites so one escrow serves
+many tasks; receipts still bind the bare escrow id).
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.
@@ -477,17 +488,21 @@ keccak256(correlationID)) and shares one contract deployment.
   → arbiter `resolve()` — see the survey's mapping table.
   `ReleasePartial` returns `ErrNotSupported` (SI releases are
   milestone-indexed, not amount-based).
-- **GraduatedRail** (Track 127) — `contracts/RhizomeEscrow.sol`, a single
-  session-keyed deployment: `open` (ERC-20 `approve` + `transferFrom`
-  funding), amount-based `release` partials, native seller `claim` after
-  the dispute deadline, buyer `withdraw` after deadline + CLAIM_GRACE
-  (14 d), arbiter `resolve` (awards must consume the balance exactly),
-  ERC-1497 `Evidence`/`MetaEvidence` + `Ruling` hooks. Per-session
-  arbiter (`escrow_arbiter`) so a Track-129 ERC-792 adapter can occupy
-  the slot without a redeploy. The escrow watcher filters
-  contract-address + `sessionId` topic under this rail. Deploy runbook,
-  multisig-arbiter governance, and the security-review checklist:
-  `docs/operations/escrow-deploy.md`.
+- **GraduatedRail** (Track 127; drawdown flag added Track 128) —
+  `contracts/RhizomeEscrow.sol`, a single session-keyed deployment:
+  `open` (ERC-20 `approve` + `transferFrom` funding; the `drawdown`
+  flag marks budget sessions), amount-based `release` partials, native
+  seller `claim` after the dispute deadline (disabled on drawdown
+  sessions — the remainder is unspent budget, the buyer's), buyer
+  `withdraw` after deadline + CLAIM_GRACE (14 d; deadline-only under
+  drawdown), arbiter `resolve` (awards must consume the balance
+  exactly), ERC-1497 `Evidence`/`MetaEvidence` + `Ruling` hooks.
+  Per-session arbiter (`escrow_arbiter`) so a Track-129 ERC-792 adapter
+  can occupy the slot without a redeploy. `VerifyLock` under drawdown
+  checks `released + draw ≤ budget` rather than exact amount + zero
+  released. The escrow watcher filters contract-address + `sessionId`
+  topic under this rail. Deploy runbook, multisig-arbiter governance,
+  and the security-review checklist: `docs/operations/escrow-deploy.md`.
 - **MockRail** — deterministic in-memory fixture for 102/103 (`NowFunc`
   clock seam, contract-faithful resolve fee = balance/20).
 - **FakeChain** — `httptest` JSON-RPC emulating the factory, per-session

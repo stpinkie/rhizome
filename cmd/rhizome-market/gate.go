@@ -27,12 +27,14 @@ import (
 type sessionPresentation struct {
 	SessionID string `json:"session_id"`
 	TaskHash  string `json:"task_hash"`
+	TaskNonce string `json:"task_nonce"` // buyer's purchase id — drawdown session keying
 	OfferID   string `json:"offer_id"`
 	Buyer     string `json:"buyer"`
 	Terms     struct {
-		Amount  string `json:"amount"`   // token base units, decimal string
-		Token   string `json:"token"`    // ERC-20 address (defaults to escrow_token)
-		ChainID int64  `json:"chain_id"` // informational; verified via Terms
+		Amount   string `json:"amount"`   // token base units, decimal string (draw amount under drawdown)
+		Token    string `json:"token"`    // ERC-20 address (defaults to escrow_token)
+		ChainID  int64  `json:"chain_id"` // informational; verified via Terms
+		Drawdown bool   `json:"drawdown"` // session_id keys a shared funded budget, amount is this task's draw
 	} `json:"terms"`
 }
 
@@ -84,7 +86,18 @@ func gateSessionOpen(
 		return nil, gateReject("rate_limited",
 			"session_open rate exceeded %d/min for this peer", peerOpenPerMinute)
 	}
-	if !web3.IsAddress(p.SessionID) {
+	rail := m.rail.Load()
+	if rail == nil || *rail == nil {
+		return nil, gateReject("rail_unavailable", "no settlement rail configured")
+	}
+	// Session-id shape follows the rail: Smart Invoice + the fixture use
+	// escrow-clone addresses; the graduated rail keys sessions by bytes32.
+	if _, graduated := (*rail).(*settlement.GraduatedRail); graduated {
+		if _, err := parseBytes32(p.SessionID); err != nil {
+			return nil, gateReject("bad_session_id",
+				"session_id %q is not a bytes32 session key: %s", p.SessionID, err)
+		}
+	} else if !web3.IsAddress(p.SessionID) {
 		return nil, gateReject("bad_session_id",
 			"session_id %q is not a 0x address (the escrow clone)", p.SessionID)
 	}
@@ -115,10 +128,6 @@ func gateSessionOpen(
 	amount, ok := new(big.Int).SetString(strings.TrimSpace(p.Terms.Amount), 10)
 	if !ok || amount.Sign() <= 0 {
 		return nil, gateReject("bad_amount", "terms.amount %q is not a positive integer", p.Terms.Amount)
-	}
-	rail := m.rail.Load()
-	if rail == nil || *rail == nil {
-		return nil, gateReject("rail_unavailable", "no settlement rail configured")
 	}
 	token := strings.TrimSpace(p.Terms.Token)
 	if rc := mc.rail; rc != nil {
@@ -157,6 +166,7 @@ func gateSessionOpen(
 		Token:    token,
 		Amount:   amount,
 		TaskHash: hashBytes,
+		Drawdown: p.Terms.Drawdown,
 	}
 	ok2, err := (*rail).VerifyLock(ctx, p.SessionID, terms)
 	if err != nil {
@@ -169,8 +179,21 @@ func gateSessionOpen(
 		return nil, gateReject("terms_mismatch",
 			"escrow %s does not hold a confirmed lock matching this offer's terms", p.SessionID)
 	}
+	// Drawdown reuses one escrow across tasks — the local session key
+	// composes escrow + task nonce so the registry stays unique per draw
+	// while EscrowID keeps the on-chain session for receipts. The nonce
+	// is required: without it every draw would collide on the bare id.
+	sessionKey := strings.ToLower(p.SessionID)
+	if p.Terms.Drawdown {
+		if p.TaskNonce == "" {
+			return nil, gateReject("bad_request",
+				"drawdown sessions require task_nonce (the buyer's purchase id)")
+		}
+		sessionKey = drawdownSessionKey(sessionKey, p.TaskNonce)
+	}
 	s := &marketSession{
-		ID:       strings.ToLower(p.SessionID),
+		ID:       sessionKey,
+		EscrowID: strings.ToLower(p.SessionID),
 		Peer:     peer,
 		ConnID:   connID,
 		Offer:    *off,

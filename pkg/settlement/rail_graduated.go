@@ -118,7 +118,7 @@ func (r *GraduatedRail) Open(
 		return "", fmt.Errorf("open: approve %s: %w", appHash, err)
 	}
 
-	open, err := graduatedABI.Method("open", 7)
+	open, err := graduatedABI.Method("open", 8)
 	if err != nil {
 		return "", err
 	}
@@ -130,6 +130,7 @@ func (r *GraduatedRail) Open(
 		bytes32Hex(t.TaskHash),
 		fmt.Sprintf("%d", window),
 		r.cfg.Arbiter,
+		t.Drawdown,
 	})
 	if err != nil {
 		return "", err
@@ -148,6 +149,7 @@ type graduatedSession struct {
 	deadline                      int64
 	status                        uint8
 	taskHash                      [32]byte
+	drawdown                      bool
 }
 
 func (r *GraduatedRail) sessionOf(
@@ -176,8 +178,8 @@ func (r *GraduatedRail) sessionOf(
 	if err != nil {
 		return nil, fmt.Errorf("sessionOf %s: %w", sessionID, err)
 	}
-	if len(vals) != 9 {
-		return nil, fmt.Errorf("sessionOf %s: %d outputs, want 9", sessionID, len(vals))
+	if len(vals) != 10 {
+		return nil, fmt.Errorf("sessionOf %s: %d outputs, want 10", sessionID, len(vals))
 	}
 	s := &graduatedSession{}
 	s.buyer, _ = vals[0].(string)
@@ -207,6 +209,7 @@ func (r *GraduatedRail) sessionOf(
 		return nil, fmt.Errorf("sessionOf taskHash: bad output %v", vals[8])
 	}
 	copy(s.taskHash[:], raw)
+	s.drawdown, _ = vals[9].(bool)
 	return s, nil
 }
 
@@ -233,17 +236,25 @@ func (r *GraduatedRail) VerifyLock(
 	if err != nil {
 		return false, fmt.Errorf("verify lock: chain time: %w", err)
 	}
-	taskOK := t.TaskHash == ([32]byte{}) || s.taskHash == t.TaskHash
 	ok := s.status == graduatedStatusOpen &&
 		addrEq(s.buyer, t.Buyer) &&
 		addrEq(s.seller, t.Seller) &&
 		addrEq(s.arbiter, r.cfg.Arbiter) &&
 		addrEq(s.token, t.Token) &&
-		s.amount.Cmp(t.Amount) == 0 &&
-		s.released.Sign() == 0 &&
 		s.deadline > now &&
-		taskOK &&
+		s.drawdown == t.Drawdown &&
 		(t.TerminationTime == 0 || s.deadline == t.TerminationTime)
+	if t.Drawdown {
+		// Drawdown verify is a headroom check: the wire amount is this
+		// task's draw, the on-chain amount is the session budget — the
+		// draw must fit the remainder. taskHash is a session-level
+		// commitment under drawdown (one session spans many tasks), so
+		// the per-task hash equality check doesn't apply.
+		ok = ok && new(big.Int).Add(s.released, t.Amount).Cmp(s.amount) <= 0
+	} else {
+		taskOK := t.TaskHash == ([32]byte{}) || s.taskHash == t.TaskHash
+		ok = ok && s.amount.Cmp(t.Amount) == 0 && s.released.Sign() == 0 && taskOK
+	}
 	return ok, nil
 }
 

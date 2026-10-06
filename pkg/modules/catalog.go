@@ -865,6 +865,13 @@ var catalog = []ModuleSpec{
 			{Key: "escrow_token", Label: "Escrow ERC-20 token address"},
 			{Key: "escrow_arbiter", Label: "Escrow resolver (arbiter) address"},
 			{Key: "escrow_dispute_window", Label: "Dispute window in seconds"},
+			{
+				Key:     "escrow_settlement",
+				Label:   "Settlement mode (per_task|drawdown — drawdown needs escrow_rail=rhizome)",
+				Default: "per_task",
+			},
+			{Key: "session_budget", Label: "Drawdown session budget (decimal token units)"},
+			{Key: "draw_interval", Label: "Min seconds between on-chain draws (0=unpaced)"},
 		},
 		Notes: "Loopback API for `rhizome market` (api.addr + bridge-token " +
 			"auth). Claims /rhizome/acp/1.0.0 — mutually exclusive with " +

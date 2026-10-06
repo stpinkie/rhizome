@@ -182,10 +182,17 @@ func (pm *purchaseMgr) begin(
 		return nil, "", err
 	}
 	sum := sha256.Sum256([]byte(task))
-	corr := randomHex(16)
-	sessionID, err := pm.predictSessionID(ctx, *rail, corr)
-	if err != nil {
-		return nil, "", buyErr("predict_failed", "escrow address prediction: %s", err)
+	// Drawdown defers session assignment to runPurchase — the ledger
+	// reuses a live funded session or mints one; per-task predicts now.
+	corr, sessionID := "", ""
+	drawdown := mc.drawdownMode()
+	if !drawdown {
+		corr = randomHex(16)
+		var err error
+		sessionID, err = pm.predictSessionID(ctx, *rail, corr)
+		if err != nil {
+			return nil, "", buyErr("predict_failed", "escrow address prediction: %s", err)
+		}
 	}
 	window := int64(24 * 60 * 60)
 	if mc.rail != nil && mc.rail.DisputeWindowSecs > 0 {
@@ -219,11 +226,13 @@ func (pm *purchaseMgr) begin(
 		Attachments:   req.Attachments,
 		SessionID:     sessionID,
 		CorrelationID: corr,
+		Drawdown:      drawdown,
 		Terms: purchaseTerms{
 			Amount:          amount.String(),
 			Token:           token,
 			ChainID:         chainID,
 			TerminationTime: pm.nowFn().Unix() + window,
+			Drawdown:        drawdown,
 		},
 		State:      purchasePendingReview,
 		Settlement: "fixture",
@@ -557,21 +566,66 @@ func runPurchase(ctx context.Context, pm *purchaseMgr, p *purchase) {
 	}
 
 	// 1. Escrow open — the queued sender blocks each tx on approval.
+	// Drawdown acquires a funded session instead: fresh sessions open
+	// with the configured budget + drawdown flag, reused ones skip the
+	// chain entirely.
 	pm.transition(p, purchaseEscrowOpening, "", "")
 	amount, _ := new(big.Int).SetString(p.Terms.Amount, 10)
 	var taskHash [32]byte
 	th, _ := hex.DecodeString(strings.TrimPrefix(p.TaskHash, "0x"))
 	copy(taskHash[:], th)
-	tx, err := rail.Open(ctx, p.CorrelationID, settlement.Terms{
-		Buyer: p.Buyer, Seller: p.Seller, Token: p.Terms.Token,
-		Amount: amount, TaskHash: taskHash,
-		TerminationTime: p.Terms.TerminationTime,
-	})
-	if err != nil {
-		pm.transition(p, purchaseFailed, "escrow_open", err.Error())
-		return
+	if p.Drawdown {
+		ds, fresh, err := pm.drawdownAcquire(ctx, p, rail, amount, mc)
+		if err != nil {
+			pm.transition(p, purchaseFailed, "escrow_open", err.Error())
+			return
+		}
+		if fresh {
+			anchor := sha256.Sum256([]byte("drawdown:" + ds.CorrelationID))
+			budget, _ := new(big.Int).SetString(ds.Budget, 10)
+			tx, err := rail.Open(ctx, ds.CorrelationID, settlement.Terms{
+				Buyer: p.Buyer, Seller: ds.Seller, Token: ds.Token,
+				Amount: budget, TaskHash: anchor,
+				TerminationTime: ds.Deadline, Drawdown: true,
+			})
+			if err != nil {
+				pm.drawdown.rollbackDraw(ds.SessionID, p.PurchaseID)
+				pm.drawdown.markClosed(ds.SessionID, "open_failed")
+				pm.transition(p, purchaseFailed, "escrow_open", err.Error())
+				return
+			}
+			if err := pm.drawdown.markOpened(ds.SessionID, tx); err != nil {
+				pm.transition(p, purchaseFailed, "escrow_open", err.Error())
+				return
+			}
+			pm.recordTx(p, tx)
+		}
+		pm.mutate(p, func(pp *purchase) {
+			pp.SessionID = ds.SessionID
+			pp.CorrelationID = ds.CorrelationID
+			pp.Terms.TerminationTime = ds.Deadline
+		})
+		// Failures below return the reservation to headroom — but a
+		// purchase parked in awaiting_release still owes its draw, and a
+		// recorded tx makes rollback a no-op anyway.
+		defer func() {
+			if p.State == purchaseAwaitRelease || p.State == purchaseCompleted {
+				return
+			}
+			pm.drawdown.rollbackDraw(ds.SessionID, p.PurchaseID)
+		}()
+	} else {
+		tx, err := rail.Open(ctx, p.CorrelationID, settlement.Terms{
+			Buyer: p.Buyer, Seller: p.Seller, Token: p.Terms.Token,
+			Amount: amount, TaskHash: taskHash,
+			TerminationTime: p.Terms.TerminationTime,
+		})
+		if err != nil {
+			pm.transition(p, purchaseFailed, "escrow_open", err.Error())
+			return
+		}
+		pm.recordTx(p, tx)
 	}
-	pm.recordTx(p, tx)
 
 	// 2. Dial + ACP session — wss endpoint (TOFU-pinned) when the advert
 	// advertised one, the mesh bridge otherwise.
@@ -606,7 +660,7 @@ func runPurchase(ctx context.Context, pm *purchaseMgr, p *purchase) {
 		pm.transition(p, purchaseDisputable, "receipt_dial", err.Error())
 		return
 	}
-	rc, err := fetchReceipt(ctx, conn, p.SessionID)
+	rc, err := fetchReceipt(ctx, conn, p.SessionID, p.PurchaseID)
 	_ = conn.Close()
 	if err != nil {
 		pm.transition(p, purchaseDisputable, "receipt_fetch", err.Error())
@@ -645,8 +699,31 @@ func (pm *purchaseMgr) dialProvider(addr, tlsFP string) (io.ReadWriteCloser, err
 	return pm.dial(addr, acpMarketProtocol)
 }
 
-// release submits escrow.release() for a verified purchase.
+// release submits escrow.release() for a verified purchase — a full
+// milestone release per-task, an amount-based partial draw under
+// drawdown (paced by draw_interval and recorded in the session ledger).
 func (pm *purchaseMgr) release(ctx context.Context, p *purchase, rail settlement.Rail) {
+	if p.Drawdown {
+		if err := pm.waitDrawSlot(ctx, p.SessionID); err != nil {
+			pm.transition(p, purchaseDisputable, "release_failed", err.Error())
+			return
+		}
+		amount, _ := new(big.Int).SetString(p.Terms.Amount, 10)
+		tx, err := rail.ReleasePartial(ctx, p.SessionID, amount)
+		if err != nil {
+			pm.transition(p, purchaseDisputable, "release_failed", err.Error())
+			return
+		}
+		if err := pm.drawdown.recordDraw(p.SessionID, p.PurchaseID, tx); err != nil {
+			pm.audit.log("market.drawdown.record_failed", map[string]any{
+				"session_id": p.SessionID, "purchase_id": p.PurchaseID,
+				"error": err.Error(),
+			})
+		}
+		pm.recordTx(p, tx)
+		pm.transition(p, purchaseCompleted, "", "")
+		return
+	}
 	tx, err := rail.Release(ctx, p.SessionID)
 	if err != nil {
 		pm.transition(p, purchaseDisputable, "release_failed", err.Error())
@@ -723,6 +800,11 @@ func (pm *purchaseMgr) dispute(ctx context.Context, id, reason string) (*purchas
 	}
 	pm.recordTx(p, tx)
 	pm.transition(p, purchaseDisputed, "", reason)
+	// A dispute locks the whole shared session on-chain — the ledger
+	// stops serving draws on it immediately.
+	if p.Drawdown {
+		pm.drawdown.markClosed(p.SessionID, "disputed")
+	}
 	return p, nil
 }
 
@@ -749,6 +831,11 @@ func (pm *purchaseMgr) refund(ctx context.Context, id string) (*purchase, error)
 	}
 	pm.recordTx(p, tx)
 	pm.transition(p, purchaseRefunded, "", "")
+	// Withdraw returns the shared session's remainder — the ledger's
+	// close marker matches the on-chain end state.
+	if p.Drawdown {
+		pm.drawdown.markClosed(p.SessionID, "closed")
+	}
 	return p, nil
 }
 

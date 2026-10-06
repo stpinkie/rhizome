@@ -29,6 +29,7 @@ type Terms struct {
 	Amount          *big.Int `json:"amount"`                     // single-milestone total in token base units
 	TaskHash        [32]byte `json:"task_hash"`                  // work reference -> escrow details field
 	TerminationTime int64    `json:"termination_time,omitempty"` // unix secs; 0 = derive at Open
+	Drawdown        bool     `json:"drawdown,omitempty"`         // graduated rail: budget session — remainder refunds to buyer, seller claim disabled
 }
 
 // Validate checks Terms are well-formed before rail calls.

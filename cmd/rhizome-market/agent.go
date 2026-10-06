@@ -311,12 +311,25 @@ func (a *marketAgent) HandleExtensionMethod(
 	case "_rhizome.receipt":
 		var req struct {
 			SessionID string `json:"session_id"`
+			TaskNonce string `json:"task_nonce"`
 		}
 		if err := json.Unmarshal(params, &req); err != nil || req.SessionID == "" {
 			return nil, errReqf(-32602, "receipt requires {session_id}")
 		}
-		s := a.mgr.lookup(req.SessionID)
-		if s != nil {
+		// Drawdown stores sessions under escrow#nonce — the composite
+		// resolves first when the buyer supplies it, the bare key covers
+		// per-task sessions.
+		keys := []string{req.SessionID}
+		if req.TaskNonce != "" {
+			keys = append([]string{
+				drawdownSessionKey(strings.ToLower(req.SessionID), req.TaskNonce),
+			}, keys...)
+		}
+		for _, key := range keys {
+			s := a.mgr.lookup(key)
+			if s == nil {
+				continue
+			}
 			s.mu.Lock()
 			rc := s.receipt
 			st := s.State
@@ -325,13 +338,16 @@ func (a *marketAgent) HandleExtensionMethod(
 				return rc, nil
 			}
 			if st == sessionOpen || st == sessionActive {
-				return nil, errReqf(-32602, "receipt not ready — session %s still %s", req.SessionID, st)
+				return nil, errReqf(
+					-32602, "receipt not ready — session %s still %s", req.SessionID, st)
 			}
 		}
 		// Fall back to the persisted receipt store (finished sessions are
 		// unregistered from memory after close).
-		if rc, err := loadReceipt(a.mgr.moduleDir, req.SessionID); err == nil {
-			return rc, nil
+		for _, key := range keys {
+			if rc, err := loadReceipt(a.mgr.moduleDir, key); err == nil {
+				return rc, nil
+			}
 		}
 		return nil, errReqf(-32602, "no receipt for session %s", req.SessionID)
 	default:

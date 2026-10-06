@@ -78,6 +78,9 @@ type marketConfig struct {
 	dhtEnabled             bool                   // market_dht — unvetted rendezvous tier; requires host dht.enabled
 	buyerAddress           string                 // purchaser EVM identity; empty = web3 wallet default
 	buyAutoRelease         bool                   // release() immediately after receipt verify
+	settlement             string                 // escrow_settlement: per_task|drawdown
+	sessionBudget          string                 // session_budget — decimal token units per drawdown session
+	drawInterval           time.Duration          // draw_interval — min seconds between on-chain draws
 	signerMode             string                 // approval|direct|wallet
 	allowMainnet           bool                   // escrow_allow_mainnet — chain 1 opt-in
 	watchInterval          time.Duration          // escrow event scan cadence; 0 disables
@@ -88,6 +91,12 @@ type marketConfig struct {
 	httpsAdvertise         string                 // serve_https_advertise — public host[:port] or wss:// URL
 	rail                   *settlement.RailConfig // nil = fixture posture
 	errs                   []string
+}
+
+// drawdownMode reports whether buys fund a shared session budget
+// (escrow_settlement=drawdown) instead of per-task escrows.
+func (mc *marketConfig) drawdownMode() bool {
+	return mc != nil && mc.settlement == "drawdown"
 }
 
 // loadMarketConfig resolves the module's spec from the embedded catalog,
@@ -166,6 +175,21 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 	// The bridge refuses cleanly when the host's dht.enabled is off, so an
 	// enabled module on a dht-less daemon degrades to index+journal rows.
 	mc.dhtEnabled = truthy(values["market_dht"])
+	mc.settlement = strField(mc, values, "escrow_settlement", "per_task")
+	switch mc.settlement {
+	case "per_task", "drawdown":
+	default:
+		mc.errs = append(mc.errs,
+			"escrow_settlement must be per_task|drawdown")
+	}
+	mc.sessionBudget = strField(mc, values, "session_budget", "")
+	if mc.sessionBudget != "" {
+		if r, ok := new(big.Rat).SetString(mc.sessionBudget); !ok || r.Sign() <= 0 {
+			mc.errs = append(mc.errs, "session_budget must be a positive decimal")
+		}
+	}
+	mc.drawInterval = time.Duration(
+		intFieldDef(mc, values, "draw_interval", 0)) * time.Second
 	mc.buyerAddress = strField(mc, values, "buyer_address", "")
 	if mc.buyerAddress != "" && !web3.IsAddress(mc.buyerAddress) {
 		mc.errs = append(mc.errs, "buyer_address is not a valid 0x address")
@@ -235,6 +259,19 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 		mc.errs = append(mc.errs, fmt.Sprintf("escrow config: %s", err))
 	} else {
 		mc.rail = rail
+	}
+	// Drawdown needs amount-based partial releases — Smart Invoice's
+	// milestone release can't express them; the graduated rail or the
+	// fixture mock are the valid pairings.
+	if mc.settlement == "drawdown" && mc.rail != nil &&
+		mc.rail.Kind == settlement.RailKindSmartInvoice {
+		mc.errs = append(mc.errs,
+			"escrow_settlement=drawdown requires escrow_rail=rhizome "+
+				"(Smart Invoice has no amount-based release)")
+	}
+	if mc.settlement == "drawdown" && mc.sessionBudget == "" {
+		mc.errs = append(mc.errs,
+			"escrow_settlement=drawdown requires session_budget")
 	}
 	if mc.rail == nil && (mc.signerMode == "wallet" || mc.signerMode == "direct") {
 		mc.errs = append(mc.errs,
