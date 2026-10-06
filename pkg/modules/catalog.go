@@ -854,7 +854,14 @@ var catalog = []ModuleSpec{
 				Label: "Public endpoint for adverts (host:port or wss://…; unset = bound listen addr)",
 			},
 			{Key: "escrow_chain_id", Label: "Escrow chain id (11155111 Sepolia)"},
-			{Key: "escrow_contract", Label: "Smart Invoice factory address (unset = fixture rail)"},
+			{
+				Key:   "escrow_rail",
+				Label: "Escrow rail (smart_invoice|rhizome — graduated session-keyed contract)",
+			},
+			{
+				Key:   "escrow_contract",
+				Label: "Escrow contract address (Smart Invoice factory or RhizomeEscrow; unset = fixture rail)",
+			},
 			{Key: "escrow_token", Label: "Escrow ERC-20 token address"},
 			{Key: "escrow_arbiter", Label: "Escrow resolver (arbiter) address"},
 			{Key: "escrow_dispute_window", Label: "Dispute window in seconds"},

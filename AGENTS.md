@@ -460,9 +460,13 @@ everything runs through the minimal ABI codec and the human-approval queue.
 
 `pkg/settlement` is the market's escrow abstraction (survey:
 `docs/design/escrow-survey.md`). `Rail` (alias `SettlementRail`) =
-`Open/VerifyLock/Release/Claim/Dispute/Resolve`; session_id = the
-per-session escrow clone address, derived via `PredictEscrowAddr` /
-`CorrelationSalt(correlationID)`.
+`Open/VerifyLock/Release/ReleasePartial/Claim/Dispute/Resolve`;
+`RailConfig.Kind` selects the rail (`escrow_rail` field:
+`smart_invoice` default, `rhizome` = the graduated contract). Session-id
+convention differs per rail: Smart Invoice uses the per-session escrow
+clone address (`PredictEscrowAddr`/`CorrelationSalt`), the graduated
+rail uses a bytes32 session key (`GraduatedSessionID` =
+keccak256(correlationID)) and shares one contract deployment.
 
 - **RPCRail** — Smart Invoice on `pkg/web3` (`Sender` seam; `DirectSender`
   for unlocked/test endpoints, `WalletSender` in Track 104). `Open` =
@@ -471,16 +475,33 @@ per-session escrow clone address, derived via `PredictEscrowAddr` /
   unfunded, terms match) — Track 102's pre-spend gate. `Claim` has no
   unilateral seller-pull on Smart Invoice: it maps to provider `lock()`
   → arbiter `resolve()` — see the survey's mapping table.
+  `ReleasePartial` returns `ErrNotSupported` (SI releases are
+  milestone-indexed, not amount-based).
+- **GraduatedRail** (Track 127) — `contracts/RhizomeEscrow.sol`, a single
+  session-keyed deployment: `open` (ERC-20 `approve` + `transferFrom`
+  funding), amount-based `release` partials, native seller `claim` after
+  the dispute deadline, buyer `withdraw` after deadline + CLAIM_GRACE
+  (14 d), arbiter `resolve` (awards must consume the balance exactly),
+  ERC-1497 `Evidence`/`MetaEvidence` + `Ruling` hooks. Per-session
+  arbiter (`escrow_arbiter`) so a Track-129 ERC-792 adapter can occupy
+  the slot without a redeploy. The escrow watcher filters
+  contract-address + `sessionId` topic under this rail. Deploy runbook,
+  multisig-arbiter governance, and the security-review checklist:
+  `docs/operations/escrow-deploy.md`.
 - **MockRail** — deterministic in-memory fixture for 102/103 (`NowFunc`
   clock seam, contract-faithful resolve fee = balance/20).
 - **FakeChain** — `httptest` JSON-RPC emulating the factory, per-session
   escrow state machine (real guards: `NotClient`/`NotParty`/
-  `ResolutionMismatch`/`Terminated`), and ERC-20 ledgers; `Advance`
-  drives block time.
-- **`ConfigFromFields`** resolves module `escrow_{chain_id,contract,
+  `ResolutionMismatch`/`Terminated`), ERC-20 ledgers with
+  `approve`/`allowance`/`transferFrom`, and graduated-mode session state
+  (`NewFakeGraduatedChain`, `gradSession` snapshot); `Advance` drives
+  block time.
+- **`ConfigFromFields`** resolves module `escrow_{rail,chain_id,contract,
   token,arbiter,dispute_window}` → `RailConfig` (unset contract ⇒ nil =
-  fixture-default posture); bundled ABIs live in `pkg/settlement/abi.go`
-  (Sepolia factory `0x8227…17c20`).
+  fixture-default posture); wrapped-native resolves only for
+  `smart_invoice` (the graduated contract is ERC-20-only); bundled ABIs
+  live in `pkg/settlement/abi.go` (Sepolia factory `0x8227…17c20`) and
+  `abi_graduated.go`.
 
 ## ACP (Agent Client Protocol)
 

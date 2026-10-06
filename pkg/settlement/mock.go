@@ -134,6 +134,34 @@ func (m *MockRail) Release(_ context.Context, sessionID string) (string, error) 
 	return m.txHash(sessionID, m.txSeq), nil
 }
 
+// ReleasePartial moves `amount` from balance to released — the drawdown
+// primitive the graduated rail adds. The mock implements it amount-wise
+// so Track 128 fixtures can exercise partial-release sequences without a
+// chain.
+func (m *MockRail) ReleasePartial(
+	_ context.Context, sessionID string, amount *big.Int,
+) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, err := m.mustEscrow(sessionID)
+	if err != nil {
+		return "", err
+	}
+	if e.locked {
+		return "", fmt.Errorf("release %s: escrow is locked", sessionID)
+	}
+	if amount == nil || amount.Sign() <= 0 {
+		return "", fmt.Errorf("release %s: amount must be positive", sessionID)
+	}
+	if amount.Cmp(e.balance) > 0 {
+		return "", fmt.Errorf("release %s: amount exceeds balance", sessionID)
+	}
+	e.released.Add(e.released, amount)
+	e.balance.Sub(e.balance, amount)
+	m.txSeq++
+	return m.txHash(sessionID, m.txSeq), nil
+}
+
 // Claim locks the escrow — the provider-initiated forced-resolution path
 // (see Rail.Claim for the semantic mapping).
 func (m *MockRail) Claim(_ context.Context, sessionID string) (string, error) {

@@ -31,19 +31,25 @@ import (
 type FakeChain struct {
 	srv *httptest.Server
 
-	mu       sync.Mutex
-	chainID  uint64
-	factory  string
-	wrapped  string
-	now      int64
-	block    uint64
-	txSeq    int
-	escrows  map[string]*fakeEscrow
-	tokens   map[string]map[string]*big.Int // token -> holder -> balance
-	rates    map[string]int64               // resolver -> resolutionRate
-	receipts map[string]*fakeReceipt
-	logs     []*fakeLog
-	nonces   map[string]uint64 // sender -> tx count (eth_getTransactionCount)
+	mu         sync.Mutex
+	chainID    uint64
+	factory    string
+	wrapped    string
+	now        int64
+	block      uint64
+	txSeq      int
+	escrows    map[string]*fakeEscrow
+	tokens     map[string]map[string]*big.Int            // token -> holder -> balance
+	allowances map[string]map[string]map[string]*big.Int // token -> owner -> spender -> amount
+	rates      map[string]int64                          // resolver -> resolutionRate
+	receipts   map[string]*fakeReceipt
+	logs       []*fakeLog
+	nonces     map[string]uint64 // sender -> tx count (eth_getTransactionCount)
+
+	// graduated mode (Track 127): cfg.Factory hosts the session-keyed
+	// RhizomeEscrow surface instead of the Smart Invoice factory.
+	gradMode     bool
+	gradSessions map[string]*gradSession // sessionId hex -> session
 }
 
 type fakeEscrow struct {
@@ -78,15 +84,18 @@ type fakeLog struct {
 func NewFakeChain(t *testing.T, cfg RailConfig) *FakeChain {
 	t.Helper()
 	fc := &FakeChain{
-		chainID:  cfg.ChainID,
-		factory:  cfg.Factory,
-		wrapped:  cfg.WrappedNative,
-		now:      time.Now().Unix(),
-		escrows:  map[string]*fakeEscrow{},
-		tokens:   map[string]map[string]*big.Int{},
-		rates:    map[string]int64{},
-		receipts: map[string]*fakeReceipt{},
-		nonces:   map[string]uint64{},
+		chainID:      cfg.ChainID,
+		factory:      cfg.Factory,
+		wrapped:      cfg.WrappedNative,
+		now:          time.Now().Unix(),
+		escrows:      map[string]*fakeEscrow{},
+		tokens:       map[string]map[string]*big.Int{},
+		allowances:   map[string]map[string]map[string]*big.Int{},
+		rates:        map[string]int64{},
+		receipts:     map[string]*fakeReceipt{},
+		nonces:       map[string]uint64{},
+		gradMode:     cfg.Kind == RailKindRhizome,
+		gradSessions: map[string]*gradSession{},
 	}
 	fc.srv = httptest.NewServer(http.HandlerFunc(fc.handle))
 	t.Cleanup(fc.srv.Close)
@@ -266,6 +275,8 @@ func (fc *FakeChain) ethCall(params []json.RawMessage) (any, *rpcError) {
 	}
 	to := normAddr(c.To)
 	switch {
+	case to == normAddr(fc.factory) && fc.gradMode:
+		return fc.gradView(data)
 	case to == normAddr(fc.factory):
 		return fc.factoryView(data)
 	default:
@@ -273,7 +284,7 @@ func (fc *FakeChain) ethCall(params []json.RawMessage) (any, *rpcError) {
 			return fc.escrowView(e, data)
 		}
 		if l := fc.tokens[to]; l != nil {
-			return fc.tokenView(l, data)
+			return fc.tokenView(to, l, data)
 		}
 		// No code at the address — the empty-return posture the rail
 		// maps to ErrNotFound.
@@ -389,7 +400,9 @@ func (fc *FakeChain) escrowView(e *fakeEscrow, data []byte) (any, *rpcError) {
 	return nil, rpcErr(-32601, "fakechain: unknown escrow selector")
 }
 
-func (fc *FakeChain) tokenView(l map[string]*big.Int, data []byte) (any, *rpcError) {
+func (fc *FakeChain) tokenView(
+	token string, l map[string]*big.Int, data []byte,
+) (any, *rpcError) {
 	s := hex.EncodeToString(data[:4])
 	switch s {
 	case hex.EncodeToString(sel("balanceOf", erc20ABI, 1)):
@@ -408,7 +421,17 @@ func (fc *FakeChain) tokenView(l map[string]*big.Int, data []byte) (any, *rpcErr
 	case hex.EncodeToString(sel("symbol", erc20ABI, 0)):
 		return encRet([]string{"string"}, []any{"TKN"})
 	case hex.EncodeToString(sel("allowance", erc20ABI, 2)):
-		return encRet([]string{"uint256"}, []any{"0"})
+		args, rerr := fc.decodeArgs([]string{"address", "address"}, data)
+		if rerr != nil {
+			return nil, rerr
+		}
+		owner := normAddr(mustStr(args[0]))
+		spender := normAddr(mustStr(args[1]))
+		allow := fc.allowances[token][owner][spender]
+		if allow == nil {
+			allow = new(big.Int)
+		}
+		return encRet([]string{"uint256"}, []any{allow.String()})
 	}
 	return nil, rpcErr(-32601, "fakechain: unknown token selector")
 }
@@ -482,6 +505,8 @@ func (fc *FakeChain) applyTx(
 	var logs []*fakeLog
 	var rerr *rpcError
 	switch {
+	case to == normAddr(fc.factory) && fc.gradMode:
+		logs, rerr = fc.gradTx(from, data)
 	case to == normAddr(fc.factory):
 		logs, rerr = fc.txFactory(from, data)
 	case fc.tokens[to] != nil:
@@ -607,7 +632,46 @@ func (fc *FakeChain) decodeInitData(initHex string) (*fakeInit, *rpcError) {
 }
 
 func (fc *FakeChain) txToken(from, token string, data []byte) ([]*fakeLog, *rpcError) {
-	if hex.EncodeToString(data[:4]) != hex.EncodeToString(sel("transfer", erc20ABI, 2)) {
+	s := hex.EncodeToString(data[:4])
+	switch s {
+	case hex.EncodeToString(sel("approve", erc20ABI, 2)):
+		args, rerr := fc.decodeArgs([]string{"address", "uint256"}, data)
+		if rerr != nil {
+			return nil, rerr
+		}
+		spender := normAddr(mustStr(args[0]))
+		amt := mustBig(args[1])
+		fc.setAllowance(token, from, spender, amt)
+		return []*fakeLog{{
+			address: token,
+			topics: []string{
+				topicOf("Approval(address,address,uint256)"),
+				topicAddr(from), topicAddr(spender),
+			},
+			data: "0x" + hex.EncodeToString(wordBig(amt)),
+		}}, nil
+	case hex.EncodeToString(sel("transferFrom", erc20ABI, 3)):
+		args, rerr := fc.decodeArgs([]string{"address", "address", "uint256"}, data)
+		if rerr != nil {
+			return nil, rerr
+		}
+		src := normAddr(mustStr(args[0]))
+		dest := normAddr(mustStr(args[1]))
+		amt := mustBig(args[2])
+		if !fc.tokenPull(token, src, from, dest, amt) {
+			return nil, revert("ERC20: insufficient allowance")
+		}
+		// (transferFrom's `from` tx arg IS the spender.)
+		return []*fakeLog{{
+			address: token,
+			topics: []string{
+				topicOf("Transfer(address,address,uint256)"),
+				topicAddr(src), topicAddr(dest),
+			},
+			data: "0x" + hex.EncodeToString(wordBig(amt)),
+		}}, nil
+	case hex.EncodeToString(sel("transfer", erc20ABI, 2)):
+	default:
 		return nil, rpcErr(-32601, "fakechain: unsupported token tx selector")
 	}
 	args, rerr := fc.decodeArgs([]string{"address", "uint256"}, data)
@@ -766,6 +830,18 @@ func (fc *FakeChain) tokenMove(token, from, to string, amt *big.Int) {
 		l[t] = new(big.Int)
 	}
 	l[t].Add(l[t], amt)
+}
+
+// setAllowance records an approve() — the graduated contract's open()
+// transferFrom draws against it (tokenPull).
+func (fc *FakeChain) setAllowance(token, owner, spender string, amt *big.Int) {
+	if fc.allowances[token] == nil {
+		fc.allowances[token] = map[string]map[string]*big.Int{}
+	}
+	if fc.allowances[token][normAddr(owner)] == nil {
+		fc.allowances[token][normAddr(owner)] = map[string]*big.Int{}
+	}
+	fc.allowances[token][normAddr(owner)][normAddr(spender)] = new(big.Int).Set(amt)
 }
 
 // --- receipts and logs ---------------------------------------------------

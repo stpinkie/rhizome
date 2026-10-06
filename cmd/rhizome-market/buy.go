@@ -429,17 +429,21 @@ func (pm *purchaseMgr) dailySpend(asset string) *big.Rat {
 	return sum
 }
 
-// predictSessionID resolves the escrow clone address for a correlation id.
+// predictSessionID resolves the on-chain session id for a correlation id
+// — the escrow clone address on Smart Invoice, the bytes32 session key
+// on the graduated rail.
 func (pm *purchaseMgr) predictSessionID(
 	ctx context.Context, rail settlement.Rail, corr string,
 ) (string, error) {
 	switch r := rail.(type) {
 	case *settlement.RPCRail:
 		return r.PredictEscrowAddr(ctx, corr)
+	case *settlement.GraduatedRail:
+		return r.SessionID(corr), nil
 	case *settlement.MockRail:
 		return r.PredictEscrowAddr(corr), nil
 	default:
-		return "", fmt.Errorf("rail %T cannot predict escrow addresses", rail)
+		return "", fmt.Errorf("rail %T cannot predict session ids", rail)
 	}
 }
 
@@ -452,8 +456,17 @@ func priceBaseUnits(
 		return nil, fmt.Errorf("per_task %q is not a positive decimal", perTask)
 	}
 	decimals := uint8(6) // fixture posture: the module's own convention
-	if r, ok := rail.(*settlement.RPCRail); ok {
-		d, err := r.TokenDecimals(ctx)
+	var decRail interface {
+		TokenDecimals(ctx context.Context) (uint8, error)
+	}
+	switch r := rail.(type) {
+	case *settlement.RPCRail:
+		decRail = r
+	case *settlement.GraduatedRail:
+		decRail = r
+	}
+	if decRail != nil {
+		d, err := decRail.TokenDecimals(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("token decimals: %w", err)
 		}
@@ -506,6 +519,26 @@ func (pm *purchaseMgr) pendingStore() *web3.PendingStore {
 	return web3.OpenPendingStore(web3.WalletDir(pm.home))
 }
 
+// railFor returns the settlement rail with the per-purchase sender
+// applied where the rail supports sender override (RPC + graduated).
+// Returns nil when no rail is configured.
+func (pm *purchaseMgr) railFor(p *purchase) settlement.Rail {
+	base := pm.rail.Load()
+	if base == nil || *base == nil {
+		return nil
+	}
+	rail := *base
+	if snd := pm.senderFor(p); snd != nil {
+		switch r := rail.(type) {
+		case *settlement.RPCRail:
+			rail = r.WithSender(snd)
+		case *settlement.GraduatedRail:
+			rail = r.WithSender(snd)
+		}
+	}
+	return rail
+}
+
 // runPurchase is the async buy orchestrator: escrow open → bridge dial →
 // ACP session → receipt verify → release. Every failure mode leaves the
 // purchase in an honest state — escrowed funds become disputable (locked
@@ -513,16 +546,14 @@ func (pm *purchaseMgr) pendingStore() *web3.PendingStore {
 // "succeeded".
 func runPurchase(ctx context.Context, pm *purchaseMgr, p *purchase) {
 	mc := pm.cfg.Load()
-	baseRail := pm.rail.Load()
-	if mc == nil || baseRail == nil || *baseRail == nil {
+	if mc == nil || pm.rail.Load() == nil {
 		pm.transition(p, purchaseFailed, "rail_unavailable", "no settlement rail")
 		return
 	}
-	rail := *baseRail
-	if r, ok := rail.(*settlement.RPCRail); ok {
-		if snd := pm.senderFor(p); snd != nil {
-			rail = r.WithSender(snd)
-		}
+	rail := pm.railFor(p)
+	if rail == nil {
+		pm.transition(p, purchaseFailed, "rail_unavailable", "no settlement rail")
+		return
 	}
 
 	// 1. Escrow open — the queued sender blocks each tx on approval.
@@ -679,15 +710,9 @@ func (pm *purchaseMgr) dispute(ctx context.Context, id, reason string) (*purchas
 			"purchase %s is %s — dispute only while funds are locked and unresolved",
 			id, p.State)
 	}
-	base := pm.rail.Load()
-	if base == nil || *base == nil {
+	rail := pm.railFor(p)
+	if rail == nil {
 		return nil, buyErr("rail_unavailable", "no settlement rail")
-	}
-	rail := *base
-	if r, ok := rail.(*settlement.RPCRail); ok {
-		if snd := pm.senderFor(p); snd != nil {
-			rail = r.WithSender(snd)
-		}
 	}
 	dsum := sha256.Sum256([]byte("dispute:" + reason))
 	var details [32]byte
@@ -714,15 +739,9 @@ func (pm *purchaseMgr) refund(ctx context.Context, id string) (*purchase, error)
 			"purchase %s is %s — refund applies after the dispute window lapses",
 			id, p.State)
 	}
-	base := pm.rail.Load()
-	if base == nil || *base == nil {
+	rail := pm.railFor(p)
+	if rail == nil {
 		return nil, buyErr("rail_unavailable", "no settlement rail")
-	}
-	rail := *base
-	if r, ok := rail.(*settlement.RPCRail); ok {
-		if snd := pm.senderFor(p); snd != nil {
-			rail = r.WithSender(snd)
-		}
 	}
 	tx, err := rail.Withdraw(ctx, p.SessionID)
 	if err != nil {
@@ -745,15 +764,9 @@ func (pm *purchaseMgr) releaseByID(ctx context.Context, id string) (*purchase, e
 			"purchase %s is %s — manual release applies to awaiting_release only",
 			id, p.State)
 	}
-	base := pm.rail.Load()
-	if base == nil || *base == nil {
+	rail := pm.railFor(p)
+	if rail == nil {
 		return nil, buyErr("rail_unavailable", "no settlement rail")
-	}
-	rail := *base
-	if r, ok := rail.(*settlement.RPCRail); ok {
-		if snd := pm.senderFor(p); snd != nil {
-			rail = r.WithSender(snd)
-		}
 	}
 	pm.release(ctx, p, rail)
 	return p, nil

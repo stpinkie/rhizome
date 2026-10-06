@@ -10,9 +10,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
+	"strings"
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/settlement"
 	"github.com/stpinkie/rhizome/pkg/web3"
 )
 
@@ -43,6 +46,14 @@ var (
 	topicWithdraw = eventTopic("Withdraw(uint256)")
 	topicResolve  = eventTopic("Resolve(address,uint256,uint256,uint256,bytes32)")
 	topicVerified = eventTopic("Verified(address,address)")
+
+	// Graduated rail (Track 127 RhizomeEscrow) — sessionId rides topic[1].
+	topicGradOpened    = eventTopic("Opened(bytes32,address,address,address,uint128,uint64,bytes32)")
+	topicGradReleased  = eventTopic("Released(bytes32,uint128,uint128)")
+	topicGradDisputed  = eventTopic("Disputed(bytes32,address,bytes32)")
+	topicGradResolved  = eventTopic("Resolved(bytes32,uint128,uint128,bytes32)")
+	topicGradClaimed   = eventTopic("Claimed(bytes32,uint128)")
+	topicGradWithdrawn = eventTopic("Withdrawn(bytes32,uint128)")
 )
 
 func eventTopic(sig string) string {
@@ -134,6 +145,10 @@ func (pm *purchaseMgr) scanPurchaseEvents(
 	if to-from+1 > watchMaxRange {
 		to = from + watchMaxRange - 1
 	}
+	// Smart Invoice escrows are per-session clones — the session_id IS
+	// the contract address. The graduated rail shares one deployment:
+	// filter contract + indexed sessionId topic instead.
+	mc := pm.cfg.Load()
 	filter := map[string]any{
 		"address":   snap.SessionID,
 		"fromBlock": fmt.Sprintf("0x%x", from),
@@ -141,6 +156,17 @@ func (pm *purchaseMgr) scanPurchaseEvents(
 		"topics": []any{
 			[]any{topicRelease, topicLock, topicWithdraw, topicResolve, topicVerified},
 		},
+	}
+	if mc != nil && mc.rail != nil && mc.rail.Kind == settlement.RailKindRhizome {
+		sid := strings.TrimPrefix(strings.ToLower(snap.SessionID), "0x")
+		filter["address"] = mc.rail.Factory
+		filter["topics"] = []any{
+			[]any{
+				topicGradOpened, topicGradReleased, topicGradDisputed,
+				topicGradResolved, topicGradClaimed, topicGradWithdrawn,
+			},
+			"0x" + strings.Repeat("0", 64-len(sid)) + sid,
+		}
 	}
 	raw, err := client.Call(ctx, "eth_getLogs", []any{filter})
 	if err != nil {
@@ -177,6 +203,24 @@ func (pm *purchaseMgr) applyEscrowEvent(p *purchase, lg web3.Log) {
 		event, toState = "resolve", purchaseResolved
 	case topicVerified:
 		event = "verified" // informational — client-marked verification
+	case topicGradOpened:
+		event = "opened"
+	case topicGradReleased:
+		// Amount-partials aren't terminal — the purchase completes on
+		// claim/resolve/withdraw or the module's own release confirm.
+		// A Released whose cumulative covers the budget settles it.
+		event = "released"
+		if graduatedReleaseIsFull(p, lg) {
+			toState = purchaseCompleted
+		}
+	case topicGradDisputed:
+		event, toState = "disputed", purchaseDisputed
+	case topicGradResolved:
+		event, toState = "resolved", purchaseResolved
+	case topicGradClaimed:
+		event, toState = "claimed", purchaseCompleted
+	case topicGradWithdrawn:
+		event, toState = "withdrawn", purchaseRefunded
 	default:
 		return
 	}
@@ -197,6 +241,19 @@ func (pm *purchaseMgr) applyEscrowEvent(p *purchase, lg web3.Log) {
 	// Observed (not initiated) transitions leave the error fields clean —
 	// the audit line above carries the chain evidence.
 	pm.transition(p, toState, "", "")
+}
+
+// graduatedReleaseIsFull decodes a Released event's (amount, released)
+// data pair and reports whether cumulative releases cover the purchase's
+// committed amount — the settle condition for the graduated rail.
+func graduatedReleaseIsFull(p *purchase, lg web3.Log) bool {
+	data, err := hex.DecodeString(strings.TrimPrefix(lg.Data, "0x"))
+	if err != nil || len(data) < 64 {
+		return false
+	}
+	released := new(big.Int).SetBytes(data[32:64])
+	amount, ok := new(big.Int).SetString(p.Terms.Amount, 10)
+	return ok && amount.Sign() > 0 && released.Cmp(amount) >= 0
 }
 
 // ethBlockNumber returns the chain head for range bounding.

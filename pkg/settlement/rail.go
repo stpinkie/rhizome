@@ -52,6 +52,15 @@ type Rail interface {
 	// submitting key/Sender does).
 	Release(ctx context.Context, sessionID string) (txHash string, err error)
 
+	// ReleasePartial is the Track 127/128 drawdown primitive: pay an
+	// explicit `amount` of the remaining escrow to the seller rather than
+	// a whole milestone. Implemented by the graduated RhizomeEscrow rail;
+	// the Smart Invoice rail returns ErrNotSupported (its release() is
+	// milestone-indexed, not amount-based).
+	ReleasePartial(
+		ctx context.Context, sessionID string, amount *big.Int,
+	) (txHash string, err error)
+
 	// Claim is the seller's forced-resolution path. Smart Invoice has no
 	// unilateral seller-claim: after the dispute window the safety valve
 	// is the CLIENT's withdraw(), not the provider's. The honest v1

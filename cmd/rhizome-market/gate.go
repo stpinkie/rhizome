@@ -221,7 +221,10 @@ func (m *sessionMgr) tokenDecimals(ctx context.Context) (uint8, error) {
 	if rail == nil || *rail == nil {
 		return 0, fmt.Errorf("no rail")
 	}
-	if r, ok := (*rail).(*settlement.RPCRail); ok {
+	switch r := (*rail).(type) {
+	case *settlement.RPCRail:
+		return r.TokenDecimals(ctx)
+	case *settlement.GraduatedRail:
 		return r.TokenDecimals(ctx)
 	}
 	return 6, nil
