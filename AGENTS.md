@@ -57,6 +57,16 @@ binaries otherwise share the LAN and can cross-connect:
 - `scripts/flake-hunt.sh [RUNS]` (`.ps1` on Windows) repeats the networked
   packages under default `-p` parallelism and reports per-test pass rates;
   `pr.yml`'s `test-parallel` job is the same signal, non-blocking, per PR.
+- `.github/workflows/integration.yml` runs `scripts/integration-mesh.sh` +
+  `scripts/integration-swarm.sh` weekly (Mondays 08:00 UTC, after
+  release-smoke) and on `workflow_dispatch`; advisory (`continue-on-error`),
+  logs upload as artifacts on every run.
+- **Flake promotion criteria** — a flake stops being advisory once it's
+  recurring: the same test failing `test-parallel` on two or more PRs in a
+  week, or the same integration script failing two consecutive weekly runs,
+  converts to a tracked item in `.todo.md` (or a GitHub issue) that must be
+  reproduced via `flake-hunt` and either fixed or explicitly quarantined
+  before the next sprint closes. One-off failures stay advisory.
 
 ## Validation on resource-constrained Linux VMs
 

@@ -1,0 +1,44 @@
+name: integration
+
+# Weekly end-to-end run of the two-node daemon scripts (onboard → daemon →
+# workspace sync / swarm roster → restart) so daemon-level regressions surface
+# on a schedule instead of at release time. Advisory posture — same class as
+# pr.yml's test-parallel job: a red run signals investigation, never a merge
+# gate. Logs upload as artifacts on every run; the scripts dump both daemon
+# logs on failure paths.
+on:
+  schedule:
+    - cron: '0 8 * * 1' # Mondays 08:00 UTC, after the release-smoke slot
+  workflow_dispatch:
+
+jobs:
+  scripts:
+    name: Integration scripts (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run mesh integration (ping, bidirectional sync, reconnect)
+        run: bash scripts/integration-mesh.sh 2>&1 | tee integration-mesh.log
+
+      - name: Run swarm integration (roster, presence, restart persistence)
+        run: bash scripts/integration-swarm.sh 2>&1 | tee integration-swarm.log
+
+      - name: Upload integration logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-logs
+          path: |
+            integration-mesh.log
+            integration-swarm.log
+          retention-days: 30
+          if-no-files-found: ignore
