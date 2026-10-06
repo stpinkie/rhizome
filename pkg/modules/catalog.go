@@ -863,7 +863,14 @@ var catalog = []ModuleSpec{
 				Label: "Escrow contract address (Smart Invoice factory or RhizomeEscrow; unset = fixture rail)",
 			},
 			{Key: "escrow_token", Label: "Escrow ERC-20 token address"},
-			{Key: "escrow_arbiter", Label: "Escrow resolver (arbiter) address"},
+			{
+				Key:   "escrow_arbiter",
+				Label: "Escrow arbiter (0x address | kleros:<court> — court id for ERC-792 escalation)",
+			},
+			{
+				Key:   "escrow_arbiter_adapter",
+				Label: "RhizomeKlerosAdapter contract (required when escrow_arbiter=kleros:*)",
+			},
 			{Key: "escrow_dispute_window", Label: "Dispute window in seconds"},
 			{
 				Key:     "escrow_settlement",

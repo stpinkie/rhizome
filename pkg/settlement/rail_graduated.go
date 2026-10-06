@@ -323,6 +323,86 @@ func (r *GraduatedRail) Resolve(
 	})
 }
 
+// SubmitEvidence emits the ERC-1497 Evidence event for a Locked session
+// — the evidence bundle (receipt + terms hash) the arbiter reads. Either
+// party may submit while Locked; the contract enforces it.
+func (r *GraduatedRail) SubmitEvidence(
+	ctx context.Context, sessionID, evidence string,
+) (string, error) {
+	if evidence == "" {
+		return "", fmt.Errorf("evidence must be non-empty")
+	}
+	return r.verb(ctx, sessionID, "submitEvidence",
+		[]any{bytes32Hex0(sessionID), evidence})
+}
+
+// KlerosBound reports whether this rail resolves disputes through the
+// ERC-792 adapter (escrow_arbiter=kleros:<court>) rather than a
+// designated arbiter address.
+func (r *GraduatedRail) KlerosBound() bool {
+	return r.cfg.ArbiterKind == ArbiterKindKleros &&
+		web3.IsAddress(r.cfg.ArbiterAdapter)
+}
+
+// ArbitrationCost quotes the escalation fee in wei — the value the
+// payable createDispute requires on the adapter (KlerosLiquid prices
+// per round; the quote is read fresh each call).
+func (r *GraduatedRail) ArbitrationCost(ctx context.Context) (*big.Int, error) {
+	if !r.KlerosBound() {
+		return nil, fmt.Errorf(
+			"arbitration cost needs escrow_arbiter=kleros:<court> + adapter")
+	}
+	m, err := klerosAdapterABI.Method("arbitrationCost", 0)
+	if err != nil {
+		return nil, err
+	}
+	data, err := m.PackArgs(nil)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.snd.Call(ctx, r.cfg.ArbiterAdapter, data)
+	if err != nil {
+		return nil, fmt.Errorf("arbitrationCost: %w", err)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("arbitrationCost: %w", ErrNotFound)
+	}
+	vals, err := m.UnpackOutputs(out)
+	if err != nil {
+		return nil, err
+	}
+	return uintFromOut(vals[0])
+}
+
+// EscalateDispute pays the arbitration fee to mint a Kleros dispute on
+// the adapter — the party escalating bears the fee (the adapter
+// forwards msg.value to the arbitrator). The session must already be
+// Locked; the arbitrator's rule() callback resolves it later.
+func (r *GraduatedRail) EscalateDispute(
+	ctx context.Context, sessionID string,
+) (string, error) {
+	if _, err := parseSessionID(sessionID); err != nil {
+		return "", err
+	}
+	cost, err := r.ArbitrationCost(ctx)
+	if err != nil {
+		return "", err
+	}
+	m, err := klerosAdapterABI.Method("createDispute", 1)
+	if err != nil {
+		return "", err
+	}
+	data, err := m.PackArgs([]any{bytes32Hex0(sessionID)})
+	if err != nil {
+		return "", err
+	}
+	hash, err := r.snd.SendTx(ctx, r.cfg.ArbiterAdapter, data, cost)
+	if err != nil {
+		return "", fmt.Errorf("escalate %s: %w", sessionID, err)
+	}
+	return hash, nil
+}
+
 // TokenDecimals resolves the configured payment token's decimals().
 func (r *GraduatedRail) TokenDecimals(ctx context.Context) (uint8, error) {
 	r.decMu.Lock()

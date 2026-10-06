@@ -23,6 +23,8 @@ func NewMarketCommand() *cobra.Command {
 		newSessionCommand(),
 		newReceiptCommand(),
 		newDisputeCommand(),
+		newEscalateCommand(),
+		newEvidenceCommand(),
 		newRefundCommand(),
 		newReleaseCommand(),
 	)
@@ -131,6 +133,35 @@ func newDisputeCommand() *cobra.Command {
 				body["reason"] = args[1]
 			}
 			runVerb(cmd, "dispute", body)
+		},
+	}
+}
+
+func newEscalateCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "escalate <purchase-id-or-session>",
+		Short: "Escalate a disputed purchase to the Kleros arbitrator",
+		Long: "Escalate a disputed purchase to the configured ERC-792 " +
+			"arbitrator (escrow_arbiter=kleros:<court>). The caller funds " +
+			"the arbitration fee in native token — the dispute-time " +
+			"auto-escalation already tries this once; escalate retries it.",
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			runVerb(cmd, "escalate", map[string]any{"id": args[0]})
+		},
+	}
+}
+
+func newEvidenceCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "evidence <purchase-id-or-session>",
+		Short: "Show a purchase's ERC-1497 evidence bundle",
+		Long: "Show the evidence bundle an arbiter reads for a purchase: " +
+			"the signed _rhizome.receipt plus the terms hash committing " +
+			"to the on-chain session facts.",
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			runVerb(cmd, "evidence", map[string]any{"id": args[0]})
 		},
 	}
 }

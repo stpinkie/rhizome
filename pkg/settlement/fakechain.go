@@ -50,6 +50,16 @@ type FakeChain struct {
 	// RhizomeEscrow surface instead of the Smart Invoice factory.
 	gradMode     bool
 	gradSessions map[string]*gradSession // sessionId hex -> session
+
+	// kleros mode (Track 129): the adapter + ERC-792 arbitrator pair.
+	// Ether isn't ledgered — only the cost quote and dispute mapping.
+	klerosAdapter           string
+	klerosArbitrator        string
+	klerosCost              *big.Int
+	klerosRuling            int64             // preset auto-ruling (-1 = manual)
+	klerosSeq               uint64            // dispute id mint seq
+	klerosDisputes          map[uint64]string // disputeID -> sessionID hex
+	klerosDisputesBySession map[string]uint64 // sessionID hex -> disputeID
 }
 
 type fakeEscrow struct {
@@ -84,18 +94,22 @@ type fakeLog struct {
 func NewFakeChain(t *testing.T, cfg RailConfig) *FakeChain {
 	t.Helper()
 	fc := &FakeChain{
-		chainID:      cfg.ChainID,
-		factory:      cfg.Factory,
-		wrapped:      cfg.WrappedNative,
-		now:          time.Now().Unix(),
-		escrows:      map[string]*fakeEscrow{},
-		tokens:       map[string]map[string]*big.Int{},
-		allowances:   map[string]map[string]map[string]*big.Int{},
-		rates:        map[string]int64{},
-		receipts:     map[string]*fakeReceipt{},
-		nonces:       map[string]uint64{},
-		gradMode:     cfg.Kind == RailKindRhizome,
-		gradSessions: map[string]*gradSession{},
+		chainID:                 cfg.ChainID,
+		factory:                 cfg.Factory,
+		wrapped:                 cfg.WrappedNative,
+		now:                     time.Now().Unix(),
+		escrows:                 map[string]*fakeEscrow{},
+		tokens:                  map[string]map[string]*big.Int{},
+		allowances:              map[string]map[string]map[string]*big.Int{},
+		rates:                   map[string]int64{},
+		receipts:                map[string]*fakeReceipt{},
+		nonces:                  map[string]uint64{},
+		gradMode:                cfg.Kind == RailKindRhizome,
+		gradSessions:            map[string]*gradSession{},
+		klerosCost:              new(big.Int),
+		klerosRuling:            -1, // manual rule() delivery until SetArbiterRuling
+		klerosDisputes:          map[uint64]string{},
+		klerosDisputesBySession: map[string]uint64{},
 	}
 	fc.srv = httptest.NewServer(http.HandlerFunc(fc.handle))
 	t.Cleanup(fc.srv.Close)
@@ -279,6 +293,10 @@ func (fc *FakeChain) ethCall(params []json.RawMessage) (any, *rpcError) {
 		return fc.gradView(data)
 	case to == normAddr(fc.factory):
 		return fc.factoryView(data)
+	case to == fc.klerosAdapter && fc.klerosAdapter != "":
+		return fc.klerosAdapterView(data)
+	case to == fc.klerosArbitrator && fc.klerosArbitrator != "":
+		return fc.arbitratorView(data)
 	default:
 		if e := fc.escrows[to]; e != nil {
 			return fc.escrowView(e, data)
@@ -507,6 +525,8 @@ func (fc *FakeChain) applyTx(
 	switch {
 	case to == normAddr(fc.factory) && fc.gradMode:
 		logs, rerr = fc.gradTx(from, data)
+	case to == fc.klerosAdapter && fc.klerosAdapter != "":
+		logs, rerr = fc.klerosAdapterTx(from, data)
 	case to == normAddr(fc.factory):
 		logs, rerr = fc.txFactory(from, data)
 	case fc.tokens[to] != nil:
