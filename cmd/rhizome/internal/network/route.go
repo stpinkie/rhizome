@@ -25,6 +25,7 @@ func NewRouteCommand() *cobra.Command {
 	var wait time.Duration
 	var pickTimeout time.Duration
 	var attaches []string
+	var reqModels, reqSkills []string
 
 	cmd := &cobra.Command{
 		Use:   "route <agent-id> <task>",
@@ -40,7 +41,8 @@ func NewRouteCommand() *cobra.Command {
 				os.Exit(1)
 			}
 			task := strings.Join(args[1:], " ")
-			runRoute(cmd, agentID, task, syncCall, wait, pickTimeout, attaches)
+			req := mesh.Requirements{Models: reqModels, Skills: reqSkills}
+			runRoute(cmd, agentID, task, syncCall, wait, pickTimeout, attaches, req)
 		},
 	}
 	cmd.Flags().Bool("sync", false, "Delegate synchronously instead of submitting an async task")
@@ -49,6 +51,12 @@ func NewRouteCommand() *cobra.Command {
 		DurationVar(&pickTimeout, "pick-timeout", 15*time.Second, "How long to wait for a suitable peer to appear")
 	cmd.Flags().
 		StringArrayVar(&attaches, "attach", nil, "Attach a local file to the remote task (repeatable)")
+	cmd.Flags().
+		StringArrayVar(&reqModels, "require-model", nil,
+			"Only pick peers advertising one of these models (repeatable; peers need mesh.advertise_models)")
+	cmd.Flags().
+		StringArrayVar(&reqSkills, "require-skill", nil,
+			"Only pick peers advertising one of these skills (repeatable; peers need mesh.advertise_skills or mesh.skill_share)")
 	return cmd
 }
 
@@ -58,6 +66,7 @@ func runRoute(
 	syncCall bool,
 	wait, pickTimeout time.Duration,
 	attaches []string,
+	req mesh.Requirements,
 ) {
 	ctx, cancel := context.WithTimeout(context.Background(), pickTimeout+wait+2*time.Minute)
 	defer cancel()
@@ -118,7 +127,7 @@ func runRoute(
 	var pid peer.ID
 	var pickedCap mesh.Capability
 	for {
-		pid, pickedCap, err = m.PickPeer(agentID, op)
+		pid, pickedCap, err = m.PickPeerWith(agentID, op, req)
 		if err == nil {
 			break
 		}
@@ -146,6 +155,7 @@ func runRoute(
 			SystemPrompt:  task,
 			Media:         media,
 			UsageSink:     &usage,
+			Requires:      req,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
@@ -166,6 +176,7 @@ func runRoute(
 		TargetAgentID: agentID,
 		SystemPrompt:  task,
 		Media:         media,
+		Requires:      req,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)

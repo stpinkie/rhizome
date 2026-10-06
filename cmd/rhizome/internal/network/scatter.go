@@ -26,6 +26,7 @@ func NewScatterCommand() *cobra.Command {
 	var strategy, model string
 	var wait, pickTimeout time.Duration
 	var asJSON bool
+	var reqModels, reqSkills []string
 
 	cmd := &cobra.Command{
 		Use:   "scatter <agent-id> <task>",
@@ -57,7 +58,8 @@ func NewScatterCommand() *cobra.Command {
 				os.Exit(1)
 			}
 			task := strings.Join(args[1:], " ")
-			runScatter(cmd, agentID, task, model, strategy, n, k, wait, pickTimeout, asJSON)
+			req := mesh.Requirements{Models: reqModels, Skills: reqSkills}
+			runScatter(cmd, agentID, task, model, strategy, n, k, wait, pickTimeout, asJSON, req)
 		},
 	}
 	cmd.Flags().IntVar(&n, "n", 0, "Number of peers to fan out to (default: all capable peers)")
@@ -69,6 +71,12 @@ func NewScatterCommand() *cobra.Command {
 	cmd.Flags().
 		DurationVar(&pickTimeout, "pick-timeout", 15*time.Second, "How long to wait for capable peers to appear")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the fan-out result as JSON")
+	cmd.Flags().
+		StringArrayVar(&reqModels, "require-model", nil,
+			"Only fan out to peers advertising one of these models (repeatable; peers need mesh.advertise_models)")
+	cmd.Flags().
+		StringArrayVar(&reqSkills, "require-skill", nil,
+			"Only fan out to peers advertising one of these skills (repeatable; peers need mesh.advertise_skills or mesh.skill_share)")
 	return cmd
 }
 
@@ -78,6 +86,7 @@ func runScatter(
 	n, k int,
 	wait, pickTimeout time.Duration,
 	asJSON bool,
+	req mesh.Requirements,
 ) {
 	ctx, cancel := context.WithTimeout(context.Background(), pickTimeout+wait+5*time.Minute)
 	defer cancel()
@@ -128,7 +137,7 @@ func runScatter(
 	// until at least one capable peer shows up or the pick deadline hits.
 	pickCtx, pickCancel := context.WithTimeout(ctx, pickTimeout)
 	defer pickCancel()
-	for len(m.PickPeerRanked(agentID, "spawn", nil)) == 0 {
+	for len(m.PickPeerRankedWith(agentID, "spawn", req, nil)) == 0 {
 		select {
 		case <-pickCtx.Done():
 			fmt.Fprintf(os.Stderr, "No capable trusted peer for agent %q\n", agentID)
@@ -145,6 +154,7 @@ func runScatter(
 		Strategy: strategy,
 		K:        k,
 		Wait:     wait,
+		Requires: req,
 	})
 
 	if asJSON {
