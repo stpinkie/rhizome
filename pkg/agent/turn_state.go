@@ -877,6 +877,17 @@ func (ts *turnState) IsParentEnded() bool {
 	return ts.parentTurnState.parentEnded.Load()
 }
 
+// originSessionKey returns the session key of the root turn. SubTurns run on
+// ephemeral session keys, so results addressed to the user's session must use
+// the key of the turn that started the chain.
+func (ts *turnState) originSessionKey() string {
+	root := ts
+	for root.parentTurnState != nil {
+		root = root.parentTurnState
+	}
+	return root.sessionKey
+}
+
 // GetLastFinishReason returns the last LLM finish_reason
 func (ts *turnState) GetLastFinishReason() string {
 	ts.mu.RLock()

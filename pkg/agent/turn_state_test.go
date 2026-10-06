@@ -110,3 +110,19 @@ func TestTrimHistoryToFitContextWindow_WithProtectedTurnTailKeepsActiveTurn(t *t
 		t.Fatalf("messages[0].Content = %q, want protected current turn", messages[0].Content)
 	}
 }
+
+func TestTurnState_OriginSessionKeyWalksToRoot(t *testing.T) {
+	root := &turnState{sessionKey: "agent:main:telegram:direct:alice"}
+	child := &turnState{sessionKey: "subturn-1", parentTurnState: root}
+	grandchild := &turnState{sessionKey: "subturn-2", parentTurnState: child}
+
+	for name, ts := range map[string]*turnState{
+		"root":       root,
+		"child":      child,
+		"grandchild": grandchild,
+	} {
+		if got := ts.originSessionKey(); got != root.sessionKey {
+			t.Fatalf("%s originSessionKey() = %q, want %q", name, got, root.sessionKey)
+		}
+	}
+}

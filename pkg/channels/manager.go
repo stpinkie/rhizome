@@ -143,6 +143,7 @@ type toolFeedbackMessageContentPreparer interface {
 }
 
 type asyncTask struct {
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
@@ -1228,7 +1229,7 @@ func (m *Manager) StartAll(ctx context.Context) error {
 	logger.InfoC("channels", "Starting all channels")
 
 	dispatchCtx, cancel := context.WithCancel(ctx)
-	m.dispatchTask = &asyncTask{cancel: cancel}
+	m.dispatchTask = &asyncTask{ctx: dispatchCtx, cancel: cancel}
 	failedStarts := make([]error, 0, len(m.channels))
 	failedNames := make([]string, 0, len(m.channels))
 
@@ -1928,41 +1929,49 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 	list := toChannelHashes(cfg)
 	added, removed := compareChannels(m.channelHashes, list)
 
-	deferFuncs := make([]func(), 0, len(removed)+len(added))
 	for _, name := range removed {
-		// Stop all channels
-		channel := m.channels[name]
-		logger.InfoCF("channels", "Stopping channel", map[string]any{
-			"channel": name,
-		})
-		if err := channel.Stop(ctx); err != nil {
-			logger.ErrorCF("channels", "Error stopping channel", map[string]any{
+		// An enabled channel that failed its readiness check or factory has a
+		// config hash but no instance, so there is nothing to stop.
+		if channel, ok := m.channels[name]; ok && channel != nil {
+			logger.InfoCF("channels", "Stopping channel", map[string]any{
 				"channel": name,
-				"error":   err.Error(),
 			})
+			if err := channel.Stop(ctx); err != nil {
+				logger.ErrorCF("channels", "Error stopping channel", map[string]any{
+					"channel": name,
+					"error":   err.Error(),
+				})
+			}
 		}
-		deferFuncs = append(deferFuncs, func() {
-			m.UnregisterChannel(name)
-		})
+		// Remove before initChannels: a changed channel is also in added, and
+		// its replacement is stored under the same name.
+		m.removeChannelLocked(name)
 	}
-	dispatchCtx, cancel := context.WithCancel(ctx)
-	m.dispatchTask = &asyncTask{cancel: cancel}
+	// Reuse the StartAll dispatch context so StopAll also stops the workers
+	// started here.
+	if m.dispatchTask == nil {
+		taskCtx, cancel := context.WithCancel(ctx)
+		m.dispatchTask = &asyncTask{ctx: taskCtx, cancel: cancel}
+	}
+	dispatchCtx := m.dispatchTask.ctx
 	cc, err := toChannelConfig(cfg, added)
 	if err != nil {
 		logger.ErrorC("channels", fmt.Sprintf("toChannelConfig error: %v", err))
 		m.config = oldConfig
-		cancel()
 		return err
 	}
 	err = m.initChannels(cc)
 	if err != nil {
 		logger.ErrorC("channels", fmt.Sprintf("initChannels error: %v", err))
 		m.config = oldConfig
-		cancel()
 		return err
 	}
 	for _, name := range added {
-		channel := m.channels[name]
+		channel, ok := m.channels[name]
+		if !ok || channel == nil {
+			// Not ready or the factory failed; initChannels skipped it.
+			continue
+		}
 		logger.InfoCF("channels", "Starting channel", map[string]any{
 			"channel": name,
 		})
@@ -1998,27 +2007,13 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 			runtimeevents.SeverityInfo,
 			ChannelLifecyclePayload{Type: channelType},
 		)
-		deferFuncs = append(deferFuncs, func() {
-			m.RegisterChannel(name, channel)
-		})
+		if m.mux != nil {
+			m.registerChannelHTTPHandler(name, channel)
+		}
 	}
 
 	// Commit hashes only on full success.
 	m.channelHashes = list
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.ErrorCF("channels", "channel registration goroutine panic recovered",
-					map[string]any{
-						"panic": fmt.Sprintf("%v", r),
-						"stack": string(debug.Stack()),
-					})
-			}
-		}()
-		for _, f := range deferFuncs {
-			f()
-		}
-	}()
 	return nil
 }
 
@@ -2034,6 +2029,12 @@ func (m *Manager) RegisterChannel(name string, channel Channel) {
 func (m *Manager) UnregisterChannel(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.removeChannelLocked(name)
+}
+
+// removeChannelLocked unregisters the channel's HTTP handlers, drains and
+// stops its worker, and removes it from the manager. Caller must hold m.mu.
+func (m *Manager) removeChannelLocked(name string) {
 	if ch, ok := m.channels[name]; ok && m.mux != nil {
 		m.unregisterChannelHTTPHandler(name, ch)
 	}
