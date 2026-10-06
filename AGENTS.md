@@ -218,7 +218,8 @@ escrowed sessions via `_rhizome.session_open` (`{session_id, task_hash,
 offer_id, buyer, terms}` — session_id is the escrow clone), gated by
 `SettlementRail.VerifyLock` (balance/liveness/`details`==task_hash)
 before any spawn; `session/new` then runs the offer's `agent_binding` via
-`acp.SpawnBound` (deny-all handler, scratch cwd, forced no-egress),
+`acp.SpawnBound` (deny-all handler, scratch cwd, forced no-egress —
+`sandbox`|`container` only; `exec` can't enforce it and is refused),
 single-prompt forwards, and mints an Ed25519-signed `_rhizome.receipt`
 persisted under `receipts/`. Tracks 103–104 made the buy-side real:
 `/v1/find`/`buy`/`dispute`/`refund`/`release` over async `purchases/<id>.json`
@@ -260,7 +261,18 @@ probe or `tee_kind` override (`none` suppresses; `tee_report_url` /
 `tee_evidence_hash` carry the pointers); self-attested, buyers weight
 it. Buys snapshot it onto `purchase.tee_attestation` so `market
 session` shows what was claimed. Design + verification roadmap:
-`docs/design/tee-attestation.md` — no attested execution.
+`docs/design/tee-attestation.md` — no attested execution. Track 134
+hardened the sell side: `activate` refuses any runtime that can't
+enforce no-egress (paid serving is `sandbox`|`container` only —
+`acp.SpawnBound` likewise fails closed on `NoEgress`+`exec` instead of
+silently dropping the flag; the `isolationStartWith` seam proves
+`NetMode:none` reaches the launcher). Every gate refusal lands a
+`market.gate.reject` audit event (`code`/`peer`/`session_id`), and
+`market.gate.open`/`session.active`/`session.end` carry `session_id` +
+`escrow_id` + `terms_hash` (the evidence bundle's keccak commitment);
+`session.active` snapshots serve-time `tee_kind`. Serving adverts
+declare the enforced posture in `serving {no_egress, max_sessions,
+per_peer_cap, open_rate_per_minute}` beside `attestation`.
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.

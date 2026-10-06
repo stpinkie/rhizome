@@ -228,7 +228,7 @@ func TestTrack130_AdvertCarries(t *testing.T) {
 	aw := newAdvertWriter(t.TempDir(), "v0.16.0-test", p.SellerPeerID,
 		newAuditLogger(""), nil, st)
 	mc := &marketConfig{
-		serveEnabled: true, runtime: "exec",
+		serveEnabled: true, runtime: "sandbox",
 		payoutAddress: testSeller, payoutChainID: 11155111,
 		maxSessions: 4, sessionTTL: time.Minute,
 		offers: []offer{{

@@ -172,6 +172,12 @@ func (m *sessionMgr) peerSessionCap() int {
 	if mc != nil && mc.maxSessions > 0 {
 		maxSessions = mc.maxSessions
 	}
+	return perPeerSessionCap(maxSessions)
+}
+
+// perPeerSessionCap derives the per-peer concurrent bound from the
+// global cap — register() enforces it, the advert declares it.
+func perPeerSessionCap(maxSessions int) int {
 	perPeer := maxSessions / peerSessionShareDivisor
 	if perPeer < 1 {
 		perPeer = 1
@@ -273,9 +279,21 @@ func (m *sessionMgr) activate(ctx context.Context, a *marketAgent, s *marketSess
 	if err != nil {
 		return err
 	}
+	mc := m.cfg.Load()
 	rt := ""
-	if mc := m.cfg.Load(); mc != nil {
+	if mc != nil {
 		rt = mc.runtime
+	}
+	// Egress enforcement is runtime-shaped: only sandbox and container
+	// honor BoundSpawn.NoEgress (exec spawns unwrapped — an "exec"
+	// session would silently leak egress). Refuse anything else rather
+	// than serve an unenforced runtime (Track 134).
+	switch rt {
+	case "sandbox", "container":
+	default:
+		return fmt.Errorf(
+			"runtime %q cannot enforce no-egress — serving requires sandbox|container",
+			rt)
 	}
 	// The handler relays agent session/update traffic to the buyer and
 	// accumulates result text — every capability it can't serve is denied.
@@ -324,12 +342,22 @@ func (m *sessionMgr) activate(ctx context.Context, a *marketAgent, s *marketSess
 	s.scratchDir = scratch
 	s.State = sessionActive
 	s.mu.Unlock()
-	m.audit.log("market.session.active", map[string]any{
+	fields := map[string]any{
 		"session_id": s.ID,
+		"escrow_id":  s.EscrowID,
 		"peer":       s.Peer,
 		"offer_id":   s.Offer.ID,
 		"runtime":    rt,
-	})
+		"terms_hash": sessionTermsHash(s),
+	}
+	// Serve-time posture snapshot — the claim the advert carried while
+	// this session ran, so the dispute trail records what was asserted.
+	if mc != nil {
+		if tee := mc.teeClaim(); tee != nil {
+			fields["tee_kind"] = tee.Kind
+		}
+	}
+	m.audit.log("market.session.active", fields)
 	return nil
 }
 
@@ -359,9 +387,11 @@ func (m *sessionMgr) finish(s *marketSession, state, reason string) {
 	s.mu.Unlock()
 	m.audit.log("market.session.end", map[string]any{
 		"session_id":  s.ID,
+		"escrow_id":   s.EscrowID,
 		"peer":        s.Peer,
 		"state":       state,
 		"reason":      reason,
+		"terms_hash":  sessionTermsHash(s),
 		"duration_ms": s.durationMS(),
 		"usage_set":   usage != nil,
 	})

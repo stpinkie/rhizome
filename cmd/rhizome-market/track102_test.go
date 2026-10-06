@@ -180,7 +180,7 @@ func newGateFixture(t *testing.T, maxSessions int) *gateFixture {
 	rail := settlement.NewMockRail(settlement.RailConfig{})
 	mc := &marketConfig{
 		serveEnabled:  true,
-		runtime:       "exec",
+		runtime:       "sandbox",
 		payoutAddress: testSeller,
 		payoutAsset:   "USDC",
 		payoutChainID: 11155111,

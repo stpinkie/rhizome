@@ -69,7 +69,7 @@ func newBuyFixture(t *testing.T, tune func(*marketConfig)) *buyFixture {
 	}
 	smc := &marketConfig{
 		serveEnabled:  true,
-		runtime:       "exec",
+		runtime:       "sandbox",
 		payoutAddress: testSeller,
 		maxSessions:   8,
 		sessionTTL:    2 * time.Minute,

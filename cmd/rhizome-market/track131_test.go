@@ -71,7 +71,7 @@ func TestTrack131_AdvertCarriesTEE(t *testing.T) {
 
 	aw := newAdvertWriter(t.TempDir(), "v", "12D3peer", newAuditLogger(""), nil, nil)
 	mc := &marketConfig{
-		serveEnabled: true, runtime: "exec",
+		serveEnabled: true, runtime: "sandbox",
 		payoutAddress: testSeller, payoutChainID: 11155111,
 		maxSessions: 4, sessionTTL: time.Minute,
 		offers: []offer{{

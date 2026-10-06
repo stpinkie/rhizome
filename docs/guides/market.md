@@ -30,8 +30,10 @@ elevated-trust posture most nodes don't want.
 - **Adverts are public.** `advert.json` rides inside the *signed* mesh
   capability manifest broadcast to every connected peer. Never put
   secrets or private topology in it.
-- **Self-attested sandbox.** A seller advertises a `runtime` (exec /
-  sandbox / container) — the claim is honest but self-reported. Until the
+- **Self-attested sandbox.** A seller advertises a `runtime` (sandbox /
+  container) — the claim is honest but self-reported. Paid serving
+  refuses `exec` outright: it can't enforce no-egress, and `SpawnBound`
+  fails closed rather than silently dropping the flag. Until the
   reputation/index work lands, only buy from operators you have an
   out-of-band reason to trust.
 - **Don't send what you can't afford to leak.** `export_redact` runs
@@ -79,13 +81,24 @@ work with `_rhizome.session_open`:
 ```
 
 The gate rejects **before any spawn**: `serve_enabled`, a per-peer open
-rate limit, offer enabled, `amount` equals the offer's `per_task` price
-in token base units, then `SettlementRail.VerifyLock` — the escrow must
-exist on-chain, hold ≥ the locked amount, be unreleased and live, and
-carry the same `task_hash` in `details`. Only then does `session/new`
-spawn the offer's `agent_binding` under the configured `runtime` with
-`permission_policy=deny`, no fs/terminal capabilities, a per-session
-scratch cwd, and forced no-egress networking.
+rate limit (12 opens/min), offer enabled, `amount` equals the offer's
+`per_task` price in token base units, then `SettlementRail.VerifyLock` —
+the escrow must exist on-chain, hold ≥ the locked amount, be unreleased
+and live, and carry the same `task_hash` in `details`. Registration then
+enforces the concurrent-session caps (`max_concurrent_sessions` global,
+half that per peer). Every refusal lands a `market.gate.reject` audit
+event (`code`, `peer`, `session_id` when parseable); accepted opens land
+`market.gate.open`. Only then does `session/new` spawn the offer's
+`agent_binding` under `sandbox` or `container` — the only runtimes that
+enforce no-egress — with `permission_policy=deny`, no fs/terminal
+capabilities, a per-session scratch cwd, and forced no-egress networking
+(`isolation.NetModeNone` / `--network none`; `allowlist` is
+unimplemented and fails the spawn explicitly).
+
+Serving adverts carry a `serving` block declaring that posture —
+`{no_egress, max_sessions, per_peer_cap, open_rate_per_minute}` — next
+to the Track 131 `attestation` TEE claim, so buyers can size redundant
+fan-out and read refusal codes against what the provider advertised.
 
 Completion, close, conn-drop, or `session_ttl` expiry mints a
 `_rhizome.receipt` — an Ed25519-signed JSON document
@@ -274,8 +287,13 @@ Everything needed to buy from a Rhizome seller without running Rhizome:
 - `GET /v1/health` (via the loopback API) — serve_enabled, offer count,
   live sessions, bridge state, escrow posture, `config_error` for invalid
   `serve_https_*`/rail values.
-- `market-audit.jsonl` — bounded audit trail (opens, gates, receipts,
-  purchases, escrow events).
+- `market-audit.jsonl` — bounded audit trail (opens, gate accepts and
+  rejects, session lifecycle, receipts, purchases, escrow events).
+  `market.gate.open`/`market.session.active`/`market.session.end` all
+  carry `session_id` + `escrow_id` + `terms_hash` (keccak256 over
+  `sessionID|token|amount|taskHash` — the same commitment the dispute
+  evidence bundle uses), and `market.session.active` snapshots the
+  serve-time `tee_kind` when a TEE claim was set.
 - `purchases/<id>.json`, `receipts/<session_id>.json` — durable records.
 
 ## Current limits
