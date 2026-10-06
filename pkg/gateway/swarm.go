@@ -45,6 +45,9 @@ func wireSwarm(sw *swarm.Swarm, m *mesh.Mesh, agentLoop *agent.AgentLoop, cfg *c
 		_, err := m.CancelRemoteTask(ctx, pid, taskID)
 		return err
 	})
+	// Offerers rank claims by their recorded peer score (then load, then
+	// arrival order) — proven peers earn work; new members must build it.
+	sw.SetScoreLookup(m.PeerScore)
 	sw.SetCapProbe(func() (string, int, string) {
 		return "", m.ActiveTaskCount(), m.Role()
 	})
@@ -177,9 +180,13 @@ Goal: %s
 Break the goal into subtasks. Subtasks that depend on earlier work run after
 their prerequisites; independent subtasks run in parallel. Reply with ONLY a
 JSON array — either of strings (task descriptions) or objects with
-{"id","agent_id","task","depends_on"} fields, where depends_on lists the ids
-of prerequisite subtasks (omit it for independent work). No prose, no
-markdown fences.`
+{"id","agent_id","task","depends_on","model","tools","timeout","requires"}
+fields, where depends_on lists the ids of prerequisite subtasks (omit it for
+independent work). Optional fields: model names a specific model; tools
+lists tool names to allow; timeout is a duration like "5m" bounding how long
+the subtask waits for a claimant; requires is
+{"agents":[],"models":[],"skills":[]} constraining which swarm members may
+claim it. No prose, no markdown fences.`
 
 const synthesizePrompt = `Goal: %s
 
