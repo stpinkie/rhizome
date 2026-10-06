@@ -77,15 +77,39 @@ type findRow struct {
 	Attestations []string `json:"attestations,omitempty"`
 }
 
-// runFind executes /v1/find, merging the discovery tiers in precedence
-// order: curated index → DHT rendezvous (unvetted) → peer-advert journal
-// (the local cache of what connected peers told us). A peer listed by a
-// higher tier isn't repeated by a lower one. The query matches offer ids
-// and agent bindings (substring, case-insensitive).
+// runFind executes /v1/find over the merged discovery tiers and wraps
+// the rows for the API response.
 func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
+	rows, sources, indexStale, err := pm.findRows(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	source := "merged"
+	if len(sources) == 1 {
+		source = sources[0]
+	}
+	resp := map[string]any{
+		"source": source, "providers": rows,
+	}
+	if mc := pm.cfg.Load(); mc != nil && mc.indexEnabled && mc.indexURL != "" {
+		resp["index_url"] = mc.indexURL
+		resp["stale"] = indexStale
+	}
+	return resp, nil
+}
+
+// findRows merges the discovery tiers in precedence order: curated
+// index → DHT rendezvous (unvetted) → peer-advert journal (the local
+// cache of what connected peers told us). A peer listed by a higher
+// tier isn't repeated by a lower one. The query matches offer ids and
+// agent bindings (substring, case-insensitive). Returns the rows, the
+// tier labels that produced them, and the index-stale flag.
+func (pm *purchaseMgr) findRows(
+	ctx context.Context, query string,
+) ([]findRow, []string, bool, error) {
 	mc := pm.cfg.Load()
 	if mc == nil {
-		return nil, buyErr("not_ready", "module config not loaded")
+		return nil, nil, false, buyErr("not_ready", "module config not loaded")
 	}
 	q := strings.ToLower(strings.TrimSpace(query))
 	match := func(o *offer) bool {
@@ -107,7 +131,7 @@ func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
 	if mc.indexEnabled && mc.indexURL != "" {
 		idx, stale, err := pm.fetchIndex(ctx)
 		if err != nil {
-			return nil, buyErr("index_unavailable", "%s", err)
+			return nil, nil, false, buyErr("index_unavailable", "%s", err)
 		}
 		indexStale = stale
 		emitted := false
@@ -260,18 +284,7 @@ func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
 		}
 	}
 
-	source := "merged"
-	if len(sources) == 1 {
-		source = sources[0]
-	}
-	resp := map[string]any{
-		"source": source, "providers": rows,
-	}
-	if mc.indexEnabled && mc.indexURL != "" {
-		resp["index_url"] = mc.indexURL
-		resp["stale"] = indexStale
-	}
-	return resp, nil
+	return rows, sources, indexStale, nil
 }
 
 // projectRow flattens one advert+offer pair into a find row.
