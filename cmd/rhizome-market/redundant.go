@@ -215,3 +215,20 @@ func (pm *purchaseMgr) listSessions(all bool) ([]sessionRow, map[string]any) {
 	}
 	return rows, spend
 }
+
+// disputeRows returns the dispute-state purchases (disputable →
+// resolved/refunded) newest-first — the dashboard's dispute panel
+// (Track 135). Always the full set: a resolved record is terminal but
+// still the answer to "what did the arbiter do".
+func (pm *purchaseMgr) disputeRows() []sessionRow {
+	rows, _ := pm.listSessions(true)
+	var out []sessionRow
+	for _, r := range rows {
+		switch r.State {
+		case purchaseDisputable, purchaseDisputed,
+			purchaseResolved, purchaseRefunded:
+			out = append(out, r)
+		}
+	}
+	return out
+}

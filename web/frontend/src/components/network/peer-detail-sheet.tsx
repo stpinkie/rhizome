@@ -128,6 +128,53 @@ export function PeerDetailSheet({
                     ))}
                 </div>
               )}
+              {peer.score?.outcomes && peer.score.outcomes.length > 0 && (
+                <div className="mt-1.5">
+                  <div className="text-muted-foreground text-xs font-medium">
+                    {t("pages.network.peer_market", "Market outcomes")}
+                  </div>
+                  <div className="mt-0.5 space-y-0.5 pl-3">
+                    {peer.score.outcomes.slice(0, 8).map((o, i) => (
+                      <div
+                        key={`${o.at}-${i}`}
+                        className="text-muted-foreground flex items-center gap-2 text-xs"
+                      >
+                        <Badge
+                          variant={
+                            o.outcome === "completed" ||
+                            o.outcome === "resolved"
+                              ? "default"
+                              : o.outcome === "disputed" ||
+                                  o.outcome === "failed"
+                                ? "destructive"
+                                : "outline"
+                          }
+                          className="font-mono"
+                        >
+                          {o.outcome}
+                        </Badge>
+                        <span className="font-mono">
+                          {o.op === "market_buy"
+                            ? t("pages.network.peer_market_buy", "bought")
+                            : t("pages.network.peer_market_sell", "sold")}
+                        </span>
+                        {o.session_id && (
+                          <span className="font-mono" title={o.session_id}>
+                            {o.session_id.length > 14
+                              ? `${o.session_id.slice(0, 8)}…${o.session_id.slice(-4)}`
+                              : o.session_id}
+                          </span>
+                        )}
+                        <span className="ml-auto">
+                          {o.at
+                            ? new Date(o.at * 1000).toLocaleDateString()
+                            : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <PeerDetailRow
                 label={t("pages.network.last_seen", "Last seen")}
                 value={peer.last_seen}

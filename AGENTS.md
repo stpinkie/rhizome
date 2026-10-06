@@ -272,7 +272,16 @@ silently dropping the flag; the `isolationStartWith` seam proves
 `escrow_id` + `terms_hash` (the evidence bundle's keccak commitment);
 `session.active` snapshots serve-time `tee_kind`. Serving adverts
 declare the enforced posture in `serving {no_egress, max_sessions,
-per_peer_cap, open_rate_per_minute}` beside `attestation`.
+per_peer_cap, open_rate_per_minute}` beside `attestation`. Track 135
+surfaced the market in the web UI: the module's `GET /v1/sessions`
+returns buy-side `sessions` + live `sell_sessions` + `disputes` +
+`spend` in one body, and the launcher proxies it at
+`GET /api/market/sessions` (loopback-only `api.addr` — a non-loopback
+addr is refused before the bearer is sent; `{installed:false}` + empty
+arrays when the module is absent, 503 when down). The Network page's
+Market panel renders all four; peer detail shows market outcomes off
+`PeerScoreView.outcomes` (`market_buy`/`market_sell`, `value_hash`
+commitments — never raw amounts).
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.

@@ -24,6 +24,18 @@ export interface PeerOpStat {
   avg_latency_ns: number
 }
 
+export interface PeerOutcome {
+  /** market_buy | market_sell */
+  op: string
+  /** completed | failed | expired | disputed | resolved | refunded | attested */
+  outcome: string
+  session_id?: string
+  /** sha256 commitment to the settled value — never a raw amount. */
+  value_hash?: string
+  /** unix seconds */
+  at: number
+}
+
 export interface PeerScoreView {
   successes: number
   failures: number
@@ -34,6 +46,8 @@ export interface PeerScoreView {
   decay?: number
   /** Per-operation success/failure/latency counters (delegate, spawn, …). */
   ops?: Record<string, PeerOpStat>
+  /** Recent market-session outcome reports (peer_score bridge verb). */
+  outcomes?: PeerOutcome[]
 }
 
 export interface BandwidthView {

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -518,6 +519,59 @@ func sanitizeSessionID(id string) string {
 		return "session"
 	}
 	return b.String()
+}
+
+// sellSessionView is the dashboard-facing line for one live sell-side
+// session (Track 135) — terminal sessions unregister on finish, so this
+// is a live-only view; the receipts dir holds the durable record.
+type sellSessionView struct {
+	SessionID  string    `json:"session_id"`
+	EscrowID   string    `json:"escrow_id"`
+	Peer       string    `json:"peer"`
+	OfferID    string    `json:"offer_id"`
+	State      string    `json:"state"`
+	Amount     string    `json:"amount,omitempty"`
+	Token      string    `json:"token,omitempty"`
+	Drawdown   bool      `json:"drawdown,omitempty"`
+	TermsHash  string    `json:"terms_hash,omitempty"`
+	OpenedAt   time.Time `json:"opened_at"`
+	DurationMS int64     `json:"duration_ms"`
+}
+
+// sellSessions snapshots the live sell-side registry newest-first —
+// the serve side of the market sessions panel.
+func (m *sessionMgr) sellSessions() []sellSessionView {
+	m.mu.Lock()
+	var out []sellSessionView
+	for _, s := range m.sessions {
+		s.mu.Lock()
+		if s.State != sessionOpen && s.State != sessionActive {
+			s.mu.Unlock()
+			continue
+		}
+		v := sellSessionView{
+			SessionID:  s.ID,
+			EscrowID:   s.EscrowID,
+			Peer:       s.Peer,
+			OfferID:    s.Offer.ID,
+			State:      s.State,
+			Drawdown:   s.ID != s.EscrowID,
+			TermsHash:  sessionTermsHash(s),
+			OpenedAt:   s.OpenedAt,
+			DurationMS: s.durationMS(),
+		}
+		if s.Terms.Amount != nil {
+			v.Amount = s.Terms.Amount.String()
+		}
+		v.Token = s.Terms.Token
+		out = append(out, v)
+		s.mu.Unlock()
+	}
+	m.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].OpenedAt.After(out[j].OpenedAt)
+	})
+	return out
 }
 
 // sessionCount reports live sessions for health.

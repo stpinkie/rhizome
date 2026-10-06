@@ -446,7 +446,9 @@ func (s *apiServer) handleBuyRedundant(
 }
 
 // handleSessions lists the local purchase ledger + spend reporting
-// (Track 133) — `market sessions [--all]`.
+// (Track 133) — `market sessions [--all]`. Track 135 extends the same
+// response with the sell-side live session view + the dispute-state
+// purchase set so the dashboard renders the whole panel in one call.
 func (s *apiServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	var req struct {
@@ -464,9 +466,16 @@ func (s *apiServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, spend := s.buyer.listSessions(req.All)
+	var sell []sellSessionView
+	if s.mgr != nil {
+		sell = s.mgr.sellSessions()
+	}
 	s.auditAPI(r, http.StatusOK, start)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sessions": rows, "spend": spend,
+		"sessions":      rows,
+		"sell_sessions": sell,
+		"disputes":      s.buyer.disputeRows(),
+		"spend":         spend,
 	})
 }
 
