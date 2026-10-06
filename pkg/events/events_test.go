@@ -241,6 +241,7 @@ func TestMeshKindsAreKnown(t *testing.T) {
 		KindMeshDHTBootstrapStart,
 		KindMeshDHTBootstrapDone,
 		KindMeshDHTDiscovered,
+		KindMeshDHTProvided,
 		KindMeshRemoteDelegateStart,
 		KindMeshRemoteDelegateEnd,
 		KindMeshRemoteSpawnStart,

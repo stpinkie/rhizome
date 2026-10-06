@@ -263,8 +263,10 @@ func NewDaemonCommand() *cobra.Command {
 				} else {
 					moduleMgr.SetBridgeAddr(bridge.Addr())
 					if rhizomeMesh != nil {
-						// peer_score bridge action → mesh score store.
+						// peer_score bridge action → mesh score store;
+						// dht_provide/dht_find → the node's namespaced DHT.
 						bridge.SetPeerScoreRecorder(rhizomeMesh.RecordPeerOutcome)
+						bridge.SetDHTQuerier(meshDHTQuerier{rhizomeMesh})
 					}
 					bridge.Start()
 					defer func() { _ = bridge.Close() }()
@@ -307,4 +309,18 @@ func NewDaemonCommand() *cobra.Command {
 		DurationVar(&syncAnnounceInterval, "sync-announce-interval", 0, "Interval between sync announcements (default 1m)")
 
 	return cmd
+}
+
+// meshDHTQuerier adapts the mesh's namespaced DHT methods to the module
+// bridge's DHTQuerier interface (Provide/FindProviders names).
+type meshDHTQuerier struct{ m *mesh.Mesh }
+
+func (q meshDHTQuerier) Provide(ctx context.Context, ns string) error {
+	return q.m.DHTProvide(ctx, ns)
+}
+
+func (q meshDHTQuerier) FindProviders(
+	ctx context.Context, ns string,
+) ([]peer.AddrInfo, error) {
+	return q.m.DHTFindProviders(ctx, ns)
 }

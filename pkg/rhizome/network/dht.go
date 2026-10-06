@@ -418,3 +418,67 @@ func rendezvousCID(s string) (cid.Cid, error) {
 	}
 	return cid.NewCidV1(cid.Raw, mh), nil
 }
+
+// ProvideNS advertises this node as a provider for an arbitrary namespaced
+// rendezvous CID (e.g. the market's rhizome-market-v1 tier) — separate from
+// the node's own rendezvous, which provideLoop already maintains. One-shot:
+// callers re-provide on their own cadence.
+func (d *Discovery) ProvideNS(ctx context.Context, ns string) error {
+	if d == nil || d.dht == nil {
+		return fmt.Errorf("dht disabled")
+	}
+	c, err := rendezvousCID(ns)
+	if err != nil {
+		return fmt.Errorf("derive namespace cid: %w", err)
+	}
+	queryTimeout := d.cfg.QueryTimeout
+	if queryTimeout <= 0 {
+		queryTimeout = 60 * time.Second
+	}
+	pctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+	if err := d.dht.Provide(pctx, c, true); err != nil {
+		return fmt.Errorf("dht provide %s: %w", ns, err)
+	}
+	d.publishDHTEvent(runtimeevents.KindMeshDHTProvided, map[string]any{
+		"namespace": ns,
+	})
+	return nil
+}
+
+// FindProvidersNS queries the DHT for providers of a namespaced rendezvous
+// CID and returns their AddrInfos (peer id + observed addrs). It does not
+// dial — the caller decides which peers to connect to.
+func (d *Discovery) FindProvidersNS(
+	ctx context.Context, ns string,
+) ([]peer.AddrInfo, error) {
+	if d == nil || d.dht == nil {
+		return nil, fmt.Errorf("dht disabled")
+	}
+	c, err := rendezvousCID(ns)
+	if err != nil {
+		return nil, fmt.Errorf("derive namespace cid: %w", err)
+	}
+	queryTimeout := d.cfg.QueryTimeout
+	if queryTimeout <= 0 {
+		queryTimeout = 60 * time.Second
+	}
+	fctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+	providers, err := d.dht.FindProviders(fctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("dht find %s: %w", ns, err)
+	}
+	out := providers[:0]
+	for _, info := range providers {
+		if info.ID == d.host.ID() {
+			continue
+		}
+		out = append(out, info)
+	}
+	d.publishDHTEvent(runtimeevents.KindMeshDHTDiscovered, map[string]any{
+		"namespace": ns,
+		"peers":     len(out),
+	})
+	return out, nil
+}

@@ -661,6 +661,25 @@ func (n *Node) DHTStatus() DHTStatus {
 	return n.dht.Status()
 }
 
+// DHTProvide advertises this node as a provider of a namespaced rendezvous
+// (e.g. the market tier) — one-shot; the caller sets the re-provide cadence.
+// Clean error when the DHT is disabled.
+func (n *Node) DHTProvide(ctx context.Context, ns string) error {
+	if n == nil || n.dht == nil {
+		return fmt.Errorf("dht disabled")
+	}
+	return n.dht.ProvideNS(ctx, ns)
+}
+
+// DHTFindProviders queries the DHT for providers of a namespaced rendezvous
+// and returns their AddrInfos. Clean error when the DHT is disabled.
+func (n *Node) DHTFindProviders(ctx context.Context, ns string) ([]peer.AddrInfo, error) {
+	if n == nil || n.dht == nil {
+		return nil, fmt.Errorf("dht disabled")
+	}
+	return n.dht.FindProvidersNS(ctx, ns)
+}
+
 // ConnectedPeers returns the peer IDs of currently connected peers.
 func (n *Node) ConnectedPeers() []peer.ID {
 	return n.host.Network().Peers()

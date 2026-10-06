@@ -41,12 +41,21 @@ type bridgeHello struct {
 	Outcome   string `json:"outcome,omitempty"`
 	Ref       string `json:"ref,omitempty"`
 	ValueHash string `json:"value_hash,omitempty"`
+	NS        string `json:"ns,omitempty"` // dht_provide/dht_find namespace
 }
 
-// bridgeResponse mirrors pkg/modules' non-splice answer line.
+// bridgeResponse mirrors pkg/modules' non-splice answer line; Peers carries
+// dht_find results.
 type bridgeResponse struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK    bool         `json:"ok"`
+	Error string       `json:"error,omitempty"`
+	Peers []bridgePeer `json:"peers,omitempty"`
+}
+
+// bridgePeer is one DHT-discovered provider — peer id + observed addrs.
+type bridgePeer struct {
+	ID    string   `json:"id"`
+	Addrs []string `json:"addrs,omitempty"`
 }
 
 // bridgeServer owns the inbound accept listener plus the conn cap; each
@@ -316,4 +325,57 @@ func reportOutcome(peerID, op, outcome, sessionID, valueHash string) error {
 		return fmt.Errorf("peer_score refused: %s", resp.Error)
 	}
 	return nil
+}
+
+// bridgeAction runs one non-splice request/response action against the
+// daemon bridge: send the hello, read one JSON line, surface the refusal.
+func bridgeAction(hello bridgeHello) (*bridgeResponse, error) {
+	addr := os.Getenv("RHIZOME_BRIDGE_ADDR")
+	if addr == "" {
+		return nil, fmt.Errorf("RHIZOME_BRIDGE_ADDR unset")
+	}
+	conn, err := net.DialTimeout("tcp", addr, bridgeDialTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("bridge dial %s: %w", addr, err)
+	}
+	defer func() { _ = conn.Close() }()
+	hello.Token = newTokenProvider("").token()
+	line, err := json.Marshal(hello)
+	if err != nil {
+		return nil, err
+	}
+	_ = conn.SetDeadline(time.Now().Add(bridgeHelloTimeout))
+	if _, err := conn.Write(append(line, '\n')); err != nil {
+		return nil, fmt.Errorf("bridge hello write: %w", err)
+	}
+	rl, err := bufio.NewReaderSize(conn, bridgeHelloMaxBytes).ReadBytes('\n')
+	if err != nil {
+		return nil, fmt.Errorf("bridge response read: %w", err)
+	}
+	var resp bridgeResponse
+	if err := json.Unmarshal(rl, &resp); err != nil {
+		return nil, fmt.Errorf("bridge response parse: %w", err)
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("%s refused: %s", hello.Action, resp.Error)
+	}
+	return &resp, nil
+}
+
+// dhtProvide advertises this host on a market rendezvous namespace — the
+// sell side's reachability tier (rhizome-market-v1). Vars so tests can
+// stub the bridge boundary without a daemon.
+var dhtProvide = func(ns string) error {
+	_, err := bridgeAction(bridgeHello{Action: "dht_provide", NS: ns})
+	return err
+}
+
+// dhtFind returns the providers the daemon's DHT sees for a namespace —
+// the buy side's unvetted discovery tier.
+var dhtFind = func(ns string) ([]bridgePeer, error) {
+	resp, err := bridgeAction(bridgeHello{Action: "dht_find", NS: ns})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Peers, nil
 }

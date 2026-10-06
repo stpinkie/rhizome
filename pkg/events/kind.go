@@ -120,6 +120,10 @@ const (
 	KindMeshDHTBootstrapDone Kind = "mesh.dht.bootstrap.done"
 	// KindMeshDHTDiscovered is emitted when the DHT discovers a provider for the rendezvous.
 	KindMeshDHTDiscovered Kind = "mesh.dht.discovered"
+	// KindMeshDHTProvided is emitted when the node provides on a namespaced
+	// rendezvous CID (e.g. the market tier) — distinct from the built-in
+	// rendezvous provideLoop.
+	KindMeshDHTProvided Kind = "mesh.dht.provided"
 	// KindMeshRemoteDelegateStart is emitted when a remote delegate request begins.
 	KindMeshRemoteDelegateStart Kind = "mesh.remote.delegate.start"
 	// KindMeshRemoteDelegateEnd is emitted when a remote delegate request ends.
@@ -276,6 +280,7 @@ var knownKinds = []Kind{
 	KindMeshDHTBootstrapStart,
 	KindMeshDHTBootstrapDone,
 	KindMeshDHTDiscovered,
+	KindMeshDHTProvided,
 	KindMeshRemoteDelegateStart,
 	KindMeshRemoteDelegateEnd,
 	KindMeshRemoteSpawnStart,

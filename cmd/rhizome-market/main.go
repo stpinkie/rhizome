@@ -136,6 +136,13 @@ func run(ctx context.Context) error {
 	aw.refresh(mc)
 	defer aw.remove()
 
+	// Track 126: when market_dht is on and we're advertable, announce the
+	// market rendezvous namespace so buyers can reach us without the index.
+	// Rate-limited — kad-dht provider records outlive the interval by
+	// design; errors (host dht disabled, bridge down) are audit-logged and
+	// retried on the next tick, never fatal.
+	var lastDHTProvide time.Time
+
 	// Watch config + offers file for changes; refresh the advert on the
 	// same tick. Mtime polling is cheap and needs no fsnotify dependency.
 	secPath := filepath.Join(filepath.Dir(p.configPath), config.SecurityConfigFile)
@@ -170,6 +177,17 @@ func run(ctx context.Context) error {
 				}
 			}
 			aw.refresh(cur)
+			if cur.dhtEnabled && cur.advertable() &&
+				time.Since(lastDHTProvide) >= dhtProvideInterval {
+				lastDHTProvide = time.Now()
+				go func() {
+					if err := dhtProvide(marketDHTNamespace); err != nil {
+						audit.log("market.dht.provide_failed", map[string]any{
+							"ns": marketDHTNamespace, "error": err.Error(),
+						})
+					}
+				}()
+			}
 		}
 	}
 }
