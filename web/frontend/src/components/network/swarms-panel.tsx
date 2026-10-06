@@ -1,15 +1,17 @@
 import {
   IconCrown,
+  IconHeartbeat,
   IconLoader2,
   IconLogout,
   IconPlayerPlay,
   IconPlus,
   IconSend,
 } from "@tabler/icons-react"
+import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import type { SwarmInfo } from "@/api/network"
+import { type SwarmInfo, getSwarmHealth } from "@/api/network"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,6 +35,29 @@ function formatSeen(ts?: string): string {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return ts
   return d.toLocaleTimeString()
+}
+
+function formatAge(ts?: string): string {
+  if (!ts) return ""
+  const ms = Date.now() - Date.parse(ts)
+  if (Number.isNaN(ms) || ms < 0) return ""
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`
+  return `${Math.round(ms / 3_600_000)}h`
+}
+
+/** Roster-health probe — lazy per swarm, hits /swarms/<id>/health (the
+ * doctor payload) which MsgQueries every member, so it only runs on demand
+ * and refreshes on a 30s interval while open. */
+function useSwarmHealth(swarmID: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["network", "swarm-health", swarmID],
+    queryFn: () => getSwarmHealth(swarmID),
+    enabled,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+    retry: 1,
+  })
 }
 
 function offerVariant(
@@ -76,9 +101,15 @@ function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
   const [goalText, setGoalText] = useState("")
   const [showOffers, setShowOffers] = useState(false)
   const [showRuns, setShowRuns] = useState(false)
+  const [showHealth, setShowHealth] = useState(false)
+  const health = useSwarmHealth(swarm.id, swarm.joined && showHealth)
 
   const offers = offersQuery.data?.offers ?? []
   const runRecords = runs.data?.runs ?? []
+  const healthReport = health.data
+  const maxEpoch = healthReport?.members?.length
+    ? Math.max(...healthReport.members.map((m) => m.epoch ?? 0))
+    : (swarm.epoch ?? 0)
 
   return (
     <div className="bg-muted/40 space-y-3 rounded-lg p-4">
@@ -104,17 +135,117 @@ function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
           </Badge>
         </div>
         {swarm.joined && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isLeaving}
-            onClick={() => onLeave(swarm.id)}
-          >
-            <IconLogout className="mr-1 size-4" />
-            {t("pages.network.swarm_leave", "Leave")}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowHealth((v) => !v)}
+            >
+              <IconHeartbeat className="mr-1 size-4" />
+              {showHealth
+                ? t("pages.network.swarm_health_hide", "Hide health")
+                : t("pages.network.swarm_health", "Health")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isLeaving}
+              onClick={() => onLeave(swarm.id)}
+            >
+              <IconLogout className="mr-1 size-4" />
+              {t("pages.network.swarm_leave", "Leave")}
+            </Button>
+          </div>
         )}
       </div>
+
+      {swarm.joined && showHealth && (
+        <div className="bg-background space-y-1 rounded-md p-3 text-xs">
+          {health.isLoading ? (
+            <div className="text-muted-foreground flex items-center gap-2">
+              <IconLoader2 className="size-3 animate-spin" />
+              {t("pages.network.swarm_health_probing", "Probing members…")}
+            </div>
+          ) : health.isError ? (
+            <p className="text-destructive">
+              {health.error instanceof Error
+                ? health.error.message
+                : String(health.error)}
+            </p>
+          ) : healthReport ? (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="flex items-center gap-1">
+                  <IconCrown className="size-3" />
+                  {healthReport.coordinator
+                    ? shortID(healthReport.coordinator)
+                    : t("pages.network.swarm_health_none", "none")}
+                  {healthReport.coordinator && (
+                    <Badge
+                      variant={
+                        healthReport.coordinator_up ? "default" : "destructive"
+                      }
+                      className="text-xs"
+                    >
+                      {healthReport.coordinator_up
+                        ? t("pages.network.swarm_health_up", "reachable")
+                        : t("pages.network.swarm_health_down", "unreachable")}
+                    </Badge>
+                  )}
+                </span>
+                <span className="text-muted-foreground">
+                  {t("pages.network.swarm_health_epoch", "epoch")}{" "}
+                  {swarm.epoch ?? maxEpoch}
+                  {maxEpoch > (swarm.epoch ?? maxEpoch) && (
+                    <span className="text-destructive">
+                      {" "}
+                      ({t("pages.network.swarm_health_behind", "behind")}{" "}
+                      {maxEpoch})
+                    </span>
+                  )}
+                </span>
+                <span className="text-muted-foreground">
+                  {healthReport.reachable}/{healthReport.queried}{" "}
+                  {t("pages.network.swarm_health_reachable", "reachable")}
+                </span>
+                {swarm.last_state_write && (
+                  <span className="text-muted-foreground">
+                    {t("pages.network.swarm_health_state", "state")}{" "}
+                    {formatAge(swarm.last_state_write)}
+                  </span>
+                )}
+              </div>
+              {(healthReport.asymmetric?.length ?? 0) > 0 && (
+                <div className="text-destructive">
+                  {t(
+                    "pages.network.swarm_health_asymmetric",
+                    "Asymmetric (they don't list us):",
+                  )}{" "}
+                  {healthReport.asymmetric?.map(shortID).join(", ")}
+                </div>
+              )}
+              {(healthReport.undiscovered?.length ?? 0) > 0 && (
+                <div className="text-amber-600">
+                  {t(
+                    "pages.network.swarm_health_undiscovered",
+                    "Undiscovered (we don't list them):",
+                  )}{" "}
+                  {healthReport.undiscovered?.map(shortID).join(", ")}
+                </div>
+              )}
+              {(healthReport.asymmetric?.length ?? 0) === 0 &&
+                (healthReport.undiscovered?.length ?? 0) === 0 && (
+                  <div className="text-muted-foreground">
+                    {t(
+                      "pages.network.swarm_health_converged",
+                      "Roster converged — no asymmetry.",
+                    )}
+                  </div>
+                )}
+            </>
+          ) : null}
+        </div>
+      )}
 
       {(swarm.members?.length ?? 0) > 0 && (
         <div className="space-y-1">
@@ -260,6 +391,20 @@ function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
                     {o.assignee && (
                       <span className="font-mono">→ {shortID(o.assignee)}</span>
                     )}
+                    {(o.claims?.length ?? 0) > 0 && (
+                      <span
+                        className="text-muted-foreground"
+                        title={o.claims
+                          ?.map(
+                            (c) =>
+                              `${shortID(c.claimant)}${c.score !== undefined ? ` score=${c.score.toFixed(0)}` : " unscored"} (${c.active_tasks} tasks)`,
+                          )
+                          .join("\n")}
+                      >
+                        {o.claims?.length}{" "}
+                        {t("pages.network.swarm_offer_claims", "claims")}
+                      </span>
+                    )}
                     {o.error && (
                       <span className="text-destructive">{o.error}</span>
                     )}
@@ -303,6 +448,12 @@ function SwarmCard({ swarm, selfID, onLeave, isLeaving }: SwarmCardProps) {
                   >
                     <span className="font-mono">{shortID(r.run_id)}</span>
                     <Badge variant={offerVariant(r.status)}>{r.status}</Badge>
+                    {r.retry_of && (
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {t("pages.network.swarm_run_retry_of", "retry of")}{" "}
+                        {shortID(r.retry_of)}
+                      </Badge>
+                    )}
                     <span className="text-muted-foreground break-all">
                       {r.goal}
                     </span>

@@ -98,6 +98,36 @@ export function PeerDetailSheet({
                     : undefined
                 }
               />
+              {peer.score?.decay !== undefined && peer.score.decay < 1 && (
+                <PeerDetailRow
+                  label={t("pages.network.peer_score_decay", "Score decay")}
+                  value={t(
+                    "pages.network.peer_score_decay_value",
+                    "evidence at {{percent}}% — stale",
+                    { percent: Math.round(peer.score.decay * 100) },
+                  )}
+                />
+              )}
+              {peer.score?.ops && Object.keys(peer.score.ops).length > 0 && (
+                <div className="mt-1 space-y-0.5 pl-3">
+                  {Object.entries(peer.score.ops)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([op, stat]) => (
+                      <div
+                        key={op}
+                        className="text-muted-foreground flex items-center gap-2 text-xs"
+                      >
+                        <span className="font-mono">{op}</span>
+                        <span>
+                          {stat.successes} ok / {stat.failures} failed
+                          {stat.avg_latency_ns
+                            ? ` · ${(stat.avg_latency_ns / 1e6).toFixed(0)} ms`
+                            : ""}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              )}
               <PeerDetailRow
                 label={t("pages.network.last_seen", "Last seen")}
                 value={peer.last_seen}
