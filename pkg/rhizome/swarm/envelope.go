@@ -85,6 +85,9 @@ type queryRespPayload struct {
 	Swarms []string `json:"swarms,omitempty"`
 	// Members maps each joined swarm id to its known member peer ids.
 	Members map[string][]string `json:"members,omitempty"`
+	// Epochs maps each joined swarm id to the responder's local shared-state
+	// epoch — nonzero only when it has published state as coordinator.
+	Epochs map[string]int64 `json:"epochs,omitempty"`
 }
 
 // encodePayload marshals v into an envelope payload.

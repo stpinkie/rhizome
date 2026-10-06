@@ -3,8 +3,10 @@ package swarm
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -120,11 +122,42 @@ func newMembersCommand() *cobra.Command {
 	return cmd
 }
 
+// liveSwarmInfo mirrors the daemon's swarm.SwarmInfo for status output.
+type liveSwarmInfo struct {
+	ID             string    `json:"id"`
+	Joined         bool      `json:"joined"`
+	Coordinator    string    `json:"coordinator"`
+	Epoch          int64     `json:"epoch"`
+	LastStateWrite time.Time `json:"last_state_write"`
+	Members        []struct {
+		PeerID string `json:"peer_id"`
+	} `json:"members"`
+}
+
+// liveStatus queries the daemon for live swarm state; nil when unreachable.
+func liveStatus() *struct {
+	PeerID string          `json:"peer_id"`
+	Swarms []liveSwarmInfo `json:"swarms"`
+} {
+	data, code, err := daemonRequest(http.MethodGet, "/network/swarms", nil, 3*time.Second)
+	if err != nil || code != http.StatusOK {
+		return nil
+	}
+	var st struct {
+		PeerID string          `json:"peer_id"`
+		Swarms []liveSwarmInfo `json:"swarms"`
+	}
+	if json.Unmarshal(data, &st) != nil {
+		return nil
+	}
+	return &st
+}
+
 func newStatusCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show swarm configuration and saved state",
+		Short: "Show swarm configuration, saved state, and coordination freshness",
 		Run: func(cmd *cobra.Command, args []string) {
 			cfg, err := config.LoadConfig(internal.GetConfigPath())
 			if err != nil {
@@ -132,12 +165,16 @@ func newStatusCommand() *cobra.Command {
 				os.Exit(1)
 			}
 			view := loadPersisted()
+			live := liveStatus()
 
 			out := map[string]any{
 				"enabled":     cfg.Swarm.Enabled,
 				"transport":   cfg.Swarm.Transport,
 				"memberships": cfg.Swarm.Memberships,
 				"known":       view.Swarms,
+			}
+			if live != nil {
+				out["live"] = live
 			}
 			w := cmd.OutOrStdout()
 			if asJSON {
@@ -149,7 +186,27 @@ func newStatusCommand() *cobra.Command {
 			fmt.Fprintf(w, "Transport:       %s\n", cfg.Swarm.Transport)
 			fmt.Fprintf(w, "Memberships:     %v\n", cfg.Swarm.Memberships)
 			fmt.Fprintf(w, "Known swarms:    %d\n", len(view.Swarms))
-			fmt.Fprintln(w, "Live roster is available while the daemon runs (rhizome daemon).")
+			if live == nil {
+				fmt.Fprintln(w, "Live status:     unavailable (daemon not running)")
+				return
+			}
+			fmt.Fprintf(w, "Live peer:       %s\n", shortPeer(live.PeerID))
+			for _, sw := range live.Swarms {
+				coord := "(none)"
+				if sw.Coordinator != "" {
+					coord = shortPeer(sw.Coordinator)
+				}
+				fresh := "never written"
+				if !sw.LastStateWrite.IsZero() {
+					fresh = time.Since(sw.LastStateWrite).Round(time.Second).String() + " ago"
+				}
+				joined := ""
+				if !sw.Joined {
+					joined = " (not joined)"
+				}
+				fmt.Fprintf(w, "  %s%s: coordinator %s, epoch %d, state %s, %d members\n",
+					sw.ID, joined, coord, sw.Epoch, fresh, len(sw.Members))
+			}
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")

@@ -26,6 +26,7 @@ func NewSwarmCommand() *cobra.Command {
 		newRunStatusCommand(),
 		newRunCancelCommand(),
 		newRunRetryCommand(),
+		newDoctorCommand(),
 		newContextCommand(),
 		newNoteCommand(),
 	)
