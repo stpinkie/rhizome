@@ -253,7 +253,14 @@ stores a received claim (sig-verified first, deduped on
 bound) → the curator's `attestations[]` index slot. Issuance also lands
 on the seller's peer record via `peer_score` as neutral `attested` —
 additive evidence that moves no counters (doc: `docs/guides/market.md`
-→ *Portable attestations*).
+→ *Portable attestations*). Track 131 added the TEE posture claim:
+emit-when-set `attestation {kind, report_url?, evidence_hash?}` on
+`advert.json` — `kind` from the `/dev/tdx_guest`/`sev-guest`/`tee0`
+probe or `tee_kind` override (`none` suppresses; `tee_report_url` /
+`tee_evidence_hash` carry the pointers); self-attested, buyers weight
+it. Buys snapshot it onto `purchase.tee_attestation` so `market
+session` shows what was claimed. Design + verification roadmap:
+`docs/design/tee-attestation.md` — no attested execution.
 
 - `rhizome module list` — catalog modules with kind/status/enabled (`--json`).
 - `rhizome module status <id>` — detail: version, pid, restarts, missing fields, health.
