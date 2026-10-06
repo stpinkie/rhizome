@@ -54,6 +54,10 @@ type advert struct {
 	Payout           *advertPayout `json:"payout,omitempty"`
 	Offers           []offer       `json:"offers,omitempty"`
 	Escrow           *advertEscrow `json:"escrow,omitempty"`
+	// Attestations carries the newest-N buyer-signed completion claims
+	// the seller registered — additive evidence, not a ledger (the
+	// honest-limits contract in docs/guides/market.md).
+	Attestations []attestation `json:"attestations,omitempty"`
 }
 
 type advertPayout struct {
@@ -82,14 +86,16 @@ type advertWriter struct {
 	mu      sync.Mutex
 	lastRaw []byte // last rendered advert for change-detection
 	lastExp time.Time
+	attest  *attestationStore // nil → no attestation field emitted
 }
 
 func newAdvertWriter(
 	moduleDir, version, peerID string, audit *auditLogger, https *httpsServer,
+	attest *attestationStore,
 ) *advertWriter {
 	return &advertWriter{
 		moduleDir: moduleDir, version: version, peerID: peerID,
-		audit: audit, https: https,
+		audit: audit, https: https, attest: attest,
 	}
 }
 
@@ -145,6 +151,24 @@ func (w *advertWriter) render(mc *marketConfig) ([]byte, string) {
 		}
 	} else {
 		a.Escrow = &advertEscrow{Posture: "fixture"}
+	}
+	// Newest-N attestations, trimmed until the advert fits — the bound
+	// wins over the count; dropping oldest evidence is the honest move
+	// (withholding is the documented failure mode anyway).
+	if mc.serveEnabled && w.attest != nil {
+		for n := attestationMaxLive; ; n /= 2 {
+			a.Attestations = w.attest.latest(n)
+			data, err := json.Marshal(a)
+			if err != nil {
+				return nil, "advert marshal: " + err.Error()
+			}
+			if len(data) <= advertMaxBytes {
+				return data, ""
+			}
+			if n == 0 {
+				break
+			}
+		}
 	}
 	data, err := json.Marshal(a)
 	if err != nil {

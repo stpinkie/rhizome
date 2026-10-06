@@ -1,8 +1,10 @@
 package market
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -23,6 +25,7 @@ func NewMarketCommand() *cobra.Command {
 		newSessionCommand(),
 		newReceiptCommand(),
 		newDisputeCommand(),
+		newAttestCommand(),
 		newEscalateCommand(),
 		newEvidenceCommand(),
 		newRefundCommand(),
@@ -135,6 +138,75 @@ func newDisputeCommand() *cobra.Command {
 			runVerb(cmd, "dispute", body)
 		},
 	}
+}
+
+func newAttestCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "attest",
+		Short: "Issue, verify, or register a signed completion attestation",
+	}
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "issue <purchase-id-or-session>",
+			Short: "Sign a completion attestation for a terminal purchase",
+			Long: "Issue a buyer-signed attestation for a completed, " +
+				"resolved, refunded, or failed purchase. Strictly opt-in — " +
+				"your signature is evidence you choose to give. The output " +
+				"JSON is delivered to the seller out of band; they register " +
+				"it with `market attest register`.",
+			Args: cobra.ExactArgs(1),
+			Run: func(cmd *cobra.Command, args []string) {
+				runVerb(cmd, "attest", map[string]any{"id": args[0]})
+			},
+		},
+		&cobra.Command{
+			Use:   "verify <attestation-json|@file>",
+			Short: "Verify an attestation's signature and terms chain",
+			Args:  cobra.ExactArgs(1),
+			Run: func(cmd *cobra.Command, args []string) {
+				runVerb(cmd, "attest/verify",
+					attestationBody(readArgOrFile(args[0])))
+			},
+		},
+		&cobra.Command{
+			Use:   "register <attestation-json|@file>",
+			Short: "Store a received attestation (seller side)",
+			Long: "Register a buyer-signed attestation into the local " +
+				"store — newest-N land in the advertised reputation set.",
+			Args: cobra.ExactArgs(1),
+			Run: func(cmd *cobra.Command, args []string) {
+				runVerb(cmd, "attest/register",
+					attestationBody(readArgOrFile(args[0])))
+			},
+		},
+	)
+	return cmd
+}
+
+// readArgOrFile returns the argument verbatim, or the file contents when
+// the argument is an @path — attestation JSON is too long for a flag.
+func readArgOrFile(arg string) []byte {
+	if !strings.HasPrefix(arg, "@") {
+		return []byte(arg)
+	}
+	data, err := os.ReadFile(strings.TrimPrefix(arg, "@"))
+	if err != nil {
+		fatal(fmt.Errorf("read %s: %w", arg, err))
+	}
+	return data
+}
+
+// attestationBody normalizes the input into the {attestation: {...}}
+// request body — accepts a bare attestation object or the wrapped
+// `attest issue` response verbatim.
+func attestationBody(raw []byte) map[string]any {
+	var wrapped map[string]json.RawMessage
+	if json.Unmarshal(raw, &wrapped) == nil {
+		if inner, ok := wrapped["attestation"]; ok && len(inner) > 0 {
+			return map[string]any{"attestation": inner}
+		}
+	}
+	return map[string]any{"attestation": json.RawMessage(raw)}
 }
 
 func newEscalateCommand() *cobra.Command {

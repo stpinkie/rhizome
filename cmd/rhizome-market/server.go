@@ -40,6 +40,7 @@ type apiServer struct {
 	bridge    func() bridgeStatus // live bridge state for /v1/health
 	mgr       *sessionMgr         // live sessions for /v1/session + /v1/receipt
 	buyer     *purchaseMgr        // purchases for /v1/find|buy|dispute|refund|release
+	attest    *attestationStore   // seller's received attestations (advert feed)
 	audit     *auditLogger
 	started   time.Time
 	version   string
@@ -55,7 +56,7 @@ type bridgeStatus struct {
 // The returned server owns the listener; Close removes api.addr.
 func startAPI(
 	moduleDir string, token *tokenProvider, mgr *sessionMgr, buyer *purchaseMgr,
-	audit *auditLogger, version string,
+	attest *attestationStore, audit *auditLogger, version string,
 ) (*apiServer, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -67,6 +68,7 @@ func startAPI(
 		token:     token,
 		mgr:       mgr,
 		buyer:     buyer,
+		attest:    attest,
 		audit:     audit,
 		started:   time.Now(),
 		version:   version,
@@ -77,6 +79,9 @@ func startAPI(
 	mux.HandleFunc("POST /v1/find", s.wrap(s.handleFind))
 	mux.HandleFunc("POST /v1/buy", s.wrap(s.handleBuy))
 	mux.HandleFunc("POST /v1/dispute", s.wrap(s.handleDispute))
+	mux.HandleFunc("POST /v1/attest", s.wrap(s.handleAttest))
+	mux.HandleFunc("POST /v1/attest/verify", s.wrap(s.handleAttestVerify))
+	mux.HandleFunc("POST /v1/attest/register", s.wrap(s.handleAttestRegister))
 	mux.HandleFunc("POST /v1/escalate", s.wrap(s.handleEscalate))
 	mux.HandleFunc("POST /v1/evidence", s.wrap(s.handleEvidence))
 	mux.HandleFunc("POST /v1/refund", s.wrap(s.handleRefund))
@@ -403,6 +408,113 @@ func (s *apiServer) handleDispute(w http.ResponseWriter, r *http.Request) {
 			reason, _ := extra["reason"].(string)
 			return s.buyer.dispute(ctx, id, reason)
 		})
+}
+
+// handleAttest mints a signed attestation for a terminal purchase —
+// strictly opt-in. The response IS the attestation JSON the seller
+// registers; delivery is out-of-band (no post-session channel exists).
+func (s *apiServer) handleAttest(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req struct {
+		ID string `json:"id"`
+	}
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.buyer == nil || strings.TrimSpace(req.ID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": "bad_request", "detail": "id required"},
+		})
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	a, err := s.buyer.attest(req.ID)
+	if err != nil {
+		var be *buyError
+		status := http.StatusInternalServerError
+		if errors.As(err, &be) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, errBody(err))
+		s.auditAPI(r, status, start)
+		return
+	}
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, map[string]any{"attestation": a})
+}
+
+// handleAttestVerify validates an attestation's sig → peer → terms
+// chain — buyers cross-check terms against their own record; third
+// parties get the signature verdict plus terms_match=null.
+func (s *apiServer) handleAttestVerify(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req struct {
+		Attestation json.RawMessage `json:"attestation"`
+	}
+	if !s.decodeBody(w, r, &req) || len(req.Attestation) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": "bad_request", "detail": "attestation required"},
+		})
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.buyer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{"code": "not_ready", "detail": "buy side not up"},
+		})
+		s.auditAPI(r, http.StatusServiceUnavailable, start)
+		return
+	}
+	chk, err := s.buyer.verifyAttestation(req.Attestation)
+	if err != nil {
+		var be *buyError
+		status := http.StatusInternalServerError
+		if errors.As(err, &be) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, errBody(err))
+		s.auditAPI(r, status, start)
+		return
+	}
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, chk)
+}
+
+// handleAttestRegister stores a received attestation on the seller
+// side — verifies the signature chain, then lands it in the bounded
+// store the advert writer renders.
+func (s *apiServer) handleAttestRegister(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req struct {
+		Attestation attestation `json:"attestation"`
+	}
+	if !s.decodeBody(w, r, &req) || req.Attestation.Signature == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": "bad_request", "detail": "signed attestation required"},
+		})
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.attest == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{"code": "not_ready", "detail": "attestation store not up"},
+		})
+		s.auditAPI(r, http.StatusServiceUnavailable, start)
+		return
+	}
+	if err := s.attest.register(req.Attestation); err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody(err))
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	s.auditAPI(r, http.StatusOK, start)
+	s.audit.log("market.attestation.register", map[string]any{
+		"session_id": req.Attestation.SessionID,
+		"provider":   req.Attestation.ProviderPeerID,
+		"outcome":    req.Attestation.Outcome,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"registered": true})
 }
 
 // handleEscalate retries the Kleros createDispute — the manual path when
