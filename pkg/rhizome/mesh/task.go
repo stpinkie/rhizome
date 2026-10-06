@@ -758,24 +758,24 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 	resp, err := m.taskRPC.Call(ctx, pid, req)
 	latency := time.Since(start)
 	if err != nil {
-		m.recordPeerCall(pid, false, latency, err)
+		m.recordPeerCall(pid, string(req.Op), false, latency, err)
 		return "", err
 	}
 	if err := m.verifyTaskResponse(pid, &resp); err != nil {
-		m.recordPeerCall(pid, false, latency, err)
+		m.recordPeerCall(pid, string(req.Op), false, latency, err)
 		return "", fmt.Errorf("verify response: %w", err)
 	}
 	if resp.Status == agenttask.StatusRejected {
 		err := fmt.Errorf("task rejected: %s", resp.Error)
-		m.recordPeerCall(pid, false, latency, err)
+		m.recordPeerCall(pid, string(req.Op), false, latency, err)
 		return "", err
 	}
 	if resp.TaskID == "" {
 		err := fmt.Errorf("peer returned no task id")
-		m.recordPeerCall(pid, false, latency, err)
+		m.recordPeerCall(pid, string(req.Op), false, latency, err)
 		return "", err
 	}
-	m.recordPeerCall(pid, true, latency, nil)
+	m.recordPeerCall(pid, string(req.Op), true, latency, nil)
 	return resp.TaskID, nil
 }
 
@@ -836,22 +836,22 @@ func (m *Mesh) taskCall(ctx context.Context, pid peer.ID, req agenttask.Request)
 		latency = 0
 	}
 	if err != nil {
-		m.recordPeerCall(pid, false, latency, err)
+		m.recordPeerCall(pid, string(req.Op), false, latency, err)
 		return agenttask.Response{}, err
 	}
 	if err := m.verifyTaskResponse(pid, &resp); err != nil {
-		m.recordPeerCall(pid, false, latency, err)
+		m.recordPeerCall(pid, string(req.Op), false, latency, err)
 		return agenttask.Response{}, fmt.Errorf("verify response: %w", err)
 	}
 	if resp.Status == agenttask.StatusRejected {
 		err := fmt.Errorf("task request rejected: %s", resp.Error)
-		m.recordPeerCall(pid, false, latency, err)
+		m.recordPeerCall(pid, string(req.Op), false, latency, err)
 		return resp, err
 	}
 	// Pull blob:// result artifacts into local media refs.
 	if resp.Status == agenttask.StatusDone {
 		m.localizeResultMedia(ctx, resp.Result, "mesh-result:"+req.TaskID)
 	}
-	m.recordPeerCall(pid, true, latency, nil)
+	m.recordPeerCall(pid, string(req.Op), true, latency, nil)
 	return resp, nil
 }

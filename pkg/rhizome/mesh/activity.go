@@ -2,16 +2,19 @@ package mesh
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 )
 
-// activityCapacity bounds the in-memory ring buffer. The feed is observability
-// only; mesh-audit.jsonl remains the durable trail.
+// activityCapacity bounds the in-memory ring buffer. The durable trail lives
+// in mesh-activity.jsonl; the ring warm-loads its tail at feed start.
 const activityCapacity = 200
 
 // ActivityEntry is one mesh/swarm event snapshot for the activity feed.
@@ -22,16 +25,62 @@ type ActivityEntry struct {
 	Attrs  map[string]any `json:"attrs,omitempty"`
 }
 
-// activityFeed is a bounded in-memory ring of mesh.*/swarm.* runtime events.
+// ActivityFilter narrows the activity feed. Empty fields match everything.
+// Kind is an exact match, or a prefix match when it ends in ".*" (e.g.
+// "mesh.*"). Peer matches entries whose attributes mention the peer id
+// (peer_id, claimant, offerer, …). Swarm matches attrs["swarm_id"] exactly.
+// Since keeps entries at or after the instant. Contains keeps entries whose
+// attributes encode the substring — the correlation primitive behind trace.
+type ActivityFilter struct {
+	Kind     string
+	Peer     string
+	Swarm    string
+	Since    time.Time
+	Contains string
+}
+
+// matches reports whether e passes every non-empty filter field.
+func (e ActivityEntry) matches(f ActivityFilter) bool {
+	if f.Kind != "" {
+		if strings.HasSuffix(f.Kind, ".*") {
+			if !strings.HasPrefix(e.Kind, strings.TrimSuffix(f.Kind, "*")) {
+				return false
+			}
+		} else if e.Kind != f.Kind {
+			return false
+		}
+	}
+	if !f.Since.IsZero() && e.Time.Before(f.Since) {
+		return false
+	}
+	if f.Swarm != "" && e.Attrs["swarm_id"] != f.Swarm {
+		return false
+	}
+	needle := f.Peer
+	if needle == "" {
+		needle = f.Contains
+	}
+	if needle != "" {
+		raw, err := json.Marshal(e.Attrs)
+		if err != nil || !strings.Contains(string(raw), needle) {
+			return false
+		}
+	}
+	return true
+}
+
+// activityFeed is a bounded in-memory ring of mesh.*/swarm.* runtime events,
+// optionally mirrored to a rotating JSONL log.
 type activityFeed struct {
 	mu      sync.RWMutex
 	entries []ActivityEntry
 	head    int // next write position; entries are logically ordered oldest→newest
 	full    bool
+	log     *auditLogger
 }
 
-func newActivityFeed() *activityFeed {
-	return &activityFeed{entries: make([]ActivityEntry, 0, activityCapacity)}
+func newActivityFeed(log *auditLogger) *activityFeed {
+	return &activityFeed{entries: make([]ActivityEntry, 0, activityCapacity), log: log}
 }
 
 func (f *activityFeed) push(evt runtimeevents.Event) {
@@ -50,6 +99,19 @@ func (f *activityFeed) push(evt runtimeevents.Event) {
 		}
 	}
 
+	f.pushEntry(e)
+	if f.log != nil {
+		f.log.Log(map[string]any{
+			"time":   e.Time.UTC().Format(time.RFC3339Nano),
+			"kind":   e.Kind,
+			"source": e.Source,
+			"attrs":  e.Attrs,
+		})
+	}
+}
+
+// pushEntry inserts one entry into the ring without touching the durable log.
+func (f *activityFeed) pushEntry(e ActivityEntry) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.entries) < activityCapacity && !f.full {
@@ -61,6 +123,21 @@ func (f *activityFeed) push(evt runtimeevents.Event) {
 	}
 	f.entries[f.head] = e
 	f.head = (f.head + 1) % activityCapacity
+}
+
+// warm loads the tail of the persisted activity log into the ring so
+// --since queries span restarts. Entries arrive oldest-first.
+func (f *activityFeed) warm(path string, n int) {
+	raws, err := ReadAuditTail(path, n)
+	if err != nil {
+		return
+	}
+	for _, raw := range raws {
+		var e ActivityEntry
+		if json.Unmarshal(raw, &e) == nil && e.Kind != "" {
+			f.pushEntry(e)
+		}
+	}
 }
 
 // tail returns up to n most-recent entries, oldest first. n<=0 means all.
@@ -76,6 +153,25 @@ func (f *activityFeed) tail(n int) []ActivityEntry {
 		}
 	} else {
 		ordered = append([]ActivityEntry(nil), f.entries...)
+	}
+	if n > 0 && n < len(ordered) {
+		ordered = ordered[len(ordered)-n:]
+	}
+	return ordered
+}
+
+// filtered returns entries matching f, oldest first, then applies the tail
+// bound (n<=0 means all matches).
+func (f *activityFeed) filtered(n int, filter ActivityFilter) []ActivityEntry {
+	ordered := f.tail(0)
+	if filter != (ActivityFilter{}) {
+		kept := ordered[:0]
+		for _, e := range ordered {
+			if e.matches(filter) {
+				kept = append(kept, e)
+			}
+		}
+		ordered = kept
 	}
 	if n > 0 && n < len(ordered) {
 		ordered = ordered[len(ordered)-n:]
@@ -100,7 +196,10 @@ func (m *Mesh) startActivityFeed() {
 		return
 	}
 	m.activityOnce.Do(func() {
-		m.activity = newActivityFeed()
+		m.activity = newActivityFeed(m.activityLog)
+		if m.activityLog != nil {
+			m.activity.warm(m.activityLog.path, activityCapacity)
+		}
 		m.runActivityFeed()
 	})
 }
@@ -130,10 +229,25 @@ func (m *Mesh) runActivityFeed() {
 // Activity returns the tail of the mesh activity feed (oldest first).
 // n<=0 returns everything buffered.
 func (m *Mesh) Activity(n int) []ActivityEntry {
+	return m.ActivityFiltered(n, ActivityFilter{})
+}
+
+// ActivityFiltered returns the tail of the feed matching filter (oldest
+// first). n<=0 returns every matching entry buffered.
+func (m *Mesh) ActivityFiltered(n int, filter ActivityFilter) []ActivityEntry {
 	if m == nil || m.activity == nil {
 		return nil
 	}
-	return m.activity.tail(n)
+	return m.activity.filtered(n, filter)
+}
+
+// ActivityLogPath returns the durable activity trail location, or "" when
+// activity logging is disabled.
+func (m *Mesh) ActivityLogPath() string {
+	if m == nil || m.activityLog == nil {
+		return ""
+	}
+	return m.activityLog.path
 }
 
 // Events streams live mesh.*/swarm.* events for the SSE endpoint, mirroring
@@ -156,4 +270,14 @@ func (m *Mesh) Events(
 		return nil, nil, err
 	}
 	return ch, func() { _ = sub.Close() }, nil
+}
+
+// defaultActivityPath returns the activity trail location under the Rhizome
+// home.
+func defaultActivityPath() string {
+	home := config.GetHome()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "mesh-activity.jsonl")
 }

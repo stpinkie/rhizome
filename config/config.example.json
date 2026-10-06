@@ -694,11 +694,13 @@
     }
   },
   "mesh": {
-    "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md. routing.role_aware (default true): workers get a ranking bonus for task ops (delegate/spawn), fulls for infra ops (sync); also feeds role-preferred swarm coordinator election. max_concurrent_tasks (default 8) caps inbound remote tasks — saturated submissions get a 'capacity:' rejection and callers fail over; mesh.acl[].max_concurrent sets a per-peer cap (negative = exempt).",
+    "_comment": "role 'worker' forces dht_enabled/relay_service/nat_service off; see docs/architecture/footprint-audit.md. routing.role_aware (default true): workers get a ranking bonus for task ops (delegate/spawn), fulls for infra ops (sync); also feeds role-preferred swarm coordinator election. max_concurrent_tasks (default 8) caps inbound remote tasks — saturated submissions get a 'capacity:' rejection and callers fail over; mesh.acl[].max_concurrent sets a per-peer cap (negative = exempt). activity_log (default true) persists the activity feed to mesh-activity.jsonl; score_half_life (default 168h) decays peer-score evidence per idle window (0 disables).",
     "enabled": false,
     "role": "full",
     "trusted_peers": [],
     "max_concurrent_tasks": 8,
+    "activity_log": true,
+    "score_half_life": "168h",
     "routing": { "role_aware": true }
   },
   "modules": {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,21 +27,43 @@ const (
 	scoreSaveCoalesce = time.Second
 )
 
+// OpStat tracks call quality for one operation kind (delegate, spawn,
+// submit, status, result, cancel, …).
+type OpStat struct {
+	Successes  int           `json:"successes"`
+	Failures   int           `json:"failures"`
+	AvgLatency time.Duration `json:"avg_latency_ns,omitempty"`
+}
+
 // PeerScore tracks observed quality of a mesh peer over time.
 type PeerScore struct {
-	PeerID      string        `json:"peer_id"`
-	Successes   int           `json:"successes"`
-	Failures    int           `json:"failures"`
-	LastLatency time.Duration `json:"last_latency_ns"`
-	AvgLatency  time.Duration `json:"avg_latency_ns"`
-	LastSeen    time.Time     `json:"last_seen"`
-	LastError   string        `json:"last_error,omitempty"`
+	PeerID      string            `json:"peer_id"`
+	Successes   int               `json:"successes"`
+	Failures    int               `json:"failures"`
+	LastLatency time.Duration     `json:"last_latency_ns"`
+	AvgLatency  time.Duration     `json:"avg_latency_ns"`
+	LastSeen    time.Time         `json:"last_seen"`
+	LastError   string            `json:"last_error,omitempty"`
+	OpStats     map[string]OpStat `json:"op_stats,omitempty"`
+
+	// halfLife is the read-time decay window stamped by the store from
+	// mesh.score_half_life. Counters are stored raw; Score() evaluates the
+	// decayed view. A zero halfLife disables decay.
+	halfLife time.Duration
 }
 
 // Score returns a composite quality score for the peer. Higher is better.
 // It favours high success rates and low average latency, but only uses
 // latency after enough samples so early measurements do not dominate.
+// When a score half-life is configured the composite is scaled by the
+// evidence's remaining freshness: success/failure counts halve per idle
+// half-life since LastSeen, so stale peers decay toward zero rather than
+// ranking forever on old history.
 func (s PeerScore) Score() float64 {
+	return s.scoreAt(time.Now().UTC())
+}
+
+func (s PeerScore) scoreAt(now time.Time) float64 {
 	total := s.Successes + s.Failures
 	if total == 0 {
 		return 0
@@ -56,25 +79,47 @@ func (s PeerScore) Score() float64 {
 			score -= 50.0 / ms
 		}
 	}
-	return score
+	return score * s.decayFactor(now)
+}
+
+// DecayFactor reports the current evidence-freshness weight applied by
+// Score — 1 when decay is disabled or the peer was just seen.
+func (s PeerScore) DecayFactor() float64 {
+	return s.decayFactor(time.Now().UTC())
+}
+
+// decayFactor returns the fraction of the peer's evidence that is still
+// fresh: 1 when decay is disabled or the peer was just seen, halving per
+// idle half-life since LastSeen.
+func (s PeerScore) decayFactor(now time.Time) float64 {
+	if s.halfLife <= 0 || s.LastSeen.IsZero() {
+		return 1
+	}
+	idle := now.Sub(s.LastSeen)
+	if idle <= 0 {
+		return 1
+	}
+	return math.Pow(0.5, float64(idle)/float64(s.halfLife))
 }
 
 // peerScoreRecord is the on-disk JSON representation.
 type peerScoreRecord struct {
-	PeerID      string `json:"peer_id"`
-	Successes   int    `json:"successes"`
-	Failures    int    `json:"failures"`
-	LastLatency int64  `json:"last_latency_ns"`
-	AvgLatency  int64  `json:"avg_latency_ns"`
-	LastSeen    int64  `json:"last_seen_ns"`
-	LastError   string `json:"last_error,omitempty"`
+	PeerID      string            `json:"peer_id"`
+	Successes   int               `json:"successes"`
+	Failures    int               `json:"failures"`
+	LastLatency int64             `json:"last_latency_ns"`
+	AvgLatency  int64             `json:"avg_latency_ns"`
+	LastSeen    int64             `json:"last_seen_ns"`
+	LastError   string            `json:"last_error,omitempty"`
+	OpStats     map[string]OpStat `json:"op_stats,omitempty"`
 }
 
 // PeerScoreStore persists a bounded history of call quality per peer.
 type PeerScoreStore struct {
-	mu     sync.RWMutex
-	path   string
-	scores map[peer.ID]*PeerScore
+	mu       sync.RWMutex
+	path     string
+	scores   map[peer.ID]*PeerScore
+	halfLife time.Duration
 
 	saveMu    sync.Mutex
 	saveErr   error
@@ -145,6 +190,8 @@ func (s *PeerScoreStore) Load() error {
 			AvgLatency:  time.Duration(rec.AvgLatency),
 			LastSeen:    time.Unix(0, rec.LastSeen),
 			LastError:   rec.LastError,
+			OpStats:     rec.OpStats,
+			halfLife:    s.halfLife,
 		}
 	}
 	return nil
@@ -179,6 +226,7 @@ func (s *PeerScoreStore) Save() error {
 			AvgLatency:  int64(sc.AvgLatency),
 			LastSeen:    sc.LastSeen.UnixNano(),
 			LastError:   sc.LastError,
+			OpStats:     sc.OpStats,
 		})
 	}
 	s.mu.RUnlock()
@@ -269,9 +317,39 @@ func (s *PeerScoreStore) Close() {
 	s.flushSave()
 }
 
+// SetHalfLife configures the read-time score decay window. Records with an
+// idle gap longer than the half-life score proportionally lower; 0 disables
+// decay. Safe to call at any time — the stamp is applied to returned copies.
+func (s *PeerScoreStore) SetHalfLife(d time.Duration) {
+	s.mu.Lock()
+	s.halfLife = d
+	s.mu.Unlock()
+}
+
+// stamped returns a copy of sc carrying the store's current half-life.
+func (s *PeerScoreStore) stamped(sc *PeerScore) PeerScore {
+	out := *sc
+	out.halfLife = s.halfLife
+	return out
+}
+
+// ema folds one latency sample into the moving average.
+func ema(avg, sample time.Duration) time.Duration {
+	return time.Duration(
+		float64(avg)*(1-scoreLatencyAlpha) + float64(sample)*scoreLatencyAlpha)
+}
+
 // Record updates the score for a peer after a call. Latency and outcome are
 // used to maintain a rolling success rate and exponential moving average.
-func (s *PeerScoreStore) Record(pid peer.ID, success bool, latency time.Duration, callErr error) {
+// op is the operation label ("delegate", "spawn", "submit", "result", …)
+// recorded in the per-operation breakdown; an empty op skips it.
+func (s *PeerScoreStore) Record(
+	pid peer.ID,
+	op string,
+	success bool,
+	latency time.Duration,
+	callErr error,
+) {
 	s.mu.Lock()
 
 	sc, ok := s.scores[pid]
@@ -279,6 +357,7 @@ func (s *PeerScoreStore) Record(pid peer.ID, success bool, latency time.Duration
 		sc = &PeerScore{PeerID: pid.String()}
 		s.scores[pid] = sc
 	}
+	sc.halfLife = s.halfLife
 
 	now := time.Now().UTC()
 	sc.LastSeen = now
@@ -315,9 +394,33 @@ func (s *PeerScoreStore) Record(pid peer.ID, success bool, latency time.Duration
 		if sc.AvgLatency == 0 {
 			sc.AvgLatency = latency
 		} else {
-			alpha := scoreLatencyAlpha
-			sc.AvgLatency = time.Duration(float64(sc.AvgLatency)*(1-alpha) + float64(latency)*alpha)
+			sc.AvgLatency = ema(sc.AvgLatency, latency)
 		}
+	}
+
+	if op != "" {
+		if sc.OpStats == nil {
+			sc.OpStats = make(map[string]OpStat, 4)
+		}
+		st := sc.OpStats[op]
+		if success {
+			st.Successes++
+		} else {
+			st.Failures++
+		}
+		if latency != 0 {
+			if st.AvgLatency == 0 {
+				st.AvgLatency = latency
+			} else {
+				st.AvgLatency = ema(st.AvgLatency, latency)
+			}
+		}
+		if tot := st.Successes + st.Failures; tot > maxScoreSamples {
+			ratio := float64(maxScoreSamples) / float64(tot)
+			st.Successes = int(float64(st.Successes) * ratio)
+			st.Failures = int(float64(st.Failures) * ratio)
+		}
+		sc.OpStats[op] = st
 	}
 
 	s.mu.Unlock()
@@ -333,7 +436,7 @@ func (s *PeerScoreStore) Get(pid peer.ID) (PeerScore, bool) {
 	if !ok {
 		return PeerScore{}, false
 	}
-	return *sc, true
+	return s.stamped(sc), true
 }
 
 // All returns a snapshot of all known peer scores.
@@ -342,7 +445,7 @@ func (s *PeerScoreStore) All() map[peer.ID]PeerScore {
 	defer s.mu.RUnlock()
 	out := make(map[peer.ID]PeerScore, len(s.scores))
 	for pid, sc := range s.scores {
-		out[pid] = *sc
+		out[pid] = s.stamped(sc)
 	}
 	return out
 }
@@ -356,8 +459,10 @@ func (s *PeerScoreStore) Ranked() []peer.ID {
 	for pid := range s.scores {
 		out = append(out, pid)
 	}
+	now := time.Now().UTC()
 	sort.Slice(out, func(i, j int) bool {
-		is, js := s.scores[out[i]].Score(), s.scores[out[j]].Score()
+		is := s.stamped(s.scores[out[i]]).scoreAt(now)
+		js := s.stamped(s.scores[out[j]]).scoreAt(now)
 		if is != js {
 			return is > js
 		}

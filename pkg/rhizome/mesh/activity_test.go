@@ -15,7 +15,7 @@ import (
 )
 
 func TestActivityFeedRingOrder(t *testing.T) {
-	f := newActivityFeed()
+	f := newActivityFeed(nil)
 	for i := 0; i < activityCapacity+25; i++ {
 		f.push(runtimeevents.Event{
 			Kind:  runtimeevents.Kind("mesh.test"),
@@ -38,7 +38,7 @@ func TestActivityFeedRingOrder(t *testing.T) {
 }
 
 func TestActivityFeedBelowCapacity(t *testing.T) {
-	f := newActivityFeed()
+	f := newActivityFeed(nil)
 	for i := 0; i < 10; i++ {
 		f.push(runtimeevents.Event{
 			Kind: runtimeevents.Kind("mesh.test"),
@@ -205,7 +205,7 @@ func TestNetworkStatusPeerObservability(t *testing.T) {
 	assert.NotEmpty(t, p.Conns[0].RemoteMultiaddr)
 
 	// Recording a score surfaces it on PeerStatus.
-	meshA.scoreStore.Record(nodeB.ID(), true, 5*time.Millisecond, nil)
+	meshA.scoreStore.Record(nodeB.ID(), "delegate", true, 5*time.Millisecond, nil)
 	status = meshA.NetworkStatus(t.TempDir())
 	require.Len(t, status.Peers, 1)
 	require.NotNil(t, status.Peers[0].Score)

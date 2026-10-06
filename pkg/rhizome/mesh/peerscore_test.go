@@ -18,9 +18,9 @@ func TestPeerScoreStoreRoundTrip(t *testing.T) {
 	pid, err := peer.Decode("12D3KooWH3umosfqFuBeS5PVJFvSsQkuxFWcbv13tDEfwYa9XUvv")
 	require.NoError(t, err)
 
-	s.Record(pid, true, 100*time.Millisecond, nil)
-	s.Record(pid, true, 50*time.Millisecond, nil)
-	s.Record(pid, false, 200*time.Millisecond, errors.New("timeout"))
+	s.Record(pid, "delegate", true, 100*time.Millisecond, nil)
+	s.Record(pid, "submit", true, 50*time.Millisecond, nil)
+	s.Record(pid, "delegate", false, 200*time.Millisecond, errors.New("timeout"))
 
 	// Flush the coalesced write so the file exists on disk.
 	s.Close()
@@ -47,8 +47,8 @@ func TestPeerScoreStoreScore(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < 5; i++ {
-		s.Record(pid, false, 5*time.Second, errors.New("slow"))
-		s.Record(good, true, 10*time.Millisecond, nil)
+		s.Record(pid, "delegate", false, 5*time.Second, errors.New("slow"))
+		s.Record(good, "delegate", true, 10*time.Millisecond, nil)
 	}
 
 	assert.Less(t, s.scores[pid].Score(), s.scores[good].Score())
@@ -63,7 +63,7 @@ func TestPeerScoreStoreRecordDecay(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < maxScoreSamples*2; i++ {
-		s.Record(pid, true, time.Millisecond, nil)
+		s.Record(pid, "submit", true, time.Millisecond, nil)
 	}
 
 	sc, ok := s.Get(pid)

@@ -2,15 +2,20 @@ package gateway
 
 import (
 	"crypto/subtle"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 )
 
-// networkActivityHandler serves the in-memory mesh/swarm activity feed.
+// networkActivityHandler serves the mesh/swarm activity feed.
 //
-//	GET /network/activity?tail=N   recent mesh.*/swarm.* events (oldest first)
+//	GET /network/activity?tail=N&kind=mesh.*&peer=<id>&swarm=<id>&since=<dur|rfc3339>
+//	recent mesh.*/swarm.* events (oldest first). The feed is backed by the
+//	durable mesh-activity.jsonl when mesh.activity_log is on, so filters span
+//	restarts.
 type networkActivityHandler struct {
 	mesh      *mesh.Mesh
 	authToken string
@@ -39,7 +44,33 @@ func (h *networkActivityHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			tail = n
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": h.mesh.Activity(tail)})
+	var filter mesh.ActivityFilter
+	q := r.URL.Query()
+	filter.Kind = q.Get("kind")
+	filter.Peer = q.Get("peer")
+	filter.Swarm = q.Get("swarm")
+	filter.Contains = q.Get("contains")
+	if raw := q.Get("since"); raw != "" {
+		since, err := parseSince(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		filter.Since = since
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": h.mesh.ActivityFiltered(tail, filter)})
+}
+
+// parseSince accepts either a Go duration ("30m", "1h" → now-dur) or an
+// RFC3339 timestamp.
+func parseSince(raw string) (time.Time, error) {
+	if d, err := time.ParseDuration(raw); err == nil {
+		return time.Now().Add(-d), nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid since %q: want a duration (30m, 1h) or RFC3339 timestamp", raw)
 }
 
 func (h *networkActivityHandler) authorize(r *http.Request) bool {
