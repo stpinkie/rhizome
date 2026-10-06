@@ -18,6 +18,7 @@ import (
 //
 //	GET  /network/skills?peer=<id>        — list a peer's shareable skills
 //	POST /network/skills/pull             — pull a skill bundle {peer, name}
+//	POST /network/skills/push             — notify a peer to pull {peer, name}
 type networkSkillsHandler struct {
 	mesh      *mesh.Mesh
 	authToken string
@@ -48,7 +49,9 @@ func (h *networkSkillsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	switch {
 	case sub == "/pull" && r.Method == http.MethodPost:
 		h.pull(w, r)
-	case sub == "/pull":
+	case sub == "/push" && r.Method == http.MethodPost:
+		h.push(w, r)
+	case sub == "/pull" || sub == "/push":
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error": "method not allowed, use POST",
 		})
@@ -118,6 +121,41 @@ func (h *networkSkillsHandler) pull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// push delivers a skill-offer notification — the peer pulls the bundle on
+// its own (the pull-side guards apply there, same as any pull).
+func (h *networkSkillsHandler) push(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Peer string `json:"peer"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid JSON body: " + err.Error(),
+		})
+		return
+	}
+	pid, err := peer.Decode(strings.TrimSpace(body.Peer))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid peer id"})
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		return
+	}
+	ctx := r.Context()
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 30*time.Second {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
+	if err := h.mesh.OfferSkill(ctx, pid, body.Name); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "offered"})
 }
 
 func (h *networkSkillsHandler) meshNodeID() string {

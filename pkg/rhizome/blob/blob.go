@@ -77,6 +77,12 @@ type Request struct {
 	Name        string `json:"name,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 
+	// Offset resumes a get mid-blob: the requester already holds Offset
+	// bytes and wants only the tail. Servers that predate the field stream
+	// from 0; the client detects that via the echoed Response.Offset and
+	// falls back to a full fetch.
+	Offset int64 `json:"offset,omitempty"`
+
 	// Nonce and Timestamp are anti-replay fields, verified by the callee.
 	Nonce     string `json:"nonce,omitempty"`
 	Timestamp int64  `json:"timestamp,omitempty"`
@@ -93,7 +99,14 @@ type Response struct {
 	Name        string `json:"name,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Error       string `json:"error,omitempty"`
-	Signature   []byte `json:"signature,omitempty"`
+
+	// Offset resumes a put mid-blob (how many bytes the server already
+	// holds) and acknowledges a get's requested offset. On put, Offset ==
+	// the announced Size means the blob is already stored — the client
+	// commits without streaming (content-addressed dedup).
+	Offset int64 `json:"offset,omitempty"`
+
+	Signature []byte `json:"signature,omitempty"`
 }
 
 // refPrefix prefixes a fully qualified blob reference:
@@ -160,6 +173,9 @@ func (r *Request) validate() error {
 		}
 	default:
 		return fmt.Errorf("unknown blob op %q", r.Op)
+	}
+	if r.Offset < 0 {
+		return fmt.Errorf("blob offset must be non-negative")
 	}
 	if len(r.Hash) > maxHashLen || len(r.Name) > maxNameLen || len(r.ContentType) > maxNameLen {
 		return fmt.Errorf("blob request field too large")

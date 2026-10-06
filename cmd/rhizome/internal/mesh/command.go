@@ -45,6 +45,7 @@ func NewMeshCommand() *cobra.Command {
 		network.NewActivityCommand(),
 		network.NewTraceCommand(),
 		network.NewPeerCommand(),
+		network.NewBlobsCommand(),
 	)
 
 	return cmd

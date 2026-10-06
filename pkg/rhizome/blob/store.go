@@ -226,9 +226,80 @@ type blobWriter struct {
 	path  string
 	want  string
 	limit int64
-	n     int64
-	done  bool
-	err   error
+	// n counts total bytes staged (a resumed prefix plus fresh writes) so
+	// the limit and Complete checks see the whole blob.
+	n    int64
+	done bool
+	err  error
+}
+
+// NewResumableWriter returns a blob writer staged at a deterministic
+// .partial-<hash> path so a dropped transfer can resume where it left
+// off. An existing partial is re-hashed into the running digest (keeping
+// the end-state hash check authoritative) and appended to; Staged reports
+// how many bytes were already on disk. Suspend keeps the partial for a
+// later attempt; Abort and a failed Complete delete it.
+func (s *Store) NewResumableWriter(wantHash string, limit int64) (*blobWriter, error) {
+	if err := ValidateHash(wantHash); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > s.maxBytes {
+		return nil, fmt.Errorf("blob size %d out of bounds (max %d)", limit, s.maxBytes)
+	}
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		return nil, err
+	}
+	path := s.partialPath(wantHash)
+	// O_RDWR: an existing partial is read back to seed the digest before
+	// new writes append to it — O_WRONLY cannot serve that read.
+	//nolint:gosec // G304: path is the hash-derived partial under the store root.
+	tmp, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	w := &blobWriter{
+		store: s,
+		tmp:   tmp,
+		hw:    sha256.New(),
+		path:  path,
+		want:  wantHash,
+		limit: limit,
+	}
+	// Seed the digest and counter with whatever an earlier attempt staged
+	// so the final hash still covers the whole blob.
+	if info, err := tmp.Stat(); err == nil && info.Size() > 0 {
+		if info.Size() <= limit {
+			if _, err := tmp.Seek(0, io.SeekStart); err == nil {
+				if _, err := io.Copy(w.hw, tmp); err == nil {
+					w.n = info.Size()
+				}
+			}
+			_, _ = tmp.Seek(0, io.SeekEnd)
+		}
+		if w.n == 0 {
+			// Oversized or unreadable partial — restart it.
+			_ = tmp.Truncate(0)
+			_, _ = tmp.Seek(0, io.SeekStart)
+		}
+	}
+	return w, nil
+}
+
+// partialPath is the deterministic staging path for a resumable blob.
+func (s *Store) partialPath(h string) string {
+	return filepath.Join(s.dir, ".partial-"+h)
+}
+
+// PartialSize reports how many bytes are staged for a resumable transfer.
+func (s *Store) PartialSize(h string) int64 {
+	if ValidateHash(h) != nil {
+		return 0
+	}
+	info, err := os.Stat(s.partialPath(h))
+	if err != nil || !info.Mode().IsRegular() {
+		return 0
+	}
+	return info.Size()
 }
 
 // NewBlobWriter returns a writer that streams content to a temp file.
@@ -286,6 +357,24 @@ func (w *blobWriter) closeTmp() {
 	if w.tmp != nil {
 		_ = w.tmp.Close()
 		w.tmp = nil
+	}
+}
+
+// Staged reports bytes held so far — a resumed prefix plus fresh writes.
+func (w *blobWriter) Staged() int64 { return w.n }
+
+// Suspend ends this attempt without discarding the staged content. For a
+// resumable (.partial-<hash>) writer the file stays for the next attempt;
+// for a random .incoming-* writer there is no way to re-find it, so the
+// file is removed like Abort.
+func (w *blobWriter) Suspend() {
+	if w.done {
+		return
+	}
+	w.done = true
+	w.closeTmp()
+	if filepath.Base(w.path) != ".partial-"+w.want {
+		_ = os.Remove(w.path)
 	}
 }
 
@@ -362,6 +451,64 @@ func (s *Store) WriteMeta(h string, meta Meta) error {
 	return os.WriteFile(s.metaPath(h), data, 0o600)
 }
 
+// Entry describes one stored blob for operator listing.
+type Entry struct {
+	Hash      string `json:"hash"`
+	Name      string `json:"name,omitempty"`
+	Size      int64  `json:"size"`
+	Owner     string `json:"owner,omitempty"`
+	StoredAt  int64  `json:"stored_at,omitempty"`
+	ExpiresAt int64  `json:"expires_at,omitempty"`
+	Partial   int64  `json:"partial,omitempty"`
+}
+
+// List enumerates committed blobs in the store along with their TTL state
+// (expires_at is omitted when the store has no TTL). In-flight resumable
+// transfers show as partial byte counts.
+func (s *Store) List() ([]Entry, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if len(name) > 9 && name[:9] == ".partial-" {
+			hash := name[9:]
+			if ValidateHash(hash) == nil {
+				if info, statErr := e.Info(); statErr == nil {
+					out = append(out, Entry{Hash: hash, Partial: info.Size()})
+				}
+			}
+			continue
+		}
+		if len(name) != 64 || ValidateHash(name) != nil {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		ent := Entry{Hash: name, Size: info.Size()}
+		if meta, err := s.Stat(name); err == nil {
+			ent.Name = meta.Name
+			ent.Owner = meta.Owner
+			ent.StoredAt = meta.StoredAt
+		}
+		if ent.StoredAt == 0 {
+			ent.StoredAt = info.ModTime().Unix()
+		}
+		if s.ttl > 0 {
+			ent.ExpiresAt = ent.StoredAt + int64(s.ttl.Seconds())
+		}
+		out = append(out, ent)
+	}
+	return out, nil
+}
+
 // Start begins the TTL reaper goroutine. Safe to call once.
 func (s *Store) Start(ctx context.Context) {
 	s.once.Do(func() {
@@ -433,7 +580,7 @@ func (s *Store) reap() {
 			}
 			continue
 		}
-		if len(name) > 10 && name[:10] == ".incoming-" {
+		if len(name) > 10 && (name[:10] == ".incoming-" || name[:9] == ".partial-") {
 			if info, statErr := e.Info(); statErr == nil && info.ModTime().Unix() < cutoff {
 				_ = os.Remove(filepath.Join(s.dir, name))
 			}

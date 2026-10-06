@@ -77,9 +77,11 @@ func TestActivityFeedWarmLoadsOnStart(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(fresh.Activity(0)) == 2
 	}, 5*time.Second, 10*time.Millisecond)
-	raws, err := ReadAuditTail(path, 10)
-	require.NoError(t, err)
-	assert.Len(t, raws, 2)
+	// Same ring-before-file ordering as above — wait on the durable copy.
+	require.Eventually(t, func() bool {
+		raws, err := ReadAuditTail(path, 10)
+		return err == nil && len(raws) == 2
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 // TestActivityFeedLogDisabled covers the no-log posture: feed works, no file.
