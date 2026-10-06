@@ -19,14 +19,12 @@ import (
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/marketindex"
 	"github.com/stpinkie/rhizome/pkg/rhizome/peeradverts"
 	"github.com/stpinkie/rhizome/pkg/sigverify"
 )
 
 const (
-	// indexMaxBytes bounds one index.json fetch; provider lists are
-	// small by design.
-	indexMaxBytes = 1 << 20
 	// indexCacheTTL is how long a fresh fetch serves before refetching.
 	indexCacheTTL  = time.Hour
 	indexCacheFile = "index-cache.json"
@@ -34,27 +32,19 @@ const (
 	indexFetchTimeout = 15 * time.Second
 )
 
-// marketIndex is the operator-supplied provider index — <url>/index.json
-// signed by the curator key in <url>/index.json.sig.
-type marketIndex struct {
-	V         int             `json:"v"`
-	UpdatedAt string          `json:"updated_at"`
-	Providers []indexProvider `json:"providers"`
-}
-
-// indexProvider is one index row: a peer plus its market advert (the same
-// signed advert shape the mesh manifest carries).
-type indexProvider struct {
-	PeerID    string          `json:"peer_id"`
-	Multiaddr string          `json:"multiaddr,omitempty"`
-	Advert    json.RawMessage `json:"advert"`
-}
-
-// indexCache persists the last verified index for stale-serve.
+// indexCache persists the last verified index for stale-serve and seq
+// regression checks.
 type indexCache struct {
-	FetchedAt time.Time    `json:"fetched_at"`
-	Index     *marketIndex `json:"index"`
+	FetchedAt time.Time          `json:"fetched_at"`
+	Index     *marketindex.Index `json:"index"`
 }
+
+// Local aliases keep call sites terse; the schema itself lives in
+// pkg/marketindex so the publish pipeline validates identically.
+type (
+	marketIndex   = marketindex.Index
+	indexProvider = marketindex.IndexProvider
+)
 
 // findRow is one result in a /v1/find response — projected offer terms
 // with the provenance (index vs direct-peer journal) and trust flags the
@@ -73,10 +63,11 @@ type findRow struct {
 	Payout           string `json:"payout,omitempty"`
 	AdvertExpiresAt  string `json:"advert_expires_at,omitempty"`
 
-	Source  string `json:"source"` // index | peers
-	Trusted bool   `json:"trusted"`
-	Stale   bool   `json:"stale,omitempty"`   // index cache older than TTL
-	Expired bool   `json:"expired,omitempty"` // advert past its expires_at
+	Source       string   `json:"source"` // index | peers
+	Trusted      bool     `json:"trusted"`
+	Stale        bool     `json:"stale,omitempty"`   // index cache older than TTL
+	Expired      bool     `json:"expired,omitempty"` // advert past its expires_at
+	Attestations []string `json:"attestations,omitempty"`
 }
 
 // runFind executes /v1/find: index query when market_index_url is set,
@@ -103,7 +94,8 @@ func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
 			return nil, buyErr("index_unavailable", "%s", err)
 		}
 		var rows []findRow
-		for _, pr := range idx.Providers {
+		for i := range idx.Providers {
+			pr := &idx.Providers[i]
 			var a advert
 			if json.Unmarshal(pr.Advert, &a) != nil {
 				continue
@@ -112,12 +104,18 @@ func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
 			if pid == "" {
 				pid = pr.PeerID
 			}
-			for i := range a.Offers {
-				o := &a.Offers[i]
+			addr := pr.Multiaddr
+			if addrs := pr.AddrsOrMultiaddr(); len(addrs) > 0 {
+				addr = addrs[0]
+			}
+			for j := range a.Offers {
+				o := &a.Offers[j]
 				if !match(o) {
 					continue
 				}
-				rows = append(rows, pm.projectRow(&a, o, pid, pr.Multiaddr, "index", false, stale, now))
+				row := pm.projectRow(&a, o, pid, addr, "index", false, stale, now)
+				row.Attestations = pr.AttestationKinds()
+				rows = append(rows, row)
 			}
 		}
 		return map[string]any{
@@ -189,25 +187,29 @@ func (pm *purchaseMgr) projectRow(
 }
 
 // fetchIndex retrieves + verifies <index_url>/index.json{,.sig}, using the
-// 1 h cache and serving stale on fetch/verify failure.
+// 1 h cache and serving stale on fetch/verify failure. A fetched index
+// whose seq regresses below the cached seq is a rollback — refused outright
+// (tamper evidence); an index past its own expires_at is served stale.
 func (pm *purchaseMgr) fetchIndex(
 	ctx context.Context,
-) (*marketIndex, bool, error) {
+) (*marketindex.Index, bool, error) {
 	mc := pm.cfg.Load()
 	if mc == nil || mc.indexURL == "" {
 		return nil, false, buyErr("index_disabled", "market_index_url unset")
 	}
 	cachePath := filepath.Join(pm.moduleDir, indexCacheFile)
+	cached := readIndexCache(cachePath)
 
-	// Fresh cache hit: under TTL → serve without a network round-trip.
-	if cached := readIndexCache(cachePath); cached != nil &&
-		pm.nowFn().Sub(cached.FetchedAt) < indexCacheTTL {
+	// Fresh cache hit: under TTL and not self-expired → serve without a
+	// network round-trip.
+	if cached != nil && pm.nowFn().Sub(cached.FetchedAt) < indexCacheTTL &&
+		!cached.Index.Expired(pm.nowFn()) {
 		return cached.Index, false, nil
 	}
 
 	idx, err := pm.fetchIndexFresh(ctx, mc.indexURL, mc.indexPubKey)
 	if err != nil {
-		if cached := readIndexCache(cachePath); cached != nil {
+		if cached != nil {
 			pm.audit.log("market.index.stale_serve", map[string]any{
 				"error": err.Error(), "age_s": pm.nowFn().Sub(cached.FetchedAt).Seconds(),
 			})
@@ -215,20 +217,32 @@ func (pm *purchaseMgr) fetchIndex(
 		}
 		return nil, false, err
 	}
+	// Rollback guard: a freshly verified index must never carry a seq below
+	// the last cached seq — a regression means the history was rewritten.
+	if cached != nil && idx.Seq < cached.Index.Seq {
+		pm.audit.log("market.index.seq_regressed", map[string]any{
+			"fetched_seq": idx.Seq, "cached_seq": cached.Index.Seq,
+		})
+		return cached.Index, true, nil
+	}
 	if err := writeIndexCache(cachePath, idx, pm.nowFn()); err != nil {
 		pm.audit.log("market.index.cache_write_failed", map[string]any{"error": err.Error()})
 	}
-	return idx, false, nil
+	// Self-expired index serves stale — usable, but every row flags it.
+	return idx, idx.Expired(pm.nowFn()), nil
 }
 
 // fetchIndexFresh downloads and verifies the index document + signature.
+// The envelope's optional signer field must equal the key that verified
+// the signature — an index declaring a different signer than the one that
+// signed it is a curator-confusion attempt.
 func (pm *purchaseMgr) fetchIndexFresh(
 	ctx context.Context, baseURL, pubkeyB64 string,
-) (*marketIndex, error) {
+) (*marketindex.Index, error) {
 	base := strings.TrimRight(baseURL, "/")
 	ctx, cancel := context.WithTimeout(ctx, indexFetchTimeout)
 	defer cancel()
-	doc, err := httpGet(ctx, base+"/index.json", indexMaxBytes)
+	doc, err := httpGet(ctx, base+"/index.json", marketindex.MaxBytes)
 	if err != nil {
 		return nil, fmt.Errorf("index.json fetch: %w", err)
 	}
@@ -236,17 +250,22 @@ func (pm *purchaseMgr) fetchIndexFresh(
 	if err != nil {
 		return nil, fmt.Errorf("index.json.sig fetch: %w", err)
 	}
+	effectiveKey := strings.TrimSpace(pubkeyB64)
+	if effectiveKey == "" {
+		effectiveKey = sigverify.ReleasePubKeyB64
+	}
 	if err := verifyIndexSig(doc, strings.TrimSpace(string(sigB64)), pubkeyB64); err != nil {
 		return nil, fmt.Errorf("index signature: %w", err)
 	}
-	var idx marketIndex
-	if err := json.Unmarshal(doc, &idx); err != nil {
-		return nil, fmt.Errorf("index parse: %w", err)
+	idx, err := marketindex.Parse(doc)
+	if err != nil {
+		return nil, fmt.Errorf("index schema: %w", err)
 	}
-	if idx.V != 1 {
-		return nil, fmt.Errorf("index v%d unsupported (want 1)", idx.V)
+	if idx.Signer != "" && idx.Signer != effectiveKey {
+		return nil, fmt.Errorf(
+			"index signer %q does not match the verifying key", idx.Signer)
 	}
-	return &idx, nil
+	return idx, nil
 }
 
 // verifyIndexSig checks the detached Ed25519 signature: the operator's
@@ -290,7 +309,7 @@ func httpGet(ctx context.Context, url string, limit int64) ([]byte, error) {
 }
 
 func readIndexCache(path string) *indexCache {
-	data, err := readBounded(path, indexMaxBytes+4<<10)
+	data, err := readBounded(path, marketindex.MaxBytes+4<<10)
 	if err != nil {
 		return nil
 	}
@@ -301,7 +320,7 @@ func readIndexCache(path string) *indexCache {
 	return &c
 }
 
-func writeIndexCache(path string, idx *marketIndex, at time.Time) error {
+func writeIndexCache(path string, idx *marketindex.Index, at time.Time) error {
 	data, err := json.Marshal(indexCache{FetchedAt: at, Index: idx})
 	if err != nil {
 		return err
