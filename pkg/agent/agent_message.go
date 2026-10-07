@@ -10,6 +10,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/bus"
 	"github.com/stpinkie/rhizome/pkg/constants"
 	"github.com/stpinkie/rhizome/pkg/logger"
+	"github.com/stpinkie/rhizome/pkg/providers"
 	"github.com/stpinkie/rhizome/pkg/routing"
 	"github.com/stpinkie/rhizome/pkg/session"
 	"github.com/stpinkie/rhizome/pkg/utils"
@@ -325,17 +326,42 @@ func (al *AgentLoop) processSystemMessage(
 		return "", nil
 	}
 
-	// Use default agent for system messages
+	// Use default agent and its main session unless the message names its origin
 	agent := al.GetRegistry().GetDefaultAgent()
 	if agent == nil {
 		return "", fmt.Errorf("no default agent for system message")
 	}
-
-	// Use the origin session for context
 	sessionKey := session.BuildMainSessionKey(agent.ID)
+
+	// Async tool results carry the session of the turn that launched the tool.
+	// Answer them there, with that session's agent and history, so results
+	// from different chats never share one session.
+	if key := strings.TrimSpace(msg.SessionKey); key != "" {
+		sessionKey = key
+		if sessionAgent := al.agentForSession(key); sessionAgent != nil {
+			agent = sessionAgent
+		}
+	}
+	userMessage := fmt.Sprintf("[System: %s] %s", msg.SenderID, msg.Content)
+
+	// System messages bypass the session claim in Run. Claim the session here
+	// so the result does not start a turn in parallel with an active one;
+	// hand it to the active turn as steering instead.
+	placeholder := &turnState{
+		turnID: makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
+		phase:  TurnPhaseSetup,
+	}
+	if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
+		return "", al.enqueueSteeringMessage(sessionKey, agent.ID, providers.Message{
+			Role:    "user",
+			Content: userMessage,
+		})
+	}
+	defer al.releaseSessionTurnState(sessionKey, placeholder)
+
 	dispatch := DispatchRequest{
 		SessionKey:  sessionKey,
-		UserMessage: fmt.Sprintf("[System: %s] %s", msg.SenderID, msg.Content),
+		UserMessage: userMessage,
 	}
 	if originChannel != "" || originChatID != "" {
 		dispatch.InboundContext = &bus.InboundContext{

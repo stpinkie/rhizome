@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -272,16 +274,18 @@ func findAssetInfo(releaseURL, platform, arch string) (string, string, error) {
 		}
 		// prefer arch matches within idxs; if arch was specified but
 		// no arch match exists among idxs, treat as no candidate.
+		// Aliases are ordered by preference, so use the first alias
+		// that matches any asset (e.g. armv7 before armv6).
 		var archIdx []int
 		if arch != "" {
-			aliases := archAliases(archLower)
-			for _, i := range idxs {
-				n := strings.ToLower(data.Assets[i].Name)
-				for _, ali := range aliases {
-					if strings.Contains(n, ali) {
+			for _, ali := range archAliases(archLower) {
+				for _, i := range idxs {
+					if assetMatchesArch(data.Assets[i].Name, ali) {
 						archIdx = append(archIdx, i)
-						break
 					}
+				}
+				if len(archIdx) > 0 {
+					break
 				}
 			}
 			if len(archIdx) == 0 {
@@ -508,15 +512,25 @@ func humanBytes(n int64) string {
 	}
 }
 
-// archAliases returns common name variants for an architecture string
-// so we can match release asset names like "x86_64" vs Go's "amd64".
-// archAliases returns name variants for an architecture string.
-// If `arch` is empty or matches the local runtime.GOARCH, prefer the
-// compile-time architecture aliases provided by archAliasesForLocal
-// (implemented per-architecture via build tags). For other `arch`
-// values we use a small synonyms map.
+// archAliases returns name variants for an architecture string, most
+// preferred first, so we can match release asset names like "x86_64"
+// vs Go's "amd64". For "arm" the result depends on the GOARM value the
+// running binary was built with, since releases ship armv6 and armv7.
 func archAliases(arch string) []string {
 	a := strings.ToLower(arch)
+	if a == "arm" {
+		switch {
+		case localGOARM >= 7:
+			// ARMv7 CPUs can also run armv6 binaries.
+			return []string{"armv7", "armv6", "arm"}
+		case localGOARM == 5:
+			// No armv5 release is published, and armv6/armv7 builds
+			// use hardware floating point, unlike GOARM=5.
+			return []string{"armv5"}
+		default:
+			return []string{"armv6", "arm"}
+		}
+	}
 	if syns, ok := archSynonyms[a]; ok {
 		return syns
 	}
@@ -527,11 +541,52 @@ var archSynonyms = map[string][]string{
 	"amd64":   {"amd64", "x86_64", "x64"},
 	"x86_64":  {"amd64", "x86_64", "x64"},
 	"x64":     {"amd64", "x86_64", "x64"},
-	"386":     {"386", "x86"},
-	"x86":     {"386", "x86"},
+	"386":     {"386", "i386", "x86"},
+	"i386":    {"386", "i386", "x86"},
+	"x86":     {"386", "i386", "x86"},
 	"arm64":   {"arm64", "aarch64"},
 	"aarch64": {"arm64", "aarch64"},
-	"arm":     {"arm"},
+}
+
+// assetMatchesArch reports whether a release asset name ends with the
+// given arch alias, e.g. "rhizome_Linux_armv7.tar.gz" and "armv7".
+// A substring check is not enough: "arm" is contained in "arm64" and
+// "x86" in "x86_64".
+func assetMatchesArch(name, alias string) bool {
+	base := strings.ToLower(name)
+	for _, ext := range []string{".tar.gz", ".tgz", ".tar", ".zip"} {
+		if strings.HasSuffix(base, ext) {
+			base = strings.TrimSuffix(base, ext)
+			break
+		}
+	}
+	return base == alias || strings.HasSuffix(base, "_"+alias) || strings.HasSuffix(base, "-"+alias)
+}
+
+// localGOARM is the GOARM value (5, 6 or 7) this binary was built with,
+// or 0 if unknown or not built for 32-bit ARM. Tests may override it.
+var localGOARM = goarmFromBuildInfo()
+
+func goarmFromBuildInfo() int {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return 0
+	}
+	return goarmFromSettings(info.Settings)
+}
+
+// goarmFromSettings extracts GOARM from build settings. The value may
+// carry a float ABI suffix, e.g. "7,softfloat".
+func goarmFromSettings(settings []debug.BuildSetting) int {
+	for _, s := range settings {
+		if s.Key == "GOARM" {
+			v, _, _ := strings.Cut(s.Value, ",")
+			if n, err := strconv.Atoi(v); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func extractArchive(archivePath, destDir string) error {

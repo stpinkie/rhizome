@@ -11,6 +11,31 @@ Issue numbers below refer to `sipeed/picoclaw` issues. Links of the form
 `stpinkie/rhizome/issues/NNN` in `ROADMAP.md` are rebrand-rewrites of these
 upstream numbers and do not resolve to a live Rhizome tracker.
 
+## v0.16.0 Track 123 sweep (2026-10-06)
+
+**Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) —
+`git rev-list bbf6893c..upstream/main` returns 0. **No new upstream commits
+to cherry-pick**; upstream merges remain dormant (latest merged PR is still
+#3286, 2026-07-23). Note: the Track 112 section was written on
+`devin/track-112-upstream-sweep` (PR #68), a sibling branch off `main` —
+this sweep's record continues on the release line.
+
+**Picked** (all four were closed-unmerged fix PRs under tracking issue
+#3404 "reliability fixes wave 1"; ported adapted, same posture as the
+Track 112 port of #3412):
+
+| Item | What | Action |
+|---|---|---|
+| PR #3402 | Context managers resolved `GetDefaultAgent()` instead of the session's owning agent — routed agents' sessions assembled empty context; seahorse bootstrap imported only the default agent's store | Ported — `agentForSession` at all three `context_legacy.go` sites; seahorse bootstrap iterates every registered agent's store; `bootstrapSession` takes the store as a param |
+| PR #3401 | `Manager.Reload` ran channel register/unregister in a detached goroutine racing `initChannels`, plus nil-channel derefs when a factory failed | Ported — `asyncTask` carries its ctx; removals go through new `removeChannelLocked` before `initChannels`; HTTP handler registration is synchronous; the deferred `RegisterChannel` re-write is gone |
+| PR #3403 | Async tool results always routed to the default agent's main session — cross-chat mixing + parallel-turn races | Ported — `turnState.originSessionKey` walks to the root turn; follow-ups carry `SessionKey`; `processSystemMessage` resolves the named session/agent and claims the session (busy → steering enqueue) |
+| PR #3399 | Updater arch match was substring-based (`"arm"` ⊂ `"arm64"`) and scanned assets before aliases — wrong asset picked for 32-bit ARM | Ported — suffix-aware `assetMatchesArch`, alias-preference loop order, GOARM-aware `arm` aliases via `debug.ReadBuildInfo`; `i386` synonyms added |
+
+**New issues filed since the last sweep** (2026-09-30 → 2026-10-06):
+
+| Item | What | Verdict |
+|---|---|---|
+| Issue #3415 | Feature: reverse-proxy/nginx support behind the gateway | Deferred — feature, not a fix |
 ## v0.15.0 Track 112 sweep (2026-10-06)
 
 **Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) —
@@ -55,13 +80,14 @@ candidates; none are fixes to port):
 
 | Item | State 2026-10-06 |
 |---|---|
-| PR #3381 (OpenAI → Responses API) | Still **open**, unmerged — keep waiting; an unmerged wire-protocol switch stays unportable |
-| `dingtalk-stream-sdk-go` fix for #3382 | Still **blocked** — latest tag remains `v0.9.2-beta.1` (pre-release); issue #3382 open; restore waits on a stable release |
+| PR #3381 (OpenAI → Responses API) | Still **open**, unmerged — keep waiting |
+| `dingtalk-stream-sdk-go` fix for #3382 | Still **blocked** — latest tag remains `v0.9.2-beta.1`; upstream closed #3382 as stale (NOT_PLANNED), not fixed — restore posture unchanged |
+| PR #3412 (turn-failure notice) | Still **open** — ported adapted in Track 112; drop from watch if upstream merges |
+| PR #3410 (steering-queue feedback) | Still **open** — held pending upstream merge (Track 112 decision) |
 | PR #3371 (opencode-go) | Still open — ported adapted in Track 108; keep watching for follow-ups |
-| Feature-PR sign-off batch | **Changed**: #3354 (IRCv3 multiline) closed unmerged 2026-10-05; #3368 (docs MCP) closed unmerged 2026-10-02; #3370/#3259/#3222/#1951 still open; new candidates #3411/#3413/#3414/#3416 |
-| Issue #3404 (reliability wave) | Active — children #3410/#3411/#3412 filed 09-29…09-30; #3412 ported this sweep, #3410 held, #3411 feature |
-| Issues #3394 (QQ API drift), #3407 (ghost session) | Still verify — unchanged from Track 148 |
-| Dependabot PRs (#3385–#3389 class) | No action — our own `dependabot.yml` proposes the same bumps |
+| Feature-PR sign-off batch | #3370, #3259, #3222, #1951 still open — queued v0.20.0+; **#3354 and #3368 closed unmerged** — dropped from the batch |
+| Issues #3404 | Open; its linked fix PRs #3399–#3403 all closed unmerged — four ported this sweep (#3400 duplicates our shipped #3373 fix) |
+| Issues #3394/#3407/#3408 | Still open — Verify verdicts carry (QQ API drift; web ghost-session; web busy-queue drop) |
 
 ## v0.18.0 Track 148 sweep (2026-09-30)
 
