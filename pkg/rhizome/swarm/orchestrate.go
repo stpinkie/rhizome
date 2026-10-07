@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -23,6 +24,48 @@ type Subtask struct {
 	// are scheduled only after their prerequisites complete; a failed
 	// dependency marks the dependent "skipped".
 	DependsOn []string `json:"depends_on,omitempty"`
+	// Model requests a specific model for the subtask's remote call.
+	Model string `json:"model,omitempty"`
+	// Tools restricts the tool set for the subtask's remote call.
+	Tools []string `json:"tools,omitempty"`
+	// Requires constrains which swarm members may claim the subtask's offer.
+	Requires *OfferRequirements `json:"requires,omitempty"`
+	// Timeout bounds how long the subtask's offer stays open for claims;
+	// zero uses the swarm's default offer TTL. JSON accepts a Go duration
+	// string ("5m") or a nanosecond number.
+	Timeout time.Duration `json:"timeout,omitempty"`
+}
+
+// UnmarshalJSON accepts timeout as a Go duration string ("5m") or a
+// nanosecond number so the decomposer's JSON stays human-writable.
+func (st *Subtask) UnmarshalJSON(data []byte) error {
+	type alias Subtask
+	var raw struct {
+		alias
+		Timeout json.RawMessage `json:"timeout,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*st = Subtask(raw.alias)
+	if len(raw.Timeout) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw.Timeout, &s); err == nil {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return fmt.Errorf("subtask %q: invalid timeout %q: %w", st.ID, s, err)
+		}
+		st.Timeout = d
+		return nil
+	}
+	var ns int64
+	if err := json.Unmarshal(raw.Timeout, &ns); err != nil {
+		return fmt.Errorf("subtask %q: invalid timeout: %w", st.ID, err)
+	}
+	st.Timeout = time.Duration(ns)
+	return nil
 }
 
 // SubtaskResult is the outcome of one dispatched subtask.
@@ -247,8 +290,12 @@ func (s *Swarm) RunGoal(ctx context.Context, swarmID, goal, defaultAgent string)
 			}
 			res.Subtasks[i].Status = "offering"
 			offerID, err := s.Offer(ctx, swarmID, OfferRequest{
-				AgentID: subtasks[i].AgentID,
-				Task:    subtasks[i].Task,
+				AgentID:  subtasks[i].AgentID,
+				Task:     subtasks[i].Task,
+				Model:    subtasks[i].Model,
+				Tools:    subtasks[i].Tools,
+				Timeout:  subtasks[i].Timeout,
+				Requires: subtaskRequires(subtasks[i]),
 			})
 			if err != nil {
 				res.Subtasks[i].Status = "failed"
@@ -277,6 +324,15 @@ func (s *Swarm) RunGoal(ctx context.Context, swarmID, goal, defaultAgent string)
 		res.Summary = defaultSummary(res.Subtasks)
 	}
 	return res, nil
+}
+
+// subtaskRequires dereferences a subtask's optional requirements into the
+// value OfferRequest expects.
+func subtaskRequires(st Subtask) OfferRequirements {
+	if st.Requires == nil {
+		return OfferRequirements{}
+	}
+	return *st.Requires
 }
 
 // depsFailed reports a reason to skip a subtask whose prerequisites did not
@@ -374,7 +430,11 @@ func (s *Swarm) awaitSubtask(
 	// resolved channel when the offer reaches a terminal state; select on it
 	// instead of busy-waiting.
 	resolved := s.queue.offerResolved(offerID)
-	timeout := s.cfg.Queue.OfferTTL + s.cfg.Queue.ClaimWindow
+	offerTTL := s.cfg.Queue.OfferTTL
+	if info, ok := s.queue.offerInfo(offerID); ok && info.TTLSeconds > 0 {
+		offerTTL = time.Duration(info.TTLSeconds) * time.Second
+	}
+	timeout := offerTTL + s.cfg.Queue.ClaimWindow
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {

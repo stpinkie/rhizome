@@ -3,6 +3,7 @@ package swarm
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -109,6 +110,9 @@ type OfferRequest struct {
 	// Requires constrains which members may claim (capability-aware
 	// claiming). Zero value means any member.
 	Requires OfferRequirements
+	// Timeout bounds how long the offer stays open for claims; zero uses
+	// swarm.queue.offer_ttl.
+	Timeout time.Duration
 }
 
 // OfferStatus is the lifecycle state of a tracked offer.
@@ -153,6 +157,21 @@ type OfferInfo struct {
 	Result  string `json:"result,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Retries int    `json:"retries,omitempty"`
+	// Claims lists the claims collected for the latest attempt in pick
+	// order — the winner (assignee) first — annotated with the offerer's
+	// resolved peer scores so `swarm offers --json` shows the rationale.
+	Claims []ClaimInfo `json:"claims,omitempty"`
+}
+
+// ClaimInfo is the JSON-friendly view of one claim, annotated with the
+// score the offerer's PeerScoreStore resolved for the claimant.
+type ClaimInfo struct {
+	Claimant    string `json:"claimant"`
+	CapDigest   string `json:"cap_digest,omitempty"`
+	ActiveTasks int    `json:"active_tasks"`
+	// Score is the offerer's recorded score for the claimant; nil means no
+	// score record exists (unscored claimants rank below any scored peer).
+	Score *float64 `json:"score,omitempty"`
 }
 
 // TaskSubmitter submits a task to a peer; usually
@@ -170,6 +189,10 @@ type OfferEvaluator func(swarmID string, o Offer) bool
 // CapMatcher reports whether the local node satisfies an offer's declared
 // requirements (agents/models/skills). A nil matcher is permissive.
 type CapMatcher func(swarmID string, req OfferRequirements) bool
+
+// ScoreLookup resolves the offerer's recorded quality score for a claimant;
+// usually mesh.Mesh.PeerScore. A nil lookup ranks claims purely by load.
+type ScoreLookup func(pid peer.ID) (mesh.PeerScore, bool)
 
 // trackedOffer is the runtime record for one offer we published.
 type trackedOffer struct {
@@ -211,7 +234,7 @@ func (t *trackedOffer) cancelled() bool {
 
 // workQueue implements the distributed offer/claim work queue. Offers are
 // broadcast to a swarm; members reply with point-to-point claims during the
-// claim window; the offerer picks the least-loaded claimer and submits the
+// claim window; the offerer picks the best-ranked claimer and submits the
 // task through the mesh task protocol. Failed or stalled assignments are
 // re-offered up to swarm.queue.max_retries before landing in dead_letter.
 type workQueue struct {
@@ -222,10 +245,11 @@ type workQueue struct {
 	incoming map[string]OfferInfo     // offers observed from other peers
 	subs     map[string]func()        // swarm id -> unsubscribe
 
-	submitter TaskSubmitter
-	canceller TaskCanceller
-	evaluator OfferEvaluator
-	matcher   CapMatcher
+	submitter   TaskSubmitter
+	canceller   TaskCanceller
+	evaluator   OfferEvaluator
+	matcher     CapMatcher
+	scoreLookup ScoreLookup
 
 	wg sync.WaitGroup
 }
@@ -377,6 +401,15 @@ func (s *Swarm) SetTaskCanceller(fn TaskCanceller) {
 func (s *Swarm) SetCapMatcher(fn CapMatcher) {
 	s.queue.mu.Lock()
 	s.queue.matcher = fn
+	s.queue.mu.Unlock()
+}
+
+// SetScoreLookup wires the offerer's peer-score lookup used to rank claims:
+// scored claimants outrank unscored ones, then fewer ActiveTasks, then
+// earlier claims. Without it claims rank by load then arrival order.
+func (s *Swarm) SetScoreLookup(fn ScoreLookup) {
+	s.queue.mu.Lock()
+	s.queue.scoreLookup = fn
 	s.queue.mu.Unlock()
 }
 
@@ -601,6 +634,10 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 		q.mu.Unlock()
 		return "", fmt.Errorf("too many open offers (max %d)", s.cfg.Queue.MaxOffers)
 	}
+	ttl := s.cfg.Queue.OfferTTL
+	if req.Timeout > 0 {
+		ttl = req.Timeout
+	}
 	o := Offer{
 		OfferID:    newNonce(),
 		SwarmID:    swarmID,
@@ -611,7 +648,7 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 		Offerer:    s.host.ID().String(),
 		CreatedAt:  time.Now(),
 		Media:      req.Media,
-		TTLSeconds: int64(s.cfg.Queue.OfferTTL.Seconds()),
+		TTLSeconds: int64(ttl.Seconds()),
 	}
 	if !req.Requires.Empty() {
 		reqCopy := req.Requires
@@ -707,8 +744,55 @@ func (s *Swarm) CancelOffer(ctx context.Context, swarmID, offerID string) error 
 	return nil
 }
 
+// claimEntry is a claim annotated with its resolved score (nil = no record).
+type claimEntry struct {
+	claim Claim
+	score *float64
+}
+
+// rankClaims orders claims for assignment: claimants with a score record
+// (via the wired ScoreLookup) outrank unscored ones; within a class, higher
+// score wins, then fewer ActiveTasks, then earlier claim order. A nil
+// lookup leaves everyone unscored — the pre-scoring behaviour of least
+// load, earliest claim.
+func (s *Swarm) rankClaims(claims []Claim) []claimEntry {
+	q := s.queue
+	q.mu.Lock()
+	lookup := q.scoreLookup
+	q.mu.Unlock()
+
+	ranked := make([]claimEntry, len(claims))
+	for i, c := range claims {
+		ranked[i].claim = c
+		if lookup == nil {
+			continue
+		}
+		pid, err := peer.Decode(c.Claimant)
+		if err != nil {
+			continue
+		}
+		if ps, ok := lookup(pid); ok {
+			sc := ps.Score()
+			ranked[i].score = &sc
+		}
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		si, sj := ranked[i].score, ranked[j].score
+		switch {
+		case si != nil && sj == nil:
+			return true
+		case si == nil && sj != nil:
+			return false
+		case si != nil && *si != *sj:
+			return *si > *sj
+		}
+		return ranked[i].claim.ActiveTasks < ranked[j].claim.ActiveTasks
+	})
+	return ranked
+}
+
 // resolveOffer runs the offer/claim/assign loop with retry: claims are
-// collected for the claim window, the least-loaded claimer is assigned, the
+// collected for the claim window, the best-ranked claimer is assigned, the
 // remote task is watched, and a failed/stalled attempt re-opens the offer up
 // to swarm.queue.max_retries times before dead-lettering.
 func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOffer) {
@@ -767,16 +851,24 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 			return
 		}
 
-		// Pick the least-loaded claimer; ties resolve to the earliest claim.
-		best := to.claims[0]
-		for _, c := range to.claims[1:] {
-			if c.ActiveTasks < best.ActiveTasks {
-				best = c
+		// Rank the claims: scored claimants first (score desc), then fewer
+		// ActiveTasks, then earlier claim order. The ranked view also feeds
+		// OfferInfo.Claims so `swarm offers --json` shows the rationale.
+		ranked := s.rankClaims(to.claims)
+		best := ranked[0].claim
+		claimView := make([]ClaimInfo, len(ranked))
+		for i, rc := range ranked {
+			claimView[i] = ClaimInfo{
+				Claimant:    rc.claim.Claimant,
+				CapDigest:   rc.claim.CapDigest,
+				ActiveTasks: rc.claim.ActiveTasks,
+				Score:       rc.score,
 			}
 		}
 
 		q := s.queue
 		q.mu.Lock()
+		to.info.Claims = claimView
 		submitter := q.submitter
 		canceller := q.canceller
 		fetcher := s.orch.resultFetcher
