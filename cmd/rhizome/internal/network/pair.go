@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
+	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/pid"
 )
 
@@ -121,10 +122,12 @@ func NewPairCommand() *cobra.Command {
 				return
 			}
 			var resp struct {
-				PeerID string `json:"peer_id"`
+				PeerID  string             `json:"peer_id"`
+				Economy *config.EconAdvert `json:"economy"`
 			}
 			_ = json.Unmarshal(data, &resp)
 			fmt.Printf("Paired with %s — mutual trust persisted.\n", resp.PeerID)
+			printEconTerms(resp.Economy)
 		},
 	}
 	cmd.Flags().BoolVar(&create, "create", false, "Mint a single-use pairing bundle")
@@ -132,4 +135,44 @@ func NewPairCommand() *cobra.Command {
 	cmd.Flags().DurationVar(&ttl, "ttl", 15*time.Minute, "Pairing code lifetime (with --create)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
 	return cmd
+}
+
+// printEconTerms renders the counterparty's advertised settlement terms
+// from an accepted pairing bundle. The terms are a signed preview — the
+// peer's capability manifest remains the authoritative advert — and
+// billing them requires an explicit mesh.economy.bill_peers opt-in.
+func printEconTerms(e *config.EconAdvert) {
+	if e == nil {
+		return
+	}
+	fmt.Println("\nCounterparty economy terms (signed in the pairing bundle):")
+	fmt.Printf("  unit: %s\n", e.Unit)
+	var sheet []string
+	if e.PriceSheet.PerTask != "" {
+		sheet = append(sheet, "per_task="+e.PriceSheet.PerTask)
+	}
+	if e.PriceSheet.Per1KPromptTokens != "" {
+		sheet = append(sheet, "per_1k_prompt_tokens="+e.PriceSheet.Per1KPromptTokens)
+	}
+	if e.PriceSheet.Per1KCompletionTokens != "" {
+		sheet = append(sheet, "per_1k_completion_tokens="+e.PriceSheet.Per1KCompletionTokens)
+	}
+	if e.PriceSheet.PerSecond != "" {
+		sheet = append(sheet, "per_second="+e.PriceSheet.PerSecond)
+	}
+	if e.PriceSheet.MinCharge != "" {
+		sheet = append(sheet, "min_charge="+e.PriceSheet.MinCharge)
+	}
+	if len(sheet) > 0 {
+		fmt.Printf("  price sheet: %s\n", strings.Join(sheet, ", "))
+	}
+	if len(e.Accepts) > 0 {
+		fmt.Printf("  accepts units: %s\n", strings.Join(e.Accepts, ", "))
+	}
+	if e.Payout != nil {
+		fmt.Printf("  payout: chain_id=%s asset=%s address=%s\n",
+			e.Payout.ChainID, e.Payout.Asset, e.Payout.Address)
+	}
+	fmt.Println("Billing is opt-in — add this peer to mesh.economy.bill_peers to charge it,")
+	fmt.Println("or set mesh.economy.accept_units to pay its charges.")
 }

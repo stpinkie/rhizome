@@ -83,6 +83,15 @@ type Capability struct {
 	// broadcast to every connected peer); the outer signature authenticates
 	// them as issued by PeerID.
 	ModuleAdverts map[string]json.RawMessage `json:"module_adverts,omitempty"`
+	// Economy advertises the node's paired-settlement terms ({unit,
+	// price_sheet, payout?, accepts[]}) when mesh.economy is enabled. Emit-
+	// when-set with the same wire-compat posture as Role/ModuleAdverts:
+	// old builds drop the field on decode, fail signature verification on
+	// re-marshal, and reject the whole manifest — accepted because economy
+	// consumers require this build anyway. Only seller-side terms are
+	// advertised; buyer-private fields (bill_peers, max_cost_*, settle_*)
+	// never leave the local config.
+	Economy *config.EconAdvert `json:"economy,omitempty"`
 	// Signature covers the canonical encoding of all fields above, proving
 	// the manifest was issued by PeerID. Unsigned manifests are rejected
 	// unless mesh.require_signed_caps is disabled; a mesh.cap.unsigned
@@ -1093,6 +1102,11 @@ func (m *Mesh) localCapability() Capability {
 		}
 	}
 
+	// Paired-settlement terms — emitted only when mesh.economy is enabled
+	// (emit-when-set; see the Capability.Economy comment). Also mirrored
+	// into the pair bundle at mint time via the pair manager's provider.
+	c.Economy = m.cfg.Economy.Advert()
+
 	m.signCapability(&c)
 	return c
 }
@@ -1320,14 +1334,21 @@ func (m *Mesh) TrustAndDiscover(ctx context.Context, pid peer.ID) (Capability, e
 }
 
 // SetCapability stores a capability received from a peer and journals its
-// module adverts so companion modules can discover peer-side services via
-// <RHIZOME_HOME>/peer-adverts.json.
+// module adverts and economy terms so companion modules can discover
+// peer-side services via <RHIZOME_HOME>/peer-adverts.json.
 func (m *Mesh) SetCapability(pid peer.ID, c Capability) {
 	m.capsMu.Lock()
 	m.caps[pid] = c
 	m.capsMu.Unlock()
+	var econJSON json.RawMessage
+	if c.Economy != nil {
+		// Marshal failure is impossible for this value type, but a nil
+		// marshal error path costs nothing — the journal just gets no
+		// economy bytes for this announce.
+		econJSON, _ = json.Marshal(c.Economy)
+	}
 	if err := peeradverts.Record(
-		config.GetHome(), pid.String(), m.isTrusted(pid), c.ModuleAdverts,
+		config.GetHome(), pid.String(), m.isTrusted(pid), c.ModuleAdverts, econJSON,
 	); err != nil {
 		logger.WarnCF("mesh", "peer advert journal write failed", map[string]any{
 			"peer_id": pid.String(), "error": err.Error(),

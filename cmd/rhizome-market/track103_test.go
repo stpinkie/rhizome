@@ -139,7 +139,7 @@ func (f *buyFixture) journalSeller(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := peeradverts.Record(f.home, f.sellerID, true,
-		map[string]json.RawMessage{moduleID: advJSON}); err != nil {
+		map[string]json.RawMessage{moduleID: advJSON}, nil); err != nil {
 		t.Fatalf("journal: %v", err)
 	}
 }

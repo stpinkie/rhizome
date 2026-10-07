@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"gopkg.in/yaml.v3"
 
 	"github.com/stpinkie/rhizome/pkg"
@@ -210,6 +211,89 @@ type MeshConfig struct {
 
 	// Routing tunes peer selection and coordinator election.
 	Routing MeshRoutingConfig `json:"routing"`
+
+	// Economy holds the bilateral paired-settlement billing config
+	// (v0.17.0). Inert unless enabled — no wire fields, adverts, or
+	// ledger writes occur without it.
+	Economy MeshEconomyConfig `json:"economy"`
+}
+
+// EconPriceSheet is the callee's per-unit rate card. All fields are
+// canonical non-negative decimal strings ("2", "0.5", "0.0004") — the
+// ledger stores them verbatim and charge math runs in big.Rat.
+type EconPriceSheet struct {
+	PerTask               string `json:"per_task,omitempty"`
+	Per1KPromptTokens     string `json:"per_1k_prompt_tokens,omitempty"`
+	Per1KCompletionTokens string `json:"per_1k_completion_tokens,omitempty"`
+	PerSecond             string `json:"per_second,omitempty"`
+	// MinCharge is the smallest billable amount — callers whose
+	// max_cost_per_task is below it get a pre-send `price_floor:` refusal.
+	MinCharge string `json:"min_charge,omitempty"`
+}
+
+// EconPayout is the settle destination advertised to counterparties:
+// which chain/asset the operator accepts close-out transfers in.
+type EconPayout struct {
+	ChainID string `json:"chain_id,omitempty"`
+	Address string `json:"address,omitempty"`
+	Asset   string `json:"asset,omitempty"`
+}
+
+// MeshEconomyConfig controls paired-settlement billing. A caller is
+// billable only when listed in BillPeers — pairing establishes trust,
+// billing is a second opt-in on top of it.
+type MeshEconomyConfig struct {
+	Enabled    bool           `json:"enabled,omitempty"`
+	Unit       string         `json:"unit,omitempty"`
+	PriceSheet EconPriceSheet `json:"price_sheet,omitempty"`
+	// AcceptUnits are the units this node accepts charges in — normally a
+	// singleton echo of Unit; extra entries tolerate peers billing in
+	// alternate units the operator recognizes.
+	AcceptUnits []string `json:"accept_units,omitempty"`
+	// BillPeers is the explicit allowlist of peer ids this node charges.
+	BillPeers []string `json:"bill_peers,omitempty"`
+	// MaxCostPerTask / MaxCostPerDay cap what this node will pay as the
+	// caller side (decimal strings in the counterparty's unit).
+	MaxCostPerTask string `json:"max_cost_per_task,omitempty"`
+	MaxCostPerDay  string `json:"max_cost_per_day,omitempty"`
+	// SettleThreshold is the accrued balance at which the operator is
+	// expected to close out (decimal string; advisory — no auto-settle).
+	SettleThreshold string `json:"settle_threshold,omitempty"`
+	// SettleBackend is "ledger" (mutual-credit marker exchange) or "web3"
+	// (on-chain transfer to the peer's advertised payout address).
+	SettleBackend string `json:"settle_backend,omitempty"`
+	// Payout is this node's settle destination, advertised publicly when
+	// set; required iff settle_backend is "web3".
+	Payout *EconPayout `json:"payout,omitempty"`
+}
+
+// Advert builds the public economy advertisement carried in the signed
+// capability manifest and the pair bundle — seller-side terms only
+// (unit, price sheet, accepts, payout). Buyer-side policy never leaves
+// the config. Returns nil when the economy is disabled or has no unit.
+func (e *MeshEconomyConfig) Advert() *EconAdvert {
+	if e == nil || !e.Enabled || e.Unit == "" {
+		return nil
+	}
+	adv := &EconAdvert{
+		Unit:       e.Unit,
+		PriceSheet: e.PriceSheet,
+		Accepts:    append([]string(nil), e.AcceptUnits...),
+	}
+	if e.Payout != nil {
+		p := *e.Payout
+		adv.Payout = &p
+	}
+	return adv
+}
+
+// EconAdvert is the wire shape of a peer's advertised economy terms —
+// carried in Capability.Economy and the pair bundle.
+type EconAdvert struct {
+	Unit       string         `json:"unit"`
+	PriceSheet EconPriceSheet `json:"price_sheet"`
+	Payout     *EconPayout    `json:"payout,omitempty"`
+	Accepts    []string       `json:"accepts,omitempty"`
 }
 
 // MeshRoutingConfig controls role-aware peer ranking.
@@ -433,6 +517,87 @@ func (m *MeshConfig) Validate() error {
 				return fmt.Errorf("mesh.acl[%d].agents[%d] is empty", i, j)
 			}
 		}
+	}
+	if err := m.Economy.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Validate checks the economy config: unit required when enabled;
+// bill_peers decode as peer ids; decimal fields parse as non-negative
+// canonical decimals; payout required iff settle_backend is "web3".
+func (e *MeshEconomyConfig) Validate() error {
+	if e == nil {
+		return nil
+	}
+	switch e.SettleBackend {
+	case "", "ledger", "web3":
+	default:
+		return fmt.Errorf("mesh.economy.settle_backend must be %q or %q", "ledger", "web3")
+	}
+	if e.Enabled && strings.TrimSpace(e.Unit) == "" {
+		return fmt.Errorf("mesh.economy.unit is required when mesh.economy.enabled is true")
+	}
+	for i, u := range e.AcceptUnits {
+		if strings.TrimSpace(u) == "" {
+			return fmt.Errorf("mesh.economy.accept_units[%d] is empty", i)
+		}
+	}
+	for i, p := range e.BillPeers {
+		if _, err := peer.Decode(strings.TrimSpace(p)); err != nil {
+			return fmt.Errorf("mesh.economy.bill_peers[%d] is not a peer id: %w", i, err)
+		}
+	}
+	decimals := []struct {
+		name, val string
+	}{
+		{"price_sheet.per_task", e.PriceSheet.PerTask},
+		{"price_sheet.per_1k_prompt_tokens", e.PriceSheet.Per1KPromptTokens},
+		{"price_sheet.per_1k_completion_tokens", e.PriceSheet.Per1KCompletionTokens},
+		{"price_sheet.per_second", e.PriceSheet.PerSecond},
+		{"price_sheet.min_charge", e.PriceSheet.MinCharge},
+		{"max_cost_per_task", e.MaxCostPerTask},
+		{"max_cost_per_day", e.MaxCostPerDay},
+		{"settle_threshold", e.SettleThreshold},
+	}
+	for _, d := range decimals {
+		if err := validateEconDecimal(d.val); err != nil {
+			return fmt.Errorf("mesh.economy.%s: %w", d.name, err)
+		}
+	}
+	if e.SettleBackend == "web3" {
+		if e.Payout == nil || e.Payout.Address == "" || e.Payout.ChainID == "" || e.Payout.Asset == "" {
+			return fmt.Errorf("mesh.economy.payout {chain_id,address,asset} is required when settle_backend is web3")
+		}
+	}
+	if e.Payout != nil && e.SettleBackend != "web3" {
+		return fmt.Errorf("mesh.economy.payout is only meaningful with settle_backend web3")
+	}
+	return nil
+}
+
+// validateEconDecimal accepts a canonical non-negative decimal string
+// ("0", "12", "0.0004") or an empty field. Only digits and a single '.'
+// are allowed — no sign, exponent, or fraction forms, so the string
+// round-trips through big.Rat verbatim.
+func validateEconDecimal(v string) error {
+	if v == "" {
+		return nil
+	}
+	digits, seenDot := 0, false
+	for _, c := range v {
+		switch {
+		case c >= '0' && c <= '9':
+			digits++
+		case c == '.' && !seenDot:
+			seenDot = true
+		default:
+			return fmt.Errorf("must be a decimal string, got %q", v)
+		}
+	}
+	if digits == 0 {
+		return fmt.Errorf("must be a decimal string, got %q", v)
 	}
 	return nil
 }

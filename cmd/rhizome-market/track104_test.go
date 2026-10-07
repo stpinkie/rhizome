@@ -143,7 +143,7 @@ func TestBuy_WalletSignerEndToEnd(t *testing.T) {
 		Escrow: &advertEscrow{Posture: "configured", Contract: t104RailCfg.Factory},
 	})
 	if err := peeradverts.Record(home, sellerID.PeerID, true,
-		map[string]json.RawMessage{moduleID: advJSON}); err != nil {
+		map[string]json.RawMessage{moduleID: advJSON}, nil); err != nil {
 		t.Fatalf("journal: %v", err)
 	}
 

@@ -111,13 +111,20 @@ func (h *networkPairHandler) accept(w http.ResponseWriter, r *http.Request, pm *
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bundle is required"})
 		return
 	}
-	peerID, err := pm.Accept(r.Context(), body.Bundle)
+	b, err := pm.Accept(r.Context(), body.Bundle)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"peer_id": peerID,
+	resp := map[string]any{
+		"peer_id": b.PeerID,
 		"paired":  true,
-	})
+	}
+	if b.Economy != nil {
+		// Echo the counterparty's advertised settlement terms so the
+		// acceptor can review unit/price sheet/payout before opting in
+		// to billing on their side.
+		resp["economy"] = b.Economy
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
