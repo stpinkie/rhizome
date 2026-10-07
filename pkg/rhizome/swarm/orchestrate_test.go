@@ -90,7 +90,8 @@ func TestRunStoreRoundTrip(t *testing.T) {
 	rs.Record(rec)
 
 	fresh := newRunStore(path)
-	require.NoError(t, fresh.Load())
+	_, err := fresh.Load()
+	require.NoError(t, err)
 	got, ok := fresh.Get("run-1")
 	require.True(t, ok)
 	assert.Equal(t, "ops", got.SwarmID)
@@ -113,6 +114,7 @@ func TestRunStoreBounds(t *testing.T) {
 	}
 	assert.Len(t, rs.List(""), maxStoredRuns)
 	fresh := newRunStore(path)
-	require.NoError(t, fresh.Load())
+	_, err := fresh.Load()
+	require.NoError(t, err)
 	assert.Len(t, fresh.List(""), maxStoredRuns)
 }

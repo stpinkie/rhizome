@@ -168,6 +168,12 @@ func (h *networkSwarmsHandler) write(w http.ResponseWriter, r *http.Request, sw 
 		case "run":
 			h.runGoal(w, r, sw, parts[0])
 			return
+		case "runs/cancel":
+			h.cancelRun(w, r, sw, parts[0])
+			return
+		case "runs/retry":
+			h.retryRun(w, r, sw, parts[0])
+			return
 		case "context":
 			h.writeContext(w, r, sw, parts[0])
 			return
@@ -320,18 +326,28 @@ type runGoalRequest struct {
 	AgentID string `json:"agent_id,omitempty"`
 }
 
-// runGoal orchestrates a goal across the swarm and returns the aggregated
-// result. It blocks until subtasks finish or the request context ends.
-func (h *networkSwarmsHandler) runGoal(w http.ResponseWriter, r *http.Request, sw *rswarm.Swarm, swarmID string) {
+// decodeRunRequest validates the swarm id and decodes the JSON body shared
+// by the run endpoints. It writes the error response; callers return early
+// when it reports false.
+func decodeRunRequest(w http.ResponseWriter, r *http.Request, swarmID string, out any) bool {
 	if !rswarm.ValidSwarmID(swarmID) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid swarm id"})
-		return
+		return false
 	}
-	var body runGoalRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "invalid JSON body: " + err.Error(),
 		})
+		return false
+	}
+	return true
+}
+
+// runGoal orchestrates a goal across the swarm and returns the aggregated
+// result. It blocks until subtasks finish or the request context ends.
+func (h *networkSwarmsHandler) runGoal(w http.ResponseWriter, r *http.Request, sw *rswarm.Swarm, swarmID string) {
+	var body runGoalRequest
+	if !decodeRunRequest(w, r, swarmID, &body) {
 		return
 	}
 	if strings.TrimSpace(body.Goal) == "" {
@@ -339,6 +355,63 @@ func (h *networkSwarmsHandler) runGoal(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 	res, err := sw.RunGoal(r.Context(), swarmID, body.Goal, body.AgentID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// runIDRequest is the JSON body accepted by
+// POST /network/swarms/<id>/runs/{cancel,retry}.
+type runIDRequest struct {
+	RunID   string `json:"run_id"`
+	AgentID string `json:"agent_id,omitempty"`
+}
+
+// cancelRun cancels a recorded run's pending or in-flight subtask offers.
+func (h *networkSwarmsHandler) cancelRun(
+	w http.ResponseWriter,
+	r *http.Request,
+	sw *rswarm.Swarm,
+	swarmID string,
+) {
+	var body runIDRequest
+	if !decodeRunRequest(w, r, swarmID, &body) {
+		return
+	}
+	if strings.TrimSpace(body.RunID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run_id is required"})
+		return
+	}
+	if err := sw.CancelRun(r.Context(), swarmID, body.RunID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run_id":   body.RunID,
+		"swarm_id": swarmID,
+		"status":   "cancelled",
+	})
+}
+
+// retryRun re-offers a run's failed/expired/dead_letter/timeout subtasks
+// whose dependencies resolved done; returns the new run record.
+func (h *networkSwarmsHandler) retryRun(
+	w http.ResponseWriter,
+	r *http.Request,
+	sw *rswarm.Swarm,
+	swarmID string,
+) {
+	var body runIDRequest
+	if !decodeRunRequest(w, r, swarmID, &body) {
+		return
+	}
+	if strings.TrimSpace(body.RunID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run_id is required"})
+		return
+	}
+	res, err := sw.RetryRun(r.Context(), swarmID, body.RunID, body.AgentID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

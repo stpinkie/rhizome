@@ -209,6 +209,9 @@ const (
 	// KindSwarmRunSubtask is emitted on each subtask lifecycle transition
 	// (offered/assigned/done/failed/skipped) during a swarm run.
 	KindSwarmRunSubtask Kind = "swarm.run.subtask"
+	// KindSwarmRunInterrupted is emitted at startup for each persisted run
+	// still marked "running" — the daemon restarted mid-run.
+	KindSwarmRunInterrupted Kind = "swarm.run.interrupted"
 	// KindSwarmContextNote is emitted when a blackboard note is appended
 	// (locally posted or received from a member).
 	KindSwarmContextNote Kind = "swarm.context.note"
@@ -310,6 +313,7 @@ var knownKinds = []Kind{
 	KindSwarmRunStart,
 	KindSwarmRunEnd,
 	KindSwarmRunSubtask,
+	KindSwarmRunInterrupted,
 	KindSwarmContextNote,
 	KindSwarmContextWritten,
 	KindSwarmError,

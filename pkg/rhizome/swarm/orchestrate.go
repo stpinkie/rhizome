@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -123,6 +124,27 @@ type orchestrator struct {
 	synthesizer   Synthesizer
 	resultFetcher ResultFetcher
 	runs          *runStore
+
+	mu            sync.Mutex
+	cancelledRuns map[string]bool
+}
+
+// cancelRun marks a run cancelled so a live RunGoal stops publishing new
+// subtask offers.
+func (o *orchestrator) cancelRun(runID string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.cancelledRuns == nil {
+		o.cancelledRuns = map[string]bool{}
+	}
+	o.cancelledRuns[runID] = true
+}
+
+// isRunCancelled reports whether runID was cancelled via CancelRun.
+func (o *orchestrator) isRunCancelled(runID string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.cancelledRuns[runID]
 }
 
 // planWaves topologically sorts subtasks into dependency waves (Kahn's
@@ -215,6 +237,8 @@ func (s *Swarm) RunGoal(ctx context.Context, swarmID, goal, defaultAgent string)
 			}
 		}
 		switch {
+		case s.orch.isRunCancelled(runID):
+			res.Status = "cancelled"
 		case succeeded == len(res.Subtasks):
 			res.Status = "done"
 		case succeeded == 0 && dispatched == 0:
@@ -285,6 +309,12 @@ func (s *Swarm) RunGoal(ctx context.Context, swarmID, goal, defaultAgent string)
 			if depErr := s.depsFailed(subtasks[i], res.Subtasks); depErr != "" {
 				res.Subtasks[i].Status = "skipped"
 				res.Subtasks[i].Error = depErr
+				s.emitSubtask(runID, swarmID, res.Subtasks[i])
+				continue
+			}
+			if s.orch.isRunCancelled(runID) {
+				res.Subtasks[i].Status = "cancelled"
+				res.Subtasks[i].Error = "cancelled by operator"
 				s.emitSubtask(runID, swarmID, res.Subtasks[i])
 				continue
 			}
@@ -416,6 +446,214 @@ func (s *Swarm) RunRecord(runID string) (RunRecord, bool) {
 		return RunRecord{}, false
 	}
 	return s.orch.runs.Get(runID)
+}
+
+// subtaskInFlight reports whether a subtask status can still produce or is
+// actively producing work — offers in these states can be cancelled.
+func subtaskInFlight(status string) bool {
+	switch status {
+	case "pending", "offering", "offered", string(OfferAssigned), "dispatched":
+		return true
+	}
+	return false
+}
+
+// retryableSubtask reports whether a finished subtask is worth re-offering.
+// Terminal failures are always retryable; a run that was interrupted or
+// cancelled also lets its still-in-flight subtasks re-offer (no live
+// goroutine owns them anymore).
+func retryableSubtask(st SubtaskResult, runStatus string) bool {
+	switch st.Status {
+	case "failed", "expired", "dead_letter", "timeout", "error":
+		return true
+	}
+	if runStatus == "interrupted" || runStatus == "cancelled" {
+		return subtaskInFlight(st.Status)
+	}
+	return false
+}
+
+// CancelRun cancels every pending or in-flight subtask offer of a recorded
+// run (live offers die via CancelOffer; a live RunGoal stops publishing new
+// ones) and marks the record cancelled.
+func (s *Swarm) CancelRun(ctx context.Context, swarmID, runID string) error {
+	if s.orch.runs == nil {
+		return fmt.Errorf("run store not enabled")
+	}
+	rec, ok := s.orch.runs.Get(runID)
+	if !ok || rec.SwarmID != swarmID {
+		return fmt.Errorf("unknown run %q for swarm %q", runID, swarmID)
+	}
+	s.orch.cancelRun(runID)
+	cancelled := 0
+	for i, st := range rec.Subtasks {
+		if !subtaskInFlight(st.Status) {
+			continue
+		}
+		if st.OfferID != "" {
+			_ = s.CancelOffer(ctx, swarmID, st.OfferID)
+		}
+		rec.Subtasks[i].Status = "cancelled"
+		rec.Subtasks[i].Error = "cancelled by operator"
+		cancelled++
+	}
+	rec.Status = "cancelled"
+	if rec.FinishedAt.IsZero() {
+		rec.FinishedAt = time.Now().UTC()
+	}
+	rec.DurationMS = time.Since(rec.StartedAt).Milliseconds()
+	s.orch.runs.Record(rec)
+	s.publishEvent(runtimeevents.KindSwarmRunEnd, map[string]any{
+		"run_id":    runID,
+		"swarm_id":  swarmID,
+		"goal":      rec.Goal,
+		"status":    "cancelled",
+		"subtasks":  len(rec.Subtasks),
+		"cancelled": cancelled,
+	})
+	return nil
+}
+
+// RetryRun re-offers a run's failed/expired/dead_letter/timeout subtasks
+// whose dependencies all resolved "done" in the source run (plus
+// still-in-flight subtasks of an interrupted/cancelled run). It creates a
+// NEW run record linked to the source by retry_of; ineligible and already
+// successful subtasks carry over unchanged.
+func (s *Swarm) RetryRun(
+	ctx context.Context,
+	swarmID, runID, defaultAgent string,
+) (RunResult, error) {
+	if s.orch.runs == nil {
+		return RunResult{}, fmt.Errorf("run store not enabled")
+	}
+	src, ok := s.orch.runs.Get(runID)
+	if !ok || src.SwarmID != swarmID {
+		return RunResult{}, fmt.Errorf("unknown run %q for swarm %q", runID, swarmID)
+	}
+	if defaultAgent == "" {
+		defaultAgent = "main"
+	}
+
+	started := time.Now()
+	newID := newNonce()
+	res := RunResult{RunID: newID, SwarmID: swarmID, Goal: src.Goal, Status: "running"}
+	s.publishEvent(runtimeevents.KindSwarmRunStart, map[string]any{
+		"run_id":   newID,
+		"swarm_id": swarmID,
+		"goal":     src.Goal,
+		"retry_of": src.RunID,
+	})
+	s.recordRetryRun(res, src.RunID, started)
+
+	defer func() {
+		res.DurationMS = time.Since(started).Milliseconds()
+		succeeded := 0
+		dispatched := 0
+		for _, st := range res.Subtasks {
+			if st.Status == string(agenttask.StatusDone) {
+				succeeded++
+			} else if st.Status == "dispatched" {
+				dispatched++
+			}
+		}
+		switch {
+		case s.orch.isRunCancelled(newID):
+			res.Status = "cancelled"
+		case succeeded == len(res.Subtasks):
+			res.Status = "done"
+		case succeeded == 0 && dispatched == 0:
+			res.Status = "failed"
+		default:
+			res.Status = "partial"
+		}
+		s.publishEvent(runtimeevents.KindSwarmRunEnd, map[string]any{
+			"run_id":      newID,
+			"swarm_id":    swarmID,
+			"goal":        src.Goal,
+			"status":      res.Status,
+			"subtasks":    len(res.Subtasks),
+			"retry_of":    src.RunID,
+			"duration_ms": res.DurationMS,
+		})
+		s.recordRetryRun(res, src.RunID, started)
+	}()
+
+	// Carry the source run's subtasks forward; eligible ones get re-offered.
+	res.Subtasks = make([]SubtaskResult, len(src.Subtasks))
+	for i, st := range src.Subtasks {
+		res.Subtasks[i] = st
+		if !retryableSubtask(st, src.Status) {
+			continue
+		}
+		if depErr := s.depsFailed(st.Subtask, src.Subtasks); depErr != "" {
+			res.Subtasks[i].Error = "not retried: " + depErr
+			continue
+		}
+		if st.AgentID == "" {
+			res.Subtasks[i].AgentID = defaultAgent
+		}
+		if s.orch.isRunCancelled(newID) {
+			res.Subtasks[i].Status = "cancelled"
+			res.Subtasks[i].Error = "cancelled by operator"
+			s.emitSubtask(newID, swarmID, res.Subtasks[i])
+			continue
+		}
+		res.Subtasks[i].Status = "offering"
+		res.Subtasks[i].Error = ""
+		res.Subtasks[i].OfferID = ""
+		res.Subtasks[i].PeerID = ""
+		res.Subtasks[i].TaskID = ""
+		res.Subtasks[i].Result = ""
+		s.emitSubtask(newID, swarmID, res.Subtasks[i])
+
+		offerID, err := s.Offer(ctx, swarmID, OfferRequest{
+			AgentID:  res.Subtasks[i].AgentID,
+			Task:     res.Subtasks[i].Task,
+			Model:    res.Subtasks[i].Model,
+			Tools:    res.Subtasks[i].Tools,
+			Timeout:  res.Subtasks[i].Timeout,
+			Requires: subtaskRequires(res.Subtasks[i].Subtask),
+		})
+		if err != nil {
+			res.Subtasks[i].Status = "failed"
+			res.Subtasks[i].Error = err.Error()
+			s.emitSubtask(newID, swarmID, res.Subtasks[i])
+			continue
+		}
+		res.Subtasks[i].OfferID = offerID
+		res.Subtasks[i].Status = "offered"
+		s.emitSubtask(newID, swarmID, res.Subtasks[i])
+		s.awaitSubtask(ctx, swarmID, newID, &res.Subtasks[i], offerID)
+		s.emitSubtask(newID, swarmID, res.Subtasks[i])
+		s.recordRetryRun(res, src.RunID, started)
+	}
+	return res, nil
+}
+
+// recordRetryRun persists a retry run snapshot, carrying the retry_of link.
+func (s *Swarm) recordRetryRun(res RunResult, retryOf string, started time.Time) {
+	if s.orch.runs == nil {
+		return
+	}
+	status := res.Status
+	if status == "" {
+		status = "running"
+	}
+	rec := RunRecord{
+		RunID:      res.RunID,
+		SwarmID:    res.SwarmID,
+		Goal:       res.Goal,
+		Status:     status,
+		Subtasks:   res.Subtasks,
+		Summary:    res.Summary,
+		StartedAt:  started.UTC(),
+		DurationMS: res.DurationMS,
+		RetryOf:    retryOf,
+	}
+	if status != "running" {
+		rec.FinishedAt = time.Now().UTC()
+	}
+	s.orch.runs.Record(rec)
 }
 
 // awaitSubtask waits for an offer to be assigned and then polls the remote

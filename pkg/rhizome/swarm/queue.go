@@ -251,6 +251,10 @@ type workQueue struct {
 	matcher     CapMatcher
 	scoreLookup ScoreLookup
 
+	// store persists non-terminal published offers so Start can re-drive
+	// them after a restart; nil disables persistence.
+	store *offerStore
+
 	wg sync.WaitGroup
 }
 
@@ -280,6 +284,22 @@ func (q *workQueue) activeOffers() int {
 // finishes so callers can still poll its status.
 func (q *workQueue) retention() time.Duration {
 	return q.s.cfg.Queue.AssignTimeout + 2*time.Minute
+}
+
+// persistLocked snapshots non-terminal published offers to the offer store
+// so a restart can re-drive them. Callers hold q.mu.
+func (q *workQueue) persistLocked() {
+	if q.store == nil {
+		return
+	}
+	records := make([]offerRecord, 0, len(q.offers))
+	for _, to := range q.offers {
+		if to.info.Status.Terminal() {
+			continue
+		}
+		records = append(records, offerRecord{Info: to.info, Retries: to.retries})
+	}
+	q.store.Save(records)
 }
 
 // maxIncoming is the cap for observed offers from other peers.
@@ -662,12 +682,14 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 		cancelCh: make(chan struct{}),
 	}
 	q.offers[o.OfferID] = to
+	q.persistLocked()
 	q.mu.Unlock()
 
 	if err := s.PublishBroadcast(ctx, swarmID, queueMsg{Kind: queueKindOffer, Offer: &o}); err != nil {
 		q.mu.Lock()
 		to.info.Status = OfferFailed
 		to.info.Error = err.Error()
+		q.persistLocked()
 		q.mu.Unlock()
 		s.finishTracked(to)
 		return "", err
@@ -714,6 +736,7 @@ func (s *Swarm) CancelOffer(ctx context.Context, swarmID, offerID string) error 
 	case OfferOpen, OfferAssigned:
 		to.info.Status = OfferCancelled
 		to.info.Error = "cancelled by offerer"
+		q.persistLocked()
 	default:
 		// Already terminal (done/expired/failed/dead_letter).
 		q.mu.Unlock()
@@ -841,6 +864,7 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 			q := s.queue
 			q.mu.Lock()
 			to.info.Status = OfferExpired
+			q.persistLocked()
 			q.mu.Unlock()
 			s.finishOffer(to)
 			s.finishTracked(to)
@@ -904,6 +928,7 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 		to.info.Status = OfferAssigned
 		to.info.Assignee = usedPeer.String()
 		to.info.TaskID = taskID
+		q.persistLocked()
 		q.mu.Unlock()
 		s.finishOffer(to)
 
@@ -929,6 +954,7 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 			q.mu.Lock()
 			to.info.Status = OfferDone
 			to.info.Result = resultText
+			q.persistLocked()
 			q.mu.Unlock()
 			s.finishTracked(to)
 			s.publishEvent(runtimeevents.KindSwarmOfferDone, map[string]any{
@@ -1064,7 +1090,9 @@ func (s *Swarm) retryOffer(ctx context.Context, swarmID string, to *trackedOffer
 	to.info.Error = ""
 	to.info.TaskID = ""
 	to.info.Assignee = ""
+	to.info.Claims = nil
 	to.claims = nil
+	q.persistLocked()
 	offer := to.info.Offer // includes bumped Attempt
 	q.mu.Unlock()
 
@@ -1090,6 +1118,89 @@ drain:
 	return true
 }
 
+// redriveOffers re-drives offers persisted across a restart. Entries whose
+// TTL elapsed while the daemon was down land expired directly; the rest
+// re-open through the retryOffer path — Attempt++ makes members treat the
+// re-offer as fresh per the duplicate-suppression rule in onOffer — with a
+// fresh claim window under the normal resolveOffer loop.
+func (s *Swarm) redriveOffers(ctx context.Context) {
+	q := s.queue
+	if q.store == nil {
+		return
+	}
+	records, err := q.store.Load()
+	if err != nil {
+		s.publishEvent(runtimeevents.KindSwarmError, map[string]any{
+			"stage": "offers_load", "error": err.Error(),
+		})
+		return
+	}
+	now := time.Now()
+	for _, rec := range records {
+		info := rec.Info
+		to := &trackedOffer{
+			info:     info,
+			retries:  rec.Retries,
+			claimsCh: make(chan Claim, s.cfg.Queue.MaxOffers),
+			resolved: make(chan struct{}),
+			finished: make(chan struct{}),
+			cancelCh: make(chan struct{}),
+		}
+		ttl := time.Duration(info.TTLSeconds) * time.Second
+		if ttl <= 0 {
+			ttl = s.cfg.Queue.OfferTTL
+		}
+		if ttl > 0 && now.Sub(info.CreatedAt) > ttl {
+			q.mu.Lock()
+			to.info.Status = OfferExpired
+			to.info.Error = "offer expired while daemon was down"
+			q.offers[to.info.OfferID] = to
+			q.persistLocked()
+			q.mu.Unlock()
+			s.finishOffer(to)
+			s.finishTracked(to)
+			s.publishEvent(runtimeevents.KindSwarmOfferExpired, map[string]any{
+				"swarm_id": info.SwarmID,
+				"offer_id": info.OfferID,
+			})
+			continue
+		}
+
+		q.mu.Lock()
+		to.info.Status = OfferOpen
+		to.info.Attempt++
+		to.info.Error = ""
+		to.info.TaskID = ""
+		to.info.Assignee = ""
+		to.info.Claims = nil
+		q.offers[to.info.OfferID] = to
+		q.persistLocked()
+		q.mu.Unlock()
+
+		offer := to.info.Offer // includes bumped Attempt
+		if err := s.PublishBroadcast(ctx, offer.SwarmID,
+			queueMsg{Kind: queueKindOffer, Offer: &offer}); err != nil {
+			s.publishEvent(runtimeevents.KindSwarmError, map[string]any{
+				"stage":    "offer_redrive",
+				"offer_id": offer.OfferID,
+				"error":    err.Error(),
+			})
+			continue
+		}
+		s.publishEvent(runtimeevents.KindSwarmOfferRetry, map[string]any{
+			"swarm_id": offer.SwarmID,
+			"offer_id": offer.OfferID,
+			"attempt":  offer.Attempt,
+			"reason":   "daemon restarted",
+		})
+		q.wg.Add(1)
+		go func() {
+			defer q.wg.Done()
+			s.resolveOffer(s.ctx, offer.SwarmID, to)
+		}()
+	}
+}
+
 // deadLetterOffer marks an offer dead-lettered after retries ran out.
 func (s *Swarm) deadLetterOffer(to *trackedOffer, swarmID, reason string) {
 	q := s.queue
@@ -1097,6 +1208,7 @@ func (s *Swarm) deadLetterOffer(to *trackedOffer, swarmID, reason string) {
 	to.info.Status = OfferDeadLetter
 	to.info.Error = reason
 	retries := to.retries
+	q.persistLocked()
 	q.mu.Unlock()
 	s.finishOffer(to)
 	s.finishTracked(to)
@@ -1113,6 +1225,7 @@ func (s *Swarm) failOffer(to *trackedOffer, msg string) {
 	q.mu.Lock()
 	to.info.Status = OfferFailed
 	to.info.Error = msg
+	q.persistLocked()
 	q.mu.Unlock()
 	s.finishOffer(to)
 	s.finishTracked(to)
