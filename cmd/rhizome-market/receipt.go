@@ -71,9 +71,15 @@ func (m *sessionMgr) mintReceipt(s *marketSession) *receipt {
 
 	sum := sha256.Sum256([]byte(result))
 	mc := m.cfg.Load()
+	// The receipt binds the on-chain session id — under drawdown the
+	// local key carries a "#taskhash" suffix the wire never sees.
+	escrowID := s.EscrowID
+	if escrowID == "" {
+		escrowID = s.ID
+	}
 	r := &receipt{
 		V:            1,
-		SessionID:    s.ID,
+		SessionID:    escrowID,
 		OfferID:      s.Offer.ID,
 		Buyer:        s.Terms.Buyer,
 		DurationMS:   s.durationMS(),
@@ -95,7 +101,7 @@ func (m *sessionMgr) mintReceipt(s *marketSession) *receipt {
 		r.SellerPeerID = id.PeerID
 		r.Signature = hex.EncodeToString(identity.Sign(id.PrivateKey, r.signBytes()))
 	}
-	if err := m.persistReceipt(r); err != nil {
+	if err := m.persistReceipt(s.ID, r); err != nil {
 		m.audit.log("market.receipt.persist_failed", map[string]any{
 			"session_id": s.ID, "error": err.Error(),
 		})
@@ -115,8 +121,10 @@ func amountString(n *big.Int) string {
 	return n.String()
 }
 
-// persistReceipt writes receipts/<session_id>.json atomically at 0600.
-func (m *sessionMgr) persistReceipt(r *receipt) error {
+// persistReceipt writes receipts/<local_key>.json atomically at 0600 —
+// keyed by the local session key so drawdown draws sharing one escrow id
+// keep distinct files.
+func (m *sessionMgr) persistReceipt(localKey string, r *receipt) error {
 	dir := filepath.Join(m.moduleDir, receiptDirName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -125,7 +133,7 @@ func (m *sessionMgr) persistReceipt(r *receipt) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(receiptPath(m.moduleDir, r.SessionID), data)
+	return writeFileAtomic(receiptPath(m.moduleDir, localKey), data)
 }
 
 // receiptPath maps a session id to its stored receipt file.

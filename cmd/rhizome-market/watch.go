@@ -78,6 +78,10 @@ func (pm *purchaseMgr) runWatcher(ctx context.Context) {
 		case <-time.After(interval):
 		}
 		pm.scanEscrowEvents(ctx)
+		// Expired drawdown sessions withdraw their remainders — the
+		// close path runs even under the fixture posture (no endpoint
+		// or watch cadence needed for the ledger sweep).
+		pm.sweepDrawdowns(ctx)
 	}
 }
 
@@ -209,18 +213,29 @@ func (pm *purchaseMgr) applyEscrowEvent(p *purchase, lg web3.Log) {
 		// Amount-partials aren't terminal — the purchase completes on
 		// claim/resolve/withdraw or the module's own release confirm.
 		// A Released whose cumulative covers the budget settles it.
+		// Under drawdown Released is per-draw and un-attributable — the
+		// module's own recordDraw is authoritative; never transitions.
 		event = "released"
-		if graduatedReleaseIsFull(p, lg) {
+		if !p.Drawdown && graduatedReleaseIsFull(p, lg) {
 			toState = purchaseCompleted
 		}
 	case topicGradDisputed:
 		event, toState = "disputed", purchaseDisputed
+		if p.Drawdown {
+			pm.drawdown.markClosed(p.SessionID, "disputed")
+		}
 	case topicGradResolved:
 		event, toState = "resolved", purchaseResolved
+		if p.Drawdown {
+			pm.drawdown.markClosed(p.SessionID, "resolved")
+		}
 	case topicGradClaimed:
 		event, toState = "claimed", purchaseCompleted
 	case topicGradWithdrawn:
 		event, toState = "withdrawn", purchaseRefunded
+		if p.Drawdown {
+			pm.drawdown.markClosed(p.SessionID, "closed")
+		}
 	default:
 		return
 	}

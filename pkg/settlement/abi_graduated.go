@@ -9,7 +9,7 @@ import "github.com/stpinkie/rhizome/pkg/web3"
 // .sol surface or the FakeGraduated model and the real chain diverge.
 const graduatedABIJSON = `[
   {"type":"function","name":"open","stateMutability":"nonpayable",
-   "inputs":[{"name":"sessionId","type":"bytes32"},{"name":"seller","type":"address"},{"name":"token","type":"address"},{"name":"amount","type":"uint128"},{"name":"taskHash","type":"bytes32"},{"name":"disputeWindow","type":"uint64"},{"name":"arbiter","type":"address"}],"outputs":[]},
+   "inputs":[{"name":"sessionId","type":"bytes32"},{"name":"seller","type":"address"},{"name":"token","type":"address"},{"name":"amount","type":"uint128"},{"name":"taskHash","type":"bytes32"},{"name":"disputeWindow","type":"uint64"},{"name":"arbiter","type":"address"},{"name":"drawdown","type":"bool"}],"outputs":[]},
   {"type":"function","name":"release","stateMutability":"nonpayable",
    "inputs":[{"name":"sessionId","type":"bytes32"},{"name":"amount","type":"uint128"}],"outputs":[]},
   {"type":"function","name":"dispute","stateMutability":"nonpayable",
@@ -24,10 +24,10 @@ const graduatedABIJSON = `[
    "inputs":[{"name":"sessionId","type":"bytes32"},{"name":"evidence","type":"string"}],"outputs":[]},
   {"type":"function","name":"sessionOf","stateMutability":"view",
    "inputs":[{"name":"sessionId","type":"bytes32"}],
-   "outputs":[{"name":"buyer","type":"address"},{"name":"seller","type":"address"},{"name":"arbiter","type":"address"},{"name":"token","type":"address"},{"name":"amount","type":"uint128"},{"name":"released","type":"uint128"},{"name":"deadline","type":"uint64"},{"name":"status","type":"uint8"},{"name":"taskHash","type":"bytes32"}]},
+   "outputs":[{"name":"buyer","type":"address"},{"name":"seller","type":"address"},{"name":"arbiter","type":"address"},{"name":"token","type":"address"},{"name":"amount","type":"uint128"},{"name":"released","type":"uint128"},{"name":"deadline","type":"uint64"},{"name":"status","type":"uint8"},{"name":"taskHash","type":"bytes32"},{"name":"drawdown","type":"bool"}]},
   {"type":"function","name":"sessions","stateMutability":"view",
    "inputs":[{"name":"sessionId","type":"bytes32"}],
-   "outputs":[{"name":"buyer","type":"address"},{"name":"seller","type":"address"},{"name":"arbiter","type":"address"},{"name":"token","type":"address"},{"name":"amount","type":"uint128"},{"name":"released","type":"uint128"},{"name":"deadline","type":"uint64"},{"name":"status","type":"uint8"},{"name":"taskHash","type":"bytes32"}]},
+   "outputs":[{"name":"buyer","type":"address"},{"name":"seller","type":"address"},{"name":"arbiter","type":"address"},{"name":"token","type":"address"},{"name":"amount","type":"uint128"},{"name":"released","type":"uint128"},{"name":"deadline","type":"uint64"},{"name":"status","type":"uint8"},{"name":"taskHash","type":"bytes32"},{"name":"drawdown","type":"bool"}]},
   {"type":"event","name":"Opened",
    "inputs":[{"name":"sessionId","type":"bytes32","indexed":true},{"name":"buyer","type":"address","indexed":true},{"name":"seller","type":"address","indexed":true},{"name":"token","type":"address","indexed":false},{"name":"amount","type":"uint128","indexed":false},{"name":"deadline","type":"uint64","indexed":false},{"name":"taskHash","type":"bytes32","indexed":false}]},
   {"type":"event","name":"Released",

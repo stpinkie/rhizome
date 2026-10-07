@@ -8,8 +8,13 @@ pragma solidity ^0.8.24;
 //
 // Lifecycle (design surface — docs/design/v0.16.0-sprint.md):
 //
-//   open(sessionId, seller, token, amount, taskHash, disputeWindow)
+//   open(sessionId, seller, token, amount, taskHash, disputeWindow,
+//     arbiter, drawdown)
 //     buyer funds via transferFrom (approve first); session = Open.
+//     drawdown sessions hold a multi-task budget: the remainder is the
+//     buyer's unspent budget, so seller claim is disabled and buyer
+//     withdraw needs no claim grace (the grace exists only to give a
+//     seller's claim priority — meaningless when claim can't fire).
 //   release(sessionId, amount)
 //     buyer-only partial release while the window runs — pays seller
 //     immediately (drawdown-ready; Track 128 rides this).
@@ -20,12 +25,13 @@ pragma solidity ^0.8.24;
 //     arbiter-only while Locked — awards must sum to the remaining
 //     balance; pays both sides and closes.
 //   claim(sessionId)
-//     seller-only after the dispute deadline — the native seller-pull
-//     Smart Invoice lacked: a buyer that neither disputes nor releases
-//     does not strand the provider.
+//     seller-only after the dispute deadline, non-drawdown sessions —
+//     the native seller-pull Smart Invoice lacked: a buyer that neither
+//     disputes nor releases does not strand the provider.
 //   withdraw(sessionId)
-//     buyer-only after deadline + CLAIM_GRACE — the clawback that frees
-//     the remainder when the seller abandons the session too.
+//     buyer-only after deadline + CLAIM_GRACE (deadline alone under
+//     drawdown) — the clawback that frees the remainder when the
+//     session ends with unspent budget or an abandoned seller.
 //   submitEvidence(sessionId, uri)
 //     either party while Locked — ERC-1497 evidence emission for the
 //     arbiter (and the Track 129 ERC-792 adapter path).
@@ -64,6 +70,7 @@ contract RhizomeEscrow {
         uint64  deadline;  // dispute window end (unix)
         Status  status;
         bytes32 taskHash;  // work commitment — dispute evidence anchor
+        bool    drawdown;  // budget session: remainder is the buyer's
     }
 
     mapping(bytes32 => Session) public sessions;
@@ -111,7 +118,10 @@ contract RhizomeEscrow {
 
     /// open funds a session escrow. sessionId must be unused (callers
     /// derive it as keccak256(correlationID)); disputeWindow is seconds
-    /// from now to the dispute deadline.
+    /// from now to the dispute deadline. drawdown marks a multi-task
+    /// budget session: seller claim is disabled (the remainder is
+    /// unspent budget, not earned-but-unreleased work) and buyer
+    /// withdraw fires at the deadline rather than deadline + grace.
     function open(
         bytes32 sessionId,
         address seller,
@@ -119,7 +129,8 @@ contract RhizomeEscrow {
         uint128 amount,
         bytes32 taskHash,
         uint64 disputeWindow,
-        address arbiter
+        address arbiter,
+        bool drawdown
     ) external nonReentrant {
         require(sessionId != bytes32(0), "session id required");
         require(sessions[sessionId].status == Status.None, "session exists");
@@ -142,7 +153,8 @@ contract RhizomeEscrow {
             released: 0,
             deadline: deadline,
             status: Status.Open,
-            taskHash: taskHash
+            taskHash: taskHash,
+            drawdown: drawdown
         });
 
         // Checks-effects before the pull: the state is committed even if
@@ -239,13 +251,15 @@ contract RhizomeEscrow {
 
     /// claim is the native seller-pull: after the dispute deadline, an
     /// undisputed session's remaining balance belongs to the seller.
-    /// The claim gap this fixes is documented in
-    /// docs/design/escrow-survey.md.
+    /// Drawdown sessions have no claim — their remainder is unspent
+    /// budget, which belongs to the buyer. The claim gap this fixes is
+    /// documented in docs/design/escrow-survey.md.
     function claim(bytes32 sessionId) external nonReentrant {
         Session storage s = sessions[sessionId];
         require(s.status == Status.Open, "not open");
         require(msg.sender == s.seller, "seller only");
         require(block.timestamp > s.deadline, "window still running");
+        require(!s.drawdown, "drawdown remainder refunds to buyer");
 
         uint256 remaining = uint256(s.amount) - uint256(s.released);
         s.status = Status.Closed;
@@ -256,16 +270,20 @@ contract RhizomeEscrow {
         }
     }
 
-    /// withdraw is the buyer's abandonment clawback — after the dispute
-    /// deadline AND the seller's claim grace both lapse, the remainder
-    /// returns to the buyer. A session nobody settles can't strand funds.
+    /// withdraw is the buyer's clawback — on a normal session it opens
+    /// after deadline + CLAIM_GRACE (the grace exists to give the
+    /// seller's claim priority); on a drawdown session the seller can
+    /// never claim, so the remainder is refund-able at the deadline.
+    /// A session nobody settles can't strand funds.
     function withdraw(bytes32 sessionId) external nonReentrant {
         Session storage s = sessions[sessionId];
         require(s.status == Status.Open, "not open");
         require(msg.sender == s.buyer, "buyer only");
-        require(
-            block.timestamp > s.deadline + CLAIM_GRACE,
-            "claim grace still running");
+        uint64 refundAt = s.deadline;
+        if (!s.drawdown) {
+            refundAt += CLAIM_GRACE;
+        }
+        require(block.timestamp > refundAt, "refund window still running");
 
         uint256 remaining = uint256(s.amount) - uint256(s.released);
         s.status = Status.Closed;
@@ -280,10 +298,11 @@ contract RhizomeEscrow {
     function sessionOf(bytes32 sessionId) external view returns (
         address buyer, address seller, address arbiter, address token,
         uint128 amount, uint128 released, uint64 deadline,
-        uint8 status, bytes32 taskHash
+        uint8 status, bytes32 taskHash, bool drawdown
     ) {
         Session storage s = sessions[sessionId];
         return (s.buyer, s.seller, s.arbiter, s.token, s.amount,
-            s.released, s.deadline, uint8(s.status), s.taskHash);
+            s.released, s.deadline, uint8(s.status), s.taskHash,
+            s.drawdown);
     }
 }

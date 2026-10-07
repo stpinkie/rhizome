@@ -149,12 +149,14 @@ func runBuyerSession(
 	_, err := cli.CallExtension(openCtx, "_rhizome.session_open", map[string]any{
 		"session_id": p.SessionID,
 		"task_hash":  p.TaskHash,
+		"task_nonce": p.PurchaseID,
 		"offer_id":   p.OfferID,
 		"buyer":      p.Buyer,
 		"terms": map[string]any{
 			"amount":   p.Terms.Amount,
 			"token":    p.Terms.Token,
 			"chain_id": p.Terms.ChainID,
+			"drawdown": p.Terms.Drawdown,
 		},
 	})
 	openCancel()
@@ -198,7 +200,7 @@ func runBuyerSession(
 // fetchReceipt asks the seller for the session's signed receipt over a
 // fresh conn — called after the prompt completes.
 func fetchReceipt(
-	ctx context.Context, conn io.ReadWriteCloser, sessionID string,
+	ctx context.Context, conn io.ReadWriteCloser, sessionID, taskNonce string,
 ) (*receipt, error) {
 	handler := &buyerClientHandler{}
 	cli := acpsdk.NewClientSideConnection(handler, conn, conn)
@@ -216,6 +218,7 @@ func fetchReceipt(
 	defer rcancel()
 	raw, err := cli.CallExtension(rctx, "_rhizome.receipt", map[string]any{
 		"session_id": sessionID,
+		"task_nonce": taskNonce,
 	})
 	if err != nil {
 		return nil, err

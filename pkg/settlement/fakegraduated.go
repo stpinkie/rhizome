@@ -30,6 +30,7 @@ type gradSession struct {
 	deadline                      int64
 	status                        uint8 // graduatedStatus* constants
 	taskHash                      [32]byte
+	drawdown                      bool // remainder refunds to buyer; no seller claim
 }
 
 // NewFakeGraduatedChain starts a FakeChain that answers the graduated
@@ -85,13 +86,13 @@ func (fc *FakeChain) gradView(data []byte) (any, *rpcError) {
 		return encRet(
 			[]string{
 				"address", "address", "address", "address",
-				"uint128", "uint128", "uint64", "uint8", "bytes32",
+				"uint128", "uint128", "uint64", "uint8", "bytes32", "bool",
 			},
 			[]any{
 				e.buyer, e.seller, e.arbiter, e.token,
 				e.amount.String(), e.released.String(),
 				itoa(e.deadline), itoa(int64(e.status)),
-				"0x" + hex.EncodeToString(e.taskHash[:]),
+				"0x" + hex.EncodeToString(e.taskHash[:]), e.drawdown,
 			})
 	}
 	return nil, rpcErr(-32601, "fakechain: unknown graduated selector")
@@ -101,7 +102,7 @@ func (fc *FakeChain) gradView(data []byte) (any, *rpcError) {
 func (fc *FakeChain) gradTx(from string, data []byte) ([]*fakeLog, *rpcError) {
 	s := hex.EncodeToString(data[:4])
 	switch s {
-	case hex.EncodeToString(sel("open", graduatedABI, 7)):
+	case hex.EncodeToString(sel("open", graduatedABI, 8)):
 		return fc.gradOpen(from, data)
 	case hex.EncodeToString(sel("release", graduatedABI, 2)):
 		return fc.gradRelease(from, data)
@@ -123,7 +124,7 @@ func (fc *FakeChain) gradOpen(from string, data []byte) ([]*fakeLog, *rpcError) 
 	args, rerr := fc.decodeArgs(
 		[]string{
 			"bytes32", "address", "address", "uint128",
-			"bytes32", "uint64", "address",
+			"bytes32", "uint64", "address", "bool",
 		}, data)
 	if rerr != nil {
 		return nil, rerr
@@ -138,6 +139,7 @@ func (fc *FakeChain) gradOpen(from string, data []byte) ([]*fakeLog, *rpcError) 
 	}
 	window := mustBig(args[5]).Int64()
 	arbiter := normAddr(mustStr(args[6]))
+	drawdown, _ := args[7].(bool)
 
 	if fc.gradSessions[sid] != nil {
 		return nil, revert("session exists")
@@ -157,7 +159,7 @@ func (fc *FakeChain) gradOpen(from string, data []byte) ([]*fakeLog, *rpcError) 
 		buyer: normAddr(from), seller: seller, arbiter: arbiter,
 		token: token, amount: amount, released: new(big.Int),
 		deadline: fc.now + window, status: graduatedStatusOpen,
-		taskHash: taskHash,
+		taskHash: taskHash, drawdown: drawdown,
 	}
 	return []*fakeLog{{
 		address: normAddr(fc.factory),
@@ -289,6 +291,9 @@ func (fc *FakeChain) gradClaim(from string, data []byte) ([]*fakeLog, *rpcError)
 	if fc.now <= e.deadline {
 		return nil, revert("window still running")
 	}
+	if e.drawdown {
+		return nil, revert("drawdown remainder refunds to buyer")
+	}
 	remaining := new(big.Int).Sub(e.amount, e.released)
 	e.status = graduatedStatusClosed
 	if remaining.Sign() > 0 {
@@ -316,8 +321,12 @@ func (fc *FakeChain) gradWithdraw(from string, data []byte) ([]*fakeLog, *rpcErr
 	if from != e.buyer {
 		return nil, revert("buyer only")
 	}
-	if fc.now <= e.deadline+graduatedClaimGrace {
-		return nil, revert("claim grace still running")
+	refundAt := e.deadline
+	if !e.drawdown {
+		refundAt += graduatedClaimGrace // grace exists for seller claim rights
+	}
+	if fc.now <= refundAt {
+		return nil, revert("refund window still running")
 	}
 	remaining := new(big.Int).Sub(e.amount, e.released)
 	e.status = graduatedStatusClosed

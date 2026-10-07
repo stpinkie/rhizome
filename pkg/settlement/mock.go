@@ -104,13 +104,20 @@ func (m *MockRail) VerifyLock(_ context.Context, sessionID string, t Terms) (boo
 	ok = addrEq(e.terms.Buyer, t.Buyer) &&
 		addrEq(e.terms.Seller, t.Seller) &&
 		addrEq(e.terms.Token, t.Token) &&
-		e.terms.Amount.Cmp(t.Amount) == 0 &&
-		e.released.Sign() == 0 &&
+		e.terms.Drawdown == t.Drawdown &&
 		!e.locked &&
-		e.balance.Cmp(e.terms.Amount) >= 0 &&
 		e.terms.TerminationTime > m.nowFn().Unix() &&
-		(t.TaskHash == ([32]byte{}) || e.terms.TaskHash == t.TaskHash) &&
 		(t.TerminationTime == 0 || e.terms.TerminationTime == t.TerminationTime)
+	if t.Drawdown {
+		// Headroom check — the presented amount is this task's draw.
+		ok = ok && new(big.Int).Add(e.released, t.Amount).Cmp(
+			e.terms.Amount) <= 0
+	} else {
+		ok = ok && e.terms.Amount.Cmp(t.Amount) == 0 &&
+			e.released.Sign() == 0 &&
+			e.balance.Cmp(e.terms.Amount) >= 0 &&
+			(t.TaskHash == ([32]byte{}) || e.terms.TaskHash == t.TaskHash)
+	}
 	return ok, nil
 }
 

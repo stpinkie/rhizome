@@ -53,10 +53,12 @@ const (
 )
 
 // marketSession is one escrowed sell-side session. session_id doubles as
-// the ACP session id returned to the buyer — it is the escrow clone
-// address, globally unique and self-documenting.
+// the ACP session id returned to the buyer — the escrow clone address
+// under per-task settlement, or escrow#taskhash composite under drawdown
+// (one funded session serves many tasks; the local key stays unique).
 type marketSession struct {
-	ID       string // escrow clone address (the on-chain session key)
+	ID       string // local session key (escrow id, or escrow#taskhash under drawdown)
+	EscrowID string // on-chain session key the receipt binds to
 	Peer     string // authenticated peer id from the bridge hello
 	ConnID   uint64 // module-local connection sequence (conn-drop finalize)
 	Offer    offer
@@ -117,6 +119,21 @@ type sessionMgr struct {
 	bindings atomic.Pointer[map[string]acp.BoundSource]
 
 	baseCfg atomic.Pointer[config.Config] // shared home config for SpawnBound
+}
+
+// drawdownSessionKey builds the per-task local session key for a shared
+// drawdown escrow — "<escrow>#<task_nonce>". The nonce is the buyer's
+// purchase id on the wire: unique per draw even when two buys carry the
+// same task hash (identical task text is legal).
+func drawdownSessionKey(escrowID, taskNonce string) string {
+	n := strings.ToLower(taskNonce)
+	if len(n) > 16 {
+		n = n[:16]
+	}
+	if n == "" {
+		return escrowID
+	}
+	return escrowID + "#" + n
 }
 
 func newSessionMgr(moduleDir string, audit *auditLogger) *sessionMgr {

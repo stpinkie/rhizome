@@ -57,10 +57,11 @@ const (
 // purchaseTerms are the on-chain terms the buyer committed — the escrow
 // clone's client/token/amount/termination facts.
 type purchaseTerms struct {
-	Amount          string `json:"amount"`           // base units, decimal
-	Token           string `json:"token"`            // ERC-20 address
-	ChainID         int64  `json:"chain_id"`         // rail chain
-	TerminationTime int64  `json:"termination_time"` // unix; dispute horizon
+	Amount          string `json:"amount"`             // base units, decimal (draw amount under drawdown)
+	Token           string `json:"token"`              // ERC-20 address
+	ChainID         int64  `json:"chain_id"`           // rail chain
+	TerminationTime int64  `json:"termination_time"`   // unix; dispute horizon
+	Drawdown        bool   `json:"drawdown,omitempty"` // session is a shared funded budget
 }
 
 // purchase is the durable buyer-side record of one market buy.
@@ -79,8 +80,9 @@ type purchase struct {
 	Task          string        `json:"task"`  // the exact text sent (post-redact)
 	TaskHash      string        `json:"task_hash"`
 	Attachments   []string      `json:"attachments,omitempty"` // exported resource_link URIs
-	SessionID     string        `json:"session_id"`            // escrow clone address
+	SessionID     string        `json:"session_id"`            // escrow clone address / graduated session key
 	CorrelationID string        `json:"correlation_id"`
+	Drawdown      bool          `json:"drawdown,omitempty"` // draws a shared funded session
 	Terms         purchaseTerms `json:"terms"`
 	State         string        `json:"state"`
 	PendingIDs    []string      `json:"pending_ids,omitempty"`
@@ -123,6 +125,10 @@ type purchaseMgr struct {
 	spawn      func(context.Context, *purchaseMgr, *purchase)
 	nowFn      func() time.Time
 
+	// drawdown is the buyer-side session ledger (Track 128) — always
+	// non-nil, inert unless escrow_settlement=drawdown.
+	drawdown *drawdownLedger
+
 	mu      sync.Mutex
 	byID    map[string]*purchase
 	reviews map[string]*pendingReview
@@ -138,6 +144,7 @@ func newPurchaseMgr(moduleDir, home string, audit *auditLogger) *purchaseMgr {
 		nowFn:      time.Now,
 		byID:       map[string]*purchase{},
 		reviews:    map[string]*pendingReview{},
+		drawdown:   openDrawdownLedger(moduleDir),
 	}
 	pm.spawn = runPurchase
 	pm.loadAll()
