@@ -18,12 +18,22 @@ export interface PeerConnInfo {
   opened_at?: string
 }
 
+export interface PeerOpStat {
+  successes: number
+  failures: number
+  avg_latency_ns: number
+}
+
 export interface PeerScoreView {
   successes: number
   failures: number
   avg_latency_ms: number
   last_error?: string
   score: number
+  /** Read-time decay factor applied to score; <1 means evidence is stale. */
+  decay?: number
+  /** Per-operation success/failure/latency counters (delegate, spawn, …). */
+  ops?: Record<string, PeerOpStat>
 }
 
 export interface BandwidthView {
@@ -255,11 +265,20 @@ export interface SwarmInfo {
   coordinator?: string
   epoch?: number
   members?: SwarmMember[]
+  last_state_write?: string
 }
 
 export interface SwarmStatusResponse {
   peer_id?: string
   swarms?: SwarmInfo[]
+}
+
+/** A single claim on a tracked offer, in the order the offerer ranked it. */
+export interface SwarmClaim {
+  claimant: string
+  cap_digest?: string
+  active_tasks: number
+  score?: number
 }
 
 export interface SwarmOffer {
@@ -273,6 +292,7 @@ export interface SwarmOffer {
   task_id?: string
   assignee?: string
   error?: string
+  claims?: SwarmClaim[]
 }
 
 export interface SwarmOffersResponse {
@@ -310,6 +330,7 @@ export interface SwarmRunRecord {
   started_at?: string
   finished_at?: string
   duration_ms?: number
+  retry_of?: string
 }
 
 export interface SwarmRunsResponse {
@@ -320,6 +341,34 @@ export interface SwarmRunsResponse {
 export async function getSwarmRuns(swarm: string): Promise<SwarmRunsResponse> {
   return request<SwarmRunsResponse>(
     `/api/network/swarms/${encodeURIComponent(swarm)}/runs`,
+  )
+}
+
+/** One member's answer in a swarm doctor/health report. */
+export interface SwarmDoctorMember {
+  peer_id: string
+  reachable: boolean
+  lists_us: boolean
+  epoch?: number
+  error?: string
+}
+
+/** Roster-convergence report — GET /network/swarms/<id>/health. */
+export interface SwarmHealth {
+  swarm_id: string
+  self_id: string
+  coordinator?: string
+  coordinator_up: boolean
+  queried: number
+  reachable: number
+  asymmetric?: string[]
+  undiscovered?: string[]
+  members?: SwarmDoctorMember[]
+}
+
+export async function getSwarmHealth(swarm: string): Promise<SwarmHealth> {
+  return request<SwarmHealth>(
+    `/api/network/swarms/${encodeURIComponent(swarm)}/health`,
   )
 }
 
@@ -442,12 +491,60 @@ export interface MeshActivityResponse {
   events?: MeshActivityEntry[]
 }
 
+/**
+ * Filter for the activity feed — mirrors the daemon's /network/activity
+ * query params (kind exact or "prefix.*", peer attrs-mention, swarm exact,
+ * since as Go duration or RFC3339).
+ */
+export interface ActivityFilter {
+  kind?: string
+  peer?: string
+  swarm?: string
+  since?: string
+}
+
 export async function getNetworkActivity(
   tail = 50,
+  filter?: ActivityFilter,
 ): Promise<MeshActivityResponse> {
   const params = new URLSearchParams({ tail: String(tail) })
+  for (const key of ["kind", "peer", "swarm", "since"] as const) {
+    const v = filter?.[key]?.trim()
+    if (v) params.set(key, v)
+  }
   return request<MeshActivityResponse>(
     `/api/network/activity?${params.toString()}`,
+  )
+}
+
+/**
+ * Correlation report assembled from the task store, swarm offers/runs,
+ * activity feed, and audit tail. Matches a task, offer, or run id.
+ */
+export interface NetworkTraceReport {
+  id: string
+  /** MeshTaskSnapshot — serializes Go field names (no json tags). */
+  task?: {
+    ID: string
+    CorrID?: string
+    Owner?: string
+    AgentID?: string
+    Model?: string
+    Status?: string
+    Result?: unknown
+    Err?: string
+    CreatedAt?: string
+    UpdatedAt?: string
+  }
+  offer?: Record<string, unknown>
+  run?: Record<string, unknown>
+  events?: MeshActivityEntry[]
+  audit?: MeshAuditEntry[]
+}
+
+export async function getNetworkTrace(id: string): Promise<NetworkTraceReport> {
+  return request<NetworkTraceReport>(
+    `/api/network/trace?id=${encodeURIComponent(id)}`,
   )
 }
 

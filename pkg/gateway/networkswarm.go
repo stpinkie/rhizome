@@ -104,8 +104,9 @@ func (h *networkSwarmsHandler) read(w http.ResponseWriter, r *http.Request, sw *
 			"swarm_id": swarmID,
 			"members":  sw.Members(swarmID),
 		})
-	case "doctor":
+	case "doctor", "health":
 		// Roster diagnostics: MsgQuery every known member and diff rosters.
+		// "health" is the resource-oriented alias the dashboard consumes.
 		// Bounded by max_members × 5s worst-case query time.
 		report, err := sw.Doctor(r.Context(), swarmID)
 		if err != nil {

@@ -51,6 +51,7 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/network/tasks", h.handleNetworkTasks)
 	mux.HandleFunc("GET /api/network/tasks/events", h.handleNetworkTaskEvents)
 	mux.HandleFunc("GET /api/network/activity", h.handleNetworkActivity)
+	mux.HandleFunc("GET /api/network/trace", h.handleNetworkTrace)
 	mux.HandleFunc("GET /api/network/events", h.handleNetworkEvents)
 	mux.HandleFunc("GET /api/network/audit", h.handleNetworkAudit)
 	mux.HandleFunc("POST /api/network/pair", h.handleNetworkPair)
@@ -1102,6 +1103,18 @@ func (h *Handler) handleNetworkTaskEvents(w http.ResponseWriter, r *http.Request
 // handleNetworkActivity proxies the daemon's /network/activity feed. The
 // feed is in-memory on the daemon, so there is no offline fallback.
 func (h *Handler) handleNetworkActivity(w http.ResponseWriter, r *http.Request) {
+	h.proxyNetworkGet(w, r, "/network/activity")
+}
+
+// handleNetworkTrace proxies the daemon's /network/trace correlation report.
+// Daemon-required like the activity feed it draws from.
+func (h *Handler) handleNetworkTrace(w http.ResponseWriter, r *http.Request) {
+	h.proxyNetworkGet(w, r, "/network/trace")
+}
+
+// proxyNetworkGet forwards a GET to the daemon under /network, preserving
+// the query string, and relays the JSON response verbatim.
+func (h *Handler) proxyNetworkGet(w http.ResponseWriter, r *http.Request, path string) {
 	if !h.gatewayAvailableForProxy() {
 		respondNetworkError(w, http.StatusServiceUnavailable, errDaemonRequired.Error())
 		return
@@ -1115,7 +1128,7 @@ func (h *Handler) handleNetworkActivity(w http.ResponseWriter, r *http.Request) 
 	}
 
 	u := h.gatewayProxyURL()
-	u.Path = "/network/activity"
+	u.Path = path
 	u.RawQuery = r.URL.Query().Encode()
 
 	ctx, cancel := context.WithTimeout(r.Context(), defaultNetworkTimeout)
