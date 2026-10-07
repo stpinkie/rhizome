@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -32,25 +33,6 @@ const (
 
 // MeshTask is a single remote task owned by the callee.
 type MeshTask struct {
-	ID         string
-	CorrID     string
-	Owner      peer.ID
-	AgentID    string
-	Model      string
-	Status     agenttask.TaskStatus
-	Result     *toolshared.ToolResult
-	Usage      *toolshared.RemoteUsage
-	Err        string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	cancelFunc context.CancelFunc
-	done       chan struct{}
-}
-
-// MeshTaskSnapshot is a value copy of a MeshTask that can safely be read
-// outside the TaskStore mutex. The store always returns snapshots, never live
-// pointers, to avoid data races on Status/Err/Result.
-type MeshTaskSnapshot struct {
 	ID        string
 	CorrID    string
 	Owner     peer.ID
@@ -59,6 +41,33 @@ type MeshTaskSnapshot struct {
 	Status    agenttask.TaskStatus
 	Result    *toolshared.ToolResult
 	Usage     *toolshared.RemoteUsage
+	Err       string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// Econ holds the negotiated billing terms when the submit carried a
+	// valid economy block and the owner is on bill_peers (nil otherwise).
+	Econ *econ.Terms
+	// Charge is the signed billing receipt computed at finish time.
+	Charge     *econ.Charge
+	cancelFunc context.CancelFunc
+	done       chan struct{}
+}
+
+// MeshTaskSnapshot is a value copy of a MeshTask that can safely be read
+// outside the TaskStore mutex. The store always returns snapshots, never live
+// pointers, to avoid data races on Status/Err/Result.
+type MeshTaskSnapshot struct {
+	ID      string
+	CorrID  string
+	Owner   peer.ID
+	AgentID string
+	Model   string
+	Status  agenttask.TaskStatus
+	Result  *toolshared.ToolResult
+	Usage   *toolshared.RemoteUsage
+	Charge  *econ.Charge
+	// Econ mirrors the negotiated billing terms stored on the live task.
+	Econ      *econ.Terms
 	Err       string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -76,6 +85,20 @@ func (t *MeshTask) snapshot() MeshTaskSnapshot {
 		u := *t.Usage
 		usage = &u
 	}
+	var charge *econ.Charge
+	if t.Charge != nil {
+		c := *t.Charge
+		if c.Usage != nil {
+			u := *c.Usage
+			c.Usage = &u
+		}
+		charge = &c
+	}
+	var terms *econ.Terms
+	if t.Econ != nil {
+		e := *t.Econ
+		terms = &e
+	}
 	return MeshTaskSnapshot{
 		ID:        t.ID,
 		CorrID:    t.CorrID,
@@ -85,6 +108,8 @@ func (t *MeshTask) snapshot() MeshTaskSnapshot {
 		Status:    t.Status,
 		Result:    result,
 		Usage:     usage,
+		Charge:    charge,
+		Econ:      terms,
 		Err:       t.Err,
 		CreatedAt: t.CreatedAt,
 		UpdatedAt: t.UpdatedAt,
@@ -102,6 +127,8 @@ type taskRecord struct {
 	Status    agenttask.TaskStatus    `json:"status"`
 	Result    *toolshared.ToolResult  `json:"result,omitempty"`
 	Usage     *toolshared.RemoteUsage `json:"usage,omitempty"`
+	Charge    *econ.Charge            `json:"charge,omitempty"`
+	Econ      *econ.Terms             `json:"econ,omitempty"`
 	Err       string                  `json:"err,omitempty"`
 	CreatedAt time.Time               `json:"created_at"`
 	UpdatedAt time.Time               `json:"updated_at"`
@@ -202,6 +229,8 @@ func (s *TaskStore) Load() ([]MeshTaskSnapshot, error) {
 			Status:    rec.Status,
 			Result:    rec.Result,
 			Usage:     rec.Usage,
+			Charge:    rec.Charge,
+			Econ:      rec.Econ,
 			Err:       rec.Err,
 			CreatedAt: rec.CreatedAt,
 			UpdatedAt: rec.UpdatedAt,
@@ -250,6 +279,8 @@ func (s *TaskStore) save() error {
 			Status:    t.Status,
 			Result:    t.Result,
 			Usage:     t.Usage,
+			Charge:    t.Charge,
+			Econ:      t.Econ,
 			Err:       t.Err,
 			CreatedAt: t.CreatedAt,
 			UpdatedAt: t.UpdatedAt,
@@ -386,6 +417,9 @@ func (s *TaskStore) Submit(owner peer.ID, req agenttask.Request) (MeshTaskSnapsh
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 		done:      make(chan struct{}),
+		// The submit handler zeroes req.Econ for unbilled callers, so a
+		// non-nil value here always means billing was negotiated.
+		Econ: req.Econ,
 	}
 	s.tasks[task.ID] = task
 	if req.CorrelationID != "" {
@@ -515,6 +549,7 @@ func (s *TaskStore) Finish(
 	result *toolshared.ToolResult,
 	taskErr string,
 	usage *toolshared.RemoteUsage,
+	charge *econ.Charge,
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -522,6 +557,7 @@ func (s *TaskStore) Finish(
 		t.Status = status
 		t.Result = result
 		t.Usage = usage
+		t.Charge = charge
 		t.Err = taskErr
 		t.UpdatedAt = time.Now().UTC()
 		close(t.done)
@@ -676,6 +712,7 @@ func (t *MeshTask) Info() agenttask.TaskInfo {
 		UpdatedAt: t.UpdatedAt,
 		Error:     t.Err,
 		Usage:     t.Usage,
+		Charge:    t.Charge,
 	}
 }
 

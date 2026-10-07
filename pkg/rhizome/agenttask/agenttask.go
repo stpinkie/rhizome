@@ -16,6 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
@@ -103,6 +104,11 @@ type Request struct {
 	// advertised manifest carries allows.usage_report.
 	WantUsage bool `json:"want_usage,omitempty"`
 
+	// Econ negotiates paired-settlement billing on submit — the caller
+	// consents to charges under the callee's advertised sheet. Set only
+	// when the peer's manifest advertises economy; ignored on other ops.
+	Econ *econ.Terms `json:"econ,omitempty"`
+
 	// Wait bounds how long a result request may long-poll for completion.
 	Wait time.Duration `json:"wait,omitempty"`
 
@@ -125,6 +131,9 @@ type TaskInfo struct {
 	Error     string     `json:"error,omitempty"`
 	// Usage carries the recorded usage report when the submit negotiated it.
 	Usage *toolshared.RemoteUsage `json:"usage,omitempty"`
+	// Charge is the callee's billing receipt for the task — present when
+	// the submit negotiated Econ and the run succeeded.
+	Charge *econ.Charge `json:"charge,omitempty"`
 }
 
 // Response is returned for every task-protocol request, including rejections.
@@ -134,10 +143,13 @@ type Response struct {
 	Result *toolshared.ToolResult `json:"result,omitempty"`
 	// Usage carries the task's recorded usage report when the submit
 	// negotiated it and the run could be metered.
-	Usage     *toolshared.RemoteUsage `json:"usage,omitempty"`
-	Tasks     []TaskInfo              `json:"tasks,omitempty"`
-	Error     string                  `json:"error,omitempty"`
-	Signature []byte                  `json:"signature,omitempty"`
+	Usage *toolshared.RemoteUsage `json:"usage,omitempty"`
+	// Charge carries the callee's billing receipt on result responses when
+	// the task's submit negotiated economy terms.
+	Charge    *econ.Charge `json:"charge,omitempty"`
+	Tasks     []TaskInfo   `json:"tasks,omitempty"`
+	Error     string       `json:"error,omitempty"`
+	Signature []byte       `json:"signature,omitempty"`
 }
 
 // Handler processes incoming task requests. Returning a Response (rather than

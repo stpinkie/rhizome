@@ -15,6 +15,7 @@ import (
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
@@ -183,6 +184,26 @@ func (m *Mesh) handleTaskSubmit(from peer.ID, req agenttask.Request, started tim
 		}
 	}
 
+	// Paired-settlement negotiation (v0.17.0 Track 139): a caller on
+	// mesh.economy.bill_peers must carry valid economy terms; unbilled
+	// callers' Econ field is inert and cleared so the task store records
+	// terms only when billing applies.
+	if err := econ.Negotiate(&m.cfg.Economy, from.String(), req.Econ); err != nil {
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":   "task.submit",
+			"error":   err.Error(),
+			"peer_id": from.String(),
+		})
+		m.auditMesh(from, "submit", req.TargetAgentID, req.CorrelationID, "rejected", started, err.Error())
+		return m.signedTaskResponse(agenttask.Response{
+			Status: agenttask.StatusRejected,
+			Error:  err.Error(),
+		})
+	}
+	if !m.econBills(from) {
+		req.Econ = nil
+	}
+
 	task, created, err := m.tasks.Submit(from, req)
 	if err != nil {
 		return m.signedTaskResponse(agenttask.Response{
@@ -266,10 +287,13 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 				Tools:         toolNamesToRefs(req.Tools),
 				Async:         true,
 				Media:         mediaRefs,
-				WantUsage:     req.WantUsage,
+				// Billed tasks are always metered — the charge receipt
+				// carries the usage snapshot regardless of want_usage.
+				WantUsage: req.WantUsage || task.Econ != nil,
 			})
 		}
 	}
+	chargeUsage := usage
 	if !req.WantUsage {
 		usage = nil
 	}
@@ -286,7 +310,12 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 		status = agenttask.StatusError
 		errMsg = runErr.Error()
 	}
-	m.tasks.Finish(task.ID, status, result, errMsg, usage)
+	// Success-only billing: compute the signed charge on done.
+	var charge *econ.Charge
+	if runErr == nil && task.Econ != nil {
+		charge = m.econCharge(task.Econ, chargeUsage)
+	}
+	m.tasks.Finish(task.ID, status, result, errMsg, usage, charge)
 
 	m.publishMeshEvent(runtimeevents.KindMeshTaskUpdate, map[string]any{
 		"peer_id":  task.Owner.String(),
@@ -310,6 +339,7 @@ func (m *Mesh) handleTaskStatus(from peer.ID, req agenttask.Request) agenttask.R
 	return m.signedTaskResponse(agenttask.Response{
 		TaskID: task.ID,
 		Status: task.Status,
+		Charge: task.Charge,
 		Error:  task.Err,
 	})
 }
@@ -332,6 +362,7 @@ func (m *Mesh) handleTaskResult(from peer.ID, req agenttask.Request) agenttask.R
 		Status: task.Status,
 		Result: task.Result,
 		Usage:  task.Usage,
+		Charge: task.Charge,
 		Error:  task.Err,
 	})
 }
@@ -506,6 +537,11 @@ func (m *Mesh) pollRemoteTask(
 				_, _ = m.CancelRemoteTask(cancelCtx, pid, taskID)
 				cancel()
 				return nil, nil, ctx.Err()
+			}
+			// A charge-mismatch is an integrity failure, not a transport
+			// wobble — do not keep polling for a verdict we've verified bad.
+			if strings.Contains(err.Error(), econ.MismatchCharge) {
+				return nil, nil, err
 			}
 			failures++
 			if failures >= maxConsecutiveFailures {
@@ -712,6 +748,8 @@ func (m *Mesh) isFailoverRetryable(err error) bool {
 		"replay check failed",
 		"does not support",
 		"forbidden",
+		econ.RejectPriceFloor,
+		econ.RejectEcon,
 		"remote spawn is disabled",
 		"remote delegate is disabled",
 		"peer is not allowed to",
@@ -741,6 +779,9 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 		// Negotiate usage reporting: only peers whose stored manifest
 		// advertises allows.usage_report get want_usage.
 		WantUsage: m.peerAllowsUsageReport(pid),
+		// Negotiate paired-settlement terms: only peers whose manifest
+		// advertises economy (with our economy enabled) get econ.
+		Econ: m.econTermsFor(pid),
 	}
 	// Push local attachments to this peer; the signed request carries the
 	// resulting blob refs bound to it.
@@ -776,6 +817,9 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 		return "", err
 	}
 	m.recordPeerCall(pid, string(req.Op), true, latency, nil)
+	// Journal the negotiated terms so the result's charge can be verified
+	// against what was actually sent.
+	m.recordEconSent(resp.TaskID, req.Econ)
 	return resp.TaskID, nil
 }
 
@@ -800,7 +844,21 @@ func (m *Mesh) RemoteTaskResult(
 	taskID string,
 	wait time.Duration,
 ) (agenttask.Response, error) {
-	return m.taskCall(ctx, pid, agenttask.Request{Op: agenttask.OpResult, TaskID: taskID, Wait: wait})
+	resp, err := m.taskCall(ctx, pid, agenttask.Request{
+		Op: agenttask.OpResult, TaskID: taskID, Wait: wait,
+	})
+	if err != nil {
+		return resp, err
+	}
+	// Verify the signed charge against the cached advert (and the terms we
+	// sent, when they're still on record) before trusting the result.
+	if resp.Status == agenttask.StatusDone {
+		if verr := m.verifyTaskCharge(pid, taskID, resp.Charge); verr != nil {
+			m.recordPeerCall(pid, string(agenttask.OpResult), false, 0, verr)
+			return resp, verr
+		}
+	}
+	return resp, nil
 }
 
 // CancelRemoteTask asks a peer to cancel a running task.
