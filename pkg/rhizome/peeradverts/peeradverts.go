@@ -32,13 +32,19 @@ const (
 )
 
 // Row is one peer's journaled adverts: the module id → raw advert map
-// the peer's capability manifest carried, plus trust/staleness metadata
+// the peer's capability manifest carried, the peer's raw economy terms
+// advert when it runs paired settlement, plus trust/staleness metadata
 // the consumer reports honestly rather than inferring.
 type Row struct {
 	PeerID     string                     `json:"peer_id"`
 	Trusted    bool                       `json:"trusted"`
 	ReceivedAt time.Time                  `json:"received_at"`
 	Adverts    map[string]json.RawMessage `json:"adverts,omitempty"`
+	// Economy is the peer's signed capability's economy block verbatim —
+	// {unit, price_sheet, payout?, accepts[]} (config.EconAdvert wire
+	// shape). Consumers decode it themselves; the journal stores it raw
+	// so the field set can grow without a journal migration.
+	Economy json.RawMessage `json:"economy,omitempty"`
 }
 
 // Expired reports whether the row is past the staleness horizon.
@@ -52,10 +58,13 @@ type file struct {
 // Path returns the journal location under a Rhizome home.
 func Path(home string) string { return filepath.Join(home, FileName) }
 
-// Record upserts (or, when adverts is empty, removes) the peer's row and
-// atomically rewrites the journal. A nil/empty home disables journalling
-// — the caller's environment isn't rooted (tests, daemonless paths).
-func Record(home, peerID string, trusted bool, adverts map[string]json.RawMessage) error {
+// Record upserts (or, when adverts and econ are both empty, empties) the
+// peer's row and atomically rewrites the journal. A nil/empty home
+// disables journalling — the caller's environment isn't rooted (tests,
+// daemonless paths). The arguments are the peer's complete current
+// advert state — a peer that stops carrying an advert has the field
+// cleared on its next Record.
+func Record(home, peerID string, trusted bool, adverts map[string]json.RawMessage, econ json.RawMessage) error {
 	if home == "" || peerID == "" {
 		return nil
 	}
@@ -72,13 +81,14 @@ func Record(home, peerID string, trusted bool, adverts map[string]json.RawMessag
 			break
 		}
 	}
-	if len(adverts) == 0 {
+	if len(adverts) == 0 && len(econ) == 0 {
 		if row == nil {
-			return nil // nothing to record or remove
+			return nil // nothing to record or clear
 		}
 		row.Trusted = trusted
 		row.ReceivedAt = now
 		row.Adverts = nil
+		row.Economy = nil
 	} else {
 		if row == nil {
 			row = &Row{PeerID: peerID}
@@ -87,6 +97,7 @@ func Record(home, peerID string, trusted bool, adverts map[string]json.RawMessag
 		row.Trusted = trusted
 		row.ReceivedAt = now
 		row.Adverts = adverts
+		row.Economy = econ
 	}
 	bound(f)
 	return write(Path(home), f)

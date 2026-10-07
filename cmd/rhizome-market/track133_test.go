@@ -40,7 +40,7 @@ func (f *buyFixture) journalSellerID(t *testing.T, peerID string) {
 		t.Fatal(err)
 	}
 	if err := peeradverts.Record(f.home, peerID, true,
-		map[string]json.RawMessage{moduleID: advJSON}); err != nil {
+		map[string]json.RawMessage{moduleID: advJSON}, nil); err != nil {
 		t.Fatalf("journal: %v", err)
 	}
 }
@@ -132,7 +132,7 @@ func TestTrack133_RedundantPartialFailure(t *testing.T) {
 		}},
 	})
 	if err := peeradverts.Record(f.home, badID, true,
-		map[string]json.RawMessage{moduleID: advJSON}); err != nil {
+		map[string]json.RawMessage{moduleID: advJSON}, nil); err != nil {
 		t.Fatal(err)
 	}
 

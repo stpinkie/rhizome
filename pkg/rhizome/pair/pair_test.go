@@ -61,9 +61,9 @@ func TestPairCreateAcceptRoundTrip(t *testing.T) {
 	pmA.hooks.Persist = func(pid string, _ []string) error { persistedA = append(persistedA, pid); return nil }
 	pmB.hooks.Persist = func(pid string, _ []string) error { persistedB = append(persistedB, pid); return nil }
 
-	peerID, err := pmB.Accept(context.Background(), bundle)
+	accepted, err := pmB.Accept(context.Background(), bundle)
 	require.NoError(t, err)
-	assert.Equal(t, pmA.host.ID().String(), peerID)
+	assert.Equal(t, pmA.host.ID().String(), accepted.PeerID)
 
 	// Both sides trusted and persisted each other.
 	require.Eventually(t, func() bool {

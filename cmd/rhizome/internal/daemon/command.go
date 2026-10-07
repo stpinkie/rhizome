@@ -192,6 +192,9 @@ func NewDaemonCommand() *cobra.Command {
 							Attrs:  attrs,
 						})
 					},
+					// Minted bundles echo the node's advertised settlement
+					// terms so acceptors see the price sheet before trusting.
+					Economy: cfg.Mesh.Economy.Advert,
 				})
 				go func() { _ = pairMgr.Start(ctx) }()
 				gateway.SetPairManager(pairMgr)

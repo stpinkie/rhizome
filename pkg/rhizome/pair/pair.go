@@ -9,6 +9,7 @@ package pair
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -25,6 +26,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 
+	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
@@ -53,6 +55,17 @@ type Bundle struct {
 	Code   string   `json:"code"`
 	Exp    int64    `json:"exp"`
 	Sig    []byte   `json:"sig"`
+	// Economy optionally echoes the inviter's advertised settlement terms
+	// (mesh.economy advert) so the acceptor sees the counterparty's price
+	// sheet and payout destination before trusting. Preview only — the
+	// signed capability manifest is the authoritative advert.
+	Economy *config.EconAdvert `json:"economy,omitempty"`
+	// EconSig covers the invite payload bound to a digest of Economy. A
+	// separate signature (rather than one payload covering both) keeps the
+	// bundle redeemable by pre-economy builds — they verify Sig only —
+	// while new builds still detect a stripped or edited terms block.
+	// Required iff Economy is set.
+	EconSig []byte `json:"econ_sig,omitempty"`
 }
 
 // Request is the joiner's signed hello presented to the inviter.
@@ -78,6 +91,19 @@ func invitePayload(peerID, code string, exp int64) []byte {
 	return []byte(fmt.Sprintf("rhizome-pair-invite:%s:%s:%d", peerID, code, exp))
 }
 
+// econInvitePayload is the extended invite payload the inviter signs when
+// the bundle carries an economy block: the legacy payload bound to a
+// sha256 digest of the canonically-encoded terms.
+func econInvitePayload(peerID, code string, exp int64, econ *config.EconAdvert) []byte {
+	raw, err := json.Marshal(econ)
+	if err != nil {
+		raw = nil // unreachable for this type — digest over empty is still bound
+	}
+	sum := sha256.Sum256(raw)
+	return []byte(fmt.Sprintf(
+		"rhizome-pair-invite-econ:%s:%s:%d:%x", peerID, code, exp, sum))
+}
+
 // joinPayload is what the joiner signs in the pairing request.
 func joinPayload(code, peerID string, ts int64) []byte {
 	return []byte(fmt.Sprintf("rhizome-pair-join:%s:%s:%d", code, peerID, ts))
@@ -97,6 +123,10 @@ type Hooks struct {
 	Persist func(peerID string, addrs []string) error
 	// Event publishes a mesh.pair.* runtime event (optional).
 	Event func(kind runtimeevents.Kind, attrs map[string]any)
+	// Economy returns the node's current economy advert (optional) — its
+	// terms are echoed into minted bundles so the acceptor can review the
+	// counterparty's price sheet before trusting.
+	Economy func() *config.EconAdvert
 }
 
 // Manager hosts the pairing protocol on the node and tracks outstanding
@@ -178,6 +208,13 @@ func (pm *Manager) Create(ttl time.Duration) (string, error) {
 		Exp:    exp,
 		Sig:    sig,
 	}
+	if pm.hooks.Economy != nil {
+		if econ := pm.hooks.Economy(); econ != nil {
+			bundle.Economy = econ
+			bundle.EconSig = identity.Sign(
+				pm.id.PrivateKey, econInvitePayload(peerID, code, exp, econ))
+		}
+	}
 	raw, err := json.Marshal(bundle)
 	if err != nil {
 		return "", fmt.Errorf("encode bundle: %w", err)
@@ -225,6 +262,18 @@ func DecodeBundle(bundleB64 string) (Bundle, error) {
 	if err != nil || !ok {
 		return Bundle{}, fmt.Errorf("invalid bundle signature")
 	}
+	// Economy terms carry their own signature (see Bundle.EconSig): verify
+	// it when the block is present, and reject a dangling signature with no
+	// block — both shapes indicate tampering.
+	if b.Economy != nil {
+		eok, eerr := pub.Verify(
+			econInvitePayload(b.PeerID, b.Code, b.Exp, b.Economy), b.EconSig)
+		if eerr != nil || !eok {
+			return Bundle{}, fmt.Errorf("invalid economy signature in bundle")
+		}
+	} else if len(b.EconSig) > 0 {
+		return Bundle{}, fmt.Errorf("bundle carries economy signature without economy terms")
+	}
 	if time.Now().Unix() > b.Exp {
 		return Bundle{}, fmt.Errorf("pairing code expired")
 	}
@@ -233,15 +282,16 @@ func DecodeBundle(bundleB64 string) (Bundle, error) {
 
 // Accept redeems a bundle: it verifies the invite signature, dials the
 // inviter, presents the code in a signed hello, and verifies the signed
-// admission. On success the inviter is trusted and persisted.
-func (pm *Manager) Accept(ctx context.Context, bundleB64 string) (string, error) {
+// admission. On success the inviter is trusted and persisted. The
+// returned Bundle lets callers surface the counterparty's economy terms.
+func (pm *Manager) Accept(ctx context.Context, bundleB64 string) (Bundle, error) {
 	b, err := DecodeBundle(bundleB64)
 	if err != nil {
-		return "", err
+		return Bundle{}, err
 	}
 	pid, err := peer.Decode(b.PeerID)
 	if err != nil {
-		return "", fmt.Errorf("invalid bundle peer id: %w", err)
+		return Bundle{}, fmt.Errorf("invalid bundle peer id: %w", err)
 	}
 
 	// Dial the inviter on the advertised addrs.
@@ -264,7 +314,7 @@ func (pm *Manager) Accept(ctx context.Context, bundleB64 string) (string, error)
 		cancel()
 	}
 	if !dialed {
-		return "", fmt.Errorf("could not reach inviter on advertised addrs")
+		return Bundle{}, fmt.Errorf("could not reach inviter on advertised addrs")
 	}
 
 	ts := time.Now().Unix()
@@ -278,7 +328,7 @@ func (pm *Manager) Accept(ctx context.Context, bundleB64 string) (string, error)
 
 	s, err := p2putil.OpenProtocolStream(ctx, pm.host, pid, ProtocolID, 15*time.Second)
 	if err != nil {
-		return "", fmt.Errorf("open pair stream: %w", err)
+		return Bundle{}, fmt.Errorf("open pair stream: %w", err)
 	}
 	rc := stream.NewReliableConn(s,
 		stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(15*time.Second))
@@ -286,44 +336,44 @@ func (pm *Manager) Accept(ctx context.Context, bundleB64 string) (string, error)
 
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("encode request: %w", err)
+		return Bundle{}, fmt.Errorf("encode request: %w", err)
 	}
 	if err := rc.WriteFrame(frameRequest, payload); err != nil {
-		return "", fmt.Errorf("write request: %w", err)
+		return Bundle{}, fmt.Errorf("write request: %w", err)
 	}
 	typ, raw, err := rc.ReadFrame()
 	if err != nil || typ != frameResponse {
-		return "", fmt.Errorf("read admission: %w", err)
+		return Bundle{}, fmt.Errorf("read admission: %w", err)
 	}
 	var resp Response
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return "", fmt.Errorf("decode admission: %w", err)
+		return Bundle{}, fmt.Errorf("decode admission: %w", err)
 	}
 	if !resp.OK {
 		if resp.Error == "" {
 			resp.Error = "pairing rejected"
 		}
 		pm.event(runtimeevents.KindMeshPairFailed, map[string]any{"error": resp.Error})
-		return "", fmt.Errorf("pairing rejected: %s", resp.Error)
+		return Bundle{}, fmt.Errorf("pairing rejected: %s", resp.Error)
 	}
 	if resp.PeerID != b.PeerID {
-		return "", fmt.Errorf("admission from unexpected peer %q", resp.PeerID)
+		return Bundle{}, fmt.Errorf("admission from unexpected peer %q", resp.PeerID)
 	}
 
 	// Verify the inviter's signed admission.
 	pub, err := pid.ExtractPublicKey()
 	if err != nil {
-		return "", fmt.Errorf("extract inviter key: %w", err)
+		return Bundle{}, fmt.Errorf("extract inviter key: %w", err)
 	}
 	ok, err := pub.Verify(admitPayload(b.Code, req.PeerID), resp.Signature)
 	if err != nil || !ok {
-		return "", fmt.Errorf("invalid admission signature")
+		return Bundle{}, fmt.Errorf("invalid admission signature")
 	}
 
 	pm.trust(pid)
 	pm.persist(b.PeerID, b.Addrs)
 	pm.event(runtimeevents.KindMeshPairAccepted, map[string]any{"peer_id": b.PeerID, "role": "joiner"})
-	return b.PeerID, nil
+	return b, nil
 }
 
 // handleStream services one inbound pairing request.

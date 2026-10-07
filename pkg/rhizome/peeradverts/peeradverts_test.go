@@ -14,7 +14,7 @@ func TestRecordLoadRoundtrip(t *testing.T) {
 	adv := map[string]json.RawMessage{
 		"rhizome-market": json.RawMessage(`{"v":1,"offers":[{"id":"o1"}]}`),
 	}
-	if err := Record(home, "peer-a", true, adv); err != nil {
+	if err := Record(home, "peer-a", true, adv, nil); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 	rows, err := Load(home)
@@ -30,7 +30,7 @@ func TestRecordLoadRoundtrip(t *testing.T) {
 
 	// Update replaces, empty clears.
 	adv2 := map[string]json.RawMessage{"m2": json.RawMessage(`{"v":1}`)}
-	if err := Record(home, "peer-a", false, adv2); err != nil {
+	if err := Record(home, "peer-a", false, adv2, nil); err != nil {
 		t.Fatal(err)
 	}
 	rows, _ = Load(home)
@@ -40,7 +40,7 @@ func TestRecordLoadRoundtrip(t *testing.T) {
 	if _, ok := rows[0].Adverts["m2"]; !ok {
 		t.Fatal("advert not replaced")
 	}
-	if err := Record(home, "peer-a", false, nil); err != nil {
+	if err := Record(home, "peer-a", false, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	rows, _ = Load(home)
@@ -72,7 +72,7 @@ func TestRecord_BoundsAndSweeps(t *testing.T) {
 		pid := "peer-" + string(rune('a'+i%26)) + string(rune('a'+i/26))
 		if err := Record(home, pid, false, map[string]json.RawMessage{
 			"m": json.RawMessage(`{}`),
-		}); err != nil {
+		}, nil); err != nil {
 			t.Fatalf("record %d: %v", i, err)
 		}
 	}
@@ -99,7 +99,7 @@ func TestRow_ExpiryHorizon(t *testing.T) {
 func TestRecord_DisabledOnEmptyHome(t *testing.T) {
 	if err := Record("", "peer", true, map[string]json.RawMessage{
 		"m": json.RawMessage(`{}`),
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("empty home must disable, not error: %v", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestFilePermissions(t *testing.T) {
 	home := t.TempDir()
 	if err := Record(home, "peer", true, map[string]json.RawMessage{
 		"m": json.RawMessage(`{}`),
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
 	st, err := os.Stat(Path(home))

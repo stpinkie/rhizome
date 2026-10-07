@@ -710,7 +710,25 @@
         "max_concurrent": 4,
         "rate_limit": 30
       }
-    ]
+    ],
+    "economy": {
+      "_comment": "Paired-settlement billing (v0.17.0). Fully inert unless enabled — no wire fields, adverts, or ledger writes otherwise. unit is required when enabled; amounts are decimal strings. bill_peers is an explicit allowlist — pairing grants trust, billing needs this too. accept_units/cost caps/bill_peers stay private; only unit+price_sheet+payout+accepts are advertised in the signed capability and pairing bundle. settle_backend 'ledger' (default) keeps a mutual-credit ledger; 'web3' closes out on-chain and requires payout {chain_id,address,asset}.",
+      "enabled": false,
+      "unit": "credits",
+      "price_sheet": {
+        "per_task": "0.001",
+        "per_1k_prompt_tokens": "0.0002",
+        "per_1k_completion_tokens": "0.0005",
+        "per_second": "0.00001",
+        "min_charge": "0.0005"
+      },
+      "accept_units": ["credits"],
+      "bill_peers": [],
+      "max_cost_per_task": "0.05",
+      "max_cost_per_day": "1",
+      "settle_threshold": "10",
+      "settle_backend": "ledger"
+    }
   },
   "swarm": {
     "_comment": "Decentralised work swarms over the mesh. memberships lists swarm ids to join on daemon start. coordination.prefer_connected (default false) excludes currently-disconnected members from coordinator election — trades deterministic whole-roster election for an always-live coordinator.",
