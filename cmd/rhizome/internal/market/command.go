@@ -22,6 +22,7 @@ func NewMarketCommand() *cobra.Command {
 	cmd.AddCommand(
 		newFindCommand(),
 		newBuyCommand(),
+		newSessionsCommand(),
 		newSessionCommand(),
 		newReceiptCommand(),
 		newDisputeCommand(),
@@ -66,6 +67,7 @@ func newFindCommand() *cobra.Command {
 
 func newBuyCommand() *cobra.Command {
 	var maxCost, confirm string
+	var redundant int
 	cmd := &cobra.Command{
 		Use:   "buy <provider> <offer> <task>",
 		Short: "Purchase a task from a market provider",
@@ -74,7 +76,11 @@ func newBuyCommand() *cobra.Command {
 			"web3-pending.json for approval by default. When export review " +
 			"is required the response carries a review_id; confirm with " +
 			"`rhizome market buy --confirm <review_id>` (provider/offer/task " +
-			"args may be omitted — the stored decision is replayed).",
+			"args may be omitted — the stored decision is replayed).\n\n" +
+			"--redundant N switches the arguments to <query> <task>: the " +
+			"task fans out to up to N providers whose offers match the " +
+			"query (first matching offer per provider, own node excluded). " +
+			"Each branch settles a separate escrow — cost is N× per_task.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if confirm != "" {
 				if len(args) > 0 {
@@ -83,13 +89,25 @@ func newBuyCommand() *cobra.Command {
 				}
 				return nil
 			}
+			if redundant > 0 {
+				if redundant > 8 {
+					return fmt.Errorf("--redundant caps at 8 branches")
+				}
+				return cobra.ExactArgs(2)(cmd, args)
+			}
 			return cobra.ExactArgs(3)(cmd, args)
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			body := map[string]any{}
-			if confirm != "" {
+			switch {
+			case confirm != "":
 				body["confirm_review_id"] = confirm
-			} else {
+			case redundant > 0:
+				body["query"] = args[0]
+				body["task"] = args[1]
+				body["redundant"] = redundant
+				body["max_cost"] = maxCost
+			default:
 				body["provider"] = args[0]
 				body["offer"] = args[1]
 				body["task"] = args[2]
@@ -100,6 +118,26 @@ func newBuyCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&maxCost, "max-cost", "", "Maximum spend for this purchase")
 	cmd.Flags().StringVar(&confirm, "confirm", "", "Confirm a pending-review purchase by review id")
+	cmd.Flags().IntVar(&redundant, "redundant", 0,
+		"Fan the task to N providers under separate escrows (args become <query> <task>)")
+	return cmd
+}
+
+func newSessionsCommand() *cobra.Command {
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "sessions",
+		Short: "List the local purchase ledger + spend reporting",
+		Long: "List recorded purchases — status, terms, settlement state, " +
+			"result hashes for redundant-group comparison — plus " +
+			"buy_max_cost_* spend reporting. Live purchases only by " +
+			"default; --all includes terminal records.",
+		Args: cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			runVerb(cmd, "sessions", map[string]any{"all": all})
+		},
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "Include terminal purchases")
 	return cmd
 }
 

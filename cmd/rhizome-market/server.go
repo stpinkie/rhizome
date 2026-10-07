@@ -78,6 +78,7 @@ func startAPI(
 	mux.HandleFunc("GET /v1/health", s.wrap(s.handleHealth))
 	mux.HandleFunc("POST /v1/find", s.wrap(s.handleFind))
 	mux.HandleFunc("POST /v1/buy", s.wrap(s.handleBuy))
+	mux.HandleFunc("POST /v1/sessions", s.wrap(s.handleSessions))
 	mux.HandleFunc("POST /v1/dispute", s.wrap(s.handleDispute))
 	mux.HandleFunc("POST /v1/attest", s.wrap(s.handleAttest))
 	mux.HandleFunc("POST /v1/attest/verify", s.wrap(s.handleAttestVerify))
@@ -369,6 +370,10 @@ func (s *apiServer) handleBuy(w http.ResponseWriter, r *http.Request) {
 		s.auditAPI(r, http.StatusServiceUnavailable, start)
 		return
 	}
+	if req.Redundant > 0 {
+		s.handleBuyRedundant(w, r, req, start)
+		return
+	}
 	p, reviewID, err := s.buyer.begin(r.Context(), req)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -399,6 +404,70 @@ func (s *apiServer) handleBuy(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditAPI(r, http.StatusOK, start)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleBuyRedundant fans one task to up to N providers — separate
+// escrows per branch (Track 133). Partial failures are reported
+// per-branch; the call fails only when nothing bought.
+func (s *apiServer) handleBuyRedundant(
+	w http.ResponseWriter, r *http.Request, req buyRequest, start time.Time,
+) {
+	group, branches, err := s.buyer.beginRedundant(r.Context(), req)
+	if err != nil {
+		status := http.StatusBadRequest
+		if be, ok := err.(*buyError); ok &&
+			(be.code == "not_ready" || be.code == "index_unavailable" ||
+				be.code == "rail_unavailable") {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, errBody(err))
+		s.auditAPI(r, status, start)
+		return
+	}
+	bought := 0
+	for _, b := range branches {
+		if b.Error == "" {
+			bought++
+		}
+	}
+	s.audit.log("market.buy.redundant", map[string]any{
+		"group": group, "wanted": req.Redundant,
+		"bought": bought, "failed": len(branches) - bought,
+	})
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"redundant_group": group,
+		"wanted":          req.Redundant,
+		"bought":          bought,
+		"branches":        branches,
+		"note": "each branch settles its own escrow — cost is N× per_task; " +
+			"compare result_sha256 across the group via `market sessions --all`",
+	})
+}
+
+// handleSessions lists the local purchase ledger + spend reporting
+// (Track 133) — `market sessions [--all]`.
+func (s *apiServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req struct {
+		All bool `json:"all,omitempty"`
+	}
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.buyer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{"code": "not_ready", "detail": "buy side not up"},
+		})
+		s.auditAPI(r, http.StatusServiceUnavailable, start)
+		return
+	}
+	rows, spend := s.buyer.listSessions(req.All)
+	s.auditAPI(r, http.StatusOK, start)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sessions": rows, "spend": spend,
+	})
 }
 
 // handleDispute locks the escrow via lock(details) — buyer-initiated.

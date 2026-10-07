@@ -138,6 +138,25 @@ arbiter, `market refund <id>` withdraws after the dispute window
 terminates. A receipt that fails signature or `result_sha256`
 verification never auto-releases.
 
+## Buying depth
+
+**Redundant fan-out** — `rhizome market buy --redundant N <query> <task>`
+fans one task to up to N providers (cap 8) whose offers match the query,
+each under its own escrow so results settle — and can be disputed —
+independently. This is the threat model's mitigation for work quality
+you can't verify: compare `result_sha256` across the batch. Cost is
+**N × per_task** (each provider's own price) and `buy_max_cost_*` caps
+still bind per branch, so a fan can't overspend the daily budget.
+Branches share a `redundant_group` id — `market sessions --all` groups
+them for comparison. Partial failures are reported per branch; the buy
+only fails when nothing purchased.
+
+**Ledger** — `rhizome market sessions [--all]` lists the local purchase
+records (status, terms, settlement state, group ids, TEE claims, result
+hashes) newest-first plus spend reporting: per-asset committed spend in
+the last 24 h against `buy_max_cost_per_day` headroom and the
+`buy_max_cost_per_task` ceiling.
+
 ## Portable attestations
 
 A buyer can issue a **signed completion attestation** for a terminal

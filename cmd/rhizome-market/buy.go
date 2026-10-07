@@ -33,6 +33,14 @@ type buyRequest struct {
 	Attachments     []string `json:"attachments,omitempty"`
 	MaxCost         string   `json:"max_cost,omitempty"`
 	ConfirmReviewID string   `json:"confirm_review_id,omitempty"`
+	// Redundant fans the task out to N providers under separate escrows
+	// (Track 133) — Query then carries the service match text instead of
+	// a specific provider/offer pair.
+	Redundant int    `json:"redundant,omitempty"`
+	Query     string `json:"query,omitempty"`
+	// RedundantGroup labels a batch of redundant purchases with a shared
+	// id — `market sessions` groups them for result comparison.
+	RedundantGroup string `json:"redundant_group,omitempty"`
 }
 
 // buyError is a buy-path refusal with a stable machine-readable code.
@@ -234,10 +242,11 @@ func (pm *purchaseMgr) begin(
 			TerminationTime: pm.nowFn().Unix() + window,
 			Drawdown:        drawdown,
 		},
-		State:      purchasePendingReview,
-		Settlement: "fixture",
-		CreatedAt:  pm.nowFn().UTC(),
-		UpdatedAt:  pm.nowFn().UTC(),
+		RedundantGroup: req.RedundantGroup,
+		State:          purchasePendingReview,
+		Settlement:     "fixture",
+		CreatedAt:      pm.nowFn().UTC(),
+		UpdatedAt:      pm.nowFn().UTC(),
 	}
 	// Snapshot the seller's TEE posture claim (self-attested — the
 	// purchase record preserves what the advert said at buy time).
