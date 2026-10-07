@@ -8,6 +8,7 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,6 +90,9 @@ type marketConfig struct {
 	httpsKey               string                 // serve_https_key — paired with cert
 	httpsMaxConns          int                    // serve_https_max_conns — simultaneous wss streams
 	httpsAdvertise         string                 // serve_https_advertise — public host[:port] or wss:// URL
+	teeKind                string                 // tee_kind — TEE posture override (""=probe, none=suppress)
+	teeReportURL           string                 // tee_report_url — operator-served quote endpoint
+	teeEvidenceHash        string                 // tee_evidence_hash — commitment to held evidence
 	rail                   *settlement.RailConfig // nil = fixture posture
 	errs                   []string
 }
@@ -211,6 +215,31 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 			// the errs model keeps the module up and reports instead of
 			// letting an optional listener fail the process.
 			mc.httpsListen = ""
+		}
+	}
+	mc.teeKind = strings.ToLower(strField(mc, values, "tee_kind", ""))
+	switch mc.teeKind {
+	case "", "none", "tdx", "sev-snp", "trustzone", "sgx", "other":
+	default:
+		mc.errs = append(mc.errs,
+			"tee_kind must be tdx|sev-snp|trustzone|sgx|other|none")
+		mc.teeKind = ""
+	}
+	mc.teeReportURL = strField(mc, values, "tee_report_url", "")
+	if mc.teeReportURL != "" {
+		if u, err := url.Parse(mc.teeReportURL); err != nil || u.Scheme != "https" {
+			mc.errs = append(mc.errs, "tee_report_url must be an https URL")
+			mc.teeReportURL = ""
+		}
+	}
+	mc.teeEvidenceHash = strings.ToLower(
+		strField(mc, values, "tee_evidence_hash", ""))
+	if mc.teeEvidenceHash != "" {
+		h := strings.TrimPrefix(mc.teeEvidenceHash, "0x")
+		if _, err := hex.DecodeString(h); err != nil || len(h) != 64 {
+			mc.errs = append(mc.errs,
+				"tee_evidence_hash must be a sha256 hex (64 chars, optional 0x)")
+			mc.teeEvidenceHash = ""
 		}
 	}
 	mc.httpsCert = strField(mc, values, "serve_https_cert", "")

@@ -58,6 +58,59 @@ type advert struct {
 	// the seller registered — additive evidence, not a ledger (the
 	// honest-limits contract in docs/guides/market.md).
 	Attestations []attestation `json:"attestations,omitempty"`
+	// Attestation is the emit-when-set TEE posture claim (Track 131):
+	// self-attested — buyers weight it, never treat it as proof.
+	Attestation *advertTEE `json:"attestation,omitempty"`
+}
+
+// advertTEE is the seller's TEE posture claim — {kind, report_url |
+// evidence_hash} per the Track 131 design. `kind` comes from the
+// platform probe or an explicit `tee_kind` override; the evidence
+// fields are operator-supplied pointers (a URL serving fresh quotes, or
+// a hash committing to held evidence). Self-attested posture only —
+// nothing here verifies anything (docs/design/tee-attestation.md).
+type advertTEE struct {
+	Kind         string `json:"kind"` // tdx|sev-snp|trustzone|sgx|other
+	ReportURL    string `json:"report_url,omitempty"`
+	EvidenceHash string `json:"evidence_hash,omitempty"`
+}
+
+// teeProbe detects a TEE-capable runtime by guest-side device presence:
+// /dev/tdx_guest (Intel TDX guest quote path), /dev/sev-guest (AMD
+// SEV-SNP guest attestation path), /dev/tee0 (OP-TEE — Arm TrustZone).
+// Device presence means the kernel sees the TEE interface — a claim
+// about capability, not about whether work actually ran inside it.
+// var seam: tests stub it.
+var teeProbe = func() string {
+	for _, dev := range []struct{ kind, path string }{
+		{"tdx", "/dev/tdx_guest"},
+		{"sev-snp", "/dev/sev-guest"},
+		{"trustzone", "/dev/tee0"},
+	} {
+		if _, err := os.Stat(dev.path); err == nil {
+			return dev.kind
+		}
+	}
+	return ""
+}
+
+// teeClaim resolves the advert's TEE claim: `tee_kind` overrides the
+// probe (explicit none suppresses), evidence pointers ride along when
+// configured. Returns nil when nothing is claimable — the field then
+// stays out of the advert entirely (emit-when-set).
+func (mc *marketConfig) teeClaim() *advertTEE {
+	kind := mc.teeKind
+	if kind == "" {
+		kind = teeProbe()
+	}
+	if kind == "" || kind == "none" {
+		return nil
+	}
+	return &advertTEE{
+		Kind:         kind,
+		ReportURL:    mc.teeReportURL,
+		EvidenceHash: mc.teeEvidenceHash,
+	}
 }
 
 type advertPayout struct {
@@ -151,6 +204,9 @@ func (w *advertWriter) render(mc *marketConfig) ([]byte, string) {
 		}
 	} else {
 		a.Escrow = &advertEscrow{Posture: "fixture"}
+	}
+	if mc.serveEnabled {
+		a.Attestation = mc.teeClaim()
 	}
 	// Newest-N attestations, trimmed until the advert fits — the bound
 	// wins over the count; dropping oldest evidence is the honest move

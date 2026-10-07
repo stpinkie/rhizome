@@ -92,12 +92,15 @@ type purchase struct {
 	Receipt       *receipt      `json:"receipt,omitempty"`
 	ReceiptOK     *bool         `json:"receipt_verified,omitempty"`
 	Attestation   *attestation  `json:"attestation,omitempty"` // issued claim (Track 130)
-	Error         string        `json:"error,omitempty"`
-	ErrCode       string        `json:"error_code,omitempty"`
-	Settlement    string        `json:"settlement"`            // "fixture" | "configured"
-	WatchBlock    uint64        `json:"watch_block,omitempty"` // last scanned block (event watcher)
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	// TEEClaim snapshots the seller's advertised TEE posture at buy time
+	// (self-attested — `market session` displays it as claimed, Track 131).
+	TEEClaim   *advertTEE `json:"tee_attestation,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	ErrCode    string     `json:"error_code,omitempty"`
+	Settlement string     `json:"settlement"`            // "fixture" | "configured"
+	WatchBlock uint64     `json:"watch_block,omitempty"` // last scanned block (event watcher)
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 // pendingReview binds a confirm_review_id to the prepared purchase — the

@@ -879,6 +879,18 @@ var catalog = []ModuleSpec{
 			},
 			{Key: "session_budget", Label: "Drawdown session budget (decimal token units)"},
 			{Key: "draw_interval", Label: "Min seconds between on-chain draws (0=unpaced)"},
+			{
+				Key:   "tee_kind",
+				Label: "TEE posture claim (tdx|sev-snp|trustzone|sgx|other|none; unset = platform probe)",
+			},
+			{
+				Key:   "tee_report_url",
+				Label: "TEE report endpoint (https URL serving fresh quotes)",
+			},
+			{
+				Key:   "tee_evidence_hash",
+				Label: "TEE evidence commitment (sha256 hex, optional 0x)",
+			},
 		},
 		Notes: "Loopback API for `rhizome market` (api.addr + bridge-token " +
 			"auth). Claims /rhizome/acp/1.0.0 — mutually exclusive with " +

@@ -239,6 +239,9 @@ func (pm *purchaseMgr) begin(
 		CreatedAt:  pm.nowFn().UTC(),
 		UpdatedAt:  pm.nowFn().UTC(),
 	}
+	// Snapshot the seller's TEE posture claim (self-attested — the
+	// purchase record preserves what the advert said at buy time).
+	p.TEEClaim = adv.Attestation
 	if mc.rail != nil {
 		p.Settlement = "configured"
 	}
