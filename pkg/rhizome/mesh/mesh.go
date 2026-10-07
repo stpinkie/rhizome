@@ -124,6 +124,9 @@ type PeerScoreView struct {
 	// fresh). Nil when score decay is disabled.
 	Decay *float64          `json:"decay,omitempty"`
 	Ops   map[string]OpStat `json:"ops,omitempty"`
+	// Outcomes lists recent market-session reports (peer_score bridge
+	// action) — session refs + value commitments, never amounts.
+	Outcomes []PeerOutcome `json:"outcomes,omitempty"`
 }
 
 // BandwidthView reports in/out byte totals and current rates.
@@ -1520,6 +1523,7 @@ func (m *Mesh) fillPeerObservability(ps *PeerStatus, pid peer.ID) {
 				LastError:    sc.LastError,
 				Score:        sc.Score(),
 				Ops:          sc.OpStats,
+				Outcomes:     sc.Outcomes,
 			}
 			if decay := sc.DecayFactor(); decay < 1 {
 				ps.Score.Decay = &decay
@@ -1568,6 +1572,39 @@ func (m *Mesh) PeerScore(pid peer.ID) (PeerScore, bool) {
 		return PeerScore{}, false
 	}
 	return m.scoreStore.Get(pid)
+}
+
+// Bounds on the peer_score bridge action's free-form fields — the hello is
+// already capped at 4 KiB; these keep junk out of the persisted ref list.
+const (
+	maxOutcomeRefLen      = 128
+	maxOutcomeValueHashLn = 64
+)
+
+// RecordPeerOutcome validates and records a market-session outcome reported
+// through the module bridge's peer_score action. op must be a market op
+// label; outcome must be a known label; the ref fields are bounded and never
+// carry raw amounts (valueHash is a commitment). Errors here are reported
+// back to the module over the bridge response.
+func (m *Mesh) RecordPeerOutcome(
+	pid peer.ID, op, outcome, sessionID, valueHash string,
+) error {
+	if m == nil || m.scoreStore == nil {
+		return fmt.Errorf("mesh not running")
+	}
+	switch op {
+	case OpMarketBuy, OpMarketSell:
+	default:
+		return fmt.Errorf("peer_score: unknown op %q", op)
+	}
+	if !ValidMarketOutcome(outcome) {
+		return fmt.Errorf("peer_score: unknown outcome %q", outcome)
+	}
+	if len(sessionID) > maxOutcomeRefLen || len(valueHash) > maxOutcomeValueHashLn {
+		return fmt.Errorf("peer_score: field exceeds bounds")
+	}
+	m.scoreStore.RecordOutcome(pid, op, outcome, sessionID, valueHash)
+	return nil
 }
 
 // TrustedPeers returns the list of trusted peer IDs.

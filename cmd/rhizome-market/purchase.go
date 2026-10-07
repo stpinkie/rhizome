@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -238,6 +239,53 @@ func (pm *purchaseMgr) transition(p *purchase, state, errCode, errMsg string) {
 			"session_id": p.SessionID, "error": errMsg,
 		})
 	}
+	pm.reportOutcome(p)
+}
+
+// purchaseOutcome maps a terminal purchase state to the peer_score outcome
+// label reported to the daemon — "" means no report (non-terminal).
+func purchaseOutcome(state string) string {
+	switch state {
+	case purchaseCompleted:
+		return "completed"
+	case purchaseFailed:
+		return "failed"
+	case purchaseDisputed:
+		return "disputed"
+	case purchaseResolved:
+		return "resolved"
+	case purchaseRefunded:
+		return "refunded"
+	default:
+		return ""
+	}
+}
+
+// reportOutcome records the seller's market outcome in the mesh peer-score
+// store via the peer_score bridge action. Best-effort and async — a
+// settlement report never blocks or fails a purchase transition.
+func (pm *purchaseMgr) reportOutcome(p *purchase) {
+	outcome := purchaseOutcome(p.State)
+	if outcome == "" || p.SellerPeerID == "" {
+		return
+	}
+	vh := valueHash(p.Terms.Amount, p.Terms.Token, p.TaskHash)
+	go func(peer, sid string) {
+		if err := reportOutcome(peer, "market_buy", outcome, sid, vh); err != nil && pm.audit != nil {
+			pm.audit.log("market.peer_score.failed", map[string]any{
+				"purchase_id": p.PurchaseID, "peer": peer,
+				"outcome": outcome, "error": err.Error(),
+			})
+		}
+	}(p.SellerPeerID, p.SessionID)
+}
+
+// valueHash commits to a session's settled value: sha256 over
+// amount|token|taskHash — enough to verify the ref later without the
+// payment graph (amounts) ever landing in the peer-score file.
+func valueHash(amount, token, taskHash string) string {
+	sum := sha256.Sum256([]byte(amount + "|" + token + "|" + taskHash))
+	return hex.EncodeToString(sum[:])
 }
 
 func (pm *purchaseMgr) lookup(id string) *purchase {

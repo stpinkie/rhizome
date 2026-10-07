@@ -262,6 +262,10 @@ func NewDaemonCommand() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "module bridge failed to bind: %v\n", err)
 				} else {
 					moduleMgr.SetBridgeAddr(bridge.Addr())
+					if rhizomeMesh != nil {
+						// peer_score bridge action → mesh score store.
+						bridge.SetPeerScoreRecorder(rhizomeMesh.RecordPeerOutcome)
+					}
 					bridge.Start()
 					defer func() { _ = bridge.Close() }()
 				}
