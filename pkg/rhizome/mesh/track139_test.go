@@ -270,6 +270,8 @@ func TestTrack139SyncNegotiatesEcon(t *testing.T) {
 }
 
 func TestTrack139HandleRequestCharge(t *testing.T) {
+	// Billed runs write the bilateral ledger — keep it in a scratch home.
+	t.Setenv("RHIZOME_HOME", t.TempDir())
 	cfgB := config.MeshConfig{
 		Enabled:             true,
 		AllowRemoteDelegate: true,
@@ -356,6 +358,7 @@ func TestTrack139PriceFloorRejected(t *testing.T) {
 }
 
 func TestTrack139UnacceptedUnitRejected(t *testing.T) {
+	t.Setenv("RHIZOME_HOME", t.TempDir())
 	cfgB := config.MeshConfig{
 		Enabled:          true,
 		AllowRemoteSpawn: true,
@@ -469,23 +472,24 @@ func TestTrack139ChargeVerification(t *testing.T) {
 	})
 
 	t.Run("unsolicited on journaled task", func(t *testing.T) {
-		f.meshA.recordEconSent("task-no-econ", nil)
-		err := f.meshA.verifyTaskCharge(f.nodeB.ID(), "task-no-econ", good)
+		f.meshA.recordEconSent("task-no-econ", nil, "")
+		_, err := f.meshA.verifyTaskCharge(f.nodeB.ID(), "task-no-econ", good)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), econ.MismatchCharge)
 	})
 
 	t.Run("unit disagrees with sent terms", func(t *testing.T) {
-		f.meshA.recordEconSent("task-econ", &econ.Terms{Accept: true, Unit: "other"})
-		err := f.meshA.verifyTaskCharge(f.nodeB.ID(), "task-econ", good)
+		f.meshA.recordEconSent("task-econ", &econ.Terms{Accept: true, Unit: "other"}, "")
+		_, err := f.meshA.verifyTaskCharge(f.nodeB.ID(), "task-econ", good)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), econ.MismatchCharge)
 	})
 
 	t.Run("honest charge verifies", func(t *testing.T) {
 		require.NoError(t, econ.VerifyCharge(adv, good))
-		f.meshA.recordEconSent("task-good", &econ.Terms{Accept: true, Unit: "credits"})
-		require.NoError(t, f.meshA.verifyTaskCharge(f.nodeB.ID(), "task-good", good))
+		f.meshA.recordEconSent("task-good", &econ.Terms{Accept: true, Unit: "credits"}, "")
+		_, verr := f.meshA.verifyTaskCharge(f.nodeB.ID(), "task-good", good)
+		require.NoError(t, verr)
 	})
 }
 
@@ -631,6 +635,81 @@ func TestTrack139UnnegotiatedWireCompat(t *testing.T) {
 		assert.NotContains(t, raw, `"charge"`)
 		assert.NotContains(t, raw, `"econ"`)
 	}
+}
+
+// TestTrack140LedgerBooksBothSides runs a billed task end to end and checks
+// the bilateral journal: the callee books receivable, the caller books
+// payable, and the amounts/digests agree.
+func TestTrack140LedgerBooksBothSides(t *testing.T) {
+	ctx := context.Background()
+
+	cfgA := config.MeshConfig{
+		Enabled:          true,
+		AllowRemoteSpawn: true,
+		RemoteTimeout:    30 * time.Second,
+		Economy:          track139CallerEcon(),
+	}
+	cfgB := config.MeshConfig{
+		Enabled:          true,
+		AllowRemoteSpawn: true,
+		RemoteTimeout:    30 * time.Second,
+		Economy:          track139CalleeEcon(),
+	}
+	runB := func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error) {
+		return toolshared.NewToolResult("ledger result"), &toolshared.RemoteUsage{
+			PromptTokens: 1000, TotalTokens: 1000, DurationMS: 50,
+		}, nil
+	}
+	meshA, meshB := newEconTestMeshes(t, cfgA, cfgB, runB)
+	waitForTaskProtocol(t, meshA, meshB)
+	discoverEconAdvert(t, meshA, meshB)
+
+	taskID, err := meshA.SubmitRemoteTask(ctx, meshB.node.ID(), RemoteCall{
+		TargetAgentID: "main",
+		SystemPrompt:  "ledger task",
+	})
+	require.NoError(t, err)
+	_, err = meshA.RemoteTaskResult(ctx, meshB.node.ID(), taskID, 15*time.Second)
+	require.NoError(t, err)
+
+	// Callee side: receivable accrual keyed to the task.
+	require.Eventually(t, func() bool {
+		for _, e := range meshB.econLedger.Entries() {
+			if e.Direction == econ.DirectionReceivable &&
+				e.PeerID == meshA.node.ID().String() &&
+				e.TaskID == taskID &&
+				e.Amount == "0.012" &&
+				e.State == econ.StateAccrued {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 50*time.Millisecond, "callee must book receivable")
+
+	// Caller side: payable accrual after verification, same unit/amount.
+	require.Eventually(t, func() bool {
+		for _, e := range meshA.econLedger.Entries() {
+			if e.Direction == econ.DirectionPayable &&
+				e.PeerID == meshB.node.ID().String() &&
+				e.TaskID == taskID &&
+				e.Amount == "0.012" &&
+				e.State == econ.StateAccrued {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 50*time.Millisecond, "caller must book payable")
+
+	// Refetching the result must not double-accrue (dedupe key).
+	_, err = meshA.RemoteTaskResult(ctx, meshB.node.ID(), taskID, time.Second)
+	require.NoError(t, err)
+	payables := 0
+	for _, e := range meshA.econLedger.Entries() {
+		if e.Direction == econ.DirectionPayable {
+			payables++
+		}
+	}
+	assert.Equal(t, 1, payables)
 }
 
 func mustMarshalT139(t *testing.T, v any) string {

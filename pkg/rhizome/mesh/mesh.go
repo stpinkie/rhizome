@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -253,11 +256,23 @@ type Mesh struct {
 	// (caller side) so a later result's charge can be verified against
 	// what was actually sent. Bounded at maxEconSent entries.
 	econSentMu sync.Mutex
-	econSent   map[string]*econ.Terms
+	econSent   map[string]econSentRecord
+
+	// econLedger is the bilateral charge book (Track 140). Writes are
+	// advisory like the audit trail — a failed open never breaks serving.
+	econLedger *econ.Ledger
 }
 
 // maxEconSent bounds the caller-side negotiated-terms journal.
 const maxEconSent = 1024
+
+// econSentRecord journals what a submitted task carried: the negotiated
+// terms (nil = unnegotiated — a charge arriving for it is unsolicited)
+// and the caller-side correlation id for ledger bookkeeping.
+type econSentRecord struct {
+	terms  *econ.Terms
+	corrID string
+}
 
 // NewMesh creates a mesh layer over an existing node and syncer.
 func NewMesh(
@@ -278,7 +293,14 @@ func NewMesh(
 		runFunc:  runFunc,
 		stop:     make(chan struct{}),
 		replay:   newReplayGuard(cfg.RequestMaxSkew),
-		econSent: make(map[string]*econ.Terms),
+		econSent: make(map[string]econSentRecord),
+	}
+	if l, err := econ.OpenLedger(defaultLedgerPath()); err != nil {
+		logger.WarnCF("mesh", "economy ledger open failed; charges will not be journaled", map[string]any{
+			"error": err.Error(),
+		})
+	} else {
+		m.econLedger = l
 	}
 	if cfg.AuditLog {
 		m.auditLog = newAuditLogger(defaultAuditPath())
@@ -739,9 +761,13 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		Result:        result,
 		Usage:         usage,
 	}
-	// Success-only billing: the signed charge lands on the response.
+	// Success-only billing: the signed charge lands on the response, and
+	// the callee books it receivable.
 	if billing {
 		resp.Charge = m.econCharge(req.Econ, chargeUsage)
+		m.recordEconCharge(
+			econ.DirectionReceivable, from.String(), "", req.CorrelationID,
+			resp.Charge, result)
 	}
 	if err := m.signResponse(&resp); err != nil {
 		return agentrpc.Response{}, fmt.Errorf("sign response: %w", err)
@@ -908,6 +934,10 @@ func (m *Mesh) CallRemote(
 				break
 			}
 			m.recordPeerCall(pid, op, true, latency, nil)
+			// A verified charge is booked payable on the caller side.
+			m.recordEconCharge(
+				econ.DirectionPayable, pid.String(), "", req.CorrelationID,
+				resp.Charge, resp.Result)
 			m.publishMeshEvent(endKind, map[string]any{
 				"peer_id":        pid.String(),
 				"agent_id":       call.TargetAgentID,
@@ -1526,7 +1556,7 @@ func (m *Mesh) verifyCharge(pid peer.ID, terms *econ.Terms, charge *econ.Charge)
 // result-path charge can be verified against what was actually sent. A nil
 // terms entry still records the task: a charge arriving for it was never
 // negotiated and is treated as unsolicited.
-func (m *Mesh) recordEconSent(taskID string, terms *econ.Terms) {
+func (m *Mesh) recordEconSent(taskID string, terms *econ.Terms, corrID string) {
 	if taskID == "" {
 		return
 	}
@@ -1538,42 +1568,111 @@ func (m *Mesh) recordEconSent(taskID string, terms *econ.Terms) {
 			break
 		}
 	}
-	m.econSent[taskID] = terms
+	m.econSent[taskID] = econSentRecord{terms: terms, corrID: corrID}
 }
 
 // popEconSent returns and drops the recorded terms for a task id. The ok
 // result distinguishes "task journaled with no negotiated terms" from
 // "task never seen through this mesh" (foreign id or evicted record).
-func (m *Mesh) popEconSent(taskID string) (*econ.Terms, bool) {
+func (m *Mesh) popEconSent(taskID string) (econSentRecord, bool) {
 	m.econSentMu.Lock()
 	defer m.econSentMu.Unlock()
-	t, ok := m.econSent[taskID]
+	r, ok := m.econSent[taskID]
 	delete(m.econSent, taskID)
-	return t, ok
+	return r, ok
 }
 
 // verifyTaskCharge is the result-path check: the charge must bind to the
 // peer's cached advert (digest + recompute bound). When the sent terms are
 // still on record the charge must also bill in the negotiated unit — and a
 // charge for a task we journaled without terms was never negotiated.
-func (m *Mesh) verifyTaskCharge(pid peer.ID, taskID string, charge *econ.Charge) error {
+func (m *Mesh) verifyTaskCharge(pid peer.ID, taskID string, charge *econ.Charge) (econSentRecord, error) {
+	// Pop unconditionally — a terminal task never needs the journal again,
+	// and the corrID feeds the payable ledger entry.
+	sent, journaled := m.popEconSent(taskID)
 	if charge == nil {
-		return nil
+		return sent, nil
 	}
-	terms, journaled := m.popEconSent(taskID)
-	if journaled && terms == nil {
-		return fmt.Errorf("%s unsolicited charge", econ.MismatchCharge)
+	if journaled && sent.terms == nil {
+		return sent, fmt.Errorf("%s unsolicited charge", econ.MismatchCharge)
 	}
 	adv := m.peerEconAdvert(pid)
 	if adv == nil {
-		return fmt.Errorf("%s no cached economy advert for peer", econ.MismatchCharge)
+		return sent, fmt.Errorf("%s no cached economy advert for peer", econ.MismatchCharge)
 	}
-	if terms != nil && charge.Unit != terms.Unit {
-		return fmt.Errorf(
+	if sent.terms != nil && charge.Unit != sent.terms.Unit {
+		return sent, fmt.Errorf(
 			"%s charge unit %q != negotiated unit %q",
-			econ.MismatchCharge, charge.Unit, terms.Unit)
+			econ.MismatchCharge, charge.Unit, sent.terms.Unit)
 	}
-	return econ.VerifyCharge(adv, charge)
+	return sent, econ.VerifyCharge(adv, charge)
+}
+
+// defaultLedgerPath returns the bilateral ledger location under RHIZOME_HOME.
+func defaultLedgerPath() string {
+	home := config.GetHome()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, econ.LedgerFileName)
+}
+
+// recordEconCharge writes one bilateral ledger line for a completed billed
+// run — receivable on the callee that emitted the charge, payable on the
+// caller that verified it — plus the audit line and runtime event. Advisory
+// like the audit trail: a ledger write failure never breaks serving.
+func (m *Mesh) recordEconCharge(
+	dir econ.Direction,
+	peerID, taskID, corrID string,
+	charge *econ.Charge,
+	result *toolshared.ToolResult,
+) {
+	if m == nil || charge == nil || m.econLedger == nil || !m.cfg.Economy.Enabled {
+		return
+	}
+	e := econ.Entry{
+		PeerID:        peerID,
+		Direction:     dir,
+		TaskID:        taskID,
+		CorrelationID: corrID,
+		Unit:          charge.Unit,
+		Amount:        charge.Amount,
+		Usage:         charge.Usage,
+		SheetDigest:   charge.SheetDigest,
+		State:         econ.StateAccrued,
+	}
+	if result != nil {
+		if raw, err := json.Marshal(result); err == nil {
+			sum := sha256.Sum256(raw)
+			e.ResultSHA256 = hex.EncodeToString(sum[:])
+		}
+	}
+	rec, err := m.econLedger.Record(e)
+	if err != nil {
+		logger.WarnCF("mesh", "economy ledger write failed", map[string]any{
+			"peer_id": peerID, "error": err.Error(),
+		})
+		return
+	}
+	entry := map[string]any{
+		"ts":           time.Now().UTC().Format(time.RFC3339Nano),
+		"peer_id":      peerID,
+		"op":           "econ.charge",
+		"ref":          taskID,
+		"status":       string(rec.State),
+		"direction":    string(dir),
+		"unit":         charge.Unit,
+		"amount":       charge.Amount,
+		"entry_id":     rec.EntryID,
+		"sheet_digest": charge.SheetDigest,
+	}
+	if corrID != "" {
+		entry["correlation_id"] = corrID
+	}
+	m.publishMeshEvent(runtimeevents.KindMeshEconCharge, entry)
+	if m.auditLog != nil {
+		m.auditLog.Log(entry)
+	}
 }
 
 // agentManifestIndex maps agent id to manifest fingerprint for status views.
