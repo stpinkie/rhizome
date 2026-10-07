@@ -27,6 +27,7 @@ func NewNetworkCommand() *cobra.Command {
 		NewScatterCommand(),
 		NewAuditCommand(),
 		NewPairCommand(),
+		NewEconomyCommand(),
 	)
 
 	return cmd

@@ -77,6 +77,9 @@ type Entry struct {
 	// and the on-chain transaction when the backend is web3 (Track 143).
 	SettleID string `json:"settle_id,omitempty"`
 	SettleTX string `json:"settle_tx,omitempty"`
+	// Note carries the operator-supplied reason on a dispute transition
+	// (or the resolution note on re-accrue/write-off).
+	Note string `json:"note,omitempty"`
 }
 
 // dedupeKey identifies the underlying charge — the same task id or
@@ -89,15 +92,30 @@ func (e Entry) dedupeKey() string {
 	return string(e.Direction) + "|" + e.PeerID + "|corr:" + e.CorrelationID
 }
 
+// workRef is the settle-offer wire ref for an entry — the task id when
+// present, else the correlation id (the ref the payee's receivable rows
+// carry identically, unlike the local entry_id).
+func (e Entry) workRef() string {
+	if e.TaskID != "" {
+		return e.TaskID
+	}
+	return e.CorrelationID
+}
+
 // Ledger is the node's append-only bilateral charge book. The mesh owns the
 // writer handle; CLI verbs read the file daemonless via ReadEntries — the
 // same posture as the peer-score store. Writes are single-line appends under
-// a mutex; transitions append a fresh record under the entry's id.
+// a mutex; transitions append a fresh record under the entry's id. The
+// in-memory index resyncs from the file whenever it changes on disk, so
+// daemonless writes (settle --mark-only, dispute, resolve) land in the
+// daemon's view on the next access instead of waiting for a restart.
 type Ledger struct {
 	mu      sync.Mutex
 	path    string
 	maxSize int64
 	keep    int
+	modTime time.Time
+	size    int64
 
 	entries  map[string]*Entry // entry_id → latest record
 	order    []string          // entry_ids in first-seen order
@@ -116,14 +134,53 @@ func OpenLedger(path string) (*Ledger, error) {
 	if path == "" {
 		return l, nil
 	}
-	ents, err := ReadEntries(path)
-	if err != nil {
+	if err := l.reloadLocked(); err != nil {
 		return nil, err
 	}
+	return l, nil
+}
+
+// syncLocked reloads the index when the file changed on disk — an external
+// append (a daemonless CLI write) or a rotation shows up on next access.
+func (l *Ledger) syncLocked() {
+	if l.path == "" {
+		return
+	}
+	info, err := os.Stat(l.path)
+	if os.IsNotExist(err) {
+		if l.size != 0 {
+			l.entries = make(map[string]*Entry)
+			l.order = nil
+			l.byDedupe = make(map[string]string)
+			l.size, l.modTime = 0, time.Time{}
+		}
+		return
+	}
+	if err != nil {
+		return
+	}
+	if info.ModTime().Equal(l.modTime) && info.Size() == l.size {
+		return
+	}
+	_ = l.reloadLocked()
+}
+
+// reloadLocked rebuilds the in-memory index from the live file.
+func (l *Ledger) reloadLocked() error {
+	ents, err := ReadEntries(l.path)
+	if err != nil {
+		return err
+	}
+	l.entries = make(map[string]*Entry)
+	l.order = nil
+	l.byDedupe = make(map[string]string)
 	for i := range ents {
 		l.index(&ents[i])
 	}
-	return l, nil
+	if info, err := os.Stat(l.path); err == nil {
+		l.modTime, l.size = info.ModTime(), info.Size()
+	}
+	return nil
 }
 
 // index folds one record into the in-memory view (latest per entry_id).
@@ -149,6 +206,7 @@ func (l *Ledger) Record(e Entry) (*Entry, error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.syncLocked()
 
 	if e.EntryID == "" {
 		if e.TaskID != "" || e.CorrelationID != "" {
@@ -178,10 +236,11 @@ func (l *Ledger) Record(e Entry) (*Entry, error) {
 //	disputed → accrued (--credit re-accrues) | written_off (--drop)
 //
 // settleID/settleTX annotate a settle transition (or clear a dispute's
-// stale settle markers on re-accrual).
-func (l *Ledger) Transition(entryID string, to EntryState, settleID, settleTX string) (*Entry, error) {
+// stale settle markers on re-accrual); note carries the dispute reason.
+func (l *Ledger) Transition(entryID string, to EntryState, settleID, settleTX, note string) (*Entry, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.syncLocked()
 
 	cur, ok := l.entries[entryID]
 	if !ok {
@@ -209,6 +268,7 @@ func (l *Ledger) Transition(entryID string, to EntryState, settleID, settleTX st
 	} else {
 		next.SettleID, next.SettleTX = settleID, settleTX
 	}
+	next.Note = note
 	if err := l.append(&next); err != nil {
 		return nil, err
 	}
@@ -221,6 +281,7 @@ func (l *Ledger) Transition(entryID string, to EntryState, settleID, settleTX st
 func (l *Ledger) Get(entryID string) (Entry, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.syncLocked()
 	e, ok := l.entries[entryID]
 	if !ok {
 		return Entry{}, false
@@ -232,6 +293,7 @@ func (l *Ledger) Get(entryID string) (Entry, bool) {
 func (l *Ledger) Entries() []Entry {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.syncLocked()
 	out := make([]Entry, 0, len(l.order))
 	for _, id := range l.order {
 		out = append(out, *l.entries[id])
@@ -252,20 +314,22 @@ type UnitBalance struct {
 func (l *Ledger) Balance(peerID string) []UnitBalance {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return balanceEntries(l.entries, func(e *Entry) bool { return e.PeerID == peerID })
+	l.syncLocked()
+	return BalanceEntries(l.entries, func(e *Entry) bool { return e.PeerID == peerID })
 }
 
 // Balances returns per-unit balances for every peer present in the ledger.
 func (l *Ledger) Balances() map[string][]UnitBalance {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.syncLocked()
 	peers := make(map[string]bool)
 	for _, e := range l.entries {
 		peers[e.PeerID] = true
 	}
 	out := make(map[string][]UnitBalance, len(peers))
 	for p := range peers {
-		out[p] = balanceEntries(l.entries, func(e *Entry) bool { return e.PeerID == p })
+		out[p] = BalanceEntries(l.entries, func(e *Entry) bool { return e.PeerID == p })
 	}
 	return out
 }
@@ -277,9 +341,16 @@ func (l *Ledger) Balances() map[string][]UnitBalance {
 func (l *Ledger) CommittedSince(peerID string, since time.Time) map[string]string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.syncLocked()
+	return CommittedSinceEntries(l.entries, func(e *Entry) bool { return e.PeerID == peerID }, since)
+}
+
+// CommittedSinceEntries is the free-function form of CommittedSince for
+// daemonless callers that have already read the entry stream.
+func CommittedSinceEntries(entries map[string]*Entry, match func(*Entry) bool, since time.Time) map[string]string {
 	sums := make(map[string]*big.Rat)
-	for _, e := range l.entries {
-		if e.PeerID != peerID || e.Direction != DirectionPayable {
+	for _, e := range entries {
+		if !match(e) || e.Direction != DirectionPayable {
 			continue
 		}
 		if e.State == StateWrittenOff || e.TS.Before(since) {
@@ -301,7 +372,9 @@ func (l *Ledger) CommittedSince(peerID string, since time.Time) map[string]strin
 	return out
 }
 
-func balanceEntries(entries map[string]*Entry, match func(*Entry) bool) []UnitBalance {
+// BalanceEntries is the free-function form of Balance for daemonless
+// callers that have already read the entry stream.
+func BalanceEntries(entries map[string]*Entry, match func(*Entry) bool) []UnitBalance {
 	sums := make(map[string]*UnitBalance)
 	rats := make(map[string][4]*big.Rat)
 	add := func(u string, idx int, amount string) {
@@ -370,6 +443,9 @@ func (l *Ledger) append(e *Entry) error {
 	defer func() { _ = f.Close() }()
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("append ledger: %w", err)
+	}
+	if info, err := f.Stat(); err == nil {
+		l.modTime, l.size = info.ModTime(), info.Size()
 	}
 	return nil
 }

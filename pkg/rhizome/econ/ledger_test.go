@@ -81,19 +81,19 @@ func TestLedgerTransitions(t *testing.T) {
 	require.NoError(t, err)
 
 	// accrued → settled carries the settle round + tx reference.
-	got, err := l.Transition(e.EntryID, StateSettled, "settle-7", "0xtx")
+	got, err := l.Transition(e.EntryID, StateSettled, "settle-7", "0xtx", "")
 	require.NoError(t, err)
 	assert.Equal(t, StateSettled, got.State)
 	assert.Equal(t, "settle-7", got.SettleID)
 	assert.Equal(t, "0xtx", got.SettleTX)
 
 	// settled is terminal.
-	_, err = l.Transition(e.EntryID, StateDisputed, "", "")
+	_, err = l.Transition(e.EntryID, StateDisputed, "", "", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "settled")
 
 	// Unknown id.
-	_, err = l.Transition("entry-nope", StateSettled, "", "")
+	_, err = l.Transition("entry-nope", StateSettled, "", "", "")
 	require.Error(t, err)
 
 	// accrued → written_off is not a legal move — disputes gate write-off.
@@ -102,23 +102,23 @@ func TestLedgerTransitions(t *testing.T) {
 		TaskID: "task-9", Unit: "credits", Amount: "1",
 	})
 	require.NoError(t, err)
-	_, err = l.Transition(d.EntryID, StateWrittenOff, "", "")
+	_, err = l.Transition(d.EntryID, StateWrittenOff, "", "", "")
 	require.Error(t, err)
 
 	// disputed → accrued (--credit) clears stale settle markers;
 	// disputed → written_off (--drop) is the other resolution.
-	_, err = l.Transition(d.EntryID, StateDisputed, "", "")
+	_, err = l.Transition(d.EntryID, StateDisputed, "", "", "")
 	require.NoError(t, err)
-	back, err := l.Transition(d.EntryID, StateAccrued, "", "")
+	back, err := l.Transition(d.EntryID, StateAccrued, "", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, back.SettleID)
-	_, err = l.Transition(d.EntryID, StateDisputed, "", "")
+	_, err = l.Transition(d.EntryID, StateDisputed, "", "", "")
 	require.NoError(t, err)
-	drop, err := l.Transition(d.EntryID, StateWrittenOff, "", "")
+	drop, err := l.Transition(d.EntryID, StateWrittenOff, "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, StateWrittenOff, drop.State)
 	// disputed never settles directly.
-	_, err = l.Transition(d.EntryID, StateSettled, "", "")
+	_, err = l.Transition(d.EntryID, StateSettled, "", "", "")
 	require.Error(t, err)
 }
 
@@ -130,16 +130,16 @@ func TestLedgerBalances(t *testing.T) {
 	// 0.1 written off (excluded) + 0.3 settled.
 	mustRecordT140(t, l, "peer-a", DirectionPayable, "t1", "credits", "0.012")
 	s := mustRecordT140(t, l, "peer-a", DirectionPayable, "t2", "credits", "0.5")
-	_, err = l.Transition(s.EntryID, StateSettled, "settle-1", "")
+	_, err = l.Transition(s.EntryID, StateSettled, "settle-1", "", "")
 	require.NoError(t, err)
 	mustRecordT140(t, l, "peer-a", DirectionReceivable, "t3", "credits", "0.25")
 	d := mustRecordT140(t, l, "peer-a", DirectionReceivable, "t4", "credits", "0.1")
-	_, err = l.Transition(d.EntryID, StateDisputed, "", "")
+	_, err = l.Transition(d.EntryID, StateDisputed, "", "", "")
 	require.NoError(t, err)
-	_, err = l.Transition(d.EntryID, StateWrittenOff, "", "")
+	_, err = l.Transition(d.EntryID, StateWrittenOff, "", "", "")
 	require.NoError(t, err)
 	rs := mustRecordT140(t, l, "peer-a", DirectionReceivable, "t5", "credits", "0.3")
-	_, err = l.Transition(rs.EntryID, StateSettled, "settle-2", "")
+	_, err = l.Transition(rs.EntryID, StateSettled, "settle-2", "", "")
 	require.NoError(t, err)
 	// Different unit is a separate balance row.
 	mustRecordT140(t, l, "peer-a", DirectionPayable, "t6", "usdc", "7")
@@ -184,9 +184,9 @@ func TestLedgerCommittedSince(t *testing.T) {
 	mustRecordT140(t, l, "peer-a", DirectionPayable, "new1", "credits", "0.5")
 	mustRecordT140(t, l, "peer-a", DirectionReceivable, "new2", "credits", "0.7")
 	wo := mustRecordT140(t, l, "peer-a", DirectionPayable, "wo", "credits", "0.4")
-	_, err = l.Transition(wo.EntryID, StateDisputed, "", "")
+	_, err = l.Transition(wo.EntryID, StateDisputed, "", "", "")
 	require.NoError(t, err)
-	_, err = l.Transition(wo.EntryID, StateWrittenOff, "", "")
+	_, err = l.Transition(wo.EntryID, StateWrittenOff, "", "", "")
 	require.NoError(t, err)
 	mustRecordT140(t, l, "peer-b", DirectionPayable, "other-peer", "credits", "0.9")
 

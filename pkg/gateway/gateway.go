@@ -770,6 +770,13 @@ func setupAndStartServices(
 		}
 	}
 
+	econHandler := newNetworkEconomyHandler(rhizomeMesh, authToken)
+	for _, path := range []string{"/network/economy", "/network/economy/"} {
+		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, econHandler); err != nil {
+			return nil, fmt.Errorf("error registering network economy handler %s: %w", path, err)
+		}
+	}
+
 	modHandler := newModuleHandler(authToken)
 	for _, path := range []string{"/modules", "/modules/"} {
 		if err = runningServices.ChannelManager.RegisterHTTPHandler(path, modHandler); err != nil {

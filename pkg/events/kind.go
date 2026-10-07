@@ -152,6 +152,15 @@ const (
 	// on the callee). Payload: direction, unit, amount, task_id,
 	// correlation_id, entry_id, sheet_digest.
 	KindMeshEconCharge Kind = "mesh.econ.charge"
+	// KindMeshEconDispute is emitted when an operator disputes accrued
+	// ledger entries. Payload: task_id, entry_ids, peer_id, reason.
+	KindMeshEconDispute Kind = "mesh.econ.dispute"
+	// KindMeshEconResolve is emitted when a dispute resolves — credit
+	// re-accrues, drop writes off. Payload: task_id, entry_ids, action.
+	KindMeshEconResolve Kind = "mesh.econ.resolve"
+	// KindMeshEconSettle is emitted when ledger entries are settled.
+	// Payload: peer_id, entry_ids, settle_id, backend, mark_only.
+	KindMeshEconSettle Kind = "mesh.econ.settle"
 	// KindMeshCapabilityUnsigned is emitted when a trusted peer sends an
 	// unsigned capability manifest (rejected unless require_signed_caps is off).
 	KindMeshCapabilityUnsigned Kind = "mesh.cap.unsigned"
