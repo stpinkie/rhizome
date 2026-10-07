@@ -192,13 +192,47 @@ func (t *Transport) Stat(ctx context.Context, pid peer.ID, hash string) (Meta, e
 	}, nil
 }
 
+// maxGetAttempts bounds the get retry loop: each attempt asks the server
+// for only the missing tail (Offset), so a dropped stream mid-blob restarts
+// from the staged byte count rather than zero.
+const maxGetAttempts = 3
+
 // Get fetches a blob from a peer into the local store and returns its local
-// path. Content is verified against the announced hash while streaming.
+// path. A hash already in the store returns immediately (content-addressed
+// dedup). Content is staged at a deterministic .partial-<hash> path and
+// verified against the announced hash while streaming; interrupted attempts
+// keep the partial so the next attempt resumes via the offset verb (peers
+// without it echo Offset=0 and the transfer restarts cleanly).
 func (t *Transport) Get(ctx context.Context, pid peer.ID, hash string) (string, Meta, error) {
 	if err := ValidateHash(hash); err != nil {
 		return "", Meta{}, err
 	}
-	rc, resp, err := t.call(ctx, pid, Request{Op: OpGet, Hash: hash})
+	if t.store.Has(hash) {
+		meta, _ := t.store.Stat(hash)
+		path, err := t.store.Path(hash)
+		return path, meta, err
+	}
+	var lastErr error
+	for attempt := 0; attempt < maxGetAttempts; attempt++ {
+		path, meta, err := t.getOnce(ctx, pid, hash)
+		if err == nil {
+			return path, meta, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return "", Meta{}, lastErr
+}
+
+// getOnce performs one get attempt: request the tail after whatever the
+// .partial file already holds, stream chunks onto it, and complete.
+func (t *Transport) getOnce(ctx context.Context, pid peer.ID, hash string) (string, Meta, error) {
+	// Ask for the tail after the staged prefix — the writer's Staged count
+	// is the only source of truth for the offset.
+	staged := t.store.PartialSize(hash)
+	rc, resp, err := t.call(ctx, pid, Request{Op: OpGet, Hash: hash, Offset: staged})
 	if err != nil {
 		return "", Meta{}, err
 	}
@@ -208,20 +242,28 @@ func (t *Transport) Get(ctx context.Context, pid peer.ID, hash string) (string, 
 	}
 
 	meta := Meta{Name: resp.Name, ContentType: resp.ContentType, Owner: pid.String()}
-	w, err := t.store.NewBlobWriter(hash, resp.Size)
+	w, err := t.store.NewResumableWriter(hash, resp.Size)
 	if err != nil {
 		return "", Meta{}, err
 	}
-	var final Response
-	received := int64(0)
+	// If the server doesn't echo our offset (pre-resume peer, or it
+	// rejected the prefix), restart the staged content.
+	if resp.Offset != w.Staged() {
+		w.Abort()
+		w, err = t.store.NewResumableWriter(hash, resp.Size)
+		if err != nil {
+			return "", Meta{}, err
+		}
+	}
+	received := w.Staged()
 	for received < resp.Size {
 		typ, raw, err := rc.ReadFrame()
 		if err != nil {
-			w.Abort()
+			w.Suspend()
 			return "", Meta{}, fmt.Errorf("read blob chunk: %w", err)
 		}
 		if typ != frameChunk {
-			w.Abort()
+			w.Suspend()
 			return "", Meta{}, fmt.Errorf("unexpected blob frame type during get: %d", typ)
 		}
 		if _, err := w.Write(raw); err != nil {
@@ -233,15 +275,16 @@ func (t *Transport) Get(ctx context.Context, pid peer.ID, hash string) (string, 
 	// Read the final status frame the server sends after the last chunk.
 	typ, raw, err := rc.ReadFrame()
 	if err != nil {
-		w.Abort()
+		w.Suspend()
 		return "", Meta{}, fmt.Errorf("read blob completion: %w", err)
 	}
 	if typ != frameResponse {
-		w.Abort()
+		w.Suspend()
 		return "", Meta{}, fmt.Errorf("unexpected blob frame type at completion: %d", typ)
 	}
+	var final Response
 	if err := json.Unmarshal(raw, &final); err != nil {
-		w.Abort()
+		w.Suspend()
 		return "", Meta{}, fmt.Errorf("decode blob completion: %w", err)
 	}
 	if err := t.verifyResponse(pid, &final); err != nil {
@@ -250,6 +293,8 @@ func (t *Transport) Get(ctx context.Context, pid peer.ID, hash string) (string, 
 	}
 	got, err := w.Complete()
 	if err != nil {
+		// Complete deletes the partial on hash mismatch, so the next
+		// attempt restarts from zero rather than the corrupt prefix.
 		return "", Meta{}, err
 	}
 	if err := t.store.WriteMeta(got, meta); err != nil {
@@ -292,26 +337,40 @@ func (t *Transport) Put(ctx context.Context, pid peer.ID, hash string) error {
 		return err
 	}
 
-	//nolint:gosec // G304: localPath is the content-addressed blob path under the store root.
-	f, err := os.Open(localPath)
-	if err != nil {
-		return err
+	// resp.Offset is the server's staged byte count for this hash (0 on
+	// pre-resume peers): < size resumes an interrupted upload, == size is
+	// a content-addressed hit — commit without streaming.
+	skipTo := resp.Offset
+	if skipTo < 0 || skipTo > meta.Size {
+		skipTo = 0
 	}
-	defer func() { _ = f.Close() }()
-
-	buf := make([]byte, chunkSize)
-	for {
-		n, rerr := f.Read(buf)
-		if n > 0 {
-			if err := rc.WriteFrame(frameChunk, buf[:n]); err != nil {
-				return fmt.Errorf("write blob chunk: %w", err)
+	if skipTo < meta.Size {
+		//nolint:gosec // G304: localPath is the content-addressed blob path under the store root.
+		f, err := os.Open(localPath)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		if skipTo > 0 {
+			if _, err := f.Seek(skipTo, io.SeekStart); err != nil {
+				return fmt.Errorf("seek blob source: %w", err)
 			}
 		}
-		if rerr == io.EOF {
-			break
-		}
-		if rerr != nil {
-			return fmt.Errorf("read blob source: %w", rerr)
+
+		buf := make([]byte, chunkSize)
+		for {
+			n, rerr := f.Read(buf)
+			if n > 0 {
+				if err := rc.WriteFrame(frameChunk, buf[:n]); err != nil {
+					return fmt.Errorf("write blob chunk: %w", err)
+				}
+			}
+			if rerr == io.EOF {
+				break
+			}
+			if rerr != nil {
+				return fmt.Errorf("read blob source: %w", rerr)
+			}
 		}
 	}
 
@@ -423,12 +482,27 @@ func (t *Transport) serveGet(rc *stream.ReliableConn, from peer.ID, req Request)
 	}
 	defer func() { _ = f.Close() }()
 
+	// Offset resume: seek to the requester's staged prefix. Out-of-range
+	// offsets clamp to a full send.
+	offset := req.Offset
+	if offset < 0 || offset > meta.Size {
+		offset = 0
+	}
+	if offset > 0 {
+		seeker, ok := f.(io.Seeker)
+		if !ok {
+			offset = 0
+		} else if _, err := seeker.Seek(offset, io.SeekStart); err != nil {
+			offset = 0
+		}
+	}
 	t.respond(rc, Response{
 		OK:          true,
 		Hash:        req.Hash,
 		Size:        meta.Size,
 		Name:        meta.Name,
 		ContentType: meta.ContentType,
+		Offset:      offset,
 	})
 
 	buf := make([]byte, chunkSize)
@@ -465,25 +539,33 @@ func (t *Transport) servePut(rc *stream.ReliableConn, from peer.ID, req Request)
 		t.report(OpPut, from, req.Hash, err)
 		return
 	}
-	w, err := t.store.NewBlobWriter(req.Hash, req.Size)
+	// Content-addressed dedup: the blob is already committed — tell the
+	// sender to skip straight to commit.
+	if t.store.Has(req.Hash) {
+		t.respond(rc, Response{OK: true, Hash: req.Hash, Offset: req.Size})
+		t.servePutCommit(rc, from, req, nil)
+		return
+	}
+	w, err := t.store.NewResumableWriter(req.Hash, req.Size)
 	if err != nil {
 		t.respond(rc, Response{Error: err.Error()})
 		t.report(OpPut, from, req.Hash, err)
 		return
 	}
-	// Signal readiness; the client streams chunk frames next.
-	t.respond(rc, Response{OK: true, Hash: req.Hash})
+	// Signal readiness plus the staged byte count; the client sends only
+	// the tail after a dropped upload.
+	t.respond(rc, Response{OK: true, Hash: req.Hash, Offset: w.Staged()})
 
-	received := int64(0)
+	received := w.Staged()
 	for received < req.Size {
 		typ, raw, rerr := rc.ReadFrame()
 		if rerr != nil {
-			w.Abort()
+			w.Suspend()
 			t.report(OpPut, from, req.Hash, rerr)
 			return
 		}
 		if typ != frameChunk {
-			w.Abort()
+			w.Suspend()
 			t.report(OpPut, from, req.Hash, fmt.Errorf("unexpected frame type %d during put", typ))
 			return
 		}
@@ -494,24 +576,40 @@ func (t *Transport) servePut(rc *stream.ReliableConn, from peer.ID, req Request)
 		}
 		received += int64(len(raw))
 	}
+	t.servePutCommit(rc, from, req, w)
+}
+
+// servePutCommit verifies and applies the commit frame. When w is nil the
+// blob was already stored (dedup skip) — the commit just confirms it.
+func (t *Transport) servePutCommit(rc *stream.ReliableConn, from peer.ID, req Request, w *blobWriter) {
+	abort := func() {
+		if w != nil {
+			w.Abort()
+		}
+	}
+	suspend := func() {
+		if w != nil {
+			w.Suspend()
+		}
+	}
 
 	// Expect the signed commit request.
 	typ, payload, rerr := rc.ReadFrame()
 	if rerr != nil || typ != frameRequest {
-		w.Abort()
+		suspend()
 		t.report(OpPut, from, req.Hash, fmt.Errorf("missing commit"))
 		return
 	}
 	var commit Request
 	if err := json.Unmarshal(payload, &commit); err != nil || commit.Op != OpCommit || commit.Hash != req.Hash {
-		w.Abort()
+		abort()
 		t.respond(rc, Response{Error: "invalid commit"})
 		t.report(OpPut, from, req.Hash, fmt.Errorf("invalid commit"))
 		return
 	}
 	if t.verifyReq != nil {
 		if err := t.verifyReq(from, &commit); err != nil {
-			w.Abort()
+			abort()
 			t.respond(rc, Response{Error: fmt.Sprintf("verify commit: %v", err)})
 			t.report(OpCommit, from, req.Hash, err)
 			return
@@ -519,18 +617,32 @@ func (t *Transport) servePut(rc *stream.ReliableConn, from peer.ID, req Request)
 	}
 	if t.authorize != nil {
 		if err := t.authorize(from, commit); err != nil {
-			w.Abort()
+			abort()
 			t.respond(rc, Response{Error: fmt.Sprintf("forbidden: %v", err)})
 			t.report(OpCommit, from, req.Hash, err)
 			return
 		}
 	}
 
-	sum, err := w.Complete()
-	if err != nil {
-		t.respond(rc, Response{Error: err.Error()})
-		t.report(OpCommit, from, req.Hash, err)
-		return
+	var sum string
+	if w == nil {
+		// Dedup path: the blob was already committed before this put —
+		// re-check in case the reaper ran between the handshake and now.
+		if !t.store.Has(req.Hash) {
+			err := fmt.Errorf("blob no longer stored")
+			t.respond(rc, Response{Error: err.Error()})
+			t.report(OpCommit, from, req.Hash, err)
+			return
+		}
+		sum = req.Hash
+	} else {
+		var err error
+		sum, err = w.Complete()
+		if err != nil {
+			t.respond(rc, Response{Error: err.Error()})
+			t.report(OpCommit, from, req.Hash, err)
+			return
+		}
 	}
 	_ = t.store.WriteMeta(sum, Meta{
 		Name:        req.Name,

@@ -426,6 +426,14 @@ func (m *Mesh) FetchBlob(ctx context.Context, ref string) (string, blob.Meta, er
 	return path, meta, nil
 }
 
+// Blobs lists committed blobs plus in-flight partials for `mesh blobs`.
+func (m *Mesh) Blobs() ([]blob.Entry, error) {
+	if m.blobStore == nil {
+		return nil, fmt.Errorf("blob store not configured")
+	}
+	return m.blobStore.List()
+}
+
 // StatBlob returns a remote (or local) blob's metadata.
 func (m *Mesh) StatBlob(ctx context.Context, ref string) (blob.Meta, error) {
 	if !m.BlobEnabled() {

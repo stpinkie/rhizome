@@ -132,6 +132,37 @@ func NewSkillCommand() *cobra.Command {
 	pull.Flags().
 		BoolVar(&allowSuspicious, "allow-suspicious", false, "Install bundles even if the guard scanner flags them as suspicious")
 
-	cmd.AddCommand(list, pull)
+	push := &cobra.Command{
+		Use:   "push <peer-id> <skill-name>",
+		Short: "Notify a trusted peer to pull one of your shared skills (daemon required)",
+		Long: "Send a signed offer so the peer pulls the skill bundle from " +
+			"this node. The pull itself runs on their side — the same " +
+			"skill_share, trust, and guard checks apply as any pull.",
+		Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			payload, _ := json.Marshal(map[string]any{
+				"peer": args[0],
+				"name": args[1],
+			})
+			data, code, err := skillRequest(http.MethodPost,
+				"/network/skills/push", payload, 30*time.Second)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v — mesh skill commands require a running daemon\n", err)
+				os.Exit(1)
+			}
+			if code != http.StatusOK {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", string(bytes.TrimSpace(data)))
+				os.Exit(1)
+			}
+			if asJSON {
+				fmt.Println(string(data))
+				return
+			}
+			fmt.Printf("Offered %q to %s — they pull it on their side.\n", args[1], args[0])
+		},
+	}
+	push.Flags().BoolVar(&asJSON, "json", false, "Print as JSON")
+
+	cmd.AddCommand(list, pull, push)
 	return cmd
 }

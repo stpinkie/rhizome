@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/rhizome/blob"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
@@ -32,9 +33,9 @@ const (
 	skillFrameResponse = byte(2)
 )
 
-// skillRequest is the signed control message for skill list/pull.
+// skillRequest is the signed control message for skill list/pull/offer.
 type skillRequest struct {
-	Op   string `json:"op"` // "list" | "pull"
+	Op   string `json:"op"` // "list" | "pull" | "offer"
 	Name string `json:"name,omitempty"`
 
 	Nonce     string `json:"nonce,omitempty"`
@@ -237,6 +238,8 @@ func (m *Mesh) handleSkillRequest(from peer.ID, req skillRequest) skillResponse 
 		return skillResponse{OK: true, Skills: m.shareableSkills()}
 	case "pull":
 		return m.serveSkillPull(from, req.Name, started)
+	case "offer":
+		return m.serveSkillOffer(from, req.Name, started)
 	default:
 		return reject(fmt.Sprintf("unknown op %q", req.Op))
 	}
@@ -305,6 +308,88 @@ func (m *Mesh) serveSkillPull(from peer.ID, name string, started time.Time) skil
 		"hash":    hash,
 	})
 	return skillResponse{OK: true, Ref: blob.MakeRef(m.host.ID().String(), hash)}
+}
+
+// serveSkillOffer handles a push notification: the offering peer asks us to
+// pull a skill from them. The offer only queues a pull — every pull-side
+// check (their skill_share list, our trust, the guard scan, suspicious
+// rejection) runs in PullSkill, so an offer of an unshared or hostile
+// bundle fails there, not here.
+func (m *Mesh) serveSkillOffer(from peer.ID, name string, started time.Time) skillResponse {
+	reject := func(msg string) skillResponse {
+		m.auditMesh(from, "skill.offer", "", name, "rejected", started, msg)
+		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+			"stage":   "skill.offer",
+			"error":   msg,
+			"peer_id": from.String(),
+		})
+		return skillResponse{OK: false, Error: msg}
+	}
+	if err := skills.ValidateSkillName(name); err != nil {
+		return reject("invalid skill name")
+	}
+	m.auditMesh(from, "skill.offer", "", name, "ok", started, "")
+	m.publishMeshEvent(runtimeevents.KindMeshSkillPush, map[string]any{
+		"peer_id":  from.String(),
+		"skill":    name,
+		"incoming": true,
+	})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		res, err := m.PullSkill(ctx, from, name, false)
+		if err != nil {
+			logger.WarnCF("mesh", "skill offer pull failed", map[string]any{
+				"peer_id": from.String(),
+				"skill":   name,
+				"error":   err.Error(),
+			})
+			return
+		}
+		logger.InfoCF("mesh", "skill offer pulled", map[string]any{
+			"peer_id":    from.String(),
+			"skill":      res.Name,
+			"suspicious": res.Suspicious,
+		})
+	}()
+	return skillResponse{OK: true}
+}
+
+// OfferSkill notifies a trusted peer that they should pull skill `name`
+// from this node. The pull itself runs on the peer's side — this call only
+// delivers the consentful trigger. Offering a skill outside the local
+// skill_share allowlist fails fast since the peer's pull would reject.
+func (m *Mesh) OfferSkill(ctx context.Context, pid peer.ID, name string) error {
+	if err := skills.ValidateSkillName(name); err != nil {
+		return err
+	}
+	shared := false
+	for _, s := range m.shareableSkills() {
+		if s == name {
+			shared = true
+			break
+		}
+	}
+	if !shared {
+		return fmt.Errorf("skill %q is not shared by this node (mesh.skill_share)", name)
+	}
+	started := time.Now()
+	resp, err := m.skillCall(ctx, pid, skillRequest{Op: "offer", Name: name})
+	if err != nil {
+		m.auditMesh(pid, "skill.offer.req", "", name, "error", started, err.Error())
+		return err
+	}
+	if !resp.OK {
+		m.auditMesh(pid, "skill.offer.req", "", name, "rejected", started, resp.Error)
+		return fmt.Errorf("skill offer rejected: %s", resp.Error)
+	}
+	m.auditMesh(pid, "skill.offer.req", "", name, "ok", started, "")
+	m.publishMeshEvent(runtimeevents.KindMeshSkillPush, map[string]any{
+		"peer_id":  pid.String(),
+		"skill":    name,
+		"outgoing": true,
+	})
+	return nil
 }
 
 // ListPeerSkills returns the skills the peer advertises as shareable.
