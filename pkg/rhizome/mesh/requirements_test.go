@@ -2,6 +2,8 @@ package mesh
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
+	"github.com/stpinkie/rhizome/pkg/skills"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -77,32 +80,41 @@ func TestRequirementsStrings(t *testing.T) {
 }
 
 func TestMeshPickPeerWithRequirements(t *testing.T) {
+	ctx := context.Background()
 	runFunc := func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
 		return toolshared.NewToolResult("ok"), nil
 	}
 	cfg := config.MeshConfig{
 		Enabled:          true,
 		AllowRemoteSpawn: true,
+		AdvertiseModels:  true,
+		SkillShare:       []string{"summarize"},
 		RemoteTimeout:    30 * time.Second,
 	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
 
-	// Wait for B's real announce to land, then re-plant until it sticks —
-	// a late-arriving manifest would otherwise clobber the planted models.
+	// B really advertises the model and the shareable skill — announces
+	// then converge on the truth instead of a planted manifest that a
+	// late-arriving announce could clobber.
+	ws := t.TempDir()
+	skillDir := filepath.Join(ws, "skills", "summarize")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: summarize\ndescription: test skill\n---\n"), 0o644))
+	meshB.SetSkillsLoader(skills.NewSkillsLoader(ws, "", ""))
+	meshB.SetModelList(config.SecureModelList{
+		{ModelName: "llama3", Model: "test/llama3", Enabled: true},
+	})
+
 	req := Requirements{Models: []string{"llama3"}}
 	var pid peer.ID
 	require.Eventually(t, func() bool {
-		meshA.SetCapability(meshB.node.ID(), Capability{
-			PeerID:          meshB.node.PeerID(),
-			Agents:          []string{"main"},
-			Models:          []string{"llama3"},
-			ShareableSkills: []string{"summarize"},
-			Allows:          map[string]bool{"spawn": true},
-		})
+		meshB.Advertise(ctx)
 		var err error
 		pid, _, err = meshA.PickPeerWith("main", "spawn", req)
 		return err == nil
-	}, 10*time.Second, 50*time.Millisecond)
+	}, 15*time.Second, 100*time.Millisecond)
 	assert.Equal(t, meshB.node.ID(), pid)
 
 	// A skill advertised only under shareable_skills still satisfies.
@@ -125,8 +137,16 @@ func TestSubmitCandidatesRequirements(t *testing.T) {
 	runFunc := func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, error) {
 		return toolshared.NewToolResult("ok"), nil
 	}
-	cfg := config.MeshConfig{Enabled: true, RemoteTimeout: 30 * time.Second}
+	cfg := config.MeshConfig{
+		Enabled:          true,
+		AllowRemoteSpawn: true,
+		AdvertiseModels:  true,
+		RemoteTimeout:    30 * time.Second,
+	}
 	meshA, meshB := newTaskTestMeshes(t, runFunc, cfg)
+	meshB.SetModelList(config.SecureModelList{
+		{ModelName: "llama3", Model: "test/llama3", Enabled: true},
+	})
 
 	// Third node connected to A — advertises no models.
 	idC := testutil.NewIdentity(t)
@@ -150,22 +170,17 @@ func TestSubmitCandidatesRequirements(t *testing.T) {
 	}, 10*time.Second, 50*time.Millisecond)
 	meshA.TrustPeer(nodeC.ID())
 
-	// B carries the required model; C omits the class. Re-plant until the
-	// manifests stick — a late real announce would clobber the models.
+	// B carries the required model for real; C omits the class. Re-announce
+	// until the manifests land at A — every announce carries the truth, so
+	// the view stays correct once it converges (no planted-caps race).
 	req := Requirements{Models: []string{"llama3"}}
 	var candidates []RankedPeer
 	require.Eventually(t, func() bool {
-		meshA.SetCapability(meshB.node.ID(), Capability{
-			PeerID: meshB.node.PeerID(), Agents: []string{"main"}, Models: []string{"llama3"},
-			Allows: map[string]bool{"spawn": true},
-		})
-		meshA.SetCapability(nodeC.ID(), Capability{
-			PeerID: nodeC.PeerID(), Agents: []string{"main"},
-			Allows: map[string]bool{"spawn": true},
-		})
+		meshB.Advertise(ctx)
+		meshC.Advertise(ctx)
 		candidates = meshA.submitCandidates("", "main", "spawn", req)
 		return len(candidates) == 1 && candidates[0].PID == meshB.node.ID()
-	}, 10*time.Second, 50*time.Millisecond)
+	}, 15*time.Second, 100*time.Millisecond)
 
 	// Without a preferred peer only B qualifies.
 	assert.Equal(t, meshB.node.ID(), candidates[0].PID)
@@ -191,22 +206,24 @@ func TestMeshFanoutRequirements(t *testing.T) {
 	runFunc := func(_ context.Context, req agentrpc.Request) (*toolshared.ToolResult, error) {
 		return toolshared.NewToolResult("ok-" + req.TargetAgentID), nil
 	}
-	meshA, meshB, meshC := newFanoutTestMeshes(t, runFunc, runFunc)
+	// Worker B really advertises llama3 — announces then converge on the
+	// truth instead of clobbering a planted manifest at an unlucky moment.
+	meshA, meshB, _ := newFanoutTestMeshesCfg(t, func(role string, c *config.MeshConfig) {
+		if role == "workerB" {
+			c.AdvertiseModels = true
+		}
+	}, runFunc, runFunc)
+	meshB.SetModelList(config.SecureModelList{
+		{ModelName: "llama3", Model: "test/llama3", Enabled: true},
+	})
 
-	// Only B advertises the required model. Re-plant until the manifests
-	// stick — a late real announce would clobber the planted models.
+	// Re-announce until A sees the model; every announce carries llama3 so
+	// the last write wins forever once it lands.
 	require.Eventually(t, func() bool {
-		meshA.SetCapability(meshB.node.ID(), Capability{
-			PeerID: meshB.node.PeerID(), Agents: []string{"main"}, Models: []string{"llama3"},
-			Allows: map[string]bool{"spawn": true},
-		})
-		meshA.SetCapability(meshC.node.ID(), Capability{
-			PeerID: meshC.node.PeerID(), Agents: []string{"main"},
-			Allows: map[string]bool{"spawn": true},
-		})
+		meshB.Advertise(ctx)
 		c, ok := meshA.PeerCapabilities(meshB.node.ID())
 		return ok && slices.Contains(c.Models, "llama3")
-	}, 10*time.Second, 50*time.Millisecond)
+	}, 15*time.Second, 100*time.Millisecond)
 
 	res, err := meshA.FanoutTask(ctx, FanoutRequest{
 		AgentID:  "main",
