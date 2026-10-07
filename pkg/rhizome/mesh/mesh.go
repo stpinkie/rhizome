@@ -27,6 +27,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
 	"github.com/stpinkie/rhizome/pkg/rhizome/blob"
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
@@ -247,7 +248,16 @@ type Mesh struct {
 	globalLim   *rate.Limiter
 	auditLog    *auditLogger
 	activityLog *auditLogger
+
+	// econSent records the negotiated terms per submitted remote task id
+	// (caller side) so a later result's charge can be verified against
+	// what was actually sent. Bounded at maxEconSent entries.
+	econSentMu sync.Mutex
+	econSent   map[string]*econ.Terms
 }
+
+// maxEconSent bounds the caller-side negotiated-terms journal.
+const maxEconSent = 1024
 
 // NewMesh creates a mesh layer over an existing node and syncer.
 func NewMesh(
@@ -258,16 +268,17 @@ func NewMesh(
 	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error),
 ) *Mesh {
 	m := &Mesh{
-		node:    node,
-		syncer:  syncer,
-		id:      id,
-		cfg:     cfg,
-		host:    node.Host(),
-		caps:    make(map[peer.ID]Capability),
-		trust:   make(map[peer.ID]bool),
-		runFunc: runFunc,
-		stop:    make(chan struct{}),
-		replay:  newReplayGuard(cfg.RequestMaxSkew),
+		node:     node,
+		syncer:   syncer,
+		id:       id,
+		cfg:      cfg,
+		host:     node.Host(),
+		caps:     make(map[peer.ID]Capability),
+		trust:    make(map[peer.ID]bool),
+		runFunc:  runFunc,
+		stop:     make(chan struct{}),
+		replay:   newReplayGuard(cfg.RequestMaxSkew),
+		econSent: make(map[string]*econ.Terms),
 	}
 	if cfg.AuditLog {
 		m.auditLog = newAuditLogger(defaultAuditPath())
@@ -641,6 +652,14 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		return reject("rate_limited: too many requests")
 	}
 
+	// Paired-settlement negotiation (v0.17.0 Track 139): a caller on
+	// mesh.economy.bill_peers must carry valid economy terms; an unbilled
+	// caller's Econ field is inert and ignored.
+	billing := m.econBills(from)
+	if err := econ.Negotiate(&m.cfg.Economy, from.String(), req.Econ); err != nil {
+		return reject(err.Error())
+	}
+
 	startKind, endKind := m.remoteAgentEventKinds(req.Async)
 	m.publishMeshEvent(startKind, map[string]any{
 		"peer_id":        from.String(),
@@ -671,11 +690,18 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		defer m.releaseMediaScope(scope)
 	}
 
-	result, usage, err := m.runFunc(ctx, req)
+	// Billed runs are always metered — the charge receipt carries the usage
+	// snapshot regardless of the caller's want_usage ask.
+	runReq := req
+	if billing {
+		runReq.WantUsage = true
+	}
+	result, usage, err := m.runFunc(ctx, runReq)
 	if err == nil {
 		// Publish result artifacts as blob refs the caller can pull.
 		m.publishOutboundMedia(result)
 	}
+	chargeUsage := usage
 	if !req.WantUsage {
 		usage = nil
 	}
@@ -712,6 +738,10 @@ func (m *Mesh) HandleRequest(from peer.ID, req agentrpc.Request) (agentrpc.Respo
 		Status:        "ok",
 		Result:        result,
 		Usage:         usage,
+	}
+	// Success-only billing: the signed charge lands on the response.
+	if billing {
+		resp.Charge = m.econCharge(req.Econ, chargeUsage)
 	}
 	if err := m.signResponse(&resp); err != nil {
 		return agentrpc.Response{}, fmt.Errorf("sign response: %w", err)
@@ -784,6 +814,10 @@ func (m *Mesh) CallRemote(
 		// Negotiate usage reporting per candidate: only peers whose stored
 		// manifest advertises allows.usage_report get want_usage.
 		req.WantUsage = m.peerAllowsUsageReport(pid)
+		// Negotiate paired-settlement terms per candidate: only peers whose
+		// stored manifest advertises economy (and only when our economy is
+		// enabled) get the signed econ block.
+		req.Econ = m.econTermsFor(pid)
 
 		// Push local attachments to this candidate once; the signed request
 		// carries the resulting blob refs bound to that peer.
@@ -849,8 +883,6 @@ func (m *Mesh) CallRemote(
 			if resp.Status != "ok" {
 				err := fmt.Errorf("remote agent failed: %s", resp.Error)
 				m.recordPeerCall(pid, op, false, latency, err)
-				// A remote agent failure is a task execution error; do not
-				// failover to another peer and risk duplicate execution.
 				m.publishMeshEvent(endKind, map[string]any{
 					"peer_id":        pid.String(),
 					"agent_id":       call.TargetAgentID,
@@ -858,7 +890,22 @@ func (m *Mesh) CallRemote(
 					"async":          call.Async,
 					"error":          err.Error(),
 				})
+				// Economy refusals (price_floor:/econ:) happen before the
+				// task executes — failing over to the next candidate is
+				// safe; other task failures are not retried to avoid
+				// duplicate execution.
+				if isEconRejection(resp.Error) {
+					lastErr = err
+					break
+				}
 				return nil, err
+			}
+			// Verify the signed charge against the cached advert when the
+			// request negotiated economy terms.
+			if err := m.verifyCharge(pid, req.Econ, resp.Charge); err != nil {
+				m.recordPeerCall(pid, op, false, latency, err)
+				lastErr = err
+				break
 			}
 			m.recordPeerCall(pid, op, true, latency, nil)
 			m.publishMeshEvent(endKind, map[string]any{
@@ -901,6 +948,14 @@ func (m *Mesh) syncCandidates(preferred peer.ID, agentID string, req Requirement
 		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
 	}
 	return candidates
+}
+
+// isEconRejection reports whether a remote error is a pre-execution
+// economy refusal (price_floor:/econ:) — safe to fail over, the task
+// never ran on that callee.
+func isEconRejection(remoteErr string) bool {
+	return strings.HasPrefix(remoteErr, econ.RejectPriceFloor) ||
+		strings.HasPrefix(remoteErr, econ.RejectEcon)
 }
 
 // isSyncRetryable reports whether a synchronous call failure is worth retrying
@@ -1378,6 +1433,147 @@ func (m *Mesh) PeerCapabilities(pid peer.ID) (Capability, bool) {
 func (m *Mesh) peerAllowsUsageReport(pid peer.ID) bool {
 	c, ok := m.PeerCapabilities(pid)
 	return ok && c.Allows["usage_report"]
+}
+
+// peerEconAdvert returns the peer's advertised settlement terms from its
+// stored capability manifest, or nil when it doesn't run the economy.
+func (m *Mesh) peerEconAdvert(pid peer.ID) *config.EconAdvert {
+	c, ok := m.PeerCapabilities(pid)
+	if !ok {
+		return nil
+	}
+	return c.Economy
+}
+
+// econTermsFor builds the caller-side negotiation for a peer: nil unless
+// both sides opted in (local mesh.economy enabled AND the peer's stored
+// manifest advertises terms). The unit prefers the caller's own unit when
+// the callee accepts it; max_charge is the caller's per-task policy cap.
+func (m *Mesh) econTermsFor(pid peer.ID) *econ.Terms {
+	if !m.cfg.Economy.Enabled {
+		return nil
+	}
+	adv := m.peerEconAdvert(pid)
+	if adv == nil || adv.Unit == "" {
+		return nil
+	}
+	unit := adv.Unit
+	if econ.AcceptedUnits(&m.cfg.Economy)[unit] {
+		// The caller's own unit is acceptable to the callee's sheet.
+		accepted := map[string]bool{adv.Unit: true}
+		for _, u := range adv.Accepts {
+			accepted[u] = true
+		}
+		if accepted[m.cfg.Economy.Unit] {
+			unit = m.cfg.Economy.Unit
+		}
+	}
+	return &econ.Terms{
+		Accept:    true,
+		Unit:      unit,
+		MaxCharge: m.cfg.Economy.MaxCostPerTask,
+	}
+}
+
+// econBills reports whether the callee would bill this caller: economy
+// enabled and the peer on mesh.economy.bill_peers.
+func (m *Mesh) econBills(from peer.ID) bool {
+	return econ.IsBillable(&m.cfg.Economy, from.String())
+}
+
+// econCharge computes the signed charge receipt for a negotiated run.
+func (m *Mesh) econCharge(terms *econ.Terms, usage *toolshared.RemoteUsage) *econ.Charge {
+	if terms == nil {
+		return nil
+	}
+	amount, truncated, err := econ.Compute(
+		m.cfg.Economy.PriceSheet, usage, terms.MaxCharge)
+	if err != nil {
+		return nil
+	}
+	return &econ.Charge{
+		Unit:        terms.Unit,
+		Amount:      amount,
+		Usage:       usage,
+		SheetDigest: econ.SheetDigest(m.cfg.Economy.Advert()),
+		Truncated:   truncated,
+	}
+}
+
+// verifyCharge is the caller-side check on a sync response: an unsolicited
+// charge (no negotiated terms) is a mismatch; a negotiated one must pass
+// digest + recompute verification against the cached advert.
+func (m *Mesh) verifyCharge(pid peer.ID, terms *econ.Terms, charge *econ.Charge) error {
+	if charge == nil {
+		return nil // callee didn't bill this caller
+	}
+	if terms == nil {
+		return fmt.Errorf("%s unsolicited charge", econ.MismatchCharge)
+	}
+	adv := m.peerEconAdvert(pid)
+	if adv == nil {
+		return fmt.Errorf("%s no cached economy advert for peer", econ.MismatchCharge)
+	}
+	if charge.Unit != terms.Unit {
+		return fmt.Errorf(
+			"%s charge unit %q != negotiated unit %q",
+			econ.MismatchCharge, charge.Unit, terms.Unit)
+	}
+	return econ.VerifyCharge(adv, charge)
+}
+
+// recordEconSent journals the negotiated terms for a submitted task so the
+// result-path charge can be verified against what was actually sent. A nil
+// terms entry still records the task: a charge arriving for it was never
+// negotiated and is treated as unsolicited.
+func (m *Mesh) recordEconSent(taskID string, terms *econ.Terms) {
+	if taskID == "" {
+		return
+	}
+	m.econSentMu.Lock()
+	defer m.econSentMu.Unlock()
+	if len(m.econSent) >= maxEconSent {
+		for k := range m.econSent { // arbitrary eviction — map order is fine
+			delete(m.econSent, k)
+			break
+		}
+	}
+	m.econSent[taskID] = terms
+}
+
+// popEconSent returns and drops the recorded terms for a task id. The ok
+// result distinguishes "task journaled with no negotiated terms" from
+// "task never seen through this mesh" (foreign id or evicted record).
+func (m *Mesh) popEconSent(taskID string) (*econ.Terms, bool) {
+	m.econSentMu.Lock()
+	defer m.econSentMu.Unlock()
+	t, ok := m.econSent[taskID]
+	delete(m.econSent, taskID)
+	return t, ok
+}
+
+// verifyTaskCharge is the result-path check: the charge must bind to the
+// peer's cached advert (digest + recompute bound). When the sent terms are
+// still on record the charge must also bill in the negotiated unit — and a
+// charge for a task we journaled without terms was never negotiated.
+func (m *Mesh) verifyTaskCharge(pid peer.ID, taskID string, charge *econ.Charge) error {
+	if charge == nil {
+		return nil
+	}
+	terms, journaled := m.popEconSent(taskID)
+	if journaled && terms == nil {
+		return fmt.Errorf("%s unsolicited charge", econ.MismatchCharge)
+	}
+	adv := m.peerEconAdvert(pid)
+	if adv == nil {
+		return fmt.Errorf("%s no cached economy advert for peer", econ.MismatchCharge)
+	}
+	if terms != nil && charge.Unit != terms.Unit {
+		return fmt.Errorf(
+			"%s charge unit %q != negotiated unit %q",
+			econ.MismatchCharge, charge.Unit, terms.Unit)
+	}
+	return econ.VerifyCharge(adv, charge)
 }
 
 // agentManifestIndex maps agent id to manifest fingerprint for status views.

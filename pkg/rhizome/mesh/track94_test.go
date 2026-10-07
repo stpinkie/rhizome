@@ -276,7 +276,7 @@ func TestTaskStorePersistsUsage(t *testing.T) {
 		CompletionTokens: 40,
 		TotalTokens:      140,
 		DurationMS:       900,
-	})
+	}, nil)
 	s.flushSave()
 
 	s2 := NewTaskStoreWithPath(path)

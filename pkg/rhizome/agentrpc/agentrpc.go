@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/p2putil"
 	"github.com/stpinkie/rhizome/pkg/rhizome/stream"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
@@ -49,6 +50,12 @@ type Request struct {
 	// response. Callers only set it when the peer's advertised manifest
 	// carries allows.usage_report; callees only populate when set.
 	WantUsage bool `json:"want_usage,omitempty"`
+	// Econ negotiates paired-settlement billing: the caller consents to
+	// charges under the callee's advertised sheet ({accept:true,
+	// max_charge, unit}). Callers set it only when the peer's manifest
+	// advertises economy — unnegotiated requests stay byte-identical to
+	// pre-economy encodings. Signed inside the existing envelope.
+	Econ *econ.Terms `json:"econ,omitempty"`
 }
 
 // ToolRef is a lightweight reference to a tool capability advertised by a peer.
@@ -67,9 +74,13 @@ type Response struct {
 	Result *toolshared.ToolResult `json:"result,omitempty"`
 	// Usage carries the callee's summed usage report; populated only when
 	// the request set want_usage and the run could be metered.
-	Usage     *toolshared.RemoteUsage `json:"usage,omitempty"`
-	Error     string                  `json:"error,omitempty"`
-	Signature []byte                  `json:"signature,omitempty"`
+	Usage *toolshared.RemoteUsage `json:"usage,omitempty"`
+	// Charge is the callee's signed billing receipt — populated only when
+	// the request negotiated Econ, the caller is on the callee's
+	// bill_peers, and the run succeeded.
+	Charge    *econ.Charge `json:"charge,omitempty"`
+	Error     string       `json:"error,omitempty"`
+	Signature []byte       `json:"signature,omitempty"`
 }
 
 // maxCachedResults bounds the idempotency cache so a peer cannot grow it

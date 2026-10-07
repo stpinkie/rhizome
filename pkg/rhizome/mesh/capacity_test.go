@@ -51,7 +51,7 @@ func TestCheckCapacityUnit(t *testing.T) {
 			TargetAgentID: "main", SystemPrompt: "x",
 		})
 		require.NoError(t, err)
-		m.tasks.Finish(t1.ID, agenttask.StatusDone, nil, "", nil)
+		m.tasks.Finish(t1.ID, agenttask.StatusDone, nil, "", nil, nil)
 	}
 
 	t.Run("global cap", func(t *testing.T) {
