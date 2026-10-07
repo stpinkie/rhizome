@@ -29,11 +29,13 @@ func TestRecordOutcomeCounters(t *testing.T) {
 	s.RecordOutcome(pid, OpMarketBuy, OutcomeCompleted, "sess-1", "vh1")
 	s.RecordOutcome(pid, OpMarketBuy, OutcomeFailed, "sess-2", "vh2")
 	s.RecordOutcome(pid, OpMarketSell, OutcomeResolvedForPeer, "sess-3", "vh3")
-	// Neutral outcomes land in Outcomes but move no counters.
+	// Neutral outcomes land in Outcomes but move no counters — `attested`
+	// (Track 130) is the portable-reputation ref, additive evidence only.
 	s.RecordOutcome(pid, OpMarketBuy, OutcomeDisputed, "sess-4", "vh4")
 	s.RecordOutcome(pid, OpMarketBuy, OutcomeResolved, "sess-5", "vh5")
 	s.RecordOutcome(pid, OpMarketSell, OutcomeRefunded, "sess-6", "vh6")
 	s.RecordOutcome(pid, OpMarketSell, OutcomeExpired, "sess-7", "vh7")
+	s.RecordOutcome(pid, OpMarketBuy, OutcomeAttested, "sess-8", "vh8")
 
 	sc, ok := s.Get(pid)
 	require.True(t, ok)
@@ -47,10 +49,11 @@ func TestRecordOutcomeCounters(t *testing.T) {
 	assert.Equal(t, 1, sell.Successes)
 	assert.Equal(t, 0, sell.Failures)
 
-	require.Len(t, sc.Outcomes, 7)
+	require.Len(t, sc.Outcomes, 8)
 	assert.Equal(t, OutcomeDisputed, sc.Outcomes[3].Outcome)
 	assert.Equal(t, "sess-4", sc.Outcomes[3].SessionID)
 	assert.Equal(t, "vh4", sc.Outcomes[3].ValueHash)
+	assert.Equal(t, OutcomeAttested, sc.Outcomes[7].Outcome)
 	assert.NotZero(t, sc.Outcomes[0].At)
 }
 

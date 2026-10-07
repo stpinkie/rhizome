@@ -138,6 +138,44 @@ arbiter, `market refund <id>` withdraws after the dispute window
 terminates. A receipt that fails signature or `result_sha256`
 verification never auto-releases.
 
+## Portable attestations
+
+A buyer can issue a **signed completion attestation** for a terminal
+purchase — `completed`, `resolved`, `refunded`, or `failed`:
+
+```bash
+rhizome market attest issue <purchase-id-or-session>
+```
+
+The output is a JSON claim `{provider_peer_id, session_id, outcome,
+terms_hash, task_hash, issued_at, buyer_peer_id, signature}` signed by
+the buyer's node Ed25519 key over the signature-stripped canonical
+bytes (same convention as `_rhizome.receipt`). Issuance is **strictly
+opt-in** — nothing mints automatically after a purchase, and each issue
+also lands on the local peer-score record as a neutral `attested`
+outcome ref (no success/failure counter movement).
+
+Delivery is out of band: send the JSON to the seller however you like.
+The seller stores it via `rhizome market attest register <json|@file>`
+— the store verifies the signature before accepting, dedups on
+`(session_id, buyer_peer_id)`, keeps the newest 64, and the newest 32
+ride the seller's `advert.json.attestations` (trimmed further if the
+advert's byte bound demands it).
+
+Verify a claim with `rhizome market attest verify <json|@file>`. The
+check always runs the signature → `buyer_peer_id` chain (the Ed25519
+key must extract from the peer ID and verify); when the verifier holds
+a purchase for that `session_id` it additionally cross-checks
+`terms_hash` — otherwise `terms_match` comes back absent rather than
+falsely claiming a full chain.
+
+**Honest limits.** Attestations are *additive evidence, not a
+reputation ledger*: a seller picks which to advertise (negatives can be
+withheld), a buyer can decline to issue, and nothing stops a colluding
+pair from attesting each other. They raise confidence in a provider;
+they never replace the local peer-score ledger or the escrow lock —
+buy on posture plus your own evidence, not on attestations alone.
+
 ## Settlement
 
 `pkg/settlement` abstracts the escrow rail. Unset `escrow_contract` ⇒
@@ -223,8 +261,9 @@ Everything needed to buy from a Rhizome seller without running Rhizome:
 
 ## Current limits
 
-- **No curated index / DHT tier / reputation fields** — discovery is
-  direct-peer adverts or an operator-hosted signed index.
+- **Attestations are additive, not a ledger** — the portable-reputation
+  field (above) is opt-in buyer-signed evidence a seller may withhold;
+  weight it accordingly.
 - **No recorded testnet E2E** — the Smart Invoice path is bound and
   unit-tested over FakeChain, but hasn't run a filmed Sepolia round-trip;
   that's the v0.16.0 graduation gate (Track 132).

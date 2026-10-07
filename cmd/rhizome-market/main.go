@@ -82,17 +82,20 @@ func run(ctx context.Context) error {
 	}
 
 	mgr := newSessionMgr(p.moduleDir, audit)
+	pm := newPurchaseMgr(p.moduleDir, p.home, audit)
 	if ident != nil {
 		mgr.ident.Store(ident)
+		pm.ident.Store(ident)
 	}
 	rail, ep := assembleRail(ctx, cfg, mc, p.home)
 	mgr.setConfig(mc, cfg, agentBindingsFromConfig(cfg), rail)
-	pm := newPurchaseMgr(p.moduleDir, p.home, audit)
 	pm.setConfig(mc, rail, ep)
 	go mgr.runReaper(ctx)
 	go pm.runWatcher(ctx)
 
-	api, err := startAPI(p.moduleDir, token, mgr, pm, audit, config.FormatVersion())
+	attestStore := openAttestationStore(p.moduleDir)
+	api, err := startAPI(
+		p.moduleDir, token, mgr, pm, attestStore, audit, config.FormatVersion())
 	if err != nil {
 		return err
 	}
@@ -132,7 +135,8 @@ func run(ctx context.Context) error {
 		})
 	}
 
-	aw := newAdvertWriter(p.moduleDir, config.FormatVersion(), peerID, audit, https)
+	aw := newAdvertWriter(
+		p.moduleDir, config.FormatVersion(), peerID, audit, https, attestStore)
 	aw.refresh(mc)
 	defer aw.remove()
 

@@ -55,6 +55,7 @@ const (
 	OutcomeResolved        = "resolved"              // split ruling; direction undecoded
 	OutcomeRefunded        = "refunded"              // buyer withdrew; neutral
 	OutcomeExpired         = "expired"               // session aged out
+	OutcomeAttested        = "attested"              // buyer issued a signed attestation
 )
 
 // PeerOutcome is one recorded market outcome for a peer — the ref list the
@@ -486,7 +487,7 @@ func ValidMarketOutcome(outcome string) bool {
 	switch outcome {
 	case OutcomeCompleted, OutcomeFailed, OutcomeDisputed,
 		OutcomeResolvedForPeer, OutcomeResolvedAgainst, OutcomeResolved,
-		OutcomeRefunded, OutcomeExpired:
+		OutcomeRefunded, OutcomeExpired, OutcomeAttested:
 		return true
 	}
 	return false

@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/identity"
 	"github.com/stpinkie/rhizome/pkg/settlement"
 	"github.com/stpinkie/rhizome/pkg/web3"
 )
@@ -90,6 +91,7 @@ type purchase struct {
 	ResultSHA256  string        `json:"result_sha256,omitempty"`
 	Receipt       *receipt      `json:"receipt,omitempty"`
 	ReceiptOK     *bool         `json:"receipt_verified,omitempty"`
+	Attestation   *attestation  `json:"attestation,omitempty"` // issued claim (Track 130)
 	Error         string        `json:"error,omitempty"`
 	ErrCode       string        `json:"error_code,omitempty"`
 	Settlement    string        `json:"settlement"`            // "fixture" | "configured"
@@ -128,6 +130,10 @@ type purchaseMgr struct {
 	// drawdown is the buyer-side session ledger (Track 128) — always
 	// non-nil, inert unless escrow_settlement=drawdown.
 	drawdown *drawdownLedger
+
+	// ident is the buyer's node key — attestation minting (Track 130)
+	// signs with it; nil refuses rather than minting unattributed claims.
+	ident atomic.Pointer[identity.Derived]
 
 	mu      sync.Mutex
 	byID    map[string]*purchase

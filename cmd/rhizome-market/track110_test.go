@@ -289,7 +289,7 @@ func fakeHTTPS(t *testing.T, listen, advertise, fp string) *httpsServer {
 
 func TestAdvert_EndpointsAndFingerprint(t *testing.T) {
 	h := fakeHTTPS(t, "127.0.0.1:0", "", "deadbeef")
-	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""), h)
+	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""), h, nil)
 	data, reason := w.render(servingCfg(t))
 	if data == nil {
 		t.Fatalf("advert omitted: %s", reason)
@@ -329,7 +329,7 @@ func TestAdvert_NoEndpointsWithoutServing(t *testing.T) {
 	// A listener that is up but not serving must not claim a dialable
 	// endpoint — the gate would refuse every session_open anyway.
 	h := fakeHTTPS(t, "127.0.0.1:0", "", "fp")
-	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""), h)
+	w := newAdvertWriter(t.TempDir(), "v", "", newAuditLogger(""), h, nil)
 	data, _ := w.render(loadMarketConfig(cfgWith(t, nil, nil), t.TempDir()))
 	var a advert
 	if err := json.Unmarshal(data, &a); err != nil {

@@ -28,7 +28,7 @@ func startTestAPI(t *testing.T, token string) (*apiServer, string) {
 		tp = newTokenProvider(dir)
 	}
 	s, err := startAPI(dir, tp, newSessionMgr(dir, newAuditLogger("")),
-		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "test")
+		newPurchaseMgr(dir, dir, newAuditLogger("")), openAttestationStore(dir), newAuditLogger(""), "test")
 	if err != nil {
 		t.Fatalf("startAPI: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestAPI_CloseRemovesAddrFile(t *testing.T) {
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
 	s, err := startAPI(dir, newTokenProvider(dir),
 		newSessionMgr(dir, newAuditLogger("")),
-		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "test")
+		newPurchaseMgr(dir, dir, newAuditLogger("")), openAttestationStore(dir), newAuditLogger(""), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,14 +200,14 @@ func TestAPI_ConflictOnSecondBind(t *testing.T) {
 	t.Setenv("RHIZOME_BRIDGE_TOKEN", "tok")
 	s1, err := startAPI(dir, newTokenProvider(dir),
 		newSessionMgr(dir, newAuditLogger("")),
-		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "a")
+		newPurchaseMgr(dir, dir, newAuditLogger("")), openAttestationStore(dir), newAuditLogger(""), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s1.Close()
 	s2, err := startAPI(dir, newTokenProvider(dir),
 		newSessionMgr(dir, newAuditLogger("")),
-		newPurchaseMgr(dir, dir, newAuditLogger("")), newAuditLogger(""), "b")
+		newPurchaseMgr(dir, dir, newAuditLogger("")), openAttestationStore(dir), newAuditLogger(""), "b")
 	if err != nil {
 		t.Fatal(err)
 	}
