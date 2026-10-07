@@ -765,7 +765,9 @@ var catalog = []ModuleSpec{
 		Protocols: []string{"/rhizome/acp/1.0.0"},
 		// peer_score reports settled-session outcomes to the mesh's
 		// PeerScoreStore — market reputation never touches the file itself.
-		BridgeActions: []string{"peer_score"},
+		// dht_provide/dht_find are the unvetted rendezvous tier — the
+		// daemon prefix-locks namespaces to rhizome-market-*.
+		BridgeActions: []string{"peer_score", "dht_provide", "dht_find"},
 		ConfigFields: []ConfigField{
 			{
 				Key:     "serve_enabled",
@@ -803,6 +805,10 @@ var catalog = []ModuleSpec{
 				Key:     "market_index_enabled",
 				Label:   "Query a curated provider index",
 				Default: "false",
+			},
+			{
+				Key:   "market_dht",
+				Label: "Unvetted DHT rendezvous tier (rhizome-market-v1; needs host dht.enabled)",
 			},
 			{Key: "market_index_url", Label: "Provider index URL (https://…)", Secret: true},
 			{

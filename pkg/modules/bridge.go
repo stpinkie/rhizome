@@ -77,18 +77,35 @@ type bridgeHello struct {
 	Outcome   string `json:"outcome,omitempty"`
 	Ref       string `json:"ref,omitempty"`
 	ValueHash string `json:"value_hash,omitempty"`
+	NS        string `json:"ns,omitempty"` // dht_provide/dht_find namespace
 }
 
 // bridgeResponse is the single JSON line written back to the module for
 // non-splice actions. The conn closes after it — no bytes are spliced.
+// Peers carries dht_find results.
 type bridgeResponse struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK    bool         `json:"ok"`
+	Error string       `json:"error,omitempty"`
+	Peers []bridgePeer `json:"peers,omitempty"`
+}
+
+// bridgePeer is one DHT-discovered provider on the wire.
+type bridgePeer struct {
+	ID    string   `json:"id"`
+	Addrs []string `json:"addrs,omitempty"`
 }
 
 // PeerScoreRecorder records a market outcome for a peer — the seam into the
 // mesh's PeerScoreStore. Injected by the daemon (nil refuses peer_score).
 type PeerScoreRecorder func(pid peer.ID, op, outcome, ref, valueHash string) error
+
+// DHTQuerier is the daemon's namespaced-DHT surface — typically the mesh's
+// DHTProvide/DHTFindProviders. Injected by daemon wiring; nil refuses the
+// dht_* actions.
+type DHTQuerier interface {
+	Provide(ctx context.Context, ns string) error
+	FindProviders(ctx context.Context, ns string) ([]peer.AddrInfo, error)
+}
 
 // Bridge owns the module stream bridge: a loopback listener, the per-module
 // token map, and the libp2p stream handlers claimed for declared protocols.
@@ -99,6 +116,7 @@ type Bridge struct {
 	isTrusted func(peer.ID) bool // inbound peer gate; nil refuses all inbound
 
 	scoreRecorder PeerScoreRecorder // peer_score sink; nil refuses
+	dhtQuerier    DHTQuerier        // dht_* surface; nil refuses
 
 	mu       sync.Mutex
 	claims   map[protocol.ID]string // protocol → owning module ID
@@ -139,6 +157,15 @@ func (b *Bridge) Addr() string {
 func (b *Bridge) SetPeerScoreRecorder(fn PeerScoreRecorder) {
 	b.mu.Lock()
 	b.scoreRecorder = fn
+	b.mu.Unlock()
+}
+
+// SetDHTQuerier installs the dht_provide/dht_find path — typically an
+// adapter over the mesh's DHTProvide/DHTFindProviders. Nil refuses those
+// actions with a clean "dht unavailable" error (never a hang).
+func (b *Bridge) SetDHTQuerier(q DHTQuerier) {
+	b.mu.Lock()
+	b.dhtQuerier = q
 	b.mu.Unlock()
 }
 
@@ -346,6 +373,10 @@ func (b *Bridge) serveOutbound(conn net.Conn) {
 		b.servePeerScore(conn, moduleID, hello)
 		return
 	}
+	if hello.Action == "dht_provide" || hello.Action == "dht_find" {
+		b.serveDHT(conn, moduleID, hello)
+		return
+	}
 	if hello.Action != "dial" {
 		logger.WarnCF("modules", "bridge hello refused: unsupported action", map[string]any{
 			"module": moduleID, "action": hello.Action,
@@ -423,6 +454,75 @@ func (b *Bridge) servePeerScore(conn net.Conn, moduleID string, hello bridgeHell
 		return
 	}
 	answer(true, nil)
+}
+
+// dhtNamespacePrefix locks bridge DHT actions to market-tier namespaces —
+// modules must never provide/find arbitrary CIDs through this seam.
+const dhtNamespacePrefix = "rhizome-market-"
+
+// serveDHT answers dht_provide/dht_find: the module's spec must declare the
+// action in bridge_actions, ns must carry the rhizome-market- prefix
+// (bounded length), and the daemon's DHT querier must be installed — nil
+// answers a clean "dht unavailable" error instead of hanging. One JSON
+// response line, then the conn closes.
+func (b *Bridge) serveDHT(conn net.Conn, moduleID string, hello bridgeHello) {
+	defer func() { _ = conn.Close() }()
+	writeResp := func(resp bridgeResponse) {
+		line, _ := json.Marshal(resp)
+		_ = conn.SetDeadline(time.Now().Add(bridgeHelloTimeout))
+		_, _ = conn.Write(append(line, '\n'))
+	}
+	refuse := func(err error) { writeResp(bridgeResponse{OK: false, Error: err.Error()}) }
+
+	fields := map[string]any{"module": moduleID, "action": hello.Action, "ns": hello.NS}
+	spec, _, ok := b.mgr.lookupSpec(moduleID)
+	if !ok || !slices.Contains(spec.BridgeActions, hello.Action) {
+		logger.WarnCF("modules", "dht action refused: undeclared bridge action", fields)
+		refuse(fmt.Errorf("%s not declared for module %q", hello.Action, moduleID))
+		return
+	}
+	if !strings.HasPrefix(hello.NS, dhtNamespacePrefix) ||
+		len(hello.NS) > 64 || len(hello.NS) <= len(dhtNamespacePrefix) {
+		logger.WarnCF("modules", "dht action refused: bad namespace", fields)
+		refuse(fmt.Errorf("dht namespace must match %s*", dhtNamespacePrefix))
+		return
+	}
+	b.mu.Lock()
+	q := b.dhtQuerier
+	b.mu.Unlock()
+	if q == nil {
+		refuse(fmt.Errorf("dht unavailable on this daemon"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), bridgeDialTimeout)
+	defer cancel()
+	switch hello.Action {
+	case "dht_provide":
+		if err := q.Provide(ctx, hello.NS); err != nil {
+			fields["error"] = err.Error()
+			logger.WarnCF("modules", "dht_provide failed", fields)
+			refuse(err)
+			return
+		}
+		writeResp(bridgeResponse{OK: true})
+	case "dht_find":
+		infos, err := q.FindProviders(ctx, hello.NS)
+		if err != nil {
+			fields["error"] = err.Error()
+			logger.WarnCF("modules", "dht_find failed", fields)
+			refuse(err)
+			return
+		}
+		resp := bridgeResponse{OK: true}
+		for _, info := range infos {
+			bp := bridgePeer{ID: info.ID.String()}
+			for _, a := range info.Addrs {
+				bp.Addrs = append(bp.Addrs, a.String())
+			}
+			resp.Peers = append(resp.Peers, bp)
+		}
+		writeResp(resp)
+	}
 }
 
 // resolvePeer accepts a bare peer ID or a full peer multiaddr; a multiaddr's

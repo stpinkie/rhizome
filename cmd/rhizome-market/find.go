@@ -30,6 +30,12 @@ const (
 	indexCacheFile = "index-cache.json"
 	// indexFetchTimeout bounds both index fetches (doc + .sig).
 	indexFetchTimeout = 15 * time.Second
+	// marketDHTNamespace is the market's unvetted rendezvous tier —
+	// announce/discover over the host's DHT when market_dht is on.
+	marketDHTNamespace = "rhizome-market-v1"
+	// dhtProvideInterval bounds sell-side re-provides — kad-dht provider
+	// records live ~24h, so this is a liveness hint, not a lease.
+	dhtProvideInterval = 10 * time.Minute
 )
 
 // indexCache persists the last verified index for stale-serve and seq
@@ -63,16 +69,19 @@ type findRow struct {
 	Payout           string `json:"payout,omitempty"`
 	AdvertExpiresAt  string `json:"advert_expires_at,omitempty"`
 
-	Source       string   `json:"source"` // index | peers
+	Source       string   `json:"source"` // index | dht | peers
 	Trusted      bool     `json:"trusted"`
-	Stale        bool     `json:"stale,omitempty"`   // index cache older than TTL
-	Expired      bool     `json:"expired,omitempty"` // advert past its expires_at
+	Stale        bool     `json:"stale,omitempty"`    // index cache older than TTL
+	Expired      bool     `json:"expired,omitempty"`  // advert past its expires_at
+	Unvetted     bool     `json:"unvetted,omitempty"` // DHT-discovered, not index-listed
 	Attestations []string `json:"attestations,omitempty"`
 }
 
-// runFind executes /v1/find: index query when market_index_url is set,
-// the peer-advert journal otherwise. The query matches offer ids and
-// agent bindings (substring, case-insensitive).
+// runFind executes /v1/find, merging the discovery tiers in precedence
+// order: curated index → DHT rendezvous (unvetted) → peer-advert journal
+// (the local cache of what connected peers told us). A peer listed by a
+// higher tier isn't repeated by a lower one. The query matches offer ids
+// and agent bindings (substring, case-insensitive).
 func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
 	mc := pm.cfg.Load()
 	if mc == nil {
@@ -88,12 +97,20 @@ func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
 	}
 	now := pm.nowFn()
 
+	var rows []findRow
+	sources := []string{}
+	seenPeer := map[string]bool{} // dedup across tiers by peer_id
+	indexStale := false
+
+	// Tier 1 — the curated index. A tier only registers in `sources` when
+	// it produced a row — otherwise `source` mislabels empty tiers.
 	if mc.indexEnabled && mc.indexURL != "" {
 		idx, stale, err := pm.fetchIndex(ctx)
 		if err != nil {
 			return nil, buyErr("index_unavailable", "%s", err)
 		}
-		var rows []findRow
+		indexStale = stale
+		emitted := false
 		for i := range idx.Providers {
 			pr := &idx.Providers[i]
 			var a advert
@@ -108,52 +125,153 @@ func (pm *purchaseMgr) runFind(ctx context.Context, query string) (any, error) {
 			if addrs := pr.AddrsOrMultiaddr(); len(addrs) > 0 {
 				addr = addrs[0]
 			}
+			matched := false
 			for j := range a.Offers {
 				o := &a.Offers[j]
 				if !match(o) {
 					continue
 				}
+				matched = true
+				emitted = true
 				row := pm.projectRow(&a, o, pid, addr, "index", false, stale, now)
 				row.Attestations = pr.AttestationKinds()
 				rows = append(rows, row)
 			}
+			if matched {
+				seenPeer[pid] = true
+			}
 		}
-		return map[string]any{
-			"source": "index", "index_url": mc.indexURL,
-			"stale": stale, "providers": rows,
-		}, nil
+		if emitted {
+			sources = append(sources, "index")
+		}
 	}
 
-	// Direct-peer path: the daemon-journaled capability adverts.
-	rows, err := peeradverts.Load(pm.home)
-	if err != nil {
-		return nil, buyErr("peer_adverts", "peer advert journal: %s", err)
+	// Load the advert journal once — tier 3 rows plus offer detail for
+	// DHT-discovered peers we've already heard from.
+	journal, jerr := peeradverts.Load(pm.home)
+	if jerr != nil {
+		pm.audit.log("market.find.journal_failed", map[string]any{"error": jerr.Error()})
 	}
-	var out []findRow
-	for _, r := range rows {
-		raw, ok := r.Adverts[moduleID]
-		if !ok {
-			continue
+	journalByPeer := map[string]peeradverts.Row{}
+	if journal != nil {
+		for _, r := range journal {
+			journalByPeer[r.PeerID] = r
 		}
-		var a advert
-		if json.Unmarshal(raw, &a) != nil {
-			continue
+	}
+
+	// Tier 2 — the DHT rendezvous (unvetted). Peers found here get journal
+	// offer detail when we hold it, else an addrs-only reachability row;
+	// either way the unvetted marker follows them everywhere.
+	if mc.dhtEnabled {
+		dhtPeers, derr := dhtFind(marketDHTNamespace)
+		if derr != nil {
+			pm.audit.log("market.dht.find_failed", map[string]any{
+				"ns": marketDHTNamespace, "error": derr.Error(),
+			})
+		} else {
+			emittedAny := false
+			for _, dp := range dhtPeers {
+				if seenPeer[dp.ID] {
+					continue
+				}
+				seenPeer[dp.ID] = true
+				maddr := ""
+				if len(dp.Addrs) > 0 {
+					maddr = dp.Addrs[0]
+				}
+				emitted := false
+				if jr, ok := journalByPeer[dp.ID]; ok {
+					if raw, ok2 := jr.Adverts[moduleID]; ok2 {
+						var a advert
+						if json.Unmarshal(raw, &a) == nil {
+							expired := jr.Expired(now)
+							if advExp, perr := time.Parse(
+								time.RFC3339, a.ExpiresAt); perr == nil && now.After(advExp) {
+								expired = true
+							}
+							for i := range a.Offers {
+								o := &a.Offers[i]
+								if !match(o) {
+									continue
+								}
+								row := pm.projectRow(
+									&a, o, dp.ID, maddr, "dht", jr.Trusted, expired, now)
+								row.Unvetted = true
+								rows = append(rows, row)
+								emitted = true
+							}
+						}
+					}
+				}
+				if !emitted && q == "" {
+					// Reachability row — no advert on file; the peer
+					// announces the tier but hasn't told us what it sells.
+					rows = append(rows, findRow{
+						PeerID:    dp.ID,
+						Multiaddr: maddr,
+						Source:    "dht",
+						Unvetted:  true,
+					})
+				}
+				emittedAny = emittedAny || emitted || q == ""
+			}
+			if emittedAny {
+				sources = append(sources, "dht")
+			}
 		}
-		expired := r.Expired(now)
-		if advExp, perr := time.Parse(time.RFC3339, a.ExpiresAt); perr == nil && now.After(advExp) {
-			expired = true
-		}
-		for i := range a.Offers {
-			o := &a.Offers[i]
-			if !match(o) {
+	}
+
+	// Tier 3 — the journal proper: peers whose adverts we journaled but
+	// which no higher tier listed.
+	if jerr == nil {
+		emitted := false
+		for _, r := range journal {
+			if seenPeer[r.PeerID] {
 				continue
 			}
-			out = append(out, pm.projectRow(&a, o, r.PeerID, "", "peers", r.Trusted, expired, now))
+			raw, ok := r.Adverts[moduleID]
+			if !ok {
+				continue
+			}
+			var a advert
+			if json.Unmarshal(raw, &a) != nil {
+				continue
+			}
+			expired := r.Expired(now)
+			if advExp, perr := time.Parse(time.RFC3339, a.ExpiresAt); perr == nil && now.After(advExp) {
+				expired = true
+			}
+			matched := false
+			for i := range a.Offers {
+				o := &a.Offers[i]
+				if !match(o) {
+					continue
+				}
+				matched = true
+				emitted = true
+				rows = append(rows, pm.projectRow(&a, o, r.PeerID, "", "peers", r.Trusted, expired, now))
+			}
+			if matched {
+				seenPeer[r.PeerID] = true
+			}
+		}
+		if emitted {
+			sources = append(sources, "peers")
 		}
 	}
-	return map[string]any{
-		"source": "peers", "providers": out,
-	}, nil
+
+	source := "merged"
+	if len(sources) == 1 {
+		source = sources[0]
+	}
+	resp := map[string]any{
+		"source": source, "providers": rows,
+	}
+	if mc.indexEnabled && mc.indexURL != "" {
+		resp["index_url"] = mc.indexURL
+		resp["stale"] = indexStale
+	}
+	return resp, nil
 }
 
 // projectRow flattens one advert+offer pair into a find row.

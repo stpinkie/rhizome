@@ -1607,6 +1607,27 @@ func (m *Mesh) RecordPeerOutcome(
 	return nil
 }
 
+// DHTProvide advertises this node on a namespaced rendezvous (the market
+// tier). Clean error when the node's DHT is disabled — callers surface it
+// as a refusal, never a hang.
+func (m *Mesh) DHTProvide(ctx context.Context, ns string) error {
+	if m == nil || m.node == nil {
+		return fmt.Errorf("mesh not running")
+	}
+	return m.node.DHTProvide(ctx, ns)
+}
+
+// DHTFindProviders queries the DHT for providers of a namespaced
+// rendezvous. Returns AddrInfos (peer id + observed addrs); no dialing.
+func (m *Mesh) DHTFindProviders(
+	ctx context.Context, ns string,
+) ([]peer.AddrInfo, error) {
+	if m == nil || m.node == nil {
+		return nil, fmt.Errorf("mesh not running")
+	}
+	return m.node.DHTFindProviders(ctx, ns)
+}
+
 // TrustedPeers returns the list of trusted peer IDs.
 func (m *Mesh) TrustedPeers() []peer.ID {
 	m.trustMu.RLock()

@@ -75,6 +75,7 @@ type marketConfig struct {
 	indexEnabled           bool
 	indexURL               string
 	indexPubKey            string                 // curator Ed25519 pubkey (base64); empty = baked release key
+	dhtEnabled             bool                   // market_dht — unvetted rendezvous tier; requires host dht.enabled
 	buyerAddress           string                 // purchaser EVM identity; empty = web3 wallet default
 	buyAutoRelease         bool                   // release() immediately after receipt verify
 	signerMode             string                 // approval|direct|wallet
@@ -160,6 +161,11 @@ func loadMarketConfig(cfg *config.Config, moduleDir string) *marketConfig {
 				"market_index_pubkey must be a base64 Ed25519 public key")
 		}
 	}
+	// market_dht opts into the unvetted DHT rendezvous tier — providers
+	// announce on rhizome-market-v1 and buyers query it under the index.
+	// The bridge refuses cleanly when the host's dht.enabled is off, so an
+	// enabled module on a dht-less daemon degrades to index+journal rows.
+	mc.dhtEnabled = truthy(values["market_dht"])
 	mc.buyerAddress = strField(mc, values, "buyer_address", "")
 	if mc.buyerAddress != "" && !web3.IsAddress(mc.buyerAddress) {
 		mc.errs = append(mc.errs, "buyer_address is not a valid 0x address")
