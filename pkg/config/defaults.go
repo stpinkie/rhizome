@@ -672,6 +672,7 @@ func DefaultMeshConfig() MeshConfig {
 		RequestMaxSkew:       2 * time.Minute,
 		RateLimitPerPeer:     30,
 		RateLimitGlobal:      300,
+		MaxConcurrentTasks:   8,
 		AuditLog:             true,
 		RequireSignedCaps:    true,
 		BlobEnabled:          true,

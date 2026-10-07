@@ -629,6 +629,7 @@ Add a `mesh` section to `config.json`:
     "request_max_skew": "2m",
     "rate_limit_per_peer": 30,
     "rate_limit_global": 300,
+    "max_concurrent_tasks": 8,
     "audit_log": true,
     "require_signed_caps": true,
     "blob_enabled": true,
@@ -653,11 +654,12 @@ Add a `mesh` section to `config.json`:
 - `routing.role_aware` (v0.12.0, Track 80; default `true`) — `Mesh.PickPeer` gives a `1<<19` role bonus: task ops (`delegate`/`spawn`) prefer `worker` peers, infra ops (`sync`, …) prefer `full`. The bonus sits below the `1<<20` direct-connection term so it breaks ties rather than overriding connectivity, and a saturated worker still loses to a healthy full node. Set `false` to restore flat ranking.
 - `request_max_skew` — max accepted clock difference for signed request timestamps (replay protection window).
 - `rate_limit_per_peer` / `rate_limit_global` — remote request caps in requests per minute (0 = unlimited).
+- `max_concurrent_tasks` (v0.15.0, Track 114; default `8`) — cap on non-terminal remote tasks this node runs at once. Saturated submissions are rejected with the stable `capacity:` class (`capacity: node at N/N remote tasks`) so callers skip the remaining same-peer retries and fail over to the next ranked candidate; `0` = unlimited (the 256-entry store bound stays the backstop). Idempotent correlation-id resubmits are never capacity-rejected. `acl[].max_concurrent` caps a single peer (`capacity: peer at M/M`); `0` = global only, negative = exempt from all capacity checks.
 - `audit_log` — append-only `~/.rhizome/mesh-audit.jsonl` trail (10 MB × 3 rotation); a `mesh.remote.audit` runtime event is always emitted.
 - `require_signed_caps` — reject unsigned capability manifests (default `true`); set `false` to accept unsigned manifests from trusted peers. A `mesh.cap.unsigned` event is emitted either way.
-- `acl` — per-peer overrides: `allow_delegate`/`allow_spawn` fall back to the global flags when omitted; `allow_blob` gates `/rhizome/blob/1.0.0` transfers (default: trusted peers allowed); `agents` restricts which agent ids the peer may run (`"*"` for all); `rate_limit` overrides the per-peer cap (negative = unlimited).
+- `acl` — per-peer overrides: `allow_delegate`/`allow_spawn` fall back to the global flags when omitted; `allow_blob` gates `/rhizome/blob/1.0.0` transfers (default: trusted peers allowed); `agents` restricts which agent ids the peer may run (`"*"` for all); `rate_limit` overrides the per-peer cap (negative = unlimited); `max_concurrent` caps that peer's concurrent tasks (negative = exempt).
 - `blob_enabled` / `blob_max_bytes` / `blob_ttl` — content-addressed file transfer between trusted peers (`/rhizome/blob/1.0.0`), used by remote task attachments and mesh skill distribution. Blobs are stored under `~/.rhizome/blobs/` by SHA-256 hash, hash-verified on receipt, and reaped after `blob_ttl` (default 24h; `0` = keep forever). `blob_enabled` defaults to `true` when the mesh is enabled.
-- Rejected remote calls carry machine-readable prefixes: `forbidden:` (ACL) and `rate_limited:`.
+- Rejected remote calls carry machine-readable prefixes: `forbidden:` (ACL), `rate_limited:`, and `capacity:` (inbound task caps).
 
 ### NAT traversal (v0.5.0)
 

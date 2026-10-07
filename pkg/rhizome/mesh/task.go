@@ -165,6 +165,24 @@ func (m *Mesh) handleTaskSubmit(from peer.ID, req agenttask.Request, started tim
 		})
 	}
 
+	// Idempotent resubmits of an existing correlation id never count against
+	// capacity — the task is already here. New submissions are admitted only
+	// under the per-peer and global concurrency caps.
+	if _, dup := m.tasks.getByCorr(from, req.CorrelationID); !dup {
+		if err := m.checkCapacity(from); err != nil {
+			m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
+				"stage":   "task.submit",
+				"error":   err.Error(),
+				"peer_id": from.String(),
+			})
+			m.auditMesh(from, "submit", req.TargetAgentID, req.CorrelationID, "rejected", started, err.Error())
+			return m.signedTaskResponse(agenttask.Response{
+				Status: agenttask.StatusRejected,
+				Error:  err.Error(),
+			})
+		}
+	}
+
 	task, created, err := m.tasks.Submit(from, req)
 	if err != nil {
 		return m.signedTaskResponse(agenttask.Response{
@@ -608,6 +626,12 @@ func (m *Mesh) SubmitRemoteTaskWithPeer(
 			if err == nil {
 				return pid, taskID, nil
 			}
+			// A capacity rejection is transient for the callee, not a fault:
+			// skip the remaining same-peer attempts and move on to the next
+			// ranked candidate.
+			if isCapacityRejection(err) {
+				break
+			}
 			if !m.isFailoverRetryable(err) {
 				break
 			}
@@ -653,6 +677,15 @@ func (m *Mesh) submitCandidates(
 		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
 	}
 	return candidates
+}
+
+// isCapacityRejection reports whether a submit error carries the callee's
+// stable "capacity:" rejection class (surfaced as "task rejected: capacity:
+// …"). A saturated peer may have room a moment later, so the class is
+// deliberately not part of nonRetryable — it only steers the retry loop to
+// the next candidate.
+func isCapacityRejection(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "capacity:")
 }
 
 // isFailoverRetryable reports whether a failed submit/result/cancel is worth
