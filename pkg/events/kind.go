@@ -147,6 +147,11 @@ const (
 	// KindMeshRemoteAudit is emitted for every remote agent request outcome
 	// (accepted, rejected, rate-limited, completed, failed).
 	KindMeshRemoteAudit Kind = "mesh.remote.audit"
+	// KindMeshEconCharge is emitted when a paired-settlement charge is
+	// journaled to the bilateral ledger (payable on the caller, receivable
+	// on the callee). Payload: direction, unit, amount, task_id,
+	// correlation_id, entry_id, sheet_digest.
+	KindMeshEconCharge Kind = "mesh.econ.charge"
 	// KindMeshCapabilityUnsigned is emitted when a trusted peer sends an
 	// unsigned capability manifest (rejected unless require_signed_caps is off).
 	KindMeshCapabilityUnsigned Kind = "mesh.cap.unsigned"
@@ -290,6 +295,7 @@ var knownKinds = []Kind{
 	KindMeshReachabilityChanged,
 	KindMeshRelayReservation,
 	KindMeshRemoteAudit,
+	KindMeshEconCharge,
 	KindMeshCapabilityUnsigned,
 	KindMeshError,
 	KindMeshFanoutStart,

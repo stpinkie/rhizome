@@ -310,12 +310,16 @@ func (m *Mesh) runMeshTask(task MeshTaskSnapshot, req agenttask.Request) {
 		status = agenttask.StatusError
 		errMsg = runErr.Error()
 	}
-	// Success-only billing: compute the signed charge on done.
+	// Success-only billing: compute the signed charge on done and book it
+	// receivable.
 	var charge *econ.Charge
 	if runErr == nil && task.Econ != nil {
 		charge = m.econCharge(task.Econ, chargeUsage)
 	}
 	m.tasks.Finish(task.ID, status, result, errMsg, usage, charge)
+	m.recordEconCharge(
+		econ.DirectionReceivable, task.Owner.String(), task.ID, task.CorrID,
+		charge, result)
 
 	m.publishMeshEvent(runtimeevents.KindMeshTaskUpdate, map[string]any{
 		"peer_id":  task.Owner.String(),
@@ -819,7 +823,7 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 	m.recordPeerCall(pid, string(req.Op), true, latency, nil)
 	// Journal the negotiated terms so the result's charge can be verified
 	// against what was actually sent.
-	m.recordEconSent(resp.TaskID, req.Econ)
+	m.recordEconSent(resp.TaskID, req.Econ, corrID)
 	return resp.TaskID, nil
 }
 
@@ -853,10 +857,15 @@ func (m *Mesh) RemoteTaskResult(
 	// Verify the signed charge against the cached advert (and the terms we
 	// sent, when they're still on record) before trusting the result.
 	if resp.Status == agenttask.StatusDone {
-		if verr := m.verifyTaskCharge(pid, taskID, resp.Charge); verr != nil {
+		sent, verr := m.verifyTaskCharge(pid, taskID, resp.Charge)
+		if verr != nil {
 			m.recordPeerCall(pid, string(agenttask.OpResult), false, 0, verr)
 			return resp, verr
 		}
+		// A verified charge is booked payable on the caller side.
+		m.recordEconCharge(
+			econ.DirectionPayable, pid.String(), taskID, sent.corrID,
+			resp.Charge, resp.Result)
 	}
 	return resp, nil
 }
