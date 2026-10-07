@@ -290,14 +290,19 @@ func assembleRail(
 			web3.OpenPendingStore(web3.WalletDir(home)), client,
 			mc.payoutAddress, mc.rail.ChainID)
 	}
-	rail, err := settlement.NewRPCRail(*mc.rail, snd)
+	var rail settlement.Rail
+	if mc.rail.Kind == settlement.RailKindRhizome {
+		rail, err = settlement.NewGraduatedRail(*mc.rail, snd)
+	} else {
+		rail, err = settlement.NewRPCRail(*mc.rail, snd)
+	}
 	if err != nil {
 		logger.WarnCF("market", "escrow rail invalid", map[string]any{"error": err.Error()})
 		return nil, nil
 	}
 	logger.InfoCF("market", "settlement rail configured", map[string]any{
 		"chain_id": mc.rail.ChainID, "source": string(ep.Source),
-		"signer": mc.signerMode,
+		"signer": mc.signerMode, "rail": mc.rail.Kind,
 	})
 	return rail, ep
 }

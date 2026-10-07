@@ -353,6 +353,17 @@ func (r *RPCRail) Release(ctx context.Context, sessionID string) (string, error)
 	return r.verb(ctx, sessionID, "release", nil)
 }
 
+// ReleasePartial is not expressible on Smart Invoice — its release() is
+// milestone-indexed (a milestone pays out whole), not amount-based. The
+// graduated rail carries the amount-partials Track 128 needs.
+func (r *RPCRail) ReleasePartial(
+	ctx context.Context, sessionID string, amount *big.Int,
+) (string, error) {
+	return "", fmt.Errorf(
+		"release partial: %w (smart-invoice releases are milestone-indexed)",
+		ErrNotSupported)
+}
+
 // Claim sends escrow.lock(claimDetails) — see Rail.Claim for the
 // seller-claim semantics of Smart Invoice.
 func (r *RPCRail) Claim(ctx context.Context, sessionID string) (string, error) {

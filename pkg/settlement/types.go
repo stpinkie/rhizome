@@ -48,20 +48,33 @@ func (t Terms) Validate() error {
 	return nil
 }
 
+// Rail kind names — the module's `escrow_rail` field value.
+const (
+	// RailKindSmartInvoice is the v0.14.0 pick: Smart Invoice
+	// factory clones, session_id = clone address.
+	RailKindSmartInvoice = "smart_invoice"
+	// RailKindRhizome is the v0.16.0 Track 127 graduated contract:
+	// contracts/RhizomeEscrow.sol, session-keyed single deployment,
+	// session_id = bytes32 keccak256(correlationID).
+	RailKindRhizome = "rhizome"
+)
+
 // RailConfig is the rail-level configuration resolved from the module's
 // escrow_* fields (see ConfigFromFields).
 type RailConfig struct {
+	Kind              string // escrow_rail — smart_invoice (default) | rhizome
 	ChainID           uint64 // escrow_chain_id — EVM chain the rail talks to
-	Factory           string // escrow_contract — Smart Invoice factory address
+	Factory           string // escrow_contract — factory (smart_invoice) or RhizomeEscrow (rhizome)
 	Token             string // escrow_token — default payment asset
-	Arbiter           string // escrow_arbiter — resolver (ADR.INDIVIDUAL)
-	DisputeWindowSecs int64  // escrow_dispute_window — seconds from Open to terminationTime
-	WrappedNative     string // wrapped native token for the chain (init-time requirement)
+	Arbiter           string // escrow_arbiter — resolver/arbiter address
+	DisputeWindowSecs int64  // escrow_dispute_window — seconds from Open to the dispute deadline
+	WrappedNative     string // wrapped native token for the chain (smart_invoice init-time requirement)
 }
 
 // escrow_* module field names (flat ConfigField strings, per the market
 // module field schema in docs/design/v0.14.0-sprint.md).
 const (
+	FieldRail          = "escrow_rail"
 	FieldChainID       = "escrow_chain_id"
 	FieldContract      = "escrow_contract"
 	FieldToken         = "escrow_token"
@@ -83,6 +96,14 @@ func ConfigFromFields(fields map[string]string) (*RailConfig, error) {
 	if !web3.IsAddress(contract) {
 		return nil, fmt.Errorf("%s %q is not a 0x address", FieldContract, contract)
 	}
+	kind := get(FieldRail)
+	if kind == "" {
+		kind = RailKindSmartInvoice
+	}
+	if kind != RailKindSmartInvoice && kind != RailKindRhizome {
+		return nil, fmt.Errorf(
+			"%s %q must be %s or %s", FieldRail, kind, RailKindSmartInvoice, RailKindRhizome)
+	}
 	chainStr := get(FieldChainID)
 	chainID, err := strconv.ParseUint(chainStr, 10, 64)
 	if err != nil || chainID == 0 {
@@ -101,11 +122,17 @@ func ConfigFromFields(fields map[string]string) (*RailConfig, error) {
 	if err != nil || window <= 0 {
 		return nil, fmt.Errorf("%s %q is not a positive seconds value", FieldDisputeWindow, windowStr)
 	}
-	wrapped, err := WrappedNativeForChain(chainID)
-	if err != nil {
-		return nil, err
+	// Wrapped native is a Smart Invoice init-time requirement — the
+	// graduated contract is ERC-20-only and doesn't take one.
+	var wrapped string
+	if kind == RailKindSmartInvoice {
+		wrapped, err = WrappedNativeForChain(chainID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &RailConfig{
+		Kind:              kind,
 		ChainID:           chainID,
 		Factory:           contract,
 		Token:             token,
