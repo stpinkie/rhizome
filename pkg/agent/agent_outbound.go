@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stpinkie/rhizome/pkg/bus"
+	"github.com/stpinkie/rhizome/pkg/constants"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/providers"
 	"github.com/stpinkie/rhizome/pkg/tools"
@@ -20,8 +21,43 @@ func (al *AgentLoop) maybePublishError(ctx context.Context, channel, chatID, ses
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
-	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, formatProcessingError(err))
+	al.publishTurnFailureNotice(ctx, channel, chatID, sessionKey, formatProcessingError(err))
 	return true
+}
+
+// publishTurnFailureNotice delivers a visible notice when a turn produced no
+// reply for the user.
+//
+// It differs from PublishResponseIfNeeded in two ways:
+//
+//  1. It never suppresses the notice because the message tool already sent to
+//     this chat. A failure notice carries different information than whatever
+//     the tool delivered mid-turn, and suppressing it leaves the user staring
+//     at silence with no way to tell a finished turn from a dead one.
+//  2. It survives a canceled parent context. Turn failures often happen while
+//     the surrounding context is already being torn down (provider timeout,
+//     shutdown), which is exactly when the notice matters most.
+//
+// Internal channels (cli/system/subagent) have no human reader, so they are
+// skipped to avoid noise.
+func (al *AgentLoop) publishTurnFailureNotice(
+	ctx context.Context,
+	channel, chatID, sessionKey, notice string,
+) {
+	if strings.TrimSpace(notice) == "" {
+		return
+	}
+	if strings.TrimSpace(channel) == "" || strings.TrimSpace(chatID) == "" {
+		return
+	}
+	if constants.IsInternalChannel(channel) {
+		return
+	}
+
+	al.publishResponse(ctx, channel, chatID, sessionKey, notice, publishResponseOptions{
+		skipMessageToolSuppression: true,
+		surviveCanceledContext:     true,
+	})
 }
 
 func (al *AgentLoop) publishResponseOrError(
@@ -39,17 +75,37 @@ func (al *AgentLoop) publishResponseOrError(
 	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
 }
 
+// publishResponseOptions controls how publishResponse delivers a message.
+type publishResponseOptions struct {
+	// skipMessageToolSuppression delivers the message even when the message
+	// tool already sent to this chat during the current round.
+	skipMessageToolSuppression bool
+	// surviveCanceledContext detaches the publish from the parent context so
+	// the message is still handed to the bus when the parent is already done.
+	surviveCanceledContext bool
+}
+
 func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string) {
+	al.publishResponse(ctx, channel, chatID, sessionKey, response, publishResponseOptions{})
+}
+
+func (al *AgentLoop) publishResponse(
+	ctx context.Context,
+	channel, chatID, sessionKey, response string,
+	opts publishResponseOptions,
+) {
 	if response == "" {
 		return
 	}
 
 	alreadySentToSameChat := false
-	defaultAgent := al.GetRegistry().GetDefaultAgent()
-	if defaultAgent != nil {
-		if tool, ok := defaultAgent.Tools.Get("message"); ok {
-			if mt, ok := tool.(*tools.MessageTool); ok {
-				alreadySentToSameChat = mt.HasSentTo(sessionKey, channel, chatID)
+	if !opts.skipMessageToolSuppression {
+		defaultAgent := al.GetRegistry().GetDefaultAgent()
+		if defaultAgent != nil {
+			if tool, ok := defaultAgent.Tools.Get("message"); ok {
+				if mt, ok := tool.(*tools.MessageTool); ok {
+					alreadySentToSameChat = mt.HasSentTo(sessionKey, channel, chatID)
+				}
 			}
 		}
 	}
@@ -82,7 +138,30 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
 	}
 	markFinalOutbound(&msg)
-	al.bus.PublishOutbound(ctx, msg)
+
+	// A failure notice is often produced while the parent context is already
+	// being torn down (provider timeout, shutdown). Detach from cancellation so
+	// the notice still reaches the bus, but keep a bounded deadline so a stuck
+	// bus cannot leak this goroutine.
+	pubCtx := ctx
+	if opts.surviveCanceledContext {
+		pubCtx = context.WithoutCancel(ctx)
+	}
+	pubCtx, pubCancel := context.WithTimeout(pubCtx, 10*time.Second)
+	defer pubCancel()
+
+	if pubErr := al.bus.PublishOutbound(pubCtx, msg); pubErr != nil {
+		// This error used to be discarded, so a reply that never reached the bus
+		// vanished without a trace. Log it so silent turns stay diagnosable.
+		logger.WarnCF("agent", "Failed to publish outbound response", map[string]any{
+			"channel":     channel,
+			"chat_id":     chatID,
+			"content_len": len(response),
+			"error":       pubErr.Error(),
+		})
+		return
+	}
+
 	logger.InfoCF("agent", "Published outbound response",
 		map[string]any{
 			"channel":     channel,

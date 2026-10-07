@@ -11,6 +11,58 @@ Issue numbers below refer to `sipeed/picoclaw` issues. Links of the form
 `stpinkie/rhizome/issues/NNN` in `ROADMAP.md` are rebrand-rewrites of these
 upstream numbers and do not resolve to a live Rhizome tracker.
 
+## v0.15.0 Track 112 sweep (2026-10-06)
+
+**Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) —
+`git rev-list bbf6893c..upstream/main` returns 0. **No new upstream commits
+to cherry-pick**; upstream merges remain dormant (latest merged PR is #3286,
+2026-07-23). All activity since the Track-148 sweep lives in open PRs and
+issues.
+
+**Ported adapted** (open fix PR applied to shared code — the #3378 precedent):
+
+| Item | What | Action |
+|---|---|---|
+| PR #3412 | `fix(agent)`: a dead turn's error notice never reached the user — suppressed by the `message` tool's already-sent heuristic, killed by the already-canceled teardown context, and `PublishOutbound` errors discarded silently | **Ported adapted** — `publishTurnFailureNotice` + `publishResponse` options (`skipMessageToolSuppression`, `surviveCanceledContext`) in `pkg/agent/agent_outbound.go`; panic-path notice in `agent.go`; `constants.IsInternalChannel` skip; 10 s bounded publish + warn-on-failure; `agent_outbound_test.go` ports the 10-case suite |
+
+**Held — applicable fix, upstream in flight**:
+
+| Item | What | Verdict |
+|---|---|---|
+| PR #3410 | `fix(pico/web)`: steering-queue feedback — queued/dropped inbound messages surfaced via `agent.interrupt.received` attrs (`steering_result`, `queue_depth`) | **Watch** — backend half touches shared code (`pkg/agent/steering.go`, `pkg/channels/pico`, `pkg/channels/runtime_events.go`); the web half diverged post-fork (our chat path is WebSocket-based). Part of the #3404 reliability wave still in flight — port adapted when upstream settles or the wave lands |
+| Issue #3408 | The queued-message silent-drop issue Track 148 marked *Verify* | Upgraded: a real fix exists upstream (PR #3410) — applicability confirmed for `pkg/channels/pico` + `pkg/agent` steering queue; held with the PR above |
+| Issue #3407 | Ghost session while the model is still thinking | Still **Verify** — no upstream fix has appeared; our session handling diverged |
+
+**New issues filed since the last sweep** (2026-09-30 → 2026-10-06; #3409
+filed 2026-09-29 inside Track 148's window but absent from its table):
+
+| Item | What | Verdict |
+|---|---|---|
+| Issue #3409 | `ScheduleWakeup` used as a wait mechanism fires an unwanted autonomous-loop tick | **Not applicable** — no wakeup/scheduling or autonomous-loop primitive exists in Rhizome (verified: nothing under `pkg/` matches) |
+| Issue #3415 | Reverse-proxy subpath mounting (nginx `/pico`) | **Deferred** — feature request, not a fix |
+
+**New open PRs since the last sweep** (feature PRs — sign-off batch
+candidates; none are fixes to port):
+
+| Item | What | Verdict |
+|---|---|---|
+| PR #3416 | Sendblue iMessage/SMS channel | Feature — sign-off batch |
+| PR #3414 | Wall-clock turn time budget | Feature — sign-off batch |
+| PR #3413 | Web global multi-channel session sidebar | Feature — sign-off batch |
+| PR #3411 | Honest state-driven working indicator (answers #3406) | Feature — sign-off batch |
+
+**Watch list** (carried, statuses re-verified this sweep):
+
+| Item | State 2026-10-06 |
+|---|---|
+| PR #3381 (OpenAI → Responses API) | Still **open**, unmerged — keep waiting; an unmerged wire-protocol switch stays unportable |
+| `dingtalk-stream-sdk-go` fix for #3382 | Still **blocked** — latest tag remains `v0.9.2-beta.1` (pre-release); issue #3382 open; restore waits on a stable release |
+| PR #3371 (opencode-go) | Still open — ported adapted in Track 108; keep watching for follow-ups |
+| Feature-PR sign-off batch | **Changed**: #3354 (IRCv3 multiline) closed unmerged 2026-10-05; #3368 (docs MCP) closed unmerged 2026-10-02; #3370/#3259/#3222/#1951 still open; new candidates #3411/#3413/#3414/#3416 |
+| Issue #3404 (reliability wave) | Active — children #3410/#3411/#3412 filed 09-29…09-30; #3412 ported this sweep, #3410 held, #3411 feature |
+| Issues #3394 (QQ API drift), #3407 (ghost session) | Still verify — unchanged from Track 148 |
+| Dependabot PRs (#3385–#3389 class) | No action — our own `dependabot.yml` proposes the same bumps |
+
 ## v0.18.0 Track 148 sweep (2026-09-30)
 
 **Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) —
