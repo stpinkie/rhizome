@@ -11,6 +11,35 @@ Issue numbers below refer to `sipeed/picoclaw` issues. Links of the form
 `stpinkie/rhizome/issues/NNN` in `ROADMAP.md` are rebrand-rewrites of these
 upstream numbers and do not resolve to a live Rhizome tracker.
 
+## v0.17.0 Track 137 sweep (2026-10-07)
+
+**Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) —
+`git rev-list bbf6893c..upstream/main` returns 0. **No new upstream commits
+to cherry-pick**; upstream merges remain dormant (latest merged PR is still
+#3286, 2026-07-23).
+
+**Picked**: none — nothing to pick.
+
+**New items since the Track 123 sweep** (2026-10-06 → 2026-10-07):
+
+| Item | What | Verdict |
+|---|---|---|
+| Issue #3417 | "[Notice] Active Fork & Continued Maintenance" — community post pointing users at `afjcjsbx/picoclaw` as a maintained fork | **Not applicable** — meta notice, not a defect; no Rhizome action (we are our own maintained fork) |
+| PR #3418 | `ci: enforce shared devops gates` — opened and closed unmerged 2026-10-07 | **Not applicable** — CI plumbing; our workflow layout diverged entirely post-fork |
+
+**Watch list** (carried, statuses re-verified this sweep):
+
+| Item | State 2026-10-07 |
+|---|---|
+| PR #3381 (OpenAI → Responses API) | Still **open**, unmerged — keep waiting; an unmerged wire-protocol switch stays unportable |
+| `dingtalk-stream-sdk-go` fix for #3382 | Still **blocked** — latest tag remains `v0.9.2-beta.1` (pre-release, 2026-07-30); issue #3382 closed upstream as stale (NOT_PLANNED), not fixed — restore posture unchanged |
+| PR #3412 (turn-failure notice) | Still **open** — ported adapted in Track 112; drop from watch if upstream merges |
+| PR #3410 (steering-queue feedback) | Still **open** — held pending upstream merge (Track 112 decision); issue #3408 stays upgraded-Watch with it |
+| PR #3371 (opencode-go) | Still open — ported adapted in Track 108; keep watching for follow-ups |
+| Feature-PR sign-off batch | #3370, #3259, #3222, #1951, #3411, #3413, #3414, #3416 still open — queued v0.20.0+ (Track 170 scope); #3354/#3368 closed unmerged — dropped; add candidates #3393 (Cheaper Inference provider) and #3396 (OneBot reaction toggle, covers deferred issue #3395) |
+| Issue #3404 (reliability wave) | Open; linked fix PRs #3399–#3403 all closed unmerged — four ported in Track 123 (#3400 duplicates our shipped #3373 fix) |
+| Issues #3394/#3407/#3408/#3409 | Still open — Verify/NA verdicts carry (QQ API drift; web ghost-session; web busy-queue drop; no scheduling primitive) |
+
 ## v0.16.0 Track 123 sweep (2026-10-06)
 
 **Sync point**: upstream `main` tip is still `bbf6893c` (2026-08-19) —
