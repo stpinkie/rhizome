@@ -104,6 +104,15 @@ func (h *networkSwarmsHandler) read(w http.ResponseWriter, r *http.Request, sw *
 			"swarm_id": swarmID,
 			"members":  sw.Members(swarmID),
 		})
+	case "doctor":
+		// Roster diagnostics: MsgQuery every known member and diff rosters.
+		// Bounded by max_members × 5s worst-case query time.
+		report, err := sw.Doctor(r.Context(), swarmID)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
 	case "offers":
 		writeJSON(w, http.StatusOK, map[string]any{
 			"swarm_id": swarmID,

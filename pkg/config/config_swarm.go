@@ -129,6 +129,12 @@ type SwarmCoordinationConfig struct {
 	// StateInterval is how often the coordinator refreshes shared state.
 	// Defaults to 30s.
 	StateInterval time.Duration `json:"state_interval,omitempty"`
+	// PreferConnected excludes roster members that are not currently
+	// connected from coordinator election. Defaults to false, which keeps
+	// the deterministic whole-roster election; enabling trades determinism
+	// (members with asymmetric connectivity may elect different
+	// coordinators) for an always-live coordinator.
+	PreferConnected bool `json:"prefer_connected,omitempty"`
 }
 
 // CoordinationEnabled reports whether coordinator election is on (default).

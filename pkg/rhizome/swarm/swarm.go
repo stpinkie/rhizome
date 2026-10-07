@@ -43,6 +43,9 @@ type swarmState struct {
 	Members  map[string]Member
 	// Epoch is the coordinator's shared-state sequence number.
 	Epoch int64
+	// LastStateWrite is when this node last published shared state as
+	// coordinator — zero when it has never coordinated.
+	LastStateWrite time.Time
 }
 
 // MemberInfo is the JSON-friendly view of one member.
@@ -60,12 +63,13 @@ var _ MemberInfo = MemberInfo(Member{})
 
 // SwarmInfo is the JSON-friendly view of one swarm.
 type SwarmInfo struct {
-	ID          string       `json:"id"`
-	Joined      bool         `json:"joined"`
-	JoinedAt    time.Time    `json:"joined_at,omitempty"`
-	Coordinator string       `json:"coordinator,omitempty"`
-	Epoch       int64        `json:"epoch,omitempty"`
-	Members     []MemberInfo `json:"members,omitempty"`
+	ID             string       `json:"id"`
+	Joined         bool         `json:"joined"`
+	JoinedAt       time.Time    `json:"joined_at,omitempty"`
+	Coordinator    string       `json:"coordinator,omitempty"`
+	Epoch          int64        `json:"epoch,omitempty"`
+	LastStateWrite time.Time    `json:"last_state_write,omitempty"`
+	Members        []MemberInfo `json:"members,omitempty"`
 }
 
 // Status is the combined swarm snapshot for status output and APIs.
@@ -550,12 +554,13 @@ func (s *Swarm) Swarms() []SwarmInfo {
 			continue
 		}
 		info := SwarmInfo{
-			ID:          id,
-			Joined:      swarm.Joined,
-			JoinedAt:    swarm.JoinedAt,
-			Coordinator: s.coordinators[id],
-			Epoch:       swarm.Epoch,
-			Members:     membersSnapshotLocked(swarm),
+			ID:             id,
+			Joined:         swarm.Joined,
+			JoinedAt:       swarm.JoinedAt,
+			Coordinator:    s.coordinators[id],
+			Epoch:          swarm.Epoch,
+			LastStateWrite: swarm.LastStateWrite,
+			Members:        membersSnapshotLocked(swarm),
 		}
 		out = append(out, info)
 	}
@@ -721,7 +726,18 @@ func (s *Swarm) HandleRequest(from peer.ID, env Envelope) Envelope {
 		return resp
 	case MsgQuery:
 		resp := Envelope{SwarmID: env.SwarmID, Type: MsgQueryResp}
-		qr := queryRespPayload{Swarms: s.joinedIDs(), Members: make(map[string][]string)}
+		qr := queryRespPayload{
+			Swarms:  s.joinedIDs(),
+			Members: make(map[string][]string),
+			Epochs:  make(map[string]int64),
+		}
+		s.mu.RLock()
+		for _, id := range qr.Swarms {
+			if st, ok := s.swarms[id]; ok && st.Epoch > 0 {
+				qr.Epochs[id] = st.Epoch
+			}
+		}
+		s.mu.RUnlock()
 		for _, id := range qr.Swarms {
 			for _, m := range s.Members(id) {
 				qr.Members[id] = append(qr.Members[id], m.PeerID)

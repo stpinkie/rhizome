@@ -6,8 +6,11 @@ import (
 	"sort"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+
 	"github.com/stpinkie/rhizome/pkg/config"
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
+	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
 
 // SharedState is the deterministic snapshot the coordinator publishes to the
@@ -63,7 +66,14 @@ func (s *Swarm) reelectLocked(swarmID string) bool {
 		rank int // roleRank — full members coordinate before workers
 	}
 	candidates := make([]candidate, 0, len(swarm.Members)+1)
+	preferConnected := s.cfg.Coordination.PreferConnected
 	for pid, m := range swarm.Members {
+		if preferConnected {
+			mpid, err := peer.Decode(pid)
+			if err != nil || !rnet.IsConnectednessUp(s.node.Connectedness(mpid)) {
+				continue
+			}
+		}
 		candidates = append(candidates, candidate{pid, roleRank(m.Role)})
 	}
 	if swarm.Joined {
@@ -164,6 +174,11 @@ func (s *Swarm) writeSharedState(swarmID string) {
 		})
 		return
 	}
+	s.mu.Lock()
+	if st, ok := s.swarms[swarmID]; ok {
+		st.LastStateWrite = time.Now().UTC()
+	}
+	s.mu.Unlock()
 	s.publishEvent(runtimeevents.KindSwarmStateWritten, map[string]any{
 		"swarm_id": swarmID,
 		"epoch":    epoch,
