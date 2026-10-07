@@ -701,7 +701,7 @@ func TestFind_IndexSignedFetchAndStaleServe(t *testing.T) {
 			PriceSheet:   priceSheet{PerTask: "2", Asset: "USDC", ChainID: 11155111},
 		}},
 	})
-	idx := &marketIndex{V: 1, Providers: []indexProvider{{
+	idx := &marketIndex{V: 1, UpdatedAt: time.Now().UTC().Format(time.RFC3339), Providers: []indexProvider{{
 		PeerID: sellerID.PeerID,
 		Advert: json.RawMessage(advJSON),
 	}}}
@@ -739,7 +739,7 @@ func TestFind_IndexSignedFetchAndStaleServe(t *testing.T) {
 
 func TestFind_IndexStaleServeOnOutage(t *testing.T) {
 	f := newBuyFixture(t, nil)
-	idx := &marketIndex{V: 1, Providers: []indexProvider{}}
+	idx := &marketIndex{V: 1, UpdatedAt: time.Now().UTC().Format(time.RFC3339), Providers: []indexProvider{}}
 	url, pubkey := signedIndexServer(t, idx)
 	f.mc.indexEnabled = true
 	f.mc.indexURL = url
