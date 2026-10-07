@@ -44,6 +44,10 @@ type RemoteCall struct {
 	// success — present only when the chosen peer advertised
 	// allows.usage_report and the run could be metered.
 	UsageSink *toolshared.RemoteUsage
+	// Requires constrains failover candidates to manifests satisfying the
+	// requirement (models, skills). The preferred peer is never filtered —
+	// an explicit peer is an explicit choice.
+	Requires Requirements
 }
 
 // MediaAttachment names one file carried to a remote callee.
@@ -557,11 +561,11 @@ func (m *Mesh) SubmitRemoteTaskWithPeer(
 ) (peer.ID, string, error) {
 	op := remoteCallOp(call)
 
-	candidates := m.submitCandidates(preferred, call.TargetAgentID, op)
+	candidates := m.submitCandidates(preferred, call.TargetAgentID, op, call.Requires)
 	if len(candidates) == 0 {
 		return "", "", fmt.Errorf(
-			"no trusted, connected peer advertises agent %q for op %q",
-			call.TargetAgentID, op)
+			"no trusted, connected peer advertises agent %q for op %q%s",
+			call.TargetAgentID, op, reqSuffix(call.Requires))
 	}
 
 	maxAttempts := m.cfg.TaskRetries
@@ -632,13 +636,19 @@ func remoteCallOp(call RemoteCall) string {
 
 // submitCandidates returns the ranked list of peers able to run the given
 // agent/op. If a preferred peer is provided, it is placed at the front of the
-// list and excluded from the ranked candidates to avoid duplicates.
-func (m *Mesh) submitCandidates(preferred peer.ID, agentID, op string) []RankedPeer {
+// list and excluded from the ranked candidates to avoid duplicates. Failover
+// candidates are constrained to manifests satisfying req; the preferred peer
+// is never filtered — an explicit peer is an explicit choice.
+func (m *Mesh) submitCandidates(
+	preferred peer.ID,
+	agentID, op string,
+	req Requirements,
+) []RankedPeer {
 	exclude := make(map[peer.ID]bool)
 	if preferred != "" {
 		exclude[preferred] = true
 	}
-	candidates := m.PickPeerRanked(agentID, op, exclude)
+	candidates := m.PickPeerRankedWith(agentID, op, req, exclude)
 	if preferred != "" {
 		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
 	}

@@ -58,6 +58,9 @@ type FanoutRequest struct {
 	// server caps a single poll at taskPollWait, so larger values simply
 	// re-poll; the caller's context bounds the whole fan-out.
 	Wait time.Duration
+	// Requires constrains branch peers to manifests satisfying the
+	// requirement (models, skills).
+	Requires Requirements
 }
 
 // FanoutBranch is the outcome of one peer in a fan-out. Status is a terminal
@@ -102,9 +105,10 @@ func (m *Mesh) FanoutTask(ctx context.Context, req FanoutRequest) (FanoutResult,
 		return FanoutResult{}, fmt.Errorf("unknown fanout strategy %q", req.Strategy)
 	}
 
-	candidates := m.PickPeerRanked(req.AgentID, "spawn", nil)
+	candidates := m.PickPeerRankedWith(req.AgentID, "spawn", req.Requires, nil)
 	if len(candidates) == 0 {
-		return FanoutResult{}, fmt.Errorf("no capable trusted peer for agent %q", req.AgentID)
+		return FanoutResult{}, fmt.Errorf(
+			"no capable trusted peer for agent %q%s", req.AgentID, reqSuffix(req.Requires))
 	}
 	n := req.N
 	if n <= 0 || n > len(candidates) {
@@ -140,6 +144,7 @@ func (m *Mesh) FanoutTask(ctx context.Context, req FanoutRequest) (FanoutResult,
 		SystemPrompt:  req.Task,
 		Tools:         req.Tools,
 		Async:         true,
+		Requires:      req.Requires,
 	}
 
 	// Submit phase: one goroutine per candidate. The returned task ids are

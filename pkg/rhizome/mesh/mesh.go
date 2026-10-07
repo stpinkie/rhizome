@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -702,11 +703,11 @@ func (m *Mesh) CallRemote(
 		Timestamp:     time.Now().Unix(),
 	}
 
-	candidates := m.syncCandidates(preferred, call.TargetAgentID)
+	candidates := m.syncCandidates(preferred, call.TargetAgentID, call.Requires)
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf(
-			"no trusted, connected peer advertises agent %q for op delegate",
-			call.TargetAgentID)
+			"no trusted, connected peer advertises agent %q for op delegate%s",
+			call.TargetAgentID, reqSuffix(call.Requires))
 	}
 
 	maxAttempts := m.cfg.TaskRetries
@@ -835,13 +836,14 @@ func (m *Mesh) CallRemote(
 }
 
 // syncCandidates returns connected, trusted peers able to delegate the given
-// agent. The preferred peer, if given, is tried first.
-func (m *Mesh) syncCandidates(preferred peer.ID, agentID string) []RankedPeer {
+// agent. The preferred peer, if given, is tried first; failover candidates
+// are constrained to manifests satisfying req.
+func (m *Mesh) syncCandidates(preferred peer.ID, agentID string, req Requirements) []RankedPeer {
 	exclude := make(map[peer.ID]bool)
 	if preferred != "" {
 		exclude[preferred] = true
 	}
-	candidates := m.PickPeerRanked(agentID, "delegate", exclude)
+	candidates := m.PickPeerRankedWith(agentID, "delegate", req, exclude)
 	if preferred != "" {
 		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
 	}
@@ -1549,6 +1551,47 @@ func (m *Mesh) ConnectedTrustedPeers() []peer.ID {
 	return out
 }
 
+// Requirements constrains peer selection to manifests advertising the
+// required classes. Within one class the match is any-of: a peer satisfies
+// the requirement when its manifest advertises at least one listed entry.
+// An empty list means "no constraint"; a manifest that omits a class
+// entirely never satisfies a requirement for it — peers with
+// advertise_models/advertise_skills off are invisible to
+// requirement-filtered picks.
+type Requirements struct {
+	// Models limits picking to peers advertising one of these models.
+	Models []string
+	// Skills limits picking to peers advertising one of these skills in
+	// either skills or shareable_skills.
+	Skills []string
+}
+
+// Empty reports whether the requirements constrain picking at all.
+func (r Requirements) Empty() bool {
+	return len(r.Models) == 0 && len(r.Skills) == 0
+}
+
+// String renders the constraint for errors and logs.
+func (r Requirements) String() string {
+	var parts []string
+	if len(r.Models) > 0 {
+		parts = append(parts, fmt.Sprintf("models=%v", r.Models))
+	}
+	if len(r.Skills) > 0 {
+		parts = append(parts, fmt.Sprintf("skills=%v", r.Skills))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// reqSuffix renders a " satisfying requirements (…)" clause for
+// no-capable-peer errors, or "" for unconstrained picks.
+func reqSuffix(req Requirements) string {
+	if req.Empty() {
+		return ""
+	}
+	return fmt.Sprintf(" satisfying requirements (%s)", req)
+}
+
 // PickPeer selects a connected, trusted peer able to run agentID for the
 // given op ("delegate" or "spawn"). Candidates must have advertised a
 // capability manifest listing the agent (or "*") and allowing the op. Peers
@@ -1557,10 +1600,17 @@ func (m *Mesh) ConnectedTrustedPeers() []peer.ID {
 // scores, with the peer id as a deterministic tiebreak. The returned
 // capability is the manifest the decision was based on.
 func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
-	candidates := m.rankedCandidates(agentID, op, nil)
+	return m.PickPeerWith(agentID, op, Requirements{})
+}
+
+// PickPeerWith is PickPeer additionally constrained to manifests that
+// satisfy req.
+func (m *Mesh) PickPeerWith(agentID, op string, req Requirements) (peer.ID, Capability, error) {
+	candidates := m.rankedCandidates(agentID, op, req, nil)
 	if len(candidates) == 0 {
 		return "", Capability{}, fmt.Errorf(
-			"no trusted, connected peer advertises agent %q for op %q", agentID, op)
+			"no trusted, connected peer advertises agent %q for op %q%s",
+			agentID, op, reqSuffix(req))
 	}
 	return candidates[0].PID, candidates[0].Cap, nil
 }
@@ -1569,20 +1619,34 @@ func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
 // agent and op, sorted from best to worst by the same scoring logic used in
 // PickPeer. Peers in exclude are omitted.
 func (m *Mesh) PickPeerRanked(agentID, op string, exclude map[peer.ID]bool) []RankedPeer {
-	return m.rankedCandidates(agentID, op, exclude)
+	return m.rankedCandidates(agentID, op, Requirements{}, exclude)
+}
+
+// PickPeerRankedWith is PickPeerRanked additionally constrained to manifests
+// that satisfy req.
+func (m *Mesh) PickPeerRankedWith(
+	agentID, op string,
+	req Requirements,
+	exclude map[peer.ID]bool,
+) []RankedPeer {
+	return m.rankedCandidates(agentID, op, req, exclude)
 }
 
 // rankedCandidates builds the list of connected, trusted peers that can serve
 // the given agent/op. It filters by advertised capability and sorts by the
 // composite routing score.
-func (m *Mesh) rankedCandidates(agentID, op string, exclude map[peer.ID]bool) []RankedPeer {
+func (m *Mesh) rankedCandidates(
+	agentID, op string,
+	req Requirements,
+	exclude map[peer.ID]bool,
+) []RankedPeer {
 	var out []RankedPeer
 	for _, pid := range m.ConnectedTrustedPeers() {
 		if exclude[pid] {
 			continue
 		}
 		c, ok := m.PeerCapabilities(pid)
-		if !ok || !capabilityServes(c, agentID, op) {
+		if !ok || !capabilityServes(c, agentID, op, req) {
 			continue
 		}
 		var score int64
@@ -1630,19 +1694,40 @@ func roleScoreBonus(op, role string) int64 {
 	return 0
 }
 
-// capabilityServes reports whether a manifest allows the op and lists the
-// requested agent. An empty agentID matches any manifest.
-func capabilityServes(c Capability, agentID, op string) bool {
+// capabilityServes reports whether a manifest allows the op, lists the
+// requested agent, and satisfies req. An empty agentID matches any manifest;
+// a manifest that omits a required class (models, skills) never satisfies a
+// requirement for it.
+func capabilityServes(c Capability, agentID, op string, req Requirements) bool {
 	if op != "" {
 		if allowed, ok := c.Allows[op]; !ok || !allowed {
 			return false
 		}
+	}
+	if len(req.Models) > 0 && !slicesOverlap(req.Models, c.Models) {
+		return false
+	}
+	if len(req.Skills) > 0 &&
+		!slicesOverlap(req.Skills, c.Skills) &&
+		!slicesOverlap(req.Skills, c.ShareableSkills) {
+		return false
 	}
 	if agentID == "" {
 		return true
 	}
 	for _, a := range c.Agents {
 		if a == agentID || a == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// slicesOverlap reports whether required shares at least one entry with
+// advertised. Requirement classes are any-of: one matching entry satisfies.
+func slicesOverlap(required, advertised []string) bool {
+	for _, r := range required {
+		if slices.Contains(advertised, r) {
 			return true
 		}
 	}

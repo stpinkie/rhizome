@@ -105,8 +105,8 @@ func newFanoutTestMeshes(
 		capB, okB := meshA.PeerCapabilities(nodeB.ID())
 		capC, okC := meshA.PeerCapabilities(nodeC.ID())
 		if !okB || !okC ||
-			!capabilityServes(capB, "main", "spawn") ||
-			!capabilityServes(capC, "main", "spawn") {
+			!capabilityServes(capB, "main", "spawn", Requirements{}) ||
+			!capabilityServes(capC, "main", "spawn", Requirements{}) {
 			return false
 		}
 		// Probe the task protocol with a short timeout rather than relying on
