@@ -3394,6 +3394,42 @@ func TestMeshConfig_ValidateMaxConcurrent(t *testing.T) {
 	}
 }
 
+func TestMeshConfig_ObservabilityDefaultsAndRoundTrip(t *testing.T) {
+	m := DefaultMeshConfig()
+	if !m.ActivityLog {
+		t.Fatal("activity_log should default to true")
+	}
+	if m.ScoreHalfLife != 7*24*time.Hour {
+		t.Fatalf("score_half_life should default to 168h, got %v", m.ScoreHalfLife)
+	}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("defaults rejected: %v", err)
+	}
+
+	m.ScoreHalfLife = -time.Hour
+	if err := m.Validate(); err == nil {
+		t.Fatal("negative score_half_life should fail validation")
+	}
+
+	// MarshalJSON hangs off *MeshConfig — marshal a pointer, as the parent
+	// config does.
+	raw, err := json.Marshal(&MeshConfig{ScoreHalfLife: 48 * time.Hour, ActivityLog: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"score_half_life":"48h0m0s"`) {
+		t.Fatalf("score_half_life should marshal as a duration string, got %s", raw)
+	}
+	var back MeshConfig
+	if err := json.Unmarshal(
+		[]byte(`{"score_half_life":"48h","activity_log":false}`), &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.ScoreHalfLife != 48*time.Hour || back.ActivityLog {
+		t.Fatalf("round trip lost fields: %+v", back)
+	}
+}
+
 func TestMeshConfig_Role(t *testing.T) {
 	// Default is "full" whether the field is absent or explicit.
 	for _, role := range []string{"", MeshRoleFull} {

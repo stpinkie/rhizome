@@ -482,6 +482,19 @@ func (s *TaskStore) getOwned(id string, owner peer.ID) (MeshTaskSnapshot, bool) 
 	return t.snapshot(), true
 }
 
+// Get returns the snapshot for any task id regardless of owner — used by the
+// operator trace surface, which is not subject to owner scoping.
+func (s *TaskStore) Get(id string) (MeshTaskSnapshot, bool) {
+	var zero MeshTaskSnapshot
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok {
+		return zero, false
+	}
+	return t.snapshot(), true
+}
+
 // Start marks an accepted task as running and registers its cancel func.
 func (s *TaskStore) Start(id string, cancel context.CancelFunc) {
 	s.mu.Lock()

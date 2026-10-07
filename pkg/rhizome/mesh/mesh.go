@@ -120,6 +120,10 @@ type PeerScoreView struct {
 	AvgLatencyMs float64 `json:"avg_latency_ms"`
 	LastError    string  `json:"last_error,omitempty"`
 	Score        float64 `json:"score"`
+	// Decay is the evidence-freshness weight applied to Score (1 = fully
+	// fresh). Nil when score decay is disabled.
+	Decay *float64          `json:"decay,omitempty"`
+	Ops   map[string]OpStat `json:"ops,omitempty"`
 }
 
 // BandwidthView reports in/out byte totals and current rates.
@@ -225,11 +229,12 @@ type Mesh struct {
 	activityOnce sync.Once
 	name         string
 
-	replay    *replayGuard
-	rateMu    sync.Mutex
-	peerLims  map[peer.ID]*rate.Limiter
-	globalLim *rate.Limiter
-	auditLog  *auditLogger
+	replay      *replayGuard
+	rateMu      sync.Mutex
+	peerLims    map[peer.ID]*rate.Limiter
+	globalLim   *rate.Limiter
+	auditLog    *auditLogger
+	activityLog *auditLogger
 }
 
 // NewMesh creates a mesh layer over an existing node and syncer.
@@ -255,9 +260,13 @@ func NewMesh(
 	if cfg.AuditLog {
 		m.auditLog = newAuditLogger(defaultAuditPath())
 	}
+	if cfg.ActivityLog {
+		m.activityLog = newAuditLogger(defaultActivityPath())
+	}
 	m.rpc = agentrpc.NewTransport(m.host, m)
 	m.tasks = NewTaskStore()
 	m.scoreStore = NewPeerScoreStore()
+	m.scoreStore.SetHalfLife(cfg.ScoreHalfLife)
 	m.taskRPC = agenttask.NewTransport(m.host, m)
 	m.cap = NewCapsTransportWithPolicy(
 		m.host,
@@ -299,6 +308,35 @@ func (m *Mesh) SetAuditPath(path string) {
 		return
 	}
 	m.auditLog = newAuditLogger(path)
+}
+
+// SetActivityPath overrides the activity trail location. An empty path
+// disables the durable mirror (the in-memory feed is unaffected). Must be
+// called before SetEventBus for the warm-load to pick the override.
+func (m *Mesh) SetActivityPath(path string) {
+	if path == "" {
+		m.activityLog = nil
+		return
+	}
+	m.activityLog = newAuditLogger(path)
+}
+
+// AuditPath returns the mesh audit trail location, or "" when auditing is
+// disabled.
+func (m *Mesh) AuditPath() string {
+	if m == nil || m.auditLog == nil {
+		return ""
+	}
+	return m.auditLog.path
+}
+
+// TaskInfo returns the stored snapshot for one task id regardless of owner —
+// the operator trace surface is unscoped like the audit trail.
+func (m *Mesh) TaskInfo(taskID string) (MeshTaskSnapshot, bool) {
+	if m == nil || m.tasks == nil {
+		return MeshTaskSnapshot{}, false
+	}
+	return m.tasks.Get(taskID)
 }
 
 // SetName sets the human-readable node name included in NetworkStatus.
@@ -343,11 +381,13 @@ func (m *Mesh) publishMeshEvent(kind runtimeevents.Kind, attrs map[string]any) {
 
 // recordPeerCall records the outcome and latency of a call to a peer.
 // It is used by CallRemote and taskCall to build a quality score for PickPeer.
-func (m *Mesh) recordPeerCall(pid peer.ID, success bool, latency time.Duration, err error) {
+// op labels the operation ("delegate", "spawn", "submit", "result", …) for
+// the per-operation score breakdown.
+func (m *Mesh) recordPeerCall(pid peer.ID, op string, success bool, latency time.Duration, err error) {
 	if m.scoreStore == nil {
 		return
 	}
-	m.scoreStore.Record(pid, success, latency, err)
+	m.scoreStore.Record(pid, op, success, latency, err)
 }
 
 // Start registers the agent and capability protocol handlers.
@@ -763,11 +803,12 @@ func (m *Mesh) CallRemote(
 			}
 			req.Signature = identity.Sign(m.id.PrivateKey, payload)
 
+			op := remoteCallOp(call)
 			start := time.Now()
 			resp, err := m.rpc.Call(ctx, pid, req)
 			latency := time.Since(start)
 			if err != nil {
-				m.recordPeerCall(pid, false, latency, err)
+				m.recordPeerCall(pid, op, false, latency, err)
 				lastErr = err
 				if !m.isSyncRetryable(err) {
 					break
@@ -775,7 +816,7 @@ func (m *Mesh) CallRemote(
 				continue
 			}
 			if err := m.verifyResponse(pid, &resp); err != nil {
-				m.recordPeerCall(pid, false, latency, err)
+				m.recordPeerCall(pid, op, false, latency, err)
 				lastErr = err
 				if !m.isSyncRetryable(err) {
 					break
@@ -786,7 +827,7 @@ func (m *Mesh) CallRemote(
 			// to this exact request and cannot be replayed for another.
 			if req.Nonce != "" && resp.Nonce != req.Nonce {
 				err := fmt.Errorf("response nonce does not match request")
-				m.recordPeerCall(pid, false, latency, err)
+				m.recordPeerCall(pid, op, false, latency, err)
 				lastErr = err
 				if !m.isSyncRetryable(err) {
 					break
@@ -795,7 +836,7 @@ func (m *Mesh) CallRemote(
 			}
 			if resp.Status != "ok" {
 				err := fmt.Errorf("remote agent failed: %s", resp.Error)
-				m.recordPeerCall(pid, false, latency, err)
+				m.recordPeerCall(pid, op, false, latency, err)
 				// A remote agent failure is a task execution error; do not
 				// failover to another peer and risk duplicate execution.
 				m.publishMeshEvent(endKind, map[string]any{
@@ -807,7 +848,7 @@ func (m *Mesh) CallRemote(
 				})
 				return nil, err
 			}
-			m.recordPeerCall(pid, true, latency, nil)
+			m.recordPeerCall(pid, op, true, latency, nil)
 			m.publishMeshEvent(endKind, map[string]any{
 				"peer_id":        pid.String(),
 				"agent_id":       call.TargetAgentID,
@@ -1478,6 +1519,10 @@ func (m *Mesh) fillPeerObservability(ps *PeerStatus, pid peer.ID) {
 				AvgLatencyMs: float64(sc.AvgLatency) / float64(time.Millisecond),
 				LastError:    sc.LastError,
 				Score:        sc.Score(),
+				Ops:          sc.OpStats,
+			}
+			if decay := sc.DecayFactor(); decay < 1 {
+				ps.Score.Decay = &decay
 			}
 			if !sc.LastSeen.IsZero() {
 				ps.LastSeen = sc.LastSeen.UTC().Format(time.RFC3339)

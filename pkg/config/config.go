@@ -174,6 +174,14 @@ type MeshConfig struct {
 	// AuditLog enables the append-only mesh audit trail at
 	// ~/.rhizome/mesh-audit.jsonl. Defaults to true.
 	AuditLog bool `json:"audit_log"`
+	// ActivityLog persists the mesh/swarm activity feed to
+	// ~/.rhizome/mesh-activity.jsonl (size-rotated like the audit trail) so
+	// `mesh activity --since` reads back across restarts. Defaults to true.
+	ActivityLog bool `json:"activity_log"`
+	// ScoreHalfLife is the read-time decay window for peer scores: a peer's
+	// recorded successes/failures halve in weight per idle half-life since it
+	// was last seen. Defaults to 168h (one week); 0 disables decay.
+	ScoreHalfLife time.Duration `json:"score_half_life,omitempty"`
 	// RequireSignedCaps rejects unsigned capability manifests from peers.
 	// Defaults to true; set false to accept unsigned manifests from trusted
 	// peers (a mesh.cap.unsigned event is emitted either way). Not omitempty
@@ -241,12 +249,14 @@ func (m *MeshConfig) MarshalJSON() ([]byte, error) {
 		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
 		RequestMaxSkew       string `json:"request_max_skew,omitempty"`
 		BlobTTL              string `json:"blob_ttl,omitempty"`
+		ScoreHalfLife        string `json:"score_half_life,omitempty"`
 	}{
 		Alias:                (*Alias)(m),
 		RemoteTimeout:        m.RemoteTimeout.String(),
 		DHTReprovideInterval: m.DHTReprovideInterval.String(),
 		RequestMaxSkew:       m.RequestMaxSkew.String(),
 		BlobTTL:              m.BlobTTL.String(),
+		ScoreHalfLife:        m.ScoreHalfLife.String(),
 	})
 }
 
@@ -258,6 +268,7 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 		DHTReprovideInterval string `json:"dht_reprovide_interval,omitempty"`
 		RequestMaxSkew       string `json:"request_max_skew,omitempty"`
 		BlobTTL              string `json:"blob_ttl,omitempty"`
+		ScoreHalfLife        string `json:"score_half_life,omitempty"`
 	}{
 		Alias: (*Alias)(m),
 	}
@@ -291,6 +302,13 @@ func (m *MeshConfig) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		m.BlobTTL = d
+	}
+	if aux.ScoreHalfLife != "" {
+		d, err := time.ParseDuration(aux.ScoreHalfLife)
+		if err != nil {
+			return err
+		}
+		m.ScoreHalfLife = d
 	}
 	return nil
 }
@@ -393,6 +411,9 @@ func (m *MeshConfig) Validate() error {
 	}
 	if m.BlobTTL < 0 {
 		return fmt.Errorf("mesh.blob_ttl must be non-negative")
+	}
+	if m.ScoreHalfLife < 0 {
+		return fmt.Errorf("mesh.score_half_life must be non-negative")
 	}
 	if m.RateLimitPerPeer < 0 {
 		return fmt.Errorf("mesh.rate_limit_per_peer must be non-negative")

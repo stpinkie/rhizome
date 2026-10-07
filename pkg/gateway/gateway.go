@@ -721,6 +721,13 @@ func setupAndStartServices(
 	}
 
 	if err = runningServices.ChannelManager.RegisterHTTPHandler(
+		"/network/trace",
+		newNetworkTraceHandler(rhizomeMesh, authToken),
+	); err != nil {
+		return nil, fmt.Errorf("error registering network trace handler: %w", err)
+	}
+
+	if err = runningServices.ChannelManager.RegisterHTTPHandler(
 		"/network/events",
 		newNetworkEventsHandler(rhizomeMesh, authToken),
 	); err != nil {

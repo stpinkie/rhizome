@@ -674,6 +674,8 @@ func DefaultMeshConfig() MeshConfig {
 		RateLimitGlobal:      300,
 		MaxConcurrentTasks:   8,
 		AuditLog:             true,
+		ActivityLog:          true,
+		ScoreHalfLife:        7 * 24 * time.Hour,
 		RequireSignedCaps:    true,
 		BlobEnabled:          true,
 		BlobMaxBytes:         64 << 20,

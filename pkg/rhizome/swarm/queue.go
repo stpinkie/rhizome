@@ -1269,6 +1269,18 @@ func (q *workQueue) offerInfo(offerID string) (OfferInfo, bool) {
 	return to.info, true
 }
 
+// OfferInfo returns the tracked offer — published or observed — for one id.
+func (s *Swarm) OfferInfo(offerID string) (OfferInfo, bool) {
+	q := s.queue
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if to, ok := q.offers[offerID]; ok {
+		return to.info, true
+	}
+	info, ok := q.incoming[offerID]
+	return info, ok
+}
+
 // offerResolved returns a channel that is closed when the offer first leaves
 // "open" (assigned or a terminal state), or nil if the offer is unknown.
 func (q *workQueue) offerResolved(offerID string) <-chan struct{} {
