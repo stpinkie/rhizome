@@ -61,8 +61,37 @@ func gateReject(code, format string, args ...any) *gateError {
 // budget: nothing spawns until a confirmed lock with matching terms
 // exists on-chain. The caller (sessionMgr/adverts) supplies the current
 // marketConfig + rail; mc is re-read here so a mid-flight config reload
-// applies immediately.
+// applies immediately. Every refusal lands a market.gate.reject audit
+// event — the sell-side DoS posture must be reconstructable from the
+// trail (Track 134 completeness pass).
 func gateSessionOpen(
+	ctx context.Context,
+	m *sessionMgr,
+	peer string,
+	connID uint64,
+	raw json.RawMessage,
+) (*marketSession, error) {
+	s, err := gateSessionOpenInner(ctx, m, peer, connID, raw)
+	if err == nil {
+		return s, nil
+	}
+	fields := map[string]any{"peer": peer}
+	if ge, ok := err.(*gateError); ok {
+		fields["code"] = ge.code
+	}
+	// Best-effort correlation: the presentation parses or it doesn't —
+	// malformed opens still audit with whatever session id arrived.
+	var p sessionPresentation
+	if json.Unmarshal(raw, &p) == nil && p.SessionID != "" {
+		fields["session_id"] = p.SessionID
+	}
+	if m.audit != nil {
+		m.audit.log("market.gate.reject", fields)
+	}
+	return nil, err
+}
+
+func gateSessionOpenInner(
 	ctx context.Context,
 	m *sessionMgr,
 	peer string,
@@ -208,10 +237,25 @@ func gateSessionOpen(
 	m.audit.log("market.gate.open", map[string]any{
 		"peer":       peer,
 		"session_id": s.ID,
+		"escrow_id":  s.EscrowID,
 		"offer_id":   off.ID,
 		"amount":     amount.String(),
+		"buyer":      p.Buyer,
+		"terms_hash": sessionTermsHash(s),
 	})
 	return s, nil
+}
+
+// sessionTermsHash commits to the session's on-chain facts the same way
+// the evidence bundle does — every audit event carrying it can be
+// cross-checked against the escrow's terms.
+func sessionTermsHash(s *marketSession) string {
+	amount := "0"
+	if s.Terms.Amount != nil {
+		amount = s.Terms.Amount.String()
+	}
+	return termsHash(
+		s.EscrowID, s.Terms.Token, amount, hex.EncodeToString(s.taskHash[:]))
 }
 
 // expectedAmount converts the offer's per_task decimal price into token

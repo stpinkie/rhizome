@@ -114,6 +114,11 @@ func (m *ClientManager) spawnSandbox(
 	return m.connect(ctx, agentID, inst, pio.stdin, pio.stdout, pio.kill, pio.fields)
 }
 
+// isolationStartWith is a var seam so tests can capture the isolation
+// Options a sandbox spawn lands on — the fixture asserts the net profile
+// actually reaches the launcher (Track 134 egress verification).
+var isolationStartWith = isolation.StartWith
+
 // spawnSandboxIO is the transport half of the sandbox spawn — shared by the
 // daemon path and bound (per-session) spawns, which lay their own handler
 // and capability posture on the connection.
@@ -161,7 +166,7 @@ func spawnSandboxIO(
 	if err != nil {
 		return nil, fmt.Errorf("acp agent %q stderr: %w", agentID, err)
 	}
-	if err := isolation.StartWith(cmd, opts); err != nil {
+	if err := isolationStartWith(cmd, opts); err != nil {
 		return nil, fmt.Errorf("acp agent %q failed to start under sandbox: %w", agentID, err)
 	}
 

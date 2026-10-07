@@ -259,7 +259,7 @@ func newGradGateFixture(t *testing.T, drawdown bool) *gradGateFixture {
 	}
 	mc := &marketConfig{
 		serveEnabled:  true,
-		runtime:       "exec",
+		runtime:       "sandbox",
 		payoutAddress: testSeller,
 		rail:          &cfg,
 		maxSessions:   8,

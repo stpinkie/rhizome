@@ -61,6 +61,24 @@ type advert struct {
 	// Attestation is the emit-when-set TEE posture claim (Track 131):
 	// self-attested — buyers weight it, never treat it as proof.
 	Attestation *advertTEE `json:"attestation,omitempty"`
+	// Serving declares the sell-side DoS posture the gate enforces —
+	// honest self-reporting of the limits (Track 134): a buyer can size
+	// redundant fan-out and read the refusal codes against what the
+	// provider advertised.
+	Serving *advertServing `json:"serving,omitempty"`
+}
+
+// advertServing is the provider's declared session posture. The values
+// are the enforced limits at render time — config reloads shift them on
+// the next advert refresh.
+type advertServing struct {
+	// NoEgress reports whether paid sessions spawn under a runtime that
+	// enforces no-egress (sandbox|container); serving refuses anything
+	// else, so a served advert always reports true.
+	NoEgress          bool `json:"no_egress"`
+	MaxSessions       int  `json:"max_sessions"`
+	PerPeerCap        int  `json:"per_peer_cap"`
+	OpenRatePerMinute int  `json:"open_rate_per_minute"`
 }
 
 // advertTEE is the seller's TEE posture claim — {kind, report_url |
@@ -207,6 +225,12 @@ func (w *advertWriter) render(mc *marketConfig) ([]byte, string) {
 	}
 	if mc.serveEnabled {
 		a.Attestation = mc.teeClaim()
+		a.Serving = &advertServing{
+			NoEgress:          mc.runtime == "sandbox" || mc.runtime == "container",
+			MaxSessions:       mc.maxSessions,
+			PerPeerCap:        perPeerSessionCap(mc.maxSessions),
+			OpenRatePerMinute: peerOpenPerMinute,
+		}
 	}
 	// Newest-N attestations, trimmed until the advert fits — the bound
 	// wins over the count; dropping oldest evidence is the honest move

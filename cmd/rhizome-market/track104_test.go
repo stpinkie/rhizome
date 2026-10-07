@@ -84,7 +84,7 @@ func TestBuy_WalletSignerEndToEnd(t *testing.T) {
 		return boundPipeAgent(t, stub, opts)
 	}
 	smc := &marketConfig{
-		serveEnabled: true, runtime: "exec", payoutAddress: testSeller,
+		serveEnabled: true, runtime: "sandbox", payoutAddress: testSeller,
 		maxSessions: 8, sessionTTL: 2 * time.Minute,
 		offers: []offer{{
 			ID: "offer-1", AgentBinding: "agent-1",

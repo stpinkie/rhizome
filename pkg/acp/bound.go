@@ -104,6 +104,15 @@ func SpawnBound(
 		dir = cfg.WorkspacePath()
 	}
 
+	// NoEgress is runtime-shaped: exec spawns an unwrapped child, so a
+	// caller asking for enforced no-egress on exec would get a silent
+	// unrestricted process — refuse instead of dropping the flag (the
+	// market sell-side relies on this failing closed).
+	if opts.NoEgress && rt == acpRuntimeExec {
+		return nil, fmt.Errorf(
+			"agent %q: no-egress requires runtime sandbox|container, not exec", src.ID)
+	}
+
 	var pio *procIO
 	var err error
 	switch rt {
