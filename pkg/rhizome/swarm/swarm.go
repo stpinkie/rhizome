@@ -253,14 +253,14 @@ func (s *Swarm) Start(ctx context.Context) error {
 			return
 		}
 		for _, id := range s.joinedIDs() {
-			go s.announceTo(s.ctx, ev.PeerID, id)
+			s.announceAsync(ev.PeerID, id)
 		}
 	})
 
 	// Announce to peers that connected before Start ran.
 	for _, pid := range s.connectedTrustedPeers() {
 		for _, id := range s.joinedIDs() {
-			go s.announceTo(s.ctx, pid, id)
+			s.announceAsync(pid, id)
 		}
 	}
 
@@ -279,14 +279,23 @@ func (s *Swarm) Start(ctx context.Context) error {
 
 // Stop deregisters the handler, persists state, and waits for goroutines.
 func (s *Swarm) Stop() error {
+	// The cancel runs under s.mu so announceAsync's Add cannot interleave
+	// between it and s.wg.Wait — a WaitGroup Add that lands while the
+	// counter sits at zero during Wait is a misuse panic.
+	s.mu.Lock()
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.mu.Unlock()
 	s.transport.Stop()
 	if gb, ok := s.bc.(*gossipsubBroadcaster); ok {
 		gb.close()
 	}
 	s.wg.Wait()
+	// The work queue's consume/resolveOffer goroutines live on q.wg, not
+	// s.wg — they persist offers (persistLocked→saveJSONL) on their way out
+	// and must finish before Stop returns, same as transport handlers.
+	s.queue.wg.Wait()
 	s.save()
 	return nil
 }
@@ -301,7 +310,7 @@ func (s *Swarm) Join(ctx context.Context, id string) error {
 	s.queue.watch(id)
 	s.publishEvent(runtimeevents.KindSwarmJoined, map[string]any{"swarm_id": id})
 	for _, pid := range s.connectedTrustedPeers() {
-		go s.announceTo(ctx, pid, id)
+		s.announceAsync(pid, id)
 	}
 	return nil
 }
@@ -390,7 +399,7 @@ func (s *Swarm) reannounceLoop(ctx context.Context) {
 		}
 		for _, pid := range s.connectedTrustedPeers() {
 			for _, id := range s.joinedIDs() {
-				go s.announceTo(ctx, pid, id)
+				s.announceAsync(pid, id)
 			}
 		}
 	}
@@ -413,6 +422,25 @@ func (s *Swarm) connectedTrustedPeers() []peer.ID {
 		}
 	}
 	return out
+}
+
+// announceAsync runs announceTo on a tracked goroutine. The spawn is
+// serialized under s.mu against Stop's cancel: when the context is still
+// live the s.wg counter cannot be zero mid-Wait (loops only exit after
+// cancel), and once canceled no new announce is spawned. announceTo folds
+// acks into the roster and persists it, so untracked spawns could write
+// swarms.json after Stop returned — the TempDir-cleanup class of flake.
+func (s *Swarm) announceAsync(pid peer.ID, swarmID string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.ctx == nil || s.ctx.Err() != nil {
+		return
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.announceTo(s.ctx, pid, swarmID)
+	}()
 }
 
 // announceTo sends a JOIN for the swarm to one peer and folds the response

@@ -23,14 +23,33 @@ func newFanoutTestMeshes(
 	t *testing.T,
 	runFuncB, runFuncC func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error),
 ) (*Mesh, *Mesh, *Mesh) {
+	return newFanoutTestMeshesCfg(t, nil, runFuncB, runFuncC)
+}
+
+// newFanoutTestMeshesCfg is newFanoutTestMeshes with a per-role config tweak
+// applied before each mesh is constructed — tests that need a worker to
+// advertise real fields (e.g. AdvertiseModels) must set the flag here so the
+// announce pipeline carries the truth instead of racing planted caps.
+func newFanoutTestMeshesCfg(
+	t *testing.T,
+	tweak func(role string, c *config.MeshConfig),
+	runFuncB, runFuncC func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, error),
+) (*Mesh, *Mesh, *Mesh) {
 	t.Helper()
 	ctx := context.Background()
 
-	cfg := config.MeshConfig{
-		Enabled:          true,
-		AllowRemoteSpawn: true,
-		RemoteTimeout:    30 * time.Second,
+	cfgFor := func(role string) config.MeshConfig {
+		c := config.MeshConfig{
+			Enabled:          true,
+			AllowRemoteSpawn: true,
+			RemoteTimeout:    30 * time.Second,
+		}
+		if tweak != nil {
+			tweak(role, &c)
+		}
+		return c
 	}
+	cfg := cfgFor("caller")
 
 	idA := testutil.NewIdentity(t)
 	idB := testutil.NewIdentity(t)
@@ -72,11 +91,11 @@ func newFanoutTestMeshes(
 
 	// Start worker meshes before connecting them so their protocol handlers
 	// are registered before the libp2p identify exchange with the caller.
-	meshB := NewMesh(nodeB, nil, idB, cfg, nilUsageRun(runFuncB))
+	meshB := NewMesh(nodeB, nil, idB, cfgFor("workerB"), nilUsageRun(runFuncB))
 	require.NoError(t, meshB.Start(ctx))
 	t.Cleanup(func() { _ = meshB.Stop() })
 
-	meshC := NewMesh(nodeC, nil, idC, cfg, nilUsageRun(runFuncC))
+	meshC := NewMesh(nodeC, nil, idC, cfgFor("workerC"), nilUsageRun(runFuncC))
 	require.NoError(t, meshC.Start(ctx))
 	t.Cleanup(func() { _ = meshC.Stop() })
 

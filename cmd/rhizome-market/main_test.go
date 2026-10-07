@@ -49,11 +49,11 @@ func TestRun_EndToEnd(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- run(ctx) }()
 
-	// Wait for the API listener to publish api.addr.
+	// Wait for the API listener to publish api.addr. run() starts the API
+	// before the bridge accept listener, so bridge.addr needs its own wait —
+	// a bare Stat races the gap between the two writes on slow runners.
 	addr := waitForFile(t, filepath.Join(modDir, apiAddrFile), 10*time.Second)
-	if _, err := os.Stat(filepath.Join(modDir, bridgeAddrFile)); err != nil {
-		t.Fatalf("bridge.addr missing: %v", err)
-	}
+	waitForFile(t, filepath.Join(modDir, bridgeAddrFile), 10*time.Second)
 
 	// API serves with the token.
 	req, _ := http.NewRequest(http.MethodGet, "http://"+addr+"/v1/health", nil)
