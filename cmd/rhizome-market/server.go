@@ -77,6 +77,8 @@ func startAPI(
 	mux.HandleFunc("POST /v1/find", s.wrap(s.handleFind))
 	mux.HandleFunc("POST /v1/buy", s.wrap(s.handleBuy))
 	mux.HandleFunc("POST /v1/dispute", s.wrap(s.handleDispute))
+	mux.HandleFunc("POST /v1/escalate", s.wrap(s.handleEscalate))
+	mux.HandleFunc("POST /v1/evidence", s.wrap(s.handleEvidence))
 	mux.HandleFunc("POST /v1/refund", s.wrap(s.handleRefund))
 	mux.HandleFunc("POST /v1/release", s.wrap(s.handleRelease))
 	mux.HandleFunc("POST /v1/session", s.wrap(s.handleSession))
@@ -401,6 +403,50 @@ func (s *apiServer) handleDispute(w http.ResponseWriter, r *http.Request) {
 			reason, _ := extra["reason"].(string)
 			return s.buyer.dispute(ctx, id, reason)
 		})
+}
+
+// handleEscalate retries the Kleros createDispute — the manual path when
+// auto-escalation at dispute time failed or the fee quote moved.
+func (s *apiServer) handleEscalate(w http.ResponseWriter, r *http.Request) {
+	s.buyAction(w, r, "escalate",
+		func(ctx context.Context, id string, _ map[string]any) (*purchase, error) {
+			return s.buyer.escalate(ctx, id)
+		})
+}
+
+// handleEvidence returns the purchase's ERC-1497 evidence bundle — the
+// same bytes dispute() submitted on-chain, for operator inspection.
+func (s *apiServer) handleEvidence(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	var req struct {
+		ID string `json:"id"`
+	}
+	if !s.decodeBody(w, r, &req) {
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	if s.buyer == nil || strings.TrimSpace(req.ID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": "bad_request", "detail": "id required"},
+		})
+		s.auditAPI(r, http.StatusBadRequest, start)
+		return
+	}
+	bundle, err := s.buyer.evidence(req.ID)
+	if err != nil {
+		var be *buyError
+		status := http.StatusInternalServerError
+		if errors.As(err, &be) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, errBody(err))
+		s.auditAPI(r, status, start)
+		return
+	}
+	s.auditAPI(r, http.StatusOK, start)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(bundle)
 }
 
 // handleRefund calls escrow.withdraw() — the post-termination clawback.

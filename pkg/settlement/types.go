@@ -60,6 +60,16 @@ const (
 	RailKindRhizome = "rhizome"
 )
 
+// Arbiter kinds — the escrow_arbiter field's spec shape.
+const (
+	// ArbiterKindAddress is the default: a designated EOA/multisig that
+	// calls resolve() directly.
+	ArbiterKindAddress = "address"
+	// ArbiterKindKleros escalates disputes to an ERC-792 arbitrator via
+	// the RhizomeKlerosAdapter contract (kleros:<court> syntax).
+	ArbiterKindKleros = "kleros"
+)
+
 // RailConfig is the rail-level configuration resolved from the module's
 // escrow_* fields (see ConfigFromFields).
 type RailConfig struct {
@@ -67,7 +77,10 @@ type RailConfig struct {
 	ChainID           uint64 // escrow_chain_id — EVM chain the rail talks to
 	Factory           string // escrow_contract — factory (smart_invoice) or RhizomeEscrow (rhizome)
 	Token             string // escrow_token — default payment asset
-	Arbiter           string // escrow_arbiter — resolver/arbiter address
+	Arbiter           string // resolved session arbiter — EOA, or the adapter address under kleros
+	ArbiterKind       string // escrow_arbiter spec kind — address | kleros
+	ArbiterCourt      uint64 // kleros:<court> subcourt id (0 under address kind)
+	ArbiterAdapter    string // escrow_arbiter_adapter — RhizomeKlerosAdapter contract (kleros only)
 	DisputeWindowSecs int64  // escrow_dispute_window — seconds from Open to the dispute deadline
 	WrappedNative     string // wrapped native token for the chain (smart_invoice init-time requirement)
 }
@@ -75,12 +88,13 @@ type RailConfig struct {
 // escrow_* module field names (flat ConfigField strings, per the market
 // module field schema in docs/design/v0.14.0-sprint.md).
 const (
-	FieldRail          = "escrow_rail"
-	FieldChainID       = "escrow_chain_id"
-	FieldContract      = "escrow_contract"
-	FieldToken         = "escrow_token"
-	FieldArbiter       = "escrow_arbiter"
-	FieldDisputeWindow = "escrow_dispute_window"
+	FieldRail           = "escrow_rail"
+	FieldChainID        = "escrow_chain_id"
+	FieldContract       = "escrow_contract"
+	FieldToken          = "escrow_token"
+	FieldArbiter        = "escrow_arbiter"
+	FieldArbiterAdapter = "escrow_arbiter_adapter"
+	FieldDisputeWindow  = "escrow_dispute_window"
 )
 
 // ConfigFromFields resolves the module's escrow_* fields into a
@@ -114,8 +128,35 @@ func ConfigFromFields(fields map[string]string) (*RailConfig, error) {
 	if !web3.IsAddress(token) {
 		return nil, fmt.Errorf("%s %q is not a 0x address (required with %s)", FieldToken, token, FieldContract)
 	}
+	// escrow_arbiter is a spec: a plain 0x address (designated) or
+	// kleros:<court> — the ERC-792 escalation pick. Kleros needs the
+	// adapter contract field and only exists on the graduated rail —
+	// Smart Invoice's resolver ABI is a different arbitration model.
 	arbiter := get(FieldArbiter)
-	if !web3.IsAddress(arbiter) {
+	arbiterKind := ArbiterKindAddress
+	var court uint64
+	var adapter string
+	if strings.HasPrefix(arbiter, "kleros:") {
+		courtStr := strings.TrimPrefix(arbiter, "kleros:")
+		c, err := strconv.ParseUint(courtStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%s %q — kleros:<court> needs a numeric subcourt id", FieldArbiter, arbiter)
+		}
+		if kind != RailKindRhizome {
+			return nil, fmt.Errorf(
+				"%s %q requires %s=%s — Smart Invoice has no adapter slot",
+				FieldArbiter, arbiter, FieldRail, RailKindRhizome)
+		}
+		adapter = get(FieldArbiterAdapter)
+		if !web3.IsAddress(adapter) {
+			return nil, fmt.Errorf(
+				"%s is required (0x address) when %s=%s",
+				FieldArbiterAdapter, FieldArbiter, arbiter)
+		}
+		arbiterKind, court = ArbiterKindKleros, c
+		arbiter = adapter // the adapter occupies the session's arbiter slot
+	} else if !web3.IsAddress(arbiter) {
 		return nil, fmt.Errorf("%s %q is not a 0x address (required with %s)", FieldArbiter, arbiter, FieldContract)
 	}
 	windowStr := get(FieldDisputeWindow)
@@ -138,6 +179,9 @@ func ConfigFromFields(fields map[string]string) (*RailConfig, error) {
 		Factory:           contract,
 		Token:             token,
 		Arbiter:           arbiter,
+		ArbiterKind:       arbiterKind,
+		ArbiterCourt:      court,
+		ArbiterAdapter:    adapter,
 		DisputeWindowSecs: window,
 		WrappedNative:     wrapped,
 	}, nil

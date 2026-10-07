@@ -791,9 +791,10 @@ func (pm *purchaseMgr) dispute(ctx context.Context, id, reason string) (*purchas
 	if rail == nil {
 		return nil, buyErr("rail_unavailable", "no settlement rail")
 	}
-	dsum := sha256.Sum256([]byte("dispute:" + reason))
-	var details [32]byte
-	copy(details[:], dsum[:])
+	// The evidenceHash commits to the buyer's evidence bundle — receipt
+	// JSON + terms hash. On the graduated rail the same bytes are then
+	// submitted via submitEvidence so the arbiter can read them.
+	evidence, details := buildEvidence(p, reason)
 	tx, err := rail.Dispute(ctx, p.SessionID, details)
 	if err != nil {
 		return p, fmt.Errorf("dispute: %w", err)
@@ -805,7 +806,72 @@ func (pm *purchaseMgr) dispute(ctx context.Context, id, reason string) (*purchas
 	if p.Drawdown {
 		pm.drawdown.markClosed(p.SessionID, "disputed")
 	}
+	// Graduated rails carry ERC-1497 evidence and (under kleros:<court>)
+	// auto-escalate to the external arbitrator. Both are best-effort —
+	// the lock is already on-chain; a failed submission is audited for
+	// manual retry via `market evidence`/`market escalate`.
+	if gr, ok := rail.(*settlement.GraduatedRail); ok && evidence != "" {
+		if etx, eerr := gr.SubmitEvidence(ctx, p.SessionID, evidence); eerr != nil {
+			pm.audit.log("market.evidence.failed", map[string]any{
+				"purchase_id": p.PurchaseID, "session_id": p.SessionID,
+				"error": eerr.Error(),
+			})
+		} else {
+			pm.recordTx(p, etx)
+		}
+		if gr.KlerosBound() {
+			if xtx, xerr := gr.EscalateDispute(ctx, p.SessionID); xerr != nil {
+				pm.audit.log("market.escalate.failed", map[string]any{
+					"purchase_id": p.PurchaseID, "session_id": p.SessionID,
+					"error": xerr.Error(),
+				})
+			} else {
+				pm.recordTx(p, xtx)
+			}
+		}
+	}
 	return p, nil
+}
+
+// escalate (re-)submits createDispute on the Kleros adapter — the manual
+// path when the dispute-time auto-escalation failed (fee quote moved,
+// endpoint hiccuped). Requires a kleros-bound graduated rail and a
+// disputed purchase (the on-chain session must be Locked).
+func (pm *purchaseMgr) escalate(ctx context.Context, id string) (*purchase, error) {
+	p := pm.lookupAny(id)
+	if p == nil {
+		return nil, buyErr("not_found", "no purchase %q", id)
+	}
+	if p.State != purchaseDisputed {
+		return nil, buyErr("bad_state",
+			"purchase %s is %s — escalate applies to disputed sessions", id, p.State)
+	}
+	gr, ok := pm.railFor(p).(*settlement.GraduatedRail)
+	if !ok || !gr.KlerosBound() {
+		return nil, buyErr("rail_unavailable",
+			"purchase %s is not on a kleros-bound graduated rail", id)
+	}
+	tx, err := gr.EscalateDispute(ctx, p.SessionID)
+	if err != nil {
+		return p, fmt.Errorf("escalate: %w", err)
+	}
+	pm.recordTx(p, tx)
+	return p, nil
+}
+
+// evidence returns the ERC-1497 bundle bytes for a purchase — what the
+// arbiter reads (receipt + terms hash). Daemon-side inspection surface
+// for the operator; identical bytes to what dispute() submitted.
+func (pm *purchaseMgr) evidence(id string) (json.RawMessage, error) {
+	p := pm.lookupAny(id)
+	if p == nil {
+		return nil, buyErr("not_found", "no purchase %q", id)
+	}
+	js, err := evidenceJSON(p, "")
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(js), nil
 }
 
 // refund calls client-side withdraw() — post-termination only.
