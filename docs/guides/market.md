@@ -168,7 +168,12 @@ only fails when nothing purchased.
 records (status, terms, settlement state, group ids, TEE claims, result
 hashes) newest-first plus spend reporting: per-asset committed spend in
 the last 24 h against `buy_max_cost_per_day` headroom and the
-`buy_max_cost_per_task` ceiling.
+`buy_max_cost_per_task` ceiling. The same view lives on the web
+launcher's Network page — a Market panel proxies `GET /v1/sessions`
+(buy ledger, live sell sessions, dispute-state purchases, spend) so a
+serving operator sees both sides without the CLI; the peer detail sheet
+renders market outcome badges from the peer-score record (`value_hash`
+commitments, never raw amounts).
 
 ## Portable attestations
 

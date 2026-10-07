@@ -123,6 +123,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Network mesh and DHT status
 	h.registerNetworkRoutes(mux)
 
+	// Market sessions/disputes (proxied to the rhizome-market module)
+	h.registerMarketRoutes(mux)
+
 	// Agent self-evolution (proxied to the daemon's /evolution/*)
 	h.registerEvolutionRoutes(mux)
 
