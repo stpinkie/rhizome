@@ -501,6 +501,11 @@ func (m *Mesh) Start(ctx context.Context) error {
 	// bundles to trusted peers.
 	m.startSkill()
 
+	// The economy protocol serves the paired-settlement handshake
+	// (/rhizome/econ/1.0.0) — per-request gated on mesh.economy.enabled so
+	// the stream is inert on non-economy nodes.
+	m.startEcon()
+
 	for _, p := range m.cfg.TrustedPeers {
 		pid, err := peer.Decode(p)
 		if err != nil {
