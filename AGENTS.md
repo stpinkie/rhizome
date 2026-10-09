@@ -30,14 +30,41 @@ golangci-lint run --build-tags goolm,stdjson ./...
 
 Use golangci-lint v2.13.2 (the version pinned in `.github/workflows/pr.yml`); older releases do not know linters such as `exhaustruct_v5` referenced in `.golangci.yaml`.
 - Windows-specific: `CGO_ENABLED=0` avoids MinGW linker issues when the user home path contains spaces.
-- Cache / scratch locations on Windows: the CI and local build commands use `D:\tmp` to avoid filling `C:\tmp`:
+- Cache / scratch locations: keep Go caches and temp off the system volume and on a large scratch drive — never `C:\`. The exact path is machine-local; export these before heavy gates (example: a `D:` scratch drive — adapt to what the machine offers):
 
 ```powershell
-$env:GOCACHE='D:\tmp\rhizome-gocache'
-$env:GOMODCACHE='D:\tmp\rhizome-gomodcache'
-$env:TEMP='D:\tmp'
-$env:TMP='D:\tmp'
+$env:GOCACHE='D:\DevScratch\rhizome-gocache'
+$env:GOMODCACHE='D:\DevScratch\rhizome-gomodcache'
+$env:TEMP='D:\DevScratch\tmp'
+$env:TMP='D:\DevScratch\tmp'
 ```
+
+  Ambient temp-root overrides (a user-level `TMPDIR`/`TEMP` pointing at a
+  small or exotic volume) are a known flake source — the suite writes
+  per-test fixtures under it; check `go env GOTMPDIR`/`$env:TEMP` when a
+  test reports missing files under an unfamiliar root.
+- golangci-lint install: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2` with the resulting `GOBIN` on `PATH` (a scratch `GOBIN` works too — keep it stable across sessions so `make lint` finds it).
+
+### Fresh machine checklist
+
+Minimal toolchain to build/test/lint the repo on a new box:
+
+- **Go** — any recent stable; `go.mod` (`go 1.26.6`) drives the toolchain
+  via `GOTOOLCHAIN=auto`, so the pinned toolchain downloads on first use.
+- **golangci-lint v2.13.2** — `go install` per above; `make lint` also runs
+  `scripts/lint-docs.sh` (needs `bash`).
+- **Node 22 + pnpm 10.33.0** — only for `web/` (`make -C web build-frontend`,
+  `make -C web test`).
+- **Docker** — only for `scripts/run-integration-tests.sh` and release
+  smoke; unit/build gates never need it.
+- **Android NDK r26c** — only for `make build-android-bundle`; not needed
+  for day-to-day dev.
+- Give the checkout a volume with headroom: the full suite plus caches
+  write several GB of temp/artifacts. Keep caches + temp off the OS
+  volume (see above) — the repo has no other machine coupling.
+- The node identity, config, and ledgers live in `~/.rhizome`
+  (`RHIZOME_HOME`) — outside the repo. Copy it to preserve identity, or
+  onboard fresh on the new machine.
 
 ### Writing networked tests
 
