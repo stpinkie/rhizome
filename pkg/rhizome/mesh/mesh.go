@@ -236,10 +236,14 @@ type Mesh struct {
 
 	skillShareMu sync.RWMutex
 
-	stop         chan struct{}
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
+	stop   chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	// journalWG tracks best-effort journal writes that run on libp2p's
+	// untracked stream-handler goroutines (peer-adverts on capability
+	// announce). Stop drains them so teardown can't outlive a writer.
+	journalWG    sync.WaitGroup
 	eventBus     runtimeevents.Bus
 	activity     *activityFeed
 	activityOnce sync.Once
@@ -620,6 +624,7 @@ func (m *Mesh) Stop() error {
 		m.scoreStore.Close()
 	}
 	m.wg.Wait()
+	m.journalWG.Wait()
 	return nil
 }
 
@@ -1437,12 +1442,20 @@ func (m *Mesh) SetCapability(pid peer.ID, c Capability) {
 		// economy bytes for this announce.
 		econJSON, _ = json.Marshal(c.Economy)
 	}
-	if err := peeradverts.Record(
-		config.GetHome(), pid.String(), m.isTrusted(pid), c.ModuleAdverts, econJSON,
-	); err != nil {
-		logger.WarnCF("mesh", "peer advert journal write failed", map[string]any{
-			"peer_id": pid.String(), "error": err.Error(),
-		})
+	// Journal writes are skipped after shutdown — a capability arriving on
+	// an in-flight announce stream must not touch <RHIZOME_HOME> during
+	// teardown. journalWG lets Stop drain a write that was already
+	// mid-flight when the cancel landed.
+	if m.ctx == nil || m.ctx.Err() == nil {
+		m.journalWG.Add(1)
+		if err := peeradverts.Record(
+			config.GetHome(), pid.String(), m.isTrusted(pid), c.ModuleAdverts, econJSON,
+		); err != nil {
+			logger.WarnCF("mesh", "peer advert journal write failed", map[string]any{
+				"peer_id": pid.String(), "error": err.Error(),
+			})
+		}
+		m.journalWG.Done()
 	}
 
 	m.publishMeshEvent(runtimeevents.KindMeshCapabilityReceived, map[string]any{
