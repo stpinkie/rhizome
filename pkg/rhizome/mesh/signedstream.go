@@ -26,9 +26,12 @@ func serveSignedStream[Req, Resp any](
 		stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(15*time.Second))
 	defer func() { _ = rc.Close() }()
 
-	// Streams run on libp2p's untracked goroutines — bail before touching
-	// journals/ledgers when the mesh is already shutting down.
-	if m.ctx != nil && m.ctx.Err() != nil {
+	// Streams run on libp2p's untracked goroutines: hold the inflight
+	// read gate so Stop drains us, and bail after shutdown before
+	// touching journals or ledgers.
+	m.inflightMu.RLock()
+	defer m.inflightMu.RUnlock()
+	if m.stopped {
 		return
 	}
 

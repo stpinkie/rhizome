@@ -240,10 +240,13 @@ type Mesh struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	// journalWG tracks best-effort journal writes that run on libp2p's
-	// untracked stream-handler goroutines (peer-adverts on capability
-	// announce). Stop drains them so teardown can't outlive a writer.
-	journalWG    sync.WaitGroup
+	// inflightMu is the shutdown gate for inbound stream handlers that run
+	// on libp2p's own goroutines (announce callbacks, signed-envelope
+	// protocols): handlers RLock for their whole run and bail on stopped,
+	// and Stop sets stopped under Lock after cancel — draining anything
+	// in flight while late arrivals queue then see stopped.
+	inflightMu   sync.RWMutex
+	stopped      bool
 	eventBus     runtimeevents.Bus
 	activity     *activityFeed
 	activityOnce sync.Once
@@ -320,6 +323,13 @@ func NewMesh(
 	m.cap = NewCapsTransportWithPolicy(
 		m.host,
 		func(pid peer.ID, c Capability) {
+			// Runs on a libp2p stream goroutine: hold the inflight read
+			// gate so Stop drains us, and bail after shutdown.
+			m.inflightMu.RLock()
+			defer m.inflightMu.RUnlock()
+			if m.stopped {
+				return
+			}
 			if err := m.verifyCapability(pid, &c); err != nil {
 				m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
 					"stage":   "capability.announce",
@@ -614,6 +624,12 @@ func (m *Mesh) Stop() error {
 		m.cancel()
 	}
 	close(m.stop)
+	// Drain inbound handlers running on libp2p's goroutines: anything
+	// holding RLock finishes; new arrivals queue behind this Lock and
+	// then bail on stopped.
+	m.inflightMu.Lock()
+	m.stopped = true
+	m.inflightMu.Unlock()
 	if m.blobStore != nil {
 		m.blobStore.Stop()
 	}
@@ -624,7 +640,6 @@ func (m *Mesh) Stop() error {
 		m.scoreStore.Close()
 	}
 	m.wg.Wait()
-	m.journalWG.Wait()
 	return nil
 }
 
@@ -1442,20 +1457,12 @@ func (m *Mesh) SetCapability(pid peer.ID, c Capability) {
 		// economy bytes for this announce.
 		econJSON, _ = json.Marshal(c.Economy)
 	}
-	// Journal writes are skipped after shutdown — a capability arriving on
-	// an in-flight announce stream must not touch <RHIZOME_HOME> during
-	// teardown. journalWG lets Stop drain a write that was already
-	// mid-flight when the cancel landed.
-	if m.ctx == nil || m.ctx.Err() == nil {
-		m.journalWG.Add(1)
-		if err := peeradverts.Record(
-			config.GetHome(), pid.String(), m.isTrusted(pid), c.ModuleAdverts, econJSON,
-		); err != nil {
-			logger.WarnCF("mesh", "peer advert journal write failed", map[string]any{
-				"peer_id": pid.String(), "error": err.Error(),
-			})
-		}
-		m.journalWG.Done()
+	if err := peeradverts.Record(
+		config.GetHome(), pid.String(), m.isTrusted(pid), c.ModuleAdverts, econJSON,
+	); err != nil {
+		logger.WarnCF("mesh", "peer advert journal write failed", map[string]any{
+			"peer_id": pid.String(), "error": err.Error(),
+		})
 	}
 
 	m.publishMeshEvent(runtimeevents.KindMeshCapabilityReceived, map[string]any{
