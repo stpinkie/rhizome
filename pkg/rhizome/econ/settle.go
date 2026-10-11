@@ -141,6 +141,77 @@ func (o *SettleOffer) ID() string {
 // mark is local-only (the documented divergence-risk fallback).
 const MarkOnlySettleTX = "mark-local"
 
+// HandshakeSettleTX is the settle_tx sentinel on entries settled through
+// the /rhizome/econ/1.0.0 handshake — both sides acknowledged the same
+// settle_id, so it attests mutual confirmation rather than a local mark.
+const HandshakeSettleTX = "econ-handshake"
+
+// MatchReceivables verifies an inbound settle offer against the payee's
+// accrued receivable rows: every offered work ref must match exactly one
+// accrued receivable for the offer's issuer and unit, and the matched
+// amounts must sum to the offered total. Returns the matched entries on
+// success; the error describes the divergence for settle_reject.
+func MatchReceivables(entries []Entry, offer *SettleOffer) ([]Entry, error) {
+	if offer == nil {
+		return nil, fmt.Errorf("missing settle offer")
+	}
+	accrued := make(map[string]*Entry) // workRef → receivable row
+	for i := range entries {
+		e := &entries[i]
+		if e.Direction != DirectionReceivable || e.State != StateAccrued ||
+			e.PeerID != offer.Issuer || e.Unit != offer.Unit {
+			continue
+		}
+		accrued[e.workRef()] = e
+	}
+	seen := map[string]bool{}
+	matched := make([]Entry, 0, len(offer.Entries))
+	total := new(big.Rat)
+	for _, ref := range offer.Entries {
+		if seen[ref] {
+			return nil, fmt.Errorf("duplicate work ref %s in offer", ref)
+		}
+		seen[ref] = true
+		e, ok := accrued[ref]
+		if !ok {
+			return nil, fmt.Errorf("no accrued receivable for work ref %s", ref)
+		}
+		amt, ok := parseDecimal(e.Amount)
+		if !ok {
+			return nil, fmt.Errorf("entry %s has unparseable amount %q", e.EntryID, e.Amount)
+		}
+		total.Add(total, amt)
+		matched = append(matched, *e)
+	}
+	offered, ok := parseDecimal(offer.Total)
+	if !ok {
+		return nil, fmt.Errorf("offer total %q is not a decimal", offer.Total)
+	}
+	if offered.Cmp(total) != 0 {
+		return nil, fmt.Errorf("offer total %s does not match receivables %s",
+			offer.Total, decimalString(total))
+	}
+	return matched, nil
+}
+
+// EntriesDigest is the ledger_view digest — a content hash over the
+// (workRef, amount, state) tuples sorted by ref, so two operators holding
+// the same logical entries get the same digest regardless of local
+// entry ids or append order.
+func EntriesDigest(entries []Entry) string {
+	type row struct{ ref, amt, state string }
+	rows := make([]row, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, row{e.workRef(), e.Amount, string(e.State)})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ref < rows[j].ref })
+	sum := sha256.New()
+	for _, r := range rows {
+		sum.Write([]byte(r.ref + "|" + r.amt + "|" + r.state + "\n"))
+	}
+	return "sha256:" + hex.EncodeToString(sum.Sum(nil))
+}
+
 // MarkSettled signs an offer over the issuer's accrued payable entries for
 // peer/unit and transitions them to settled with the offer id — the
 // shared core of `economy settle --mark-only`, callable daemonless (CLI)

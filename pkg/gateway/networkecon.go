@@ -168,8 +168,22 @@ func (h *networkEconomyHandler) settle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !body.MarkOnly {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{
-			"error": "settle handshake lands in Track 142 — pass mark_only for the local attested marker",
+		// ledger backend without mark_only runs the /rhizome/econ/1.0.0
+		// handshake (Track 142): offer → peer verification → shared
+		// settle_id on both ledgers.
+		offer, entries, err := h.mesh.EconomySettle(
+			r.Context(), strings.TrimSpace(body.Peer), strings.TrimSpace(body.Unit))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"peer":      body.Peer,
+			"backend":   backend,
+			"mark_only": false,
+			"settle_id": offer.ID(),
+			"offer":     offer,
+			"entries":   entries,
 		})
 		return
 	}

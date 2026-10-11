@@ -165,32 +165,8 @@ func payloadWithSig(req skillRequest) []byte {
 
 // handleSkillStream services one inbound skill request.
 func (m *Mesh) handleSkillStream(s network.Stream) {
-	rc := stream.NewReliableConn(s,
-		stream.WithReadTimeout(30*time.Second), stream.WithWriteTimeout(15*time.Second))
-	defer func() { _ = rc.Close() }()
-
-	typ, raw, err := rc.ReadFrame()
-	if err != nil || typ != skillFrameRequest {
-		return
-	}
-	var req skillRequest
-	if json.Unmarshal(raw, &req) != nil {
-		return
-	}
-	resp := m.handleSkillRequest(s.Conn().RemotePeer(), req)
-
-	// Sign the response.
-	resp.Signature = nil
-	payload, err := json.Marshal(resp)
-	if err != nil {
-		return
-	}
-	resp.Signature = identity.Sign(m.id.PrivateKey, payload)
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return
-	}
-	_ = rc.WriteFrame(skillFrameResponse, data)
+	serveSignedStream(m, s, skillFrameRequest, skillFrameResponse,
+		m.handleSkillRequest, func(r *skillResponse) *[]byte { return &r.Signature })
 }
 
 // handleSkillRequest authorizes and serves a skill list/pull request.

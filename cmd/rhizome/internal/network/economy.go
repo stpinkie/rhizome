@@ -313,10 +313,12 @@ func newEconomySettleCommand() *cobra.Command {
 		Use:   "settle <peer-id>",
 		Short: "Settle accrued payable balances with a peer",
 		Long: "Run the settlement path for the accrued payable balance owed to a peer. " +
-			"The full handshake requires the daemon (Track 142); --mark-only writes a " +
-			"local attested settlement marker instead — it attests the operator settled " +
-			"out of band, and the peer's receivable view diverges until it settles on " +
-			"its own or a future handshake closes the loop.",
+			"The default ledger backend runs the /rhizome/econ/1.0.0 handshake through " +
+			"the daemon: a signed settle offer, payee verification against its " +
+			"receivables, and both ledgers marking the same entries settled under a " +
+			"shared settle_id. --mark-only writes a local attested settlement marker " +
+			"instead — it attests the operator settled out of band, and the peer's " +
+			"receivable view diverges until it settles on its own.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()

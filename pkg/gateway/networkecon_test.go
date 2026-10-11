@@ -36,6 +36,7 @@ func newEconMesh(t *testing.T) (*mesh.Mesh, string) {
 	cfg.Enabled = true
 	cfg.AuditLog = false
 	cfg.ActivityLog = false
+	cfg.Economy.Enabled = true
 	m := mesh.NewMesh(node, nil, id, cfg, nil)
 	require.NotNil(t, m.EconomyLedger())
 	return m, home
@@ -159,11 +160,13 @@ func TestNetworkEconomySettleMarkOnly(t *testing.T) {
 	seedEconEntry(t, m, payee, "task-s2", "0.25")
 	h := newNetworkEconomyHandler(m, testTasksToken)
 
-	// Handshake path → 501 until Track 142.
+	// Handshake path: the payee is not a connected trusted peer, so the
+	// settle fails fast with 400 (untrusted) rather than the Track-141 501.
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/network/economy/settle",
 		strings.NewReader(`{"peer":"`+payee+`"}`)))
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "not trusted")
 
 	// web3 backend → 501 until Track 143.
 	rec = httptest.NewRecorder()

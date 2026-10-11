@@ -236,10 +236,17 @@ type Mesh struct {
 
 	skillShareMu sync.RWMutex
 
-	stop         chan struct{}
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
+	stop   chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	// inflightMu is the shutdown gate for inbound stream handlers that run
+	// on libp2p's own goroutines (announce callbacks, signed-envelope
+	// protocols): handlers RLock for their whole run and bail on stopped,
+	// and Stop sets stopped under Lock after cancel — draining anything
+	// in flight while late arrivals queue then see stopped.
+	inflightMu   sync.RWMutex
+	stopped      bool
 	eventBus     runtimeevents.Bus
 	activity     *activityFeed
 	activityOnce sync.Once
@@ -316,6 +323,13 @@ func NewMesh(
 	m.cap = NewCapsTransportWithPolicy(
 		m.host,
 		func(pid peer.ID, c Capability) {
+			// Runs on a libp2p stream goroutine: hold the inflight read
+			// gate so Stop drains us, and bail after shutdown.
+			m.inflightMu.RLock()
+			defer m.inflightMu.RUnlock()
+			if m.stopped {
+				return
+			}
 			if err := m.verifyCapability(pid, &c); err != nil {
 				m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
 					"stage":   "capability.announce",
@@ -501,6 +515,11 @@ func (m *Mesh) Start(ctx context.Context) error {
 	// bundles to trusted peers.
 	m.startSkill()
 
+	// The economy protocol serves the paired-settlement handshake
+	// (/rhizome/econ/1.0.0) — per-request gated on mesh.economy.enabled so
+	// the stream is inert on non-economy nodes.
+	m.startEcon()
+
 	for _, p := range m.cfg.TrustedPeers {
 		pid, err := peer.Decode(p)
 		if err != nil {
@@ -605,6 +624,12 @@ func (m *Mesh) Stop() error {
 		m.cancel()
 	}
 	close(m.stop)
+	// Drain inbound handlers running on libp2p's goroutines: anything
+	// holding RLock finishes; new arrivals queue behind this Lock and
+	// then bail on stopped.
+	m.inflightMu.Lock()
+	m.stopped = true
+	m.inflightMu.Unlock()
 	if m.blobStore != nil {
 		m.blobStore.Stop()
 	}

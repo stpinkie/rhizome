@@ -202,3 +202,75 @@ func TestDisputeResolveTaskCores(t *testing.T) {
 	_, err = ResolveTask(l, "task-nope", true)
 	require.Error(t, err)
 }
+
+// Track 142 — payee-side receivable match + reconciliation digest.
+
+func TestMatchReceivables(t *testing.T) {
+	l := openTmpLedger(t)
+	payer := mkPeerID(t)
+
+	for _, e := range []Entry{
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w1", Unit: "credits", Amount: "0.5"},
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w2", Unit: "credits", Amount: "0.25"},
+		// Decoys: settled, wrong unit, wrong direction, wrong peer.
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w3", Unit: "credits", Amount: "9"},
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w4", Unit: "usdc", Amount: "9"},
+		{PeerID: payer, Direction: DirectionPayable, TaskID: "w5", Unit: "credits", Amount: "9"},
+		{PeerID: "other", Direction: DirectionReceivable, TaskID: "w6", Unit: "credits", Amount: "9"},
+	} {
+		_, err := l.Record(e)
+		require.NoError(t, err)
+	}
+	// Retire w3 so it can't match.
+	var w3id string
+	for _, e := range l.Entries() {
+		if e.TaskID == "w3" {
+			w3id = e.EntryID
+		}
+	}
+	_, err := l.Transition(w3id, StateSettled, "s", "", "")
+	require.NoError(t, err)
+
+	offer := &SettleOffer{
+		Issuer:  payer,
+		Unit:    "credits",
+		Entries: []string{"w1", "w2"},
+		Total:   "0.75",
+	}
+	matched, err := MatchReceivables(l.Entries(), offer)
+	require.NoError(t, err)
+	require.Len(t, matched, 2)
+
+	// Amount drift → divergence.
+	offer.Total = "0.80"
+	_, err = MatchReceivables(l.Entries(), offer)
+	require.ErrorContains(t, err, "does not match")
+
+	// Missing receivable → divergence.
+	offer.Total = "0.75"
+	offer.Entries = []string{"w1", "w-ghost"}
+	_, err = MatchReceivables(l.Entries(), offer)
+	require.ErrorContains(t, err, "no accrued receivable")
+
+	// Duplicate ref in the offer → divergence.
+	offer.Entries = []string{"w1", "w1"}
+	_, err = MatchReceivables(l.Entries(), offer)
+	require.ErrorContains(t, err, "duplicate work ref")
+}
+
+func TestEntriesDigestOrderIndependent(t *testing.T) {
+	entries := []Entry{
+		{PeerID: "p", TaskID: "b-task", Amount: "0.5", State: StateAccrued},
+		{PeerID: "p", TaskID: "a-task", Amount: "1.0", State: StateSettled},
+		{PeerID: "p", CorrelationID: "c-corr", Amount: "2", State: StateAccrued},
+	}
+	d1 := EntriesDigest(entries)
+	d2 := EntriesDigest([]Entry{entries[2], entries[0], entries[1]})
+	require.Equal(t, d1, d2)
+	require.Contains(t, d1, "sha256:")
+
+	// A state change or amount change flips the digest.
+	changed := append([]Entry{}, entries...)
+	changed[0].State = StateSettled
+	require.NotEqual(t, d1, EntriesDigest(changed))
+}
