@@ -496,13 +496,57 @@ func econDaemonCall(
 		fmt.Fprintln(w, string(resp))
 		return nil
 	}
-	var parsed struct {
-		Entries []econ.Entry `json:"entries"`
-	}
-	if json.Unmarshal(resp, &parsed) == nil && len(parsed.Entries) > 0 {
-		return printMutated(w, op, parsed.Entries, false)
+	var parsed settleCallResult
+	if json.Unmarshal(resp, &parsed) == nil {
+		if len(parsed.Entries) > 0 {
+			return printMutated(w, op, parsed.Entries, false)
+		}
+		if parsed.Status != "" {
+			return printSettleStatus(w, &parsed)
+		}
 	}
 	fmt.Fprintln(w, string(resp))
+	return nil
+}
+
+// settleCallResult is the daemon's settle response — entries on the
+// synchronous paths, a durable journal status on the web3 path.
+type settleCallResult struct {
+	Entries   []econ.Entry `json:"entries"`
+	Status    string       `json:"status"`
+	PendingID string       `json:"pending_id"`
+	TxHash    string       `json:"tx_hash"`
+	SettleID  string       `json:"settle_id"`
+	Note      string       `json:"note"`
+}
+
+// printSettleStatus renders a web3 close-out result — a durable journal
+// state (awaiting_approval, confirming, settled, stalled…) rather than
+// a list of transitioned entries.
+func printSettleStatus(w io.Writer, s *settleCallResult) error {
+	switch s.Status {
+	case "awaiting_approval":
+		fmt.Fprintf(w, "Payment queued for human approval (pending %s).\n", s.PendingID)
+		fmt.Fprintf(
+			w,
+			"Approve with: rhizome web3 approve %s — settlement completes after broadcast + peer verification.\n",
+			s.PendingID,
+		)
+	case "settled":
+		fmt.Fprintf(w, "Settled on-chain (settle id %s, tx %s).\n", s.SettleID, s.TxHash)
+	default:
+		fmt.Fprintf(w, "Settlement %s", s.Status)
+		if s.TxHash != "" {
+			fmt.Fprintf(w, " (tx %s)", s.TxHash)
+		}
+		if s.PendingID != "" {
+			fmt.Fprintf(w, " (pending %s)", s.PendingID)
+		}
+		fmt.Fprintln(w, ".")
+	}
+	if s.Note != "" {
+		fmt.Fprintln(w, s.Note)
+	}
 	return nil
 }
 

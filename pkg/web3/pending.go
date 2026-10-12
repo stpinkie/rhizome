@@ -139,11 +139,19 @@ func (s *PendingStore) Submit(e *PendingEntry) (*PendingEntry, error) {
 	if e.To != "" && !IsAddress(e.To) {
 		return nil, fmt.Errorf("invalid to address %q", e.To)
 	}
-	id, err := s.newID(f)
-	if err != nil {
-		return nil, err
+	if e.ID != "" {
+		// Caller-allocated id (the paired-settlement journal mints one
+		// before submit so crash-resume knows whether the write landed).
+		if findPending(f, e.ID) != nil {
+			return nil, fmt.Errorf("pending id %q already exists", e.ID)
+		}
+	} else {
+		id, err := s.newID(f)
+		if err != nil {
+			return nil, err
+		}
+		e.ID = id
 	}
-	e.ID = id
 	e.CreatedAt = s.clock()
 	if e.ExpiresAt.IsZero() {
 		e.ExpiresAt = e.CreatedAt.Add(defaultApprovalTTL)

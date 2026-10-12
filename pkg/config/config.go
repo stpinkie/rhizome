@@ -265,6 +265,17 @@ type MeshEconomyConfig struct {
 	// Payout is this node's settle destination, advertised publicly when
 	// set; required iff settle_backend is "web3".
 	Payout *EconPayout `json:"payout,omitempty"`
+	// SettleSigner chooses how web3 close-out transfers get signed:
+	// "approval" (default — every transfer lands in the shared
+	// pending-approval queue for a human) or "wallet" (signs and
+	// broadcasts inline, the market's settlement_signer=wallet posture).
+	// Only meaningful with settle_backend "web3".
+	SettleSigner string `json:"settle_signer,omitempty"`
+	// SettleFrom is the payer-side EVM address close-out transfers are
+	// signed with; empty falls back to the web3 wallet default. The peer
+	// sees it committed inside the signed settle offer (payment.from).
+	// Only meaningful with settle_backend "web3".
+	SettleFrom string `json:"settle_from,omitempty"`
 }
 
 // Advert builds the public economy advertisement carried in the signed
@@ -276,9 +287,13 @@ func (e *MeshEconomyConfig) Advert() *EconAdvert {
 		return nil
 	}
 	adv := &EconAdvert{
-		Unit:       e.Unit,
-		PriceSheet: e.PriceSheet,
-		Accepts:    append([]string(nil), e.AcceptUnits...),
+		Unit:           e.Unit,
+		PriceSheet:     e.PriceSheet,
+		Accepts:        append([]string(nil), e.AcceptUnits...),
+		SettleBackends: []string{"ledger"},
+	}
+	if e.SettleBackend == "web3" {
+		adv.SettleBackends = append(adv.SettleBackends, "web3")
 	}
 	if e.Payout != nil {
 		p := *e.Payout
@@ -294,6 +309,11 @@ type EconAdvert struct {
 	PriceSheet EconPriceSheet `json:"price_sheet"`
 	Payout     *EconPayout    `json:"payout,omitempty"`
 	Accepts    []string       `json:"accepts,omitempty"`
+	// SettleBackends lists the close-out rails this node completes as
+	// payee — "ledger" always; "web3" additionally when configured. The
+	// field's absence marks a pre-Track-143 build: a web3 payer refuses
+	// rather than let an old payee silently settle without payment.
+	SettleBackends []string `json:"settle_backends,omitempty"`
 }
 
 // MeshRoutingConfig controls role-aware peer ranking.
@@ -566,15 +586,68 @@ func (e *MeshEconomyConfig) Validate() error {
 			return fmt.Errorf("mesh.economy.%s: %w", d.name, err)
 		}
 	}
+	switch e.SettleSigner {
+	case "", "approval", "wallet":
+	default:
+		return fmt.Errorf("mesh.economy.settle_signer must be %q or %q", "approval", "wallet")
+	}
+	if e.SettleSigner != "" && e.SettleBackend != "web3" {
+		return fmt.Errorf("mesh.economy.settle_signer is only meaningful with settle_backend web3")
+	}
+	if e.SettleFrom != "" {
+		if !isEvmAddress(e.SettleFrom) {
+			return fmt.Errorf("mesh.economy.settle_from is not a valid 0x address")
+		}
+		if e.SettleBackend != "web3" {
+			return fmt.Errorf("mesh.economy.settle_from is only meaningful with settle_backend web3")
+		}
+	}
 	if e.SettleBackend == "web3" {
 		if e.Payout == nil || e.Payout.Address == "" || e.Payout.ChainID == "" || e.Payout.Asset == "" {
 			return fmt.Errorf("mesh.economy.payout {chain_id,address,asset} is required when settle_backend is web3")
+		}
+		if !isEvmAddress(e.Payout.Address) {
+			return fmt.Errorf("mesh.economy.payout.address is not a valid 0x address")
+		}
+		if !isDecimalDigits(e.Payout.ChainID) {
+			return fmt.Errorf("mesh.economy.payout.chain_id must be a decimal chain id")
+		}
+		if e.Payout.Asset != "native" && !isEvmAddress(e.Payout.Asset) {
+			return fmt.Errorf("mesh.economy.payout.asset must be %q or an ERC-20 contract address", "native")
 		}
 	}
 	if e.Payout != nil && e.SettleBackend != "web3" {
 		return fmt.Errorf("mesh.economy.payout is only meaningful with settle_backend web3")
 	}
 	return nil
+}
+
+// isEvmAddress reports whether s is a 0x-prefixed 20-byte hex address —
+// the same shape web3.IsAddress enforces, duplicated here because
+// pkg/web3 imports this package (a back-edge would cycle).
+func isEvmAddress(s string) bool {
+	if len(s) != 42 || !strings.HasPrefix(s, "0x") {
+		return false
+	}
+	for _, c := range s[2:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// isDecimalDigits reports whether s is a non-empty decimal integer string.
+func isDecimalDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // validateEconDecimal accepts a canonical non-negative decimal string

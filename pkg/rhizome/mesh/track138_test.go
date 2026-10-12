@@ -53,12 +53,14 @@ func TestTrack138EconomyAnnounced(t *testing.T) {
 	assert.Equal(t, "0xabc123", capB.Economy.Payout.Address)
 	require.NotEmpty(t, capB.Signature)
 
-	// Buyer-private fields must not appear in the advertised bytes.
+	// Buyer-private fields must not appear in the advertised bytes
+	// (settle_backends — the public capability flag — is expected; the
+	// config key settle_backend must not leak).
 	raw, err := json.Marshal(capB.Economy)
 	require.NoError(t, err)
 	for _, priv := range []string{
 		"bill_peers", "max_cost_per_task", "max_cost_per_day",
-		"settle_threshold", "settle_backend",
+		"settle_threshold", `"settle_backend"`,
 	} {
 		assert.NotContains(t, string(raw), priv)
 	}

@@ -55,6 +55,9 @@ type econResponse struct {
 	// settle_ack payload.
 	SettleID string `json:"settle_id,omitempty"`
 	Accepted bool   `json:"accepted,omitempty"`
+	// AwaitingTx marks the phase-1 web3 ack: receivables matched and
+	// held accrued until the payer's transfer proof arrives (Track 143).
+	AwaitingTx bool `json:"awaiting_tx,omitempty"`
 
 	// settle_reject payload (also carried in Error).
 	Reason string `json:"reason,omitempty"`
@@ -225,6 +228,15 @@ func (m *Mesh) handleSettleOffer(from peer.ID, offer *econ.SettleOffer, started 
 	// window against the offer's own clock.
 	if skew := time.Since(offer.TS); skew < -5*time.Minute || skew > 10*time.Minute {
 		return reject("offer timestamp outside replay window")
+	}
+
+	switch offer.Backend {
+	case "", "ledger":
+		// mutual-credit marker — the Track 142 path below.
+	case "web3":
+		return m.handleSettleOfferWeb3(from, offer, started)
+	default:
+		return reject(fmt.Sprintf("unsupported settle backend %q", offer.Backend))
 	}
 
 	matched, err := econ.MatchReceivables(m.econLedger.Entries(), offer)

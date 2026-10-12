@@ -168,11 +168,21 @@ func TestNetworkEconomySettleMarkOnly(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "not trusted")
 
-	// web3 backend → 501 until Track 143.
+	// web3 + mark_only is a shape violation — mark_only is a
+	// ledger-backend concept (Track 143).
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/network/economy/settle",
 		strings.NewReader(`{"peer":"`+payee+`","backend":"web3","mark_only":true}`)))
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "mark_only")
+
+	// web3 backend without a settler on the mesh → the driver error
+	// surfaces as a 400, not the old Track-142 501.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/network/economy/settle",
+		strings.NewReader(`{"peer":"`+payee+`","backend":"web3"}`)))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "web3")
 
 	// mark_only settles the accrued payables under a signed offer id.
 	rec = httptest.NewRecorder()

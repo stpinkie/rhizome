@@ -42,6 +42,54 @@ type SettleOffer struct {
 	Nonce     string    `json:"nonce"`
 	TS        time.Time `json:"ts"`
 	Signature []byte    `json:"sig,omitempty"`
+
+	// Backend selects the close-out rail: empty/"ledger" is the mutual
+	// handshake marker; "web3" runs the two-phase Track 143 close-out —
+	// phase 1 carries Payment and awaits the transfer, phase 2 returns
+	// the same document plus TxHash for on-chain verification.
+	Backend string `json:"backend,omitempty"`
+	// Payment is the payer-signed transfer commitment for web3 offers:
+	// where the money must land (the payee's manifest-advertised payout)
+	// and who must sign it (from). Committed inside the signature so a
+	// relay cannot graft a different destination onto a captured offer.
+	Payment *SettlePayment `json:"payment,omitempty"`
+	// TxHash is the broadcast settlement transaction — set on the
+	// phase-2 (web3) offer only; the payee verifies it on-chain before
+	// marking receivables settled.
+	TxHash string `json:"tx_hash,omitempty"`
+}
+
+// SettlePayment is the signed web3 payment commitment inside a settle
+// offer. ChainID/Address/Asset mirror the payee's advertised payout
+// block; From commits the payer's signing address.
+type SettlePayment struct {
+	ChainID string `json:"chain_id"` // decimal chain id
+	Address string `json:"address"`  // payee payout address
+	Asset   string `json:"asset"`    // "native" or ERC-20 contract address
+	From    string `json:"from"`     // payer signing address
+}
+
+// Phase2Offer derives the tx-bearing web3 offer from a phase-1 offer:
+// same committed fields (entries, total, cutoff, payment), fresh
+// nonce+timestamp, tx_hash attached. The phase-2 content id is what both
+// ledgers record as settle_id.
+func Phase2Offer(phase1 *SettleOffer, txHash string) (*SettleOffer, error) {
+	if phase1 == nil {
+		return nil, fmt.Errorf("missing phase-1 offer")
+	}
+	if txHash == "" {
+		return nil, fmt.Errorf("phase-2 offer requires a tx hash")
+	}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, fmt.Errorf("mint offer nonce: %w", err)
+	}
+	o := *phase1
+	o.Nonce = hex.EncodeToString(nonce[:])
+	o.TS = time.Now().UTC()
+	o.TxHash = txHash
+	o.Signature = nil
+	return &o, nil
 }
 
 // BuildOffer constructs an unsigned offer over the accrued payable

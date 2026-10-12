@@ -268,6 +268,19 @@ type Mesh struct {
 	// econLedger is the bilateral charge book (Track 140). Writes are
 	// advisory like the audit trail — a failed open never breaks serving.
 	econLedger *econ.Ledger
+
+	// econSettler is the close-out rail (Track 143 web3 backend) —
+	// injected by the daemon when settle_backend=web3; nil leaves web3
+	// offers rejected and EconomySettleWeb3 erroring.
+	econSettler econ.Settler
+	// inflight is the payer-side crash journal for web3 close-out —
+	// records are written before any payment submission so a restart
+	// resumes instead of double-paying.
+	inflight *econ.InflightJournal
+	// settleDrive serializes journal-record drives between the watcher
+	// and synchronous settle calls (one driver per record at a time).
+	settleDrive   map[string]bool
+	settleDriveMu sync.Mutex
 }
 
 // maxEconSent bounds the caller-side negotiated-terms journal.
@@ -290,17 +303,19 @@ func NewMesh(
 	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error),
 ) *Mesh {
 	m := &Mesh{
-		node:     node,
-		syncer:   syncer,
-		id:       id,
-		cfg:      cfg,
-		host:     node.Host(),
-		caps:     make(map[peer.ID]Capability),
-		trust:    make(map[peer.ID]bool),
-		runFunc:  runFunc,
-		stop:     make(chan struct{}),
-		replay:   newReplayGuard(cfg.RequestMaxSkew),
-		econSent: make(map[string]econSentRecord),
+		node:        node,
+		syncer:      syncer,
+		id:          id,
+		cfg:         cfg,
+		host:        node.Host(),
+		caps:        make(map[peer.ID]Capability),
+		trust:       make(map[peer.ID]bool),
+		runFunc:     runFunc,
+		stop:        make(chan struct{}),
+		replay:      newReplayGuard(cfg.RequestMaxSkew),
+		econSent:    make(map[string]econSentRecord),
+		inflight:    econ.OpenInflightJournal(econ.InflightJournalPath(config.GetHome())),
+		settleDrive: make(map[string]bool),
 	}
 	if l, err := econ.OpenLedger(defaultLedgerPath()); err != nil {
 		logger.WarnCF("mesh", "economy ledger open failed; charges will not be journaled", map[string]any{
@@ -519,6 +534,19 @@ func (m *Mesh) Start(ctx context.Context) error {
 	// (/rhizome/econ/1.0.0) — per-request gated on mesh.economy.enabled so
 	// the stream is inert on non-economy nodes.
 	m.startEcon()
+
+	// The web3 close-out watcher drives live in-flight settle records —
+	// approval resolution, broadcast confirmation, phase-2 delivery. It
+	// runs whenever the journal exists: a settler injected post-Start
+	// (tests, late wiring) still picks up journaled records, and each
+	// drive step no-ops cleanly when the backend is absent.
+	if m.inflight != nil {
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			m.settleWatchLoop(m.ctx)
+		}()
+	}
 
 	for _, p := range m.cfg.TrustedPeers {
 		pid, err := peer.Decode(p)
