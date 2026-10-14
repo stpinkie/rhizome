@@ -178,7 +178,7 @@ func TestSubmitCandidatesRequirements(t *testing.T) {
 	require.Eventually(t, func() bool {
 		meshB.Advertise(ctx)
 		meshC.Advertise(ctx)
-		candidates = meshA.submitCandidates("", "main", "spawn", req)
+		candidates = meshA.submitCandidates("", "main", "spawn", req, "")
 		return len(candidates) == 1 && candidates[0].PID == meshB.node.ID()
 	}, 15*time.Second, 100*time.Millisecond)
 
@@ -187,7 +187,7 @@ func TestSubmitCandidatesRequirements(t *testing.T) {
 
 	// The preferred peer is never filtered — C leads even though it lacks
 	// the model — and only B remains as a fallback.
-	candidates = meshA.submitCandidates(nodeC.ID(), "main", "spawn", req)
+	candidates = meshA.submitCandidates(nodeC.ID(), "main", "spawn", req, "")
 	require.Len(t, candidates, 2)
 	assert.Equal(t, nodeC.ID(), candidates[0].PID)
 	assert.Equal(t, meshB.node.ID(), candidates[1].PID)
@@ -195,7 +195,7 @@ func TestSubmitCandidatesRequirements(t *testing.T) {
 	// An unsatisfiable requirement leaves the preferred peer alone on the
 	// list — no fallback survives.
 	candidates = meshA.submitCandidates(nodeC.ID(), "main", "spawn",
-		Requirements{Models: []string{"qwen"}})
+		Requirements{Models: []string{"qwen"}}, "")
 	require.Len(t, candidates, 1)
 	assert.Equal(t, nodeC.ID(), candidates[0].PID)
 }

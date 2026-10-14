@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/stpinkie/rhizome/cmd/rhizome/internal"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -26,15 +28,44 @@ func formatUsageLine(u *toolshared.RemoteUsage) string {
 	)
 }
 
-// NewTaskCommand returns the task command group for inspecting asynchronous
-// mesh tasks submitted to a trusted peer.
+// NewTaskCommand returns the task command group for submitting to and
+// inspecting asynchronous mesh tasks on a trusted peer.
 func NewTaskCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "task",
-		Short: "Inspect asynchronous mesh tasks on a trusted peer",
-		Long: "Query status, fetch results, cancel, or list async agent tasks " +
-			"previously submitted to a peer over /rhizome/agent-task/1.0.0.",
+		Short: "Submit and inspect asynchronous mesh tasks on a trusted peer",
+		Long: "Submit new async agent tasks or query status, fetch results, " +
+			"cancel, or list tasks over /rhizome/agent-task/1.0.0.",
 	}
+
+	var submitMaxCost string
+	var submitAttaches []string
+	submitCmd := &cobra.Command{
+		Use:   "submit <peer-multiaddr> <agent-id> <task>",
+		Short: "Submit an async task to a trusted peer and return its task id",
+		Args:  cobra.MinimumNArgs(3),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := internal.ValidateMultiaddrWithPeerID(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			agentID, err := internal.ValidateAgentID(args[1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := internal.ValidateMaxCost(submitMaxCost); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			runTaskSubmit(cmd, args[0], agentID, strings.Join(args[2:], " "),
+				submitMaxCost, submitAttaches)
+		},
+	}
+	submitCmd.Flags().StringVar(&submitMaxCost, "max-cost", "",
+		"Spend cap for this task (decimal); binds the request's econ max_charge — the peer may price_floor:-reject and failover proceeds")
+	submitCmd.Flags().
+		StringArrayVar(&submitAttaches, "attach", nil, "Attach a local file to the remote task (repeatable)")
 
 	statusCmd := &cobra.Command{
 		Use:   "status <peer-multiaddr> <task-id>",
@@ -81,12 +112,64 @@ func NewTaskCommand() *cobra.Command {
 		},
 	}
 
-	for _, sub := range []*cobra.Command{statusCmd, resultCmd, cancelCmd, listCmd} {
+	for _, sub := range []*cobra.Command{submitCmd, statusCmd, resultCmd, cancelCmd, listCmd} {
 		sub.Flags().String("bootstrap", "", "Optional bootstrap multiaddr of a Rhizome daemon")
 		sub.Flags().Bool("json", false, "Print raw JSON output")
 		cmd.AddCommand(sub)
 	}
 	return cmd
+}
+
+// runTaskSubmit dials the peer, submits the async task with failover, and
+// prints the resulting task id. Equivalent to `spawn --no-wait` but under
+// the task verb so submit lives beside status/result/cancel/list.
+func runTaskSubmit(
+	cmd *cobra.Command,
+	maddrStr, agentID, task, maxCost string,
+	attaches []string,
+) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	m, pid, cleanup := dialMeshPeer(ctx, cmd.Flags(), maddrStr)
+	defer cleanup()
+
+	media := make([]mesh.MediaAttachment, 0, len(attaches))
+	for _, p := range attaches {
+		if strings.TrimSpace(p) != "" {
+			media = append(media, mesh.MediaAttachment{Path: p})
+		}
+	}
+
+	usedPeer, taskID, err := m.SubmitRemoteTaskWithPeer(ctx, pid, mesh.RemoteCall{
+		TargetAgentID: agentID,
+		SystemPrompt:  task,
+		Media:         media,
+		MaxCost:       maxCost,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	asJSON, _ := cmd.Flags().GetBool("json")
+	if asJSON {
+		data, mErr := json.MarshalIndent(map[string]string{
+			"task_id": taskID,
+			"peer_id": usedPeer.String(),
+		}, "", "  ")
+		if mErr != nil {
+			fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", mErr)
+			os.Exit(1)
+		}
+		cmd.Println(string(data))
+		return
+	}
+	fmt.Printf("Task:   %s\n", taskID)
+	if usedPeer != pid {
+		fmt.Printf("Note:   task routed to failover peer %s\n", usedPeer)
+	}
+	fmt.Printf("Check progress: rhizome network task status %s %s\n", maddrStr, taskID)
 }
 
 func mustValidateTaskPeerArgs(maddrStr, taskID string) {

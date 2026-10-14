@@ -31,6 +31,11 @@ type SubTurnConfig struct {
 	InitialMessages    []providers.Message
 	InitialTokenBudget *atomic.Int64 // Shared token budget for team members; nil if no budget
 	TargetAgentID      string        // If set, run as this agent (its workspace, model, tools)
+	// MaxCost caps spend when the turn is dispatched to a remote mesh peer
+	// (canonical non-negative decimal in the negotiated unit; forwarded to
+	// mesh.RemoteCall.MaxCost — min with mesh.economy.max_cost_per_task).
+	// Empty means "no per-call cap"; ignored for local sub-turns.
+	MaxCost string
 }
 
 type SubagentTask struct {

@@ -57,6 +57,10 @@ func (t *DelegateTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Clear description of the task to delegate",
 			},
+			"max_cost": map[string]any{
+				"type":        "string",
+				"description": "Optional maximum spend cap for this task when delegated to a billing mesh peer (canonical decimal, e.g. \"0.5\"); combined with the operator's max_cost_per_task limit",
+			},
 		},
 		"required": []string{"agent_id", "task"},
 	}
@@ -86,10 +90,13 @@ func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return ErrorResult("delegate tool not configured")
 	}
 
+	maxCost, _ := args["max_cost"].(string)
+
 	result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
 		TargetAgentID: agentID,
 		SystemPrompt:  task,
 		Async:         false,
+		MaxCost:       strings.TrimSpace(maxCost),
 	})
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("delegation to agent %q failed: %v", agentID, err)).WithError(err)

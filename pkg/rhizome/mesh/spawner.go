@@ -88,5 +88,6 @@ func (s *RemoteSpawner) SpawnSubTurn(ctx context.Context, cfg tools.SubTurnConfi
 		SystemPrompt:  cfg.SystemPrompt,
 		Tools:         toolNames,
 		Async:         cfg.Async,
+		MaxCost:       cfg.MaxCost,
 	})
 }

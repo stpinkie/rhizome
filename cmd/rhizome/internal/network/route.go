@@ -26,6 +26,7 @@ func NewRouteCommand() *cobra.Command {
 	var pickTimeout time.Duration
 	var attaches []string
 	var reqModels, reqSkills []string
+	var maxCost string
 
 	cmd := &cobra.Command{
 		Use:   "route <agent-id> <task>",
@@ -40,9 +41,13 @@ func NewRouteCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			if err := internal.ValidateMaxCost(maxCost); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := strings.Join(args[1:], " ")
 			req := mesh.Requirements{Models: reqModels, Skills: reqSkills}
-			runRoute(cmd, agentID, task, syncCall, wait, pickTimeout, attaches, req)
+			runRoute(cmd, agentID, task, syncCall, wait, pickTimeout, attaches, req, maxCost)
 		},
 	}
 	cmd.Flags().Bool("sync", false, "Delegate synchronously instead of submitting an async task")
@@ -57,6 +62,9 @@ func NewRouteCommand() *cobra.Command {
 	cmd.Flags().
 		StringArrayVar(&reqSkills, "require-skill", nil,
 			"Only pick peers advertising one of these skills (repeatable; peers need mesh.advertise_skills or mesh.skill_share)")
+	cmd.Flags().
+		StringVar(&maxCost, "max-cost", "",
+			"Per-task spend cap (decimal); peers whose advertised min_charge exceeds min(--max-cost, mesh.economy.max_cost_per_task) are skipped")
 	return cmd
 }
 
@@ -67,6 +75,7 @@ func runRoute(
 	wait, pickTimeout time.Duration,
 	attaches []string,
 	req mesh.Requirements,
+	maxCost string,
 ) {
 	ctx, cancel := context.WithTimeout(context.Background(), pickTimeout+wait+2*time.Minute)
 	defer cancel()
@@ -127,7 +136,7 @@ func runRoute(
 	var pid peer.ID
 	var pickedCap mesh.Capability
 	for {
-		pid, pickedCap, err = m.PickPeerWith(agentID, op, req)
+		pid, pickedCap, err = m.PickPeerWithCost(agentID, op, req, maxCost)
 		if err == nil {
 			break
 		}
@@ -156,6 +165,7 @@ func runRoute(
 			Media:         media,
 			UsageSink:     &usage,
 			Requires:      req,
+			MaxCost:       maxCost,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)
@@ -177,6 +187,7 @@ func runRoute(
 		SystemPrompt:  task,
 		Media:         media,
 		Requires:      req,
+		MaxCost:       maxCost,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)

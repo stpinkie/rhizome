@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 )
@@ -43,6 +44,9 @@ type taskSubmitRequest struct {
 	Model   string   `json:"model,omitempty"`
 	Task    string   `json:"task"`
 	Tools   []string `json:"tools,omitempty"`
+	// MaxCost caps the task's spend (canonical decimal); the wire cap is
+	// min(max_cost, mesh.economy.max_cost_per_task).
+	MaxCost string `json:"max_cost,omitempty"`
 }
 
 const (
@@ -174,6 +178,14 @@ func (h *networkTasksHandler) submit(w http.ResponseWriter, r *http.Request) {
 	if body.AgentID == "" {
 		body.AgentID = "main"
 	}
+	if body.MaxCost != "" {
+		if _, ok := econ.ParseDecimal(body.MaxCost); !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid max_cost: not a canonical decimal",
+			})
+			return
+		}
+	}
 
 	timeout, err := parseTaskOpTimeout(r.URL.Query().Get("timeout"), 0)
 	if err != nil {
@@ -196,6 +208,7 @@ func (h *networkTasksHandler) submit(w http.ResponseWriter, r *http.Request) {
 		Model:         body.Model,
 		SystemPrompt:  body.Task,
 		Tools:         body.Tools,
+		MaxCost:       body.MaxCost,
 	})
 	if err != nil {
 		h.writeOpError(w, err)

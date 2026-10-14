@@ -57,6 +57,10 @@ func (t *SpawnTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Optional target agent ID to delegate the task to",
 			},
+			"max_cost": map[string]any{
+				"type":        "string",
+				"description": "Optional maximum spend cap for this task when spawned on a billing mesh peer (canonical decimal, e.g. \"0.5\"); combined with the operator's max_cost_per_task limit",
+			},
 		},
 		"required": []string{"task"},
 	}
@@ -100,6 +104,8 @@ func (t *SpawnTool) execute(
 	}
 	targetAgentID := strings.TrimSpace(agentID)
 
+	maxCost, _ := args["max_cost"].(string)
+
 	// Check allowlist if targeting a specific agent
 	if targetAgentID != "" && t.allowlistCheck != nil {
 		if !t.allowlistCheck(targetAgentID) {
@@ -138,6 +144,7 @@ Task: %s`,
 				Async:         true, // Async execution
 				Critical:      true, // Background spawn should survive parent turn completion
 				TargetAgentID: targetAgentID,
+				MaxCost:       strings.TrimSpace(maxCost),
 			})
 			if err != nil {
 				result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)

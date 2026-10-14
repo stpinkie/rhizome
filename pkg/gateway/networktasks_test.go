@@ -17,6 +17,7 @@ import (
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agentrpc"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	rnet "github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
@@ -100,6 +101,20 @@ func TestNetworkTasksHandlerBadRequests(t *testing.T) {
 			http.StatusBadRequest,
 		},
 		{"bad submit json", http.MethodPost, "/network/tasks", strings.NewReader(`{`), http.StatusBadRequest},
+		{
+			"bad max_cost",
+			http.MethodPost,
+			"/network/tasks",
+			strings.NewReader(`{"peer":"x","task":"t","max_cost":"abc"}`),
+			http.StatusBadRequest,
+		},
+		{
+			"negative max_cost",
+			http.MethodPost,
+			"/network/tasks",
+			strings.NewReader(`{"peer":"x","task":"t","max_cost":"-1"}`),
+			http.StatusBadRequest,
+		},
 		{
 			"cancel missing task",
 			http.MethodPost,
@@ -323,6 +338,166 @@ func TestNetworkTasksHandlerResult(t *testing.T) {
 	}
 	if resp.Result == nil || resp.Result.ForLLM != "done fast" {
 		t.Fatalf("unexpected result: %+v", resp.Result)
+	}
+}
+
+// newEconTaskPeerFixture builds a two-mesh fixture where the daemon mesh has
+// a per-task spend cap (max_cost_per_task) and the callee advertises priced
+// economy terms and bills the daemon.
+func newEconTaskPeerFixture(
+	t *testing.T,
+	callerMaxCost string,
+	calleeMinCharge string,
+) (*mesh.Mesh, *rnet.Node, func()) {
+	t.Helper()
+	ctx := context.Background()
+
+	idA := testutil.NewIdentity(t)
+	idB := testutil.NewIdentity(t)
+
+	nodeA, err := rnet.NewNode(ctx, idA.Libp2pPrivKey, rnet.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
+	if err != nil {
+		t.Fatalf("node A: %v", err)
+	}
+	nodeB, err := rnet.NewNode(ctx, idB.Libp2pPrivKey, rnet.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
+	if err != nil {
+		_ = nodeA.Close()
+		t.Fatalf("node B: %v", err)
+	}
+
+	meshA := mesh.NewMesh(nodeA, nil, idA, config.MeshConfig{
+		Enabled: true, RemoteTimeout: 30 * time.Second,
+		Economy: config.MeshEconomyConfig{
+			Enabled:        true,
+			Unit:           "credits",
+			AcceptUnits:    []string{"credits"},
+			MaxCostPerTask: callerMaxCost,
+		},
+	}, nil)
+	if err := meshA.Start(ctx); err != nil {
+		t.Fatalf("mesh A start: %v", err)
+	}
+	meshB := mesh.NewMesh(nodeB, nil, idB, config.MeshConfig{
+		Enabled: true, AllowRemoteSpawn: true, RemoteTimeout: 30 * time.Second,
+		Economy: config.MeshEconomyConfig{
+			Enabled:     true,
+			Unit:        "credits",
+			AcceptUnits: []string{"credits"},
+			BillPeers:   []string{idA.PeerID},
+			PriceSheet: config.EconPriceSheet{
+				MinCharge: calleeMinCharge,
+				PerTask:   "0.01",
+			},
+		},
+	}, func(_ context.Context, _ agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error) {
+		return toolshared.NewToolResult("ok"), nil, nil
+	})
+	if err := meshB.Start(ctx); err != nil {
+		t.Fatalf("mesh B start: %v", err)
+	}
+
+	addrsB := nodeB.BootstrapAddrs()
+	if len(addrsB) == 0 {
+		t.Fatal("node B has no listen addresses")
+	}
+	if err := meshA.Connect(ctx, addrsB[0]); err != nil {
+		t.Fatalf("connect A->B: %v", err)
+	}
+	meshA.TrustPeer(nodeB.ID())
+	meshB.TrustPeer(nodeA.ID())
+
+	cleanup := func() {
+		_ = meshA.Stop()
+		_ = meshB.Stop()
+		_ = nodeA.Close()
+		_ = nodeB.Close()
+	}
+	return meshA, nodeB, cleanup
+}
+
+// submitAndCharge posts a task and long-polls its result, returning the
+// callee's billing receipt.
+func submitAndCharge(
+	t *testing.T,
+	h http.Handler,
+	peerID, body string,
+) *econ.Charge {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/network/tasks",
+		strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("submit status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var submitResp struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &submitResp); err != nil {
+		t.Fatalf("decode submit: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet,
+		fmt.Sprintf("/network/tasks?peer=%s&task=%s&wait=10s", peerID, submitResp.TaskID), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("result status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp agenttask.Response
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if resp.Status != agenttask.StatusDone {
+		t.Fatalf("task status = %q, want done (error=%q)", resp.Status, resp.Error)
+	}
+	return resp.Charge
+}
+
+// TestNetworkTasksHandlerSubmitMaxCost proves the gateway forwards max_cost
+// into the negotiated econ terms end-to-end: the billed charge on the result
+// clamps to min(max_cost, mesh.economy.max_cost_per_task).
+func TestNetworkTasksHandlerSubmitMaxCost(t *testing.T) {
+	daemonMesh, peerNode, cleanup := newEconTaskPeerFixture(t, "5", "0.005")
+	defer cleanup()
+
+	// Wait for the callee's economy advert to propagate so econTermsFor
+	// emits terms at submit time.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if c, ok := daemonMesh.PeerCapabilities(peerNode.ID()); ok && c.Economy != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for callee economy advert")
+		}
+		_, _ = daemonMesh.TrustAndDiscover(context.Background(), peerNode.ID())
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	h := newNetworkTasksHandler(daemonMesh, testTasksToken)
+	peerID := peerNode.PeerID()
+
+	// Uncapped submit bills the sheet's per_task rate.
+	charge := submitAndCharge(t, h, peerID,
+		fmt.Sprintf(`{"peer":%q,"task":"uncapped"}`, peerID))
+	if charge == nil || charge.Amount != "0.01" || charge.Truncated {
+		t.Fatalf("uncapped charge = %+v, want amount=0.01 not truncated", charge)
+	}
+
+	// max_cost under the per_task rate clamps the billed charge: the wire
+	// cap reached the callee.
+	charge = submitAndCharge(t, h, peerID,
+		fmt.Sprintf(`{"peer":%q,"task":"capped","max_cost":"0.007"}`, peerID))
+	if charge == nil || charge.Amount != "0.007" || !charge.Truncated {
+		t.Fatalf("capped charge = %+v, want amount=0.007 truncated", charge)
 	}
 }
 

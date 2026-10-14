@@ -93,6 +93,35 @@ func TestDelegateTool_Execute_Success(t *testing.T) {
 	}
 }
 
+func TestDelegateTool_Execute_MaxCost(t *testing.T) {
+	spawner := &delegateMockSpawner{}
+	tool := NewDelegateTool()
+	tool.SetSpawner(spawner)
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"agent_id": "researcher",
+		"task":     "priced task",
+		"max_cost": " 0.5 ",
+	})
+	if result.IsError {
+		t.Fatalf("expected success, got error: %s", result.ForLLM)
+	}
+	if spawner.lastCfg.MaxCost != "0.5" {
+		t.Errorf("MaxCost = %q, want %q (trimmed)", spawner.lastCfg.MaxCost, "0.5")
+	}
+
+	result = tool.Execute(context.Background(), map[string]any{
+		"agent_id": "researcher",
+		"task":     "uncapped task",
+	})
+	if result.IsError {
+		t.Fatalf("expected success, got error: %s", result.ForLLM)
+	}
+	if spawner.lastCfg.MaxCost != "" {
+		t.Errorf("MaxCost = %q, want empty when unset", spawner.lastCfg.MaxCost)
+	}
+}
+
 func TestDelegateTool_Execute_EmptyAgentID(t *testing.T) {
 	tests := []struct {
 		name string

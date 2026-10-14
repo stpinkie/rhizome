@@ -11,6 +11,7 @@ import (
 
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
 
@@ -61,6 +62,13 @@ type FanoutRequest struct {
 	// Requires constrains branch peers to manifests satisfying the
 	// requirement (models, skills).
 	Requires Requirements
+	// MaxCost caps each branch's spend: a canonical non-negative decimal in
+	// the negotiated unit. The effective cap per branch is
+	// min(MaxCost, mesh.economy.max_cost_per_task); branch candidates whose
+	// advertised min_charge exceeds it are filtered before submission.
+	// Empty means "no per-call cap" (config cap alone applies); inert unless
+	// mesh.economy is enabled.
+	MaxCost string
 }
 
 // FanoutBranch is the outcome of one peer in a fan-out. Status is a terminal
@@ -105,7 +113,12 @@ func (m *Mesh) FanoutTask(ctx context.Context, req FanoutRequest) (FanoutResult,
 		return FanoutResult{}, fmt.Errorf("unknown fanout strategy %q", req.Strategy)
 	}
 
-	candidates := m.PickPeerRankedWith(req.AgentID, "spawn", req.Requires, nil)
+	if _, ok := econ.ParseDecimal(req.MaxCost); req.MaxCost != "" && !ok {
+		return FanoutResult{},
+			fmt.Errorf("invalid max_cost %q: not a canonical decimal", req.MaxCost)
+	}
+
+	candidates := m.PickPeerRankedWithCost(req.AgentID, "spawn", req.Requires, nil, req.MaxCost)
 	if len(candidates) == 0 {
 		return FanoutResult{}, fmt.Errorf(
 			"no capable trusted peer for agent %q%s", req.AgentID, reqSuffix(req.Requires))
@@ -145,6 +158,7 @@ func (m *Mesh) FanoutTask(ctx context.Context, req FanoutRequest) (FanoutResult,
 		Tools:         req.Tools,
 		Async:         true,
 		Requires:      req.Requires,
+		MaxCost:       req.MaxCost,
 	}
 
 	// Submit phase: one goroutine per candidate. The returned task ids are
