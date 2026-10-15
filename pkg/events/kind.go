@@ -161,6 +161,16 @@ const (
 	// KindMeshEconSettle is emitted when ledger entries are settled.
 	// Payload: peer_id, entry_ids, settle_id, backend, mark_only.
 	KindMeshEconSettle Kind = "mesh.econ.settle"
+	// KindMeshEconSettleDue is emitted when an accrued payable balance
+	// crosses settle_threshold — the advisory "time to settle" signal
+	// (settlement stays operator-initiated). Payload: peer_id, unit,
+	// payable_accrued, settle_threshold.
+	KindMeshEconSettleDue Kind = "mesh.econ.settle_due"
+	// KindMeshEconOverdue is emitted when a payer's accrued receivable
+	// sits over settle_threshold past settle_grace_period — a score
+	// failure lands on the payer alongside the event. Payload: peer_id,
+	// unit, receivable_accrued, settle_threshold, grace.
+	KindMeshEconOverdue Kind = "mesh.econ.overdue"
 	// KindMeshCapabilityUnsigned is emitted when a trusted peer sends an
 	// unsigned capability manifest (rejected unless require_signed_caps is off).
 	KindMeshCapabilityUnsigned Kind = "mesh.cap.unsigned"
@@ -305,6 +315,11 @@ var knownKinds = []Kind{
 	KindMeshRelayReservation,
 	KindMeshRemoteAudit,
 	KindMeshEconCharge,
+	KindMeshEconDispute,
+	KindMeshEconResolve,
+	KindMeshEconSettle,
+	KindMeshEconSettleDue,
+	KindMeshEconOverdue,
 	KindMeshCapabilityUnsigned,
 	KindMeshError,
 	KindMeshFanoutStart,

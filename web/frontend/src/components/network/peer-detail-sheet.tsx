@@ -156,7 +156,9 @@ export function PeerDetailSheet({
                         <span className="font-mono">
                           {o.op === "market_buy"
                             ? t("pages.network.peer_market_buy", "bought")
-                            : t("pages.network.peer_market_sell", "sold")}
+                            : o.op === "market_sell"
+                              ? t("pages.network.peer_market_sell", "sold")
+                              : o.op}
                         </span>
                         {o.session_id && (
                           <span className="font-mono" title={o.session_id}>
@@ -170,6 +172,53 @@ export function PeerDetailSheet({
                             ? new Date(o.at * 1000).toLocaleDateString()
                             : ""}
                         </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {peer.score?.econ && (
+                <div className="mt-1.5">
+                  <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+                    {t("pages.network.peer_econ", "Economy")}
+                    {peer.score.econ.overdue &&
+                      peer.score.econ.overdue.length > 0 && (
+                        <Badge variant="destructive">
+                          {t("pages.network.econ_overdue", "overdue")}
+                        </Badge>
+                      )}
+                    {(!peer.score.econ.overdue ||
+                      peer.score.econ.overdue.length === 0) &&
+                      peer.score.econ.over_threshold &&
+                      peer.score.econ.over_threshold.length > 0 && (
+                        <Badge variant="secondary">
+                          {t("pages.network.econ_settle_due", "settle due")}
+                        </Badge>
+                      )}
+                  </div>
+                  <div className="mt-0.5 space-y-0.5 pl-3">
+                    <div className="text-muted-foreground text-xs">
+                      {t("pages.network.econ_billed", "billed")}{" "}
+                      {peer.score.econ.charges_issued} ·{" "}
+                      {t("pages.network.econ_charged", "charged")}{" "}
+                      {peer.score.econ.charges_received} ·{" "}
+                      {t("pages.network.econ_settled_ct", "settled")}{" "}
+                      {peer.score.econ.settled}
+                      {peer.score.econ.disputed > 0 &&
+                        ` · ${t("pages.network.econ_disputed_ct", "disputed")} ${peer.score.econ.disputed}`}
+                      {peer.score.econ.written_off
+                        ? ` · ${t("pages.network.econ_written_off", "written off")} ${peer.score.econ.written_off}`
+                        : ""}
+                    </div>
+                    {peer.score.econ.balances?.map((b) => (
+                      <div
+                        key={b.unit}
+                        className="text-muted-foreground font-mono text-xs"
+                      >
+                        {b.unit}: {t("pages.network.econ_owe", "owe")}{" "}
+                        {b.payable_accrued} ·{" "}
+                        {t("pages.network.econ_owed", "owed")}{" "}
+                        {b.receivable_accrued}
                       </div>
                     ))}
                   </div>

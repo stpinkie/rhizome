@@ -246,6 +246,12 @@ func TestMeshKindsAreKnown(t *testing.T) {
 		KindMeshRemoteDelegateEnd,
 		KindMeshRemoteSpawnStart,
 		KindMeshRemoteSpawnEnd,
+		KindMeshEconCharge,
+		KindMeshEconDispute,
+		KindMeshEconResolve,
+		KindMeshEconSettle,
+		KindMeshEconSettleDue,
+		KindMeshEconOverdue,
 		KindMeshError,
 	}
 

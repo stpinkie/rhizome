@@ -25,15 +25,40 @@ export interface PeerOpStat {
 }
 
 export interface PeerOutcome {
-  /** market_buy | market_sell */
+  /** market_buy | market_sell | econ_charge | econ_settle | econ_dispute */
   op: string
-  /** completed | failed | expired | disputed | resolved | refunded | attested */
+  /** completed | failed | expired | disputed | resolved* | refunded | attested */
   outcome: string
   session_id?: string
   /** sha256 commitment to the settled value — never a raw amount. */
   value_hash?: string
   /** unix seconds */
   at: number
+}
+
+/** Per-unit accrued/settled sums in both directions (econ.UnitBalance). */
+export interface EconUnitBalance {
+  unit: string
+  payable_accrued: string
+  payable_settled: string
+  receivable_accrued: string
+  receivable_settled: string
+}
+
+/** Bilateral-economy split for one peer (econ.PeerSummary). */
+export interface PeerEconSummary {
+  /** receivable entries — charges this node billed the peer. */
+  charges_issued: number
+  /** payable entries — charges the peer billed this node. */
+  charges_received: number
+  settled: number
+  disputed: number
+  written_off?: number
+  balances?: EconUnitBalance[]
+  /** units over settle_threshold — advisory "time to settle". */
+  over_threshold?: string[]
+  /** units with accrued receivables stale past settle_grace_period. */
+  overdue?: string[]
 }
 
 export interface PeerScoreView {
@@ -46,8 +71,10 @@ export interface PeerScoreView {
   decay?: number
   /** Per-operation success/failure/latency counters (delegate, spawn, …). */
   ops?: Record<string, PeerOpStat>
-  /** Recent market-session outcome reports (peer_score bridge verb). */
+  /** Recent market-session + economy outcome reports. */
   outcomes?: PeerOutcome[]
+  /** Bilateral-economy split for this peer (Track 146). */
+  econ?: PeerEconSummary
 }
 
 export interface BandwidthView {
@@ -175,6 +202,58 @@ export async function removeNetworkPeer(peerID: string): Promise<void> {
   await request<void>(`/api/network/saved-peers?${params.toString()}`, {
     method: "DELETE",
   })
+}
+
+// --- Mesh economy (/api/network/economy — Track 146) ---
+
+/** One ledger charge row (econ.Entry). */
+export interface EconEntry {
+  entry_id: string
+  ts: string
+  peer_id: string
+  /** payable (we owe) | receivable (we are owed) */
+  direction: "payable" | "receivable"
+  task_id?: string
+  correlation_id?: string
+  unit: string
+  amount: string
+  result_sha256?: string
+  sheet_digest?: string
+  /** accrued | settled | disputed | written_off */
+  state: string
+  settle_id?: string
+  settle_tx?: string
+  note?: string
+}
+
+/** One payer-side web3 close-out record (econ.InflightRecord). */
+export interface EconInflight {
+  peer_id: string
+  unit: string
+  /** offered | paying | awaiting_approval | broadcast | stalled … */
+  state: string
+  pending_id?: string
+  tx_hash?: string
+  settle_id?: string
+  attempts: number
+  error?: string
+  created_at: string
+  updated_at: string
+}
+
+/** Economy snapshot — the daemon's GET /network/economy shape. */
+export interface NetworkEconomyResponse {
+  enabled: boolean
+  unit?: string
+  settle_threshold?: string
+  settle_grace_period?: string
+  peers?: Record<string, PeerEconSummary>
+  recent_charges?: EconEntry[]
+  inflight?: EconInflight[]
+}
+
+export async function getNetworkEconomy(): Promise<NetworkEconomyResponse> {
+  return request<NetworkEconomyResponse>(`/api/network/economy`)
 }
 
 // --- Remote task operations (/api/network/tasks) ---

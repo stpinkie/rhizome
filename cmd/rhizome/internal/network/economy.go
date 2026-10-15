@@ -73,6 +73,10 @@ func newEconomyBalanceCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			threshold := ""
+			if cfg, err := config.LoadConfig(internal.GetConfigPath()); err == nil && cfg != nil {
+				threshold = cfg.Mesh.Economy.SettleThreshold
+			}
 			idx := indexEntries(entries)
 			if len(args) == 1 {
 				pid := args[0]
@@ -83,7 +87,7 @@ func newEconomyBalanceCommand() *cobra.Command {
 					pid: econ.BalanceEntries(idx, func(e *econ.Entry) bool {
 						return e.PeerID == pid
 					}),
-				}, asJSON)
+				}, threshold, asJSON)
 			}
 			peers := map[string]bool{}
 			for _, e := range entries {
@@ -95,14 +99,14 @@ func newEconomyBalanceCommand() *cobra.Command {
 					return e.PeerID == p
 				})
 			}
-			return printBalances(w, out, asJSON)
+			return printBalances(w, out, threshold, asJSON)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
 	return cmd
 }
 
-func printBalances(w io.Writer, bals map[string][]econ.UnitBalance, asJSON bool) error {
+func printBalances(w io.Writer, bals map[string][]econ.UnitBalance, threshold string, asJSON bool) error {
 	if asJSON {
 		enc, err := json.MarshalIndent(bals, "", "  ")
 		if err != nil {
@@ -120,6 +124,7 @@ func printBalances(w io.Writer, bals map[string][]econ.UnitBalance, asJSON bool)
 		fmt.Fprintln(w, "No ledger entries.")
 		return nil
 	}
+	thr, hasThr := econ.ParseDecimal(threshold)
 	for _, p := range peers {
 		fmt.Fprintf(w, "Peer %s\n", p)
 		if len(bals[p]) == 0 {
@@ -131,6 +136,19 @@ func printBalances(w io.Writer, bals map[string][]econ.UnitBalance, asJSON bool)
 				"  %-10s payable:   accrued %-12s settled %-12s\n  %-10s receivable: accrued %-12s settled %-12s\n",
 				b.Unit, b.PayableAccrued, b.PayableSettled,
 				"", b.ReceivableAccrued, b.ReceivableSettled)
+			// settle_threshold is advisory — prompt, never auto-settle.
+			if hasThr && thr.Sign() > 0 {
+				if accrued, ok := econ.ParseDecimal(b.PayableAccrued); ok && accrued.Cmp(thr) > 0 {
+					fmt.Fprintf(
+						w,
+						"    over settle_threshold (%s %s accrued payable) — run `rhizome mesh economy settle %s --unit %s`\n",
+						b.PayableAccrued,
+						b.Unit,
+						p,
+						b.Unit,
+					)
+				}
+			}
 		}
 	}
 	return nil

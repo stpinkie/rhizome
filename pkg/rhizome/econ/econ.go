@@ -288,6 +288,11 @@ func parseDecimal(v string) (*big.Rat, bool) {
 	return r, true
 }
 
+// FormatDecimal renders a non-negative Rat as a canonical decimal — the
+// exported form of decimalString for callers that hold a *big.Rat (the
+// overdue-sweep total, external tooling).
+func FormatDecimal(r *big.Rat) string { return decimalString(r) }
+
 // decimalString renders a non-negative Rat as a canonical decimal. Rat
 // denominators from sheet arithmetic are 2^a·5^b (finite decimals); a
 // defensive 8-place truncation covers any unexpected residue.

@@ -712,7 +712,7 @@
       }
     ],
     "economy": {
-      "_comment": "Paired-settlement billing (v0.17.0). Fully inert unless enabled — no wire fields, adverts, or ledger writes otherwise. unit is required when enabled; amounts are decimal strings. bill_peers is an explicit allowlist — pairing grants trust, billing needs this too. accept_units/cost caps/bill_peers stay private; only unit+price_sheet+payout+accepts are advertised in the signed capability and pairing bundle. settle_backend 'ledger' (default) keeps a mutual-credit ledger; 'web3' closes out on-chain and requires payout {chain_id,address,asset}.",
+      "_comment": "Paired-settlement billing (v0.17.0). Fully inert unless enabled — no wire fields, adverts, or ledger writes otherwise. unit is required when enabled; amounts are decimal strings. bill_peers is an explicit allowlist — pairing grants trust, billing needs this too. accept_units/cost caps/bill_peers stay private; only unit+price_sheet+payout+accepts are advertised in the signed capability and pairing bundle. settle_backend 'ledger' (default) keeps a mutual-credit ledger; 'web3' closes out on-chain and requires payout {chain_id,address,asset}. settle_threshold is the advisory accrued balance that prompts settlement; settle_grace_period (requires settle_threshold) is how long an over-threshold receivable may sit before the payee records an econ_settle score failure on the payer — reputation pressure, never auto-settle.",
       "enabled": false,
       "unit": "credits",
       "price_sheet": {
@@ -727,6 +727,7 @@
       "max_cost_per_task": "0.05",
       "max_cost_per_day": "1",
       "settle_threshold": "10",
+      "settle_grace_period": "72h",
       "settle_backend": "ledger"
     }
   },

@@ -11,16 +11,17 @@ import (
 )
 
 // networkEconomyHandler serves the paired-settlement mutation verbs on the
-// daemon gateway (Track 141):
+// daemon gateway (Track 141) plus the Track 146 read snapshot:
 //
+//	GET  /network/economy          → per-peer balances + recent charges + settle state
 //	POST /network/economy/dispute  {task_id, reason}
 //	POST /network/economy/resolve  {task_id, action: credit|drop}
 //	POST /network/economy/settle   {peer, unit, backend, mark_only}
 //
-// Reads (balance, ledger, invoice) are daemonless — the CLI reads the
-// ledger file directly. Mutations prefer the daemon so transitions emit
-// mesh.econ.* events and land in the live ledger index; the CLI falls
-// back to a direct file write when the daemon is down.
+// Mutations prefer the daemon so transitions emit mesh.econ.* events and
+// land in the live ledger index; the CLI falls back to a direct file write
+// when the daemon is down. Reads also work daemonless (the CLI balance
+// verbs and the launcher's fallback read the ledger file directly).
 type networkEconomyHandler struct {
 	mesh      *mesh.Mesh
 	authToken string
@@ -46,14 +47,19 @@ func (h *networkEconomyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+
+	sub := strings.TrimPrefix(r.URL.Path, "/network/economy")
+	if r.Method == http.MethodGet && (sub == "" || sub == "/") {
+		writeJSON(w, http.StatusOK, h.mesh.EconomyView())
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
-			"error": "method not allowed, use POST",
+			"error": "method not allowed, use GET for reads or POST for mutations",
 		})
 		return
 	}
 
-	sub := strings.TrimPrefix(r.URL.Path, "/network/economy")
 	switch sub {
 	case "/dispute":
 		h.dispute(w, r)

@@ -193,6 +193,7 @@ func (m *Mesh) handleEconRequest(from peer.ID, req econRequest) econResponse {
 // settle_ack; on mismatch, settle_reject + an econ:diverged audit.
 func (m *Mesh) handleSettleOffer(from peer.ID, offer *econ.SettleOffer, started time.Time) econResponse {
 	reject := func(reason string) econResponse {
+		m.recordEconOutcome(from.String(), OpEconSettle, OutcomeDisputed, offerIDFor(offer), "")
 		m.auditMesh(from, "econ.settle_offer", "", "", "econ:diverged", started, reason)
 		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
 			"stage":   "econ.settle_offer",
@@ -252,7 +253,13 @@ func (m *Mesh) handleSettleOffer(from peer.ID, offer *econ.SettleOffer, started 
 		}
 		settled = append(settled, *rec)
 	}
-	m.auditMesh(from, "econ.settle_offer", "", settleID, "ok", started, "")
+	m.recordEconOutcome(from.String(), OpEconSettle, OutcomeCompleted, settleID,
+		econValueHash(offer.Total, offer.Unit, settleID))
+	m.auditMeshFields(from, "econ.settle_offer", "", settleID, "ok", started, "",
+		map[string]any{
+			"unit": offer.Unit, "amount": offer.Total,
+			"entry_ids": entryIDs(settled), "outcome": OutcomeCompleted,
+		})
 	m.publishMeshEvent(runtimeevents.KindMeshEconSettle, map[string]any{
 		"peer_id":   from.String(),
 		"unit":      offer.Unit,
@@ -390,7 +397,12 @@ func (m *Mesh) EconomySettle(ctx context.Context, peerID, unit string) (*econ.Se
 			return nil, nil, fmt.Errorf("ack settle_id mismatch: got %s want %s", resp.SettleID, offer.ID())
 		}
 	case resp.Kind == "settle_reject":
-		m.auditMesh(pid, "econ.settle_offer.req", "", offer.ID(), "econ:diverged", started, resp.Reason)
+		m.recordEconOutcome(pid.String(), OpEconSettle, OutcomeDisputed, offer.ID(), "")
+		m.auditMeshFields(pid, "econ.settle_offer.req", "", offer.ID(), "econ:diverged", started, resp.Reason,
+			map[string]any{
+				"unit": offer.Unit, "amount": offer.Total,
+				"outcome": OutcomeDisputed,
+			})
 		return nil, nil, fmt.Errorf("settle rejected (econ:diverged): %s", resp.Reason)
 	default:
 		return nil, nil, fmt.Errorf("settle offer rejected: %s", resp.Error)
@@ -410,7 +422,13 @@ func (m *Mesh) EconomySettle(ctx context.Context, peerID, unit string) (*econ.Se
 		}
 		settled = append(settled, *rec)
 	}
-	m.auditMesh(pid, "econ.settle_offer.req", "", settleID, "ok", started, "")
+	m.recordEconOutcome(pid.String(), OpEconSettle, OutcomeCompleted, settleID,
+		econValueHash(offer.Total, offer.Unit, settleID))
+	m.auditMeshFields(pid, "econ.settle_offer.req", "", settleID, "ok", started, "",
+		map[string]any{
+			"unit": offer.Unit, "amount": offer.Total,
+			"entry_ids": entryIDs(settled), "outcome": OutcomeCompleted,
+		})
 	m.publishMeshEvent(runtimeevents.KindMeshEconSettle, map[string]any{
 		"peer_id":   peerID,
 		"unit":      offer.Unit,
@@ -421,4 +439,12 @@ func (m *Mesh) EconomySettle(ctx context.Context, peerID, unit string) (*econ.Se
 		"total":     offer.Total,
 	})
 	return offer, settled, nil
+}
+
+// offerIDFor renders an offer id for outcome/audit refs; "" for nil offers.
+func offerIDFor(offer *econ.SettleOffer) string {
+	if offer == nil {
+		return ""
+	}
+	return offer.ID()
 }

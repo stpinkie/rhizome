@@ -3,6 +3,7 @@ package mesh
 import (
 	"crypto/ed25519"
 	"fmt"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
@@ -43,6 +44,13 @@ func (m *Mesh) EconomyDispute(taskID, reason string) ([]econ.Entry, error) {
 		"peer_id":   out[0].PeerID,
 		"reason":    reason,
 	})
+	// The dispute opens pending on each affected peer — resolution lands
+	// the terminal outcome. Audit carries the disputed value per unit.
+	m.recordDisputeOutcomes(out)
+	if pid, derr := peer.Decode(out[0].PeerID); derr == nil {
+		m.auditMeshFields(pid, "econ.dispute", "", taskID, "ok",
+			time.Now(), reason, econEntryAuditFields(out, OutcomeDisputed))
+	}
 	return out, nil
 }
 
@@ -67,6 +75,15 @@ func (m *Mesh) EconomyResolve(taskID string, drop bool) ([]econ.Entry, error) {
 		"peer_id":   out[0].PeerID,
 		"action":    action,
 	})
+	m.recordResolveOutcomes(out, drop)
+	if pid, derr := peer.Decode(out[0].PeerID); derr == nil {
+		outcome := string(econ.StateAccrued)
+		if drop {
+			outcome = string(econ.StateWrittenOff)
+		}
+		m.auditMeshFields(pid, "econ.resolve", "", taskID, "ok",
+			time.Now(), action, econEntryAuditFields(out, outcome))
+	}
 	return out, nil
 }
 
@@ -118,6 +135,15 @@ func (m *Mesh) EconomyMarkSettled(peerID string, unit string) (*econ.SettleOffer
 		"settle_id": offer.ID(),
 		"mark_only": true,
 	})
+	// The operator's attested marker — a local attest, not a converged
+	// handshake: attested lands the ref without moving the settle counters.
+	m.recordEconOutcome(peerID, OpEconSettle, OutcomeAttested, offer.ID(),
+		econValueHash(offer.Total, unit, offer.ID()))
+	if pid, derr := peer.Decode(peerID); derr == nil {
+		m.auditMeshFields(pid, "econ.mark_settled", "", offer.ID(), "ok",
+			time.Now(), "mark-only attestation",
+			econEntryAuditFields(out, OutcomeAttested))
+	}
 	return offer, out, nil
 }
 
