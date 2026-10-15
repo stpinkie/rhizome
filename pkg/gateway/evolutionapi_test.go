@@ -232,6 +232,71 @@ func TestEvolutionHandlerDraftActionMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestEvolutionHandlerSkillRollbackNeedsAgentLoop(t *testing.T) {
+	cfg, workspace := testEvolutionConfig(t)
+	store := evolution.NewStore(evolution.NewPaths(workspace, cfg.Evolution.StateDir))
+	if err := store.SaveProfile(evolution.SkillProfile{
+		WorkspaceID: workspace, SkillName: "weather", Status: evolution.SkillStatusActive,
+	}); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+	h := newEvolutionHandler(nil, cfg, testTasksToken)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/evolution/skills/weather/rollback",
+		strings.NewReader(`{"to":"draft-v1"}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestEvolutionHandlerSkillActionMethodNotAllowed(t *testing.T) {
+	cfg, _ := testEvolutionConfig(t)
+	h := newEvolutionHandler(nil, cfg, testTasksToken)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/evolution/skills/weather/rollback", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+
+	// The agent-loop check precedes action-name validation — same ordering
+	// as handleDraftAction — so an unknown action on a nil loop is 503.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/evolution/skills/weather/bogus",
+		strings.NewReader(`{}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestEvolutionResolveSkillWorkspace(t *testing.T) {
+	cfg, workspace := testEvolutionConfig(t)
+	store := evolution.NewStore(evolution.NewPaths(workspace, cfg.Evolution.StateDir))
+	if err := store.SaveProfile(evolution.SkillProfile{
+		WorkspaceID: workspace, SkillName: "weather", Status: evolution.SkillStatusActive,
+	}); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+	h := &evolutionHandler{cfg: cfg}
+
+	ws, err := h.resolveSkillWorkspace("", "weather")
+	if err != nil || ws != workspace {
+		t.Fatalf("resolve = %q, %v", ws, err)
+	}
+	// Explicit workspace wins over search.
+	ws, err = h.resolveSkillWorkspace("other", "weather")
+	if err != nil || ws != "other" {
+		t.Fatalf("explicit resolve = %q, %v", ws, err)
+	}
+	// Unknown skills fall back to the default workspace — the rollback
+	// itself errors downstream if nothing exists there either.
+	ws, err = h.resolveSkillWorkspace("", "nope")
+	if err != nil || ws != workspace {
+		t.Fatalf("default resolve = %q, %v", ws, err)
+	}
+}
+
 func TestEvolutionResolveRunTargets(t *testing.T) {
 	cfg, workspace := testEvolutionConfig(t)
 	agentWS := t.TempDir()

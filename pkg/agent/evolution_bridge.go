@@ -479,6 +479,17 @@ func (b *evolutionBridge) rejectDraft(workspace, draftID, reason string) (evolut
 	return b.runtime.RejectDraft(workspace, draftID, reason)
 }
 
+func (b *evolutionBridge) rollbackSkill(
+	ctx context.Context,
+	workspace, skillName string,
+	req evolution.RollbackRequest,
+) (evolution.RollbackResult, error) {
+	if b == nil || b.runtime == nil {
+		return evolution.RollbackResult{}, errors.New("evolution runtime unavailable")
+	}
+	return b.runtime.RollbackSkill(ctx, workspace, skillName, req)
+}
+
 // recordRun remembers the latest cold-path activity for a workspace so
 // `evolution status` can show it. Kind is "trigger" (async run scheduled
 // through the coalescing runner) or "run" (completed synchronous run).

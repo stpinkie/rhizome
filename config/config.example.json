@@ -50,7 +50,8 @@
     "cold_path_trigger": "after_turn",
     "cold_path_times": [],
     "review_auto_quarantine": true,
-    "max_draft_bytes": 65536
+    "max_draft_bytes": 65536,
+    "backup_keep": 5
   },
   "model_list": [
     {

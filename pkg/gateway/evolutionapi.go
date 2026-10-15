@@ -25,6 +25,7 @@ import (
 //	POST /evolution/run                          {workspace|agent|all, dry_run}
 //	POST /evolution/drafts/<id>/accept           {workspace?, force?}
 //	POST /evolution/drafts/<id>/reject           {workspace?, reason?}
+//	POST /evolution/skills/<name>/rollback       {workspace?, to?, dry_run?}
 //
 // Reads are store-level and cheap; mutations go through the agent loop's
 // evolution runtime so draft application uses the production applier path.
@@ -59,6 +60,8 @@ func (h *evolutionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleRun(w, r)
 	case strings.HasPrefix(sub, "drafts/"):
 		h.handleDraftAction(w, r, strings.TrimPrefix(sub, "drafts/"))
+	case strings.HasPrefix(sub, "skills/"):
+		h.handleSkillAction(w, r, strings.TrimPrefix(sub, "skills/"))
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown evolution endpoint"})
 	}
@@ -297,6 +300,80 @@ func (h *evolutionHandler) handleDraftAction(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"draft": draft})
+}
+
+// handleSkillAction executes POST /evolution/skills/<name>/<action> —
+// currently just "rollback".
+func (h *evolutionHandler) handleSkillAction(w http.ResponseWriter, r *http.Request, rest string) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if h.agentLoop == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent loop unavailable"})
+		return
+	}
+	name, action, found := strings.Cut(strings.TrimSuffix(rest, "/"), "/")
+	if !found || name == "" || action != "rollback" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown skill endpoint"})
+		return
+	}
+	var req struct {
+		Workspace string `json:"workspace"`
+		To        string `json:"to"`
+		DryRun    bool   `json:"dry_run"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req)
+
+	workspace, err := h.resolveSkillWorkspace(req.Workspace, name)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	result, err := h.agentLoop.RollbackEvolutionSkill(
+		r.Context(), workspace, name, evolution.RollbackRequest{To: req.To, DryRun: req.DryRun})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, evolution.ErrRollbackUnavailable) ||
+			strings.Contains(err.Error(), "skill name") {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rollback": result})
+}
+
+// resolveSkillWorkspace locates the workspace owning a skill profile: the
+// explicit workspace when given, else the single workspace whose profile
+// store names the skill.
+func (h *evolutionHandler) resolveSkillWorkspace(workspace, skillName string) (string, error) {
+	if workspace != "" {
+		return evolution.ResolveWorkspacePath(workspace), nil
+	}
+	var matched []string
+	for _, ws := range h.workspaces() {
+		profiles, err := h.storeFor(ws).LoadProfiles()
+		if err != nil {
+			continue
+		}
+		for _, p := range profiles {
+			if p.SkillName == skillName {
+				matched = append(matched, ws)
+				break
+			}
+		}
+	}
+	switch len(matched) {
+	case 0:
+		// No profile is not itself fatal — backups can exist without one —
+		// but the daemon still needs a workspace to operate on; default it.
+		return h.defaultWorkspace(), nil
+	case 1:
+		return matched[0], nil
+	default:
+		return "", fmt.Errorf("skill %q matches multiple workspaces; pass workspace", skillName)
+	}
 }
 
 // resolveRunTargets turns the run request's targeting fields into concrete

@@ -1,7 +1,8 @@
 // Package evolution implements `rhizome evolution` — the operator surface
 // for the self-evolution subsystem (v0.18.0 Track 149). Reads are daemonless
 // (they load the workspace's evolution state dir directly); mutations
-// (run, draft accept/reject) go through the daemon's /evolution/* API.
+// (run, draft accept/reject, skill rollback) go through the daemon's
+// /evolution/* API.
 package evolution
 
 import (
@@ -22,7 +23,8 @@ func NewEvolutionCommand() *cobra.Command {
 		Short: "Inspect and control agent self-evolution",
 		Long: "Inspect and control the self-evolution loop: learning records, " +
 			"generated skill drafts, apply/rollback state. Read verbs work " +
-			"without a running daemon; run and draft accept/reject require it.",
+			"without a running daemon; run, draft accept/reject, and " +
+			"rollback require it.",
 	}
 	cmd.AddCommand(
 		newStatusCommand(),
@@ -31,6 +33,7 @@ func NewEvolutionCommand() *cobra.Command {
 		newDraftCommand(),
 		newRecordsCommand(),
 		newSkillsCommand(),
+		newRollbackCommand(),
 	)
 	return cmd
 }
