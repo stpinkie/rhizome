@@ -758,6 +758,11 @@ type EvolutionConfig struct {
 	// over-size drafts quarantine regardless of review_auto_quarantine.
 	// Defaults to 64 KiB; values <= 0 resolve to the default.
 	MaxDraftBytes int `json:"max_draft_bytes,omitempty"`
+	// BackupKeep bounds per-skill backups (pre-apply snapshots and
+	// per-version snapshots) — the oldest beyond the bound are pruned at
+	// apply/rollback time. Defaults to 5; values <= 0 resolve to the
+	// default.
+	BackupKeep int `json:"backup_keep,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -777,6 +782,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		// values survive write-back even while evolution is disabled.
 		ReviewAutoQuarantine bool `json:"review_auto_quarantine"`
 		MaxDraftBytes        int  `json:"max_draft_bytes,omitempty"`
+		BackupKeep           int  `json:"backup_keep,omitempty"`
 	}{
 		Enabled:              c.Enabled,
 		Mode:                 c.Mode,
@@ -787,6 +793,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		ColdPathTimes:        c.EffectiveColdPathTimes(),
 		ReviewAutoQuarantine: c.ReviewAutoQuarantine,
 		MaxDraftBytes:        c.EffectiveMaxDraftBytes(),
+		BackupKeep:           c.EffectiveBackupKeep(),
 	}
 	if !out.Enabled {
 		out.Mode = ""
@@ -885,6 +892,17 @@ func (c EvolutionConfig) EffectiveMaxDraftBytes() int {
 		return c.MaxDraftBytes
 	}
 	return DefaultMaxDraftBytes
+}
+
+// DefaultBackupKeep is the per-skill backup bound used when backup_keep is
+// unset or non-positive.
+const DefaultBackupKeep = 5
+
+func (c EvolutionConfig) EffectiveBackupKeep() int {
+	if c.BackupKeep > 0 {
+		return c.BackupKeep
+	}
+	return DefaultBackupKeep
 }
 
 // IsolationConfig controls subprocess isolation for commands started by Rhizome.

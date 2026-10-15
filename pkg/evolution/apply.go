@@ -2,9 +2,11 @@ package evolution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -102,10 +104,8 @@ func (a *Applier) backupCurrentSkill(
 	}
 
 	backupDir := filepath.Join(
-		a.paths.BackupsDir,
-		workspaceScopeDir(workspace),
-		skillName,
-		a.now().Format("20060102-150405.000000000"),
+		a.skillBackupDir(workspace, skillName),
+		a.now().Format(backupTimestampLayout),
 	)
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return "", "", false, err
@@ -132,6 +132,136 @@ func (a *Applier) rollbackSkill(skillPath, backupPath string, hadOriginal bool) 
 	skillDir := filepath.Dir(skillPath)
 	if err := os.Remove(skillDir); err != nil && !os.IsNotExist(err) && !isDirNotEmptyError(err) {
 		return err
+	}
+	return nil
+}
+
+// backupTimestampLayout is the directory-name format backupCurrentSkill uses
+// for each pre-mutation snapshot. The nanosecond suffix keeps same-second
+// applies distinct; dirs whose names fail this layout (e.g. "versions") are
+// not timestamped backups.
+const backupTimestampLayout = "20060102-150405.000000000"
+
+// versionsSubdir names the per-skill subdirectory holding named-version
+// snapshots: a post-apply copy of SKILL.md keyed by the version label (the
+// draft id). `--to <version>` rollback restores these; timestamped sibling
+// dirs hold pre-mutation snapshots used by bare rollback.
+const versionsSubdir = "versions"
+
+func (a *Applier) skillBackupDir(workspace, skillName string) string {
+	return filepath.Join(a.paths.BackupsDir, workspaceScopeDir(workspace), skillName)
+}
+
+// snapshotCurrentSkill writes a timestamped pre-mutation backup of the
+// skill's current SKILL.md and returns its path — "" when the skill has no
+// current file (pre-create state; nothing to preserve).
+func (a *Applier) snapshotCurrentSkill(workspace, skillName string) (string, error) {
+	_, backupPath, hadOriginal, err := a.backupCurrentSkill(workspace, skillName)
+	if err != nil || !hadOriginal {
+		return "", err
+	}
+	return backupPath, nil
+}
+
+// WriteVersionSnapshot records the post-apply content of the skill under
+// backups/<ws>/<skill>/versions/<version>/ so `rollback --to <version>` can
+// restore it later. Called after the apply's store writes succeed — a failed
+// apply rolls the file back and never reaches this.
+func (a *Applier) WriteVersionSnapshot(workspace, skillName, version string) error {
+	if err := skills.ValidateSkillName(skillName); err != nil {
+		return err
+	}
+	version = sanitizeWorkspaceComponent(strings.TrimSpace(version))
+	if version == "" {
+		return fmt.Errorf("version label required for snapshot")
+	}
+	skillPath := filepath.Join(workspace, "skills", skillName, "SKILL.md")
+	data, err := os.ReadFile(skillPath)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(a.skillBackupDir(workspace, skillName), versionsSubdir, version)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(filepath.Join(dir, "SKILL.md"), data, 0o644)
+}
+
+// timestampedBackups lists the skill's pre-mutation snapshot directories
+// (oldest first). The versions/ subdirectory and anything else not matching
+// the timestamp layout is skipped.
+func (a *Applier) timestampedBackups(workspace, skillName string) ([]string, error) {
+	dir := a.skillBackupDir(workspace, skillName)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, perr := time.Parse(backupTimestampLayout, entry.Name()); perr != nil {
+			continue
+		}
+		out = append(out, filepath.Join(dir, entry.Name()))
+	}
+	// Names are timestamp-formatted so lexical order is chronological.
+	sort.Strings(out)
+	return out, nil
+}
+
+// PruneBackups bounds the skill's backup footprint to the newest keep
+// timestamped snapshots plus the newest keep version snapshots (by snapshot
+// write time). keep <= 0 keeps everything.
+func (a *Applier) PruneBackups(workspace, skillName string, keep int) error {
+	if keep <= 0 {
+		return nil
+	}
+	timestamped, err := a.timestampedBackups(workspace, skillName)
+	if err != nil {
+		return err
+	}
+	for _, dir := range timestamped[:max(len(timestamped)-keep, 0)] {
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
+	}
+
+	versionsDir := filepath.Join(a.skillBackupDir(workspace, skillName), versionsSubdir)
+	entries, err := os.ReadDir(versionsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	type versionDir struct {
+		path string
+		at   time.Time
+	}
+	versions := make([]versionDir, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		info, ierr := entry.Info()
+		if ierr != nil {
+			return ierr
+		}
+		versions = append(versions, versionDir{
+			path: filepath.Join(versionsDir, entry.Name()),
+			at:   info.ModTime(),
+		})
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i].at.Before(versions[j].at) })
+	for _, v := range versions[:max(len(versions)-keep, 0)] {
+		if err := os.RemoveAll(v.path); err != nil {
+			return err
+		}
 	}
 	return nil
 }

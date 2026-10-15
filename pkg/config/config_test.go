@@ -3619,6 +3619,9 @@ func TestEvolutionConfig_ReviewAutoQuarantineDefaultAndRoundTrip(t *testing.T) {
 	if DefaultConfig().Evolution.EffectiveMaxDraftBytes() != DefaultMaxDraftBytes {
 		t.Fatal("max_draft_bytes should default to 64 KiB")
 	}
+	if DefaultConfig().Evolution.EffectiveBackupKeep() != DefaultBackupKeep {
+		t.Fatal("backup_keep should default to 5")
+	}
 
 	mustSetupSSHKey(t)
 	dir := t.TempDir()
@@ -3628,7 +3631,7 @@ func TestEvolutionConfig_ReviewAutoQuarantineDefaultAndRoundTrip(t *testing.T) {
 	if err := os.WriteFile(
 		path,
 		[]byte(
-			`{"version":3,"evolution":{"enabled":true,"mode":"draft","review_auto_quarantine":false,"max_draft_bytes":1024}}`,
+			`{"version":3,"evolution":{"enabled":true,"mode":"draft","review_auto_quarantine":false,"max_draft_bytes":1024,"backup_keep":9}}`,
 		),
 		0o600,
 	); err != nil {
@@ -3643,6 +3646,9 @@ func TestEvolutionConfig_ReviewAutoQuarantineDefaultAndRoundTrip(t *testing.T) {
 	}
 	if cfg.Evolution.EffectiveMaxDraftBytes() != 1024 {
 		t.Fatalf("max_draft_bytes = %d, want 1024", cfg.Evolution.EffectiveMaxDraftBytes())
+	}
+	if cfg.Evolution.EffectiveBackupKeep() != 9 {
+		t.Fatalf("backup_keep = %d, want 9", cfg.Evolution.EffectiveBackupKeep())
 	}
 
 	// ...and survive a SaveConfig/LoadConfig round-trip.
@@ -3659,6 +3665,9 @@ func TestEvolutionConfig_ReviewAutoQuarantineDefaultAndRoundTrip(t *testing.T) {
 	if reloaded.Evolution.EffectiveMaxDraftBytes() != 1024 {
 		t.Fatalf("reloaded max_draft_bytes = %d, want 1024", reloaded.Evolution.EffectiveMaxDraftBytes())
 	}
+	if reloaded.Evolution.EffectiveBackupKeep() != 9 {
+		t.Fatalf("reloaded backup_keep = %d, want 9", reloaded.Evolution.EffectiveBackupKeep())
+	}
 
 	// Absent fields resolve to the defaults (true / 64 KiB).
 	if err := os.WriteFile(path,
@@ -3674,5 +3683,8 @@ func TestEvolutionConfig_ReviewAutoQuarantineDefaultAndRoundTrip(t *testing.T) {
 	}
 	if cfg2.Evolution.EffectiveMaxDraftBytes() != DefaultMaxDraftBytes {
 		t.Fatalf("absent max_draft_bytes = %d, want %d", cfg2.Evolution.EffectiveMaxDraftBytes(), DefaultMaxDraftBytes)
+	}
+	if cfg2.Evolution.EffectiveBackupKeep() != DefaultBackupKeep {
+		t.Fatalf("absent backup_keep = %d, want %d", cfg2.Evolution.EffectiveBackupKeep(), DefaultBackupKeep)
 	}
 }

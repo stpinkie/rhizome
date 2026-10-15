@@ -115,6 +115,21 @@ func (al *AgentLoop) RejectEvolutionDraft(workspace, draftID, reason string) (ev
 	return bridge.rejectDraft(workspace, draftID, reason)
 }
 
+// RollbackEvolutionSkill restores a skill to a prior snapshot — a named
+// version's post-apply snapshot (req.To) or the newest pre-mutation backup —
+// through the runtime's validation + history path.
+func (al *AgentLoop) RollbackEvolutionSkill(
+	ctx context.Context,
+	workspace, skillName string,
+	req evolution.RollbackRequest,
+) (evolution.RollbackResult, error) {
+	bridge := al.currentEvolutionBridge()
+	if bridge == nil {
+		return evolution.RollbackResult{}, errEvolutionUnavailable
+	}
+	return bridge.rollbackSkill(ctx, workspace, skillName, req)
+}
+
 // EvolutionLastRuns returns the per-workspace record of the most recent
 // cold-path activity the bridge observed.
 func (al *AgentLoop) EvolutionLastRuns() map[string]EvolutionRunRecord {

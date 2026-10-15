@@ -8,9 +8,10 @@ import (
 )
 
 // registerEvolutionRoutes proxies the daemon's /evolution/* surface
-// (status/drafts/records/skills reads + run/accept/reject mutations) to the
-// dashboard. All endpoints are daemon-required — mutation and live status
-// come from the running gateway; daemonless reads are served by the CLI.
+// (status/drafts/records/skills reads + run/accept/reject/rollback
+// mutations) to the dashboard. All endpoints are daemon-required — mutation
+// and live status come from the running gateway; daemonless reads are
+// served by the CLI.
 func (h *Handler) registerEvolutionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/evolution/status", h.handleEvolutionProxy)
 	mux.HandleFunc("GET /api/evolution/drafts", h.handleEvolutionProxy)
@@ -19,6 +20,7 @@ func (h *Handler) registerEvolutionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/evolution/run", h.handleEvolutionProxy)
 	mux.HandleFunc("POST /api/evolution/drafts/{id}/accept", h.handleEvolutionProxy)
 	mux.HandleFunc("POST /api/evolution/drafts/{id}/reject", h.handleEvolutionProxy)
+	mux.HandleFunc("POST /api/evolution/skills/{name}/rollback", h.handleEvolutionProxy)
 }
 
 // handleEvolutionProxy forwards /api/evolution/<sub> to the daemon's
