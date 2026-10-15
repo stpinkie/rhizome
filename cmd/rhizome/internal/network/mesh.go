@@ -115,11 +115,16 @@ func mutateTrustedPeers(peerID string, add bool) {
 	}
 }
 
-func NewDelegateCommand() *cobra.Command {
+// newMeshClientCommand builds the delegate/spawn pair: both validate
+// <peer-multiaddr> <agent-id> <task>, join the trailing words into the task
+// text, and dispatch via runMeshClient — spawn differs only in the async
+// dispatch flag.
+func newMeshClientCommand(use, short string, spawn bool) *cobra.Command {
 	var attaches []string
+	var maxCost string
 	cmd := &cobra.Command{
-		Use:   "delegate <peer-multiaddr> <agent-id> <task>",
-		Short: "Delegate a task to a trusted peer (synchronous)",
+		Use:   use,
+		Short: short,
 		Args:  cobra.MinimumNArgs(3),
 		Run: func(cmd *cobra.Command, args []string) {
 			maddr := args[0]
@@ -132,6 +137,10 @@ func NewDelegateCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			if err := internal.ValidateMaxCost(maxCost); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := ""
 			if len(args) > 2 {
 				for i, a := range args[2:] {
@@ -141,48 +150,29 @@ func NewDelegateCommand() *cobra.Command {
 					task += a
 				}
 			}
-			runMeshClient(cmd.Flags(), maddr, agentID, task, false)
+			runMeshClient(cmd.Flags(), maddr, agentID, task, spawn)
 		},
 	}
 	cmd.Flags().String("bootstrap", "", "Optional bootstrap multiaddr of a Rhizome daemon")
 	cmd.Flags().
 		StringArrayVar(&attaches, "attach", nil, "Attach a local file to the remote task (repeatable)")
+	cmd.Flags().
+		StringVar(&maxCost, "max-cost", "",
+			"Spend cap for this task (decimal); binds the request's econ max_charge — the peer may price_floor:-reject and failover proceeds")
 	return cmd
 }
 
+func NewDelegateCommand() *cobra.Command {
+	return newMeshClientCommand(
+		"delegate <peer-multiaddr> <agent-id> <task>",
+		"Delegate a task to a trusted peer (synchronous)", false)
+}
+
 func NewSpawnCommand() *cobra.Command {
-	var attaches []string
-	cmd := &cobra.Command{
-		Use:   "spawn <peer-multiaddr> <agent-id> <task>",
-		Short: "Spawn a task on a trusted peer (asynchronous)",
-		Args:  cobra.MinimumNArgs(3),
-		Run: func(cmd *cobra.Command, args []string) {
-			maddr := args[0]
-			if err := internal.ValidateMultiaddrWithPeerID(maddr); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-			agentID, err := internal.ValidateAgentID(args[1])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-			task := ""
-			if len(args) > 2 {
-				for i, a := range args[2:] {
-					if i > 0 {
-						task += " "
-					}
-					task += a
-				}
-			}
-			runMeshClient(cmd.Flags(), maddr, agentID, task, true)
-		},
-	}
-	cmd.Flags().String("bootstrap", "", "Optional bootstrap multiaddr of a Rhizome daemon")
+	cmd := newMeshClientCommand(
+		"spawn <peer-multiaddr> <agent-id> <task>",
+		"Spawn a task on a trusted peer (asynchronous)", true)
 	cmd.Flags().Bool("no-wait", false, "Submit the task and return its id without waiting for the result")
-	cmd.Flags().
-		StringArrayVar(&attaches, "attach", nil, "Attach a local file to the remote task (repeatable)")
 	return cmd
 }
 
@@ -293,6 +283,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 	defer cleanup()
 
 	media := attachMedia(flags)
+	maxCost, _ := flags.GetString("max-cost")
 
 	if spawn {
 		if noWait, _ := flags.GetBool("no-wait"); noWait {
@@ -300,6 +291,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 				TargetAgentID: agentID,
 				SystemPrompt:  task,
 				Media:         media,
+				MaxCost:       maxCost,
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Remote submit failed: %v\n", err)
@@ -322,6 +314,7 @@ func runMeshClient(flags *pflag.FlagSet, maddrStr, agentID, task string, spawn b
 		Async:         spawn,
 		Media:         media,
 		UsageSink:     &usage,
+		MaxCost:       maxCost,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Remote call failed: %v\n", err)

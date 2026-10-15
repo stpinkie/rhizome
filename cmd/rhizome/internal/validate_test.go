@@ -56,6 +56,19 @@ func TestValidateSwarmID(t *testing.T) {
 	}
 }
 
+func TestValidateMaxCost(t *testing.T) {
+	for _, s := range []string{"", "0", "5", "0.5", "10.25"} {
+		if err := ValidateMaxCost(s); err != nil {
+			t.Fatalf("ValidateMaxCost(%q) error: %v", s, err)
+		}
+	}
+	for _, s := range []string{"abc", "-1", "1.2.3", "0x10", "1e3", " ", "1,5"} {
+		if err := ValidateMaxCost(s); err == nil {
+			t.Fatalf("ValidateMaxCost(%q) expected error", s)
+		}
+	}
+}
+
 func TestValidateScatterStrategy(t *testing.T) {
 	for _, s := range []string{"first", "quorum", "all"} {
 		got, err := ValidateScatterStrategy(s)

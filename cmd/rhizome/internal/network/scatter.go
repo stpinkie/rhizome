@@ -23,7 +23,7 @@ import (
 // out to several capable trusted peers and aggregates the results.
 func NewScatterCommand() *cobra.Command {
 	var n, k int
-	var strategy, model string
+	var strategy, model, maxCost string
 	var wait, pickTimeout time.Duration
 	var asJSON bool
 	var reqModels, reqSkills []string
@@ -57,9 +57,13 @@ func NewScatterCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			if err := internal.ValidateMaxCost(maxCost); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := strings.Join(args[1:], " ")
 			req := mesh.Requirements{Models: reqModels, Skills: reqSkills}
-			runScatter(cmd, agentID, task, model, strategy, n, k, wait, pickTimeout, asJSON, req)
+			runScatter(cmd, agentID, task, model, strategy, n, k, wait, pickTimeout, asJSON, req, maxCost)
 		},
 	}
 	cmd.Flags().IntVar(&n, "n", 0, "Number of peers to fan out to (default: all capable peers)")
@@ -77,6 +81,9 @@ func NewScatterCommand() *cobra.Command {
 	cmd.Flags().
 		StringArrayVar(&reqSkills, "require-skill", nil,
 			"Only fan out to peers advertising one of these skills (repeatable; peers need mesh.advertise_skills or mesh.skill_share)")
+	cmd.Flags().
+		StringVar(&maxCost, "max-cost", "",
+			"Per-branch spend cap (decimal); peers whose advertised min_charge exceeds min(--max-cost, mesh.economy.max_cost_per_task) are skipped")
 	return cmd
 }
 
@@ -87,6 +94,7 @@ func runScatter(
 	wait, pickTimeout time.Duration,
 	asJSON bool,
 	req mesh.Requirements,
+	maxCost string,
 ) {
 	ctx, cancel := context.WithTimeout(context.Background(), pickTimeout+wait+5*time.Minute)
 	defer cancel()
@@ -137,7 +145,7 @@ func runScatter(
 	// until at least one capable peer shows up or the pick deadline hits.
 	pickCtx, pickCancel := context.WithTimeout(ctx, pickTimeout)
 	defer pickCancel()
-	for len(m.PickPeerRankedWith(agentID, "spawn", req, nil)) == 0 {
+	for len(m.PickPeerRankedWithCost(agentID, "spawn", req, nil, maxCost)) == 0 {
 		select {
 		case <-pickCtx.Done():
 			fmt.Fprintf(os.Stderr, "No capable trusted peer for agent %q\n", agentID)
@@ -155,6 +163,7 @@ func runScatter(
 		K:        k,
 		Wait:     wait,
 		Requires: req,
+		MaxCost:  maxCost,
 	})
 
 	if asJSON {

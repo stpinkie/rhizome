@@ -49,6 +49,16 @@ type RemoteCall struct {
 	// requirement (models, skills). The preferred peer is never filtered —
 	// an explicit peer is an explicit choice.
 	Requires Requirements
+	// MaxCost caps this call's spend: a canonical non-negative decimal in
+	// the negotiated unit. The effective wire cap is
+	// min(MaxCost, mesh.economy.max_cost_per_task) — the flag can only
+	// tighten the configured policy, never loosen it. Candidates whose
+	// advertised min_charge exceeds the cap are filtered before dispatch;
+	// on explicit-peer calls the cap still binds via Econ.max_charge.
+	// Empty means "no per-call cap" (config cap alone applies); the whole
+	// mechanism is inert unless mesh.economy is enabled and the peer
+	// advertises economy terms.
+	MaxCost string
 }
 
 // MediaAttachment names one file carried to a remote callee.
@@ -618,8 +628,11 @@ func (m *Mesh) SubmitRemoteTaskWithPeer(
 	call RemoteCall,
 ) (peer.ID, string, error) {
 	op := remoteCallOp(call)
+	if _, ok := econ.ParseDecimal(call.MaxCost); call.MaxCost != "" && !ok {
+		return "", "", fmt.Errorf("invalid max_cost %q: not a canonical decimal", call.MaxCost)
+	}
 
-	candidates := m.submitCandidates(preferred, call.TargetAgentID, op, call.Requires)
+	candidates := m.submitCandidates(preferred, call.TargetAgentID, op, call.Requires, call.MaxCost)
 	if len(candidates) == 0 {
 		return "", "", fmt.Errorf(
 			"no trusted, connected peer advertises agent %q for op %q%s",
@@ -707,12 +720,13 @@ func (m *Mesh) submitCandidates(
 	preferred peer.ID,
 	agentID, op string,
 	req Requirements,
+	maxCost string,
 ) []RankedPeer {
 	exclude := make(map[peer.ID]bool)
 	if preferred != "" {
 		exclude[preferred] = true
 	}
-	candidates := m.PickPeerRankedWith(agentID, op, req, exclude)
+	candidates := m.PickPeerRankedWithCost(agentID, op, req, exclude, maxCost)
 	if preferred != "" {
 		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
 	}
@@ -785,7 +799,7 @@ func (m *Mesh) submitRemoteTask(ctx context.Context, pid peer.ID, call RemoteCal
 		WantUsage: m.peerAllowsUsageReport(pid),
 		// Negotiate paired-settlement terms: only peers whose manifest
 		// advertises economy (with our economy enabled) get econ.
-		Econ: m.econTermsFor(pid),
+		Econ: m.econTermsFor(pid, call.MaxCost),
 	}
 	// Push local attachments to this peer; the signed request carries the
 	// resulting blob refs bound to it.

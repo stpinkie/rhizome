@@ -130,6 +130,41 @@ func Negotiate(e *config.MeshEconomyConfig, peerID string, t *Terms) error {
 	return nil
 }
 
+// PriceFloorExceeded reports whether the sheet's smallest billable amount
+// exceeds the caller's cap — the upfront refusal condition. Callers use it
+// to pre-filter peers whose advertised min_charge exceeds their resolved
+// spend cap before a request is ever sent.
+func PriceFloorExceeded(minCharge, maxCharge string) bool {
+	return priceFloorExceeded(minCharge, maxCharge)
+}
+
+// ParseDecimal parses a canonical non-negative decimal string (digits with
+// at most one `.`); empty or malformed input reports ok=false. Exported so
+// callers validating --max-cost-style flags share the same rules.
+func ParseDecimal(v string) (*big.Rat, bool) {
+	return parseDecimal(v)
+}
+
+// MinDecimal returns the smaller of two canonical decimals; an empty or
+// unparseable operand means "unset" and yields the other. Both unset → "".
+// The winning input string is returned verbatim (canonical form preserved).
+func MinDecimal(a, b string) string {
+	ra, oka := parseDecimal(a)
+	rb, okb := parseDecimal(b)
+	switch {
+	case oka && okb:
+		if ra.Cmp(rb) <= 0 {
+			return a
+		}
+		return b
+	case oka:
+		return a
+	case okb:
+		return b
+	}
+	return ""
+}
+
 // priceFloorExceeded reports whether the sheet's smallest billable amount
 // exceeds the caller's cap — the upfront refusal condition.
 func priceFloorExceeded(minCharge, maxCharge string) bool {

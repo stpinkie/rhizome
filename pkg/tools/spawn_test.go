@@ -99,6 +99,26 @@ func TestSpawnTool_Execute_ValidTask(t *testing.T) {
 	}
 }
 
+func TestSpawnTool_Execute_MaxCost(t *testing.T) {
+	provider := &MockLLMProvider{}
+	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	tool := NewSpawnTool(manager)
+	spawner := &mockSpawner{done: make(chan struct{})}
+	tool.SetSpawner(spawner)
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"task":     "priced background task",
+		"max_cost": " 2.5 ",
+	})
+	if result == nil || result.IsError {
+		t.Fatalf("expected success, got: %+v", result)
+	}
+	<-spawner.done
+	if spawner.lastConfig.MaxCost != "2.5" {
+		t.Errorf("MaxCost = %q, want %q (trimmed)", spawner.lastConfig.MaxCost, "2.5")
+	}
+}
+
 func TestSpawnTool_Execute_NilManager(t *testing.T) {
 	tool := NewSpawnTool(nil)
 

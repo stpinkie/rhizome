@@ -7,6 +7,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	rswarm "github.com/stpinkie/rhizome/pkg/rhizome/swarm"
 	"github.com/stpinkie/rhizome/pkg/routing"
 )
@@ -65,6 +66,18 @@ func ValidateTaskID(s string) error {
 	}
 	if len(s) > 128 {
 		return fmt.Errorf("task id %q is too long (>128 chars)", s)
+	}
+	return nil
+}
+
+// ValidateMaxCost checks that s is empty (unset) or a canonical non-negative
+// decimal usable as a --max-cost spend cap.
+func ValidateMaxCost(s string) error {
+	if s == "" {
+		return nil
+	}
+	if _, ok := econ.ParseDecimal(s); !ok {
+		return fmt.Errorf("invalid max-cost %q (canonical decimal, e.g. \"0.5\")", s)
 	}
 	return nil
 }

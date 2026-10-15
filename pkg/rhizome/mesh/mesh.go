@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -843,6 +844,9 @@ func (m *Mesh) CallRemote(
 	if preferred != "" && !m.isTrusted(preferred) {
 		return nil, fmt.Errorf("peer %s is not trusted", preferred)
 	}
+	if _, ok := econ.ParseDecimal(call.MaxCost); call.MaxCost != "" && !ok {
+		return nil, fmt.Errorf("invalid max_cost %q: not a canonical decimal", call.MaxCost)
+	}
 
 	if call.Async {
 		if result, err, ok := m.callRemoteTask(ctx, preferred, call); ok {
@@ -864,7 +868,7 @@ func (m *Mesh) CallRemote(
 		Timestamp:     time.Now().Unix(),
 	}
 
-	candidates := m.syncCandidates(preferred, call.TargetAgentID, call.Requires)
+	candidates := m.syncCandidates(preferred, call.TargetAgentID, call.Requires, call.MaxCost)
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf(
 			"no trusted, connected peer advertises agent %q for op delegate%s",
@@ -896,7 +900,7 @@ func (m *Mesh) CallRemote(
 		// Negotiate paired-settlement terms per candidate: only peers whose
 		// stored manifest advertises economy (and only when our economy is
 		// enabled) get the signed econ block.
-		req.Econ = m.econTermsFor(pid)
+		req.Econ = m.econTermsFor(pid, call.MaxCost)
 
 		// Push local attachments to this candidate once; the signed request
 		// carries the resulting blob refs bound to that peer.
@@ -1020,13 +1024,19 @@ func (m *Mesh) CallRemote(
 
 // syncCandidates returns connected, trusted peers able to delegate the given
 // agent. The preferred peer, if given, is tried first; failover candidates
-// are constrained to manifests satisfying req.
-func (m *Mesh) syncCandidates(preferred peer.ID, agentID string, req Requirements) []RankedPeer {
+// are constrained to manifests satisfying req and to advertised prices that
+// fit the call's max-cost cap.
+func (m *Mesh) syncCandidates(
+	preferred peer.ID,
+	agentID string,
+	req Requirements,
+	maxCost string,
+) []RankedPeer {
 	exclude := make(map[peer.ID]bool)
 	if preferred != "" {
 		exclude[preferred] = true
 	}
-	candidates := m.PickPeerRankedWith(agentID, "delegate", req, exclude)
+	candidates := m.PickPeerRankedWithCost(agentID, "delegate", req, exclude, maxCost)
 	if preferred != "" {
 		candidates = append([]RankedPeer{{PID: preferred}}, candidates...)
 	}
@@ -1531,8 +1541,9 @@ func (m *Mesh) peerEconAdvert(pid peer.ID) *config.EconAdvert {
 // econTermsFor builds the caller-side negotiation for a peer: nil unless
 // both sides opted in (local mesh.economy enabled AND the peer's stored
 // manifest advertises terms). The unit prefers the caller's own unit when
-// the callee accepts it; max_charge is the caller's per-task policy cap.
-func (m *Mesh) econTermsFor(pid peer.ID) *econ.Terms {
+// the callee accepts it; max_charge is the caller's resolved per-task cap —
+// the minimum of the call's MaxCost override and max_cost_per_task.
+func (m *Mesh) econTermsFor(pid peer.ID, callMax string) *econ.Terms {
 	if !m.cfg.Economy.Enabled {
 		return nil
 	}
@@ -1554,8 +1565,25 @@ func (m *Mesh) econTermsFor(pid peer.ID) *econ.Terms {
 	return &econ.Terms{
 		Accept:    true,
 		Unit:      unit,
-		MaxCharge: m.cfg.Economy.MaxCostPerTask,
+		MaxCharge: econ.MinDecimal(callMax, m.cfg.Economy.MaxCostPerTask),
 	}
+}
+
+// MaxCostFor resolves the spend cap that would bind a request sent to the
+// given peer: the minimum of the call's max-cost override and
+// mesh.economy.max_cost_per_task. It returns "" when the local economy is
+// disabled, the peer advertises no economy terms (unpriced — no cap can
+// bind), or no cap is configured at all (uncapped). Callers use it for
+// pre-send price filtering; it mirrors what econTermsFor would negotiate.
+func (m *Mesh) MaxCostFor(pid peer.ID, callMax string) string {
+	if !m.cfg.Economy.Enabled {
+		return ""
+	}
+	adv := m.peerEconAdvert(pid)
+	if adv == nil || adv.Unit == "" {
+		return ""
+	}
+	return econ.MinDecimal(callMax, m.cfg.Economy.MaxCostPerTask)
 }
 
 // econBills reports whether the callee would bill this caller: economy
@@ -2078,7 +2106,20 @@ func (m *Mesh) PickPeer(agentID, op string) (peer.ID, Capability, error) {
 // PickPeerWith is PickPeer additionally constrained to manifests that
 // satisfy req.
 func (m *Mesh) PickPeerWith(agentID, op string, req Requirements) (peer.ID, Capability, error) {
-	candidates := m.rankedCandidates(agentID, op, req, nil)
+	return m.PickPeerWithCost(agentID, op, req, "")
+}
+
+// PickPeerWithCost is PickPeerWith additionally constrained by a per-call
+// spend cap: candidates whose advertised min_charge exceeds the resolved
+// cap (min of maxCost and mesh.economy.max_cost_per_task) are dropped, and
+// cheaper advertised sheets get a bounded score bonus. An empty maxCost
+// picks exactly like PickPeerWith (config cap alone still applies).
+func (m *Mesh) PickPeerWithCost(
+	agentID, op string,
+	req Requirements,
+	maxCost string,
+) (peer.ID, Capability, error) {
+	candidates := m.rankedCandidates(agentID, op, req, nil, maxCost)
 	if len(candidates) == 0 {
 		return "", Capability{}, fmt.Errorf(
 			"no trusted, connected peer advertises agent %q for op %q%s",
@@ -2091,7 +2132,7 @@ func (m *Mesh) PickPeerWith(agentID, op string, req Requirements) (peer.ID, Capa
 // agent and op, sorted from best to worst by the same scoring logic used in
 // PickPeer. Peers in exclude are omitted.
 func (m *Mesh) PickPeerRanked(agentID, op string, exclude map[peer.ID]bool) []RankedPeer {
-	return m.rankedCandidates(agentID, op, Requirements{}, exclude)
+	return m.rankedCandidates(agentID, op, Requirements{}, exclude, "")
 }
 
 // PickPeerRankedWith is PickPeerRanked additionally constrained to manifests
@@ -2101,18 +2142,49 @@ func (m *Mesh) PickPeerRankedWith(
 	req Requirements,
 	exclude map[peer.ID]bool,
 ) []RankedPeer {
-	return m.rankedCandidates(agentID, op, req, exclude)
+	return m.rankedCandidates(agentID, op, req, exclude, "")
 }
 
+// PickPeerRankedWithCost is PickPeerRankedWith additionally constrained by a
+// per-call spend cap — over-priced candidates are filtered before dispatch
+// and cheaper advertised sheets earn a bounded ranking bonus.
+func (m *Mesh) PickPeerRankedWithCost(
+	agentID, op string,
+	req Requirements,
+	exclude map[peer.ID]bool,
+	maxCost string,
+) []RankedPeer {
+	return m.rankedCandidates(agentID, op, req, exclude, maxCost)
+}
+
+// costRankBonusMax bounds the price-aware ranking term. It sits above the
+// quality contribution (PeerScore.Score()/10 ≤ ~100) and the typical
+// active-task delta, so a cheaper advertised sheet wins among
+// score-comparable candidates, but far below the role (1<<19) and
+// connectivity (1<<20) terms it can never flip.
+const costRankBonusMax = 1 << 8
+
 // rankedCandidates builds the list of connected, trusted peers that can serve
-// the given agent/op. It filters by advertised capability and sorts by the
-// composite routing score.
+// the given agent/op. It filters by advertised capability, drops candidates
+// whose advertised min_charge exceeds the caller's resolved spend cap
+// (price_floor:-eligible before a request is ever sent), and sorts by the
+// composite routing score plus a bounded cheaper-is-better bonus. Peers
+// without an economy advert are treated as cost zero — never filtered and
+// never deprioritized.
 func (m *Mesh) rankedCandidates(
 	agentID, op string,
 	req Requirements,
 	exclude map[peer.ID]bool,
+	maxCost string,
 ) []RankedPeer {
+	maxCap := ""
+	if m.cfg.Economy.Enabled {
+		maxCap = econ.MinDecimal(maxCost, m.cfg.Economy.MaxCostPerTask)
+	}
+
 	var out []RankedPeer
+	ests := map[peer.ID]*big.Rat{}
+	var minEst *big.Rat
 	for _, pid := range m.ConnectedTrustedPeers() {
 		if exclude[pid] {
 			continue
@@ -2120,6 +2192,21 @@ func (m *Mesh) rankedCandidates(
 		c, ok := m.PeerCapabilities(pid)
 		if !ok || !capabilityServes(c, agentID, op, req) {
 			continue
+		}
+		if adv := m.peerEconAdvert(pid); adv != nil {
+			if maxCap != "" &&
+				econ.PriceFloorExceeded(adv.PriceSheet.MinCharge, maxCap) {
+				continue
+			}
+			// est_cost: the zero-usage charge — max(min_charge, per_task).
+			if est, _, err := econ.Compute(adv.PriceSheet, nil, ""); err == nil {
+				if r, ok := econ.ParseDecimal(est); ok && r.Sign() > 0 {
+					ests[pid] = r
+					if minEst == nil || r.Cmp(minEst) < 0 {
+						minEst = r
+					}
+				}
+			}
 		}
 		var score int64
 		if m.node.Connectedness(pid) == libnet.Connected {
@@ -2139,6 +2226,19 @@ func (m *Mesh) rankedCandidates(
 			}
 		}
 		out = append(out, RankedPeer{PID: pid, Cap: c, Score: score})
+	}
+	// Bounded cost term: free/unpriced candidates and the cheapest priced
+	// candidate get the full bonus; pricier candidates scale down
+	// proportionally (min_est/est). A zero-est priced sheet counts as free.
+	for i := range out {
+		est, priced := ests[out[i].PID]
+		if !priced || est.Sign() == 0 || minEst == nil {
+			out[i].Score += costRankBonusMax
+			continue
+		}
+		ratio := new(big.Rat).Quo(minEst, est)
+		bonus := new(big.Rat).Mul(big.NewRat(costRankBonusMax, 1), ratio)
+		out[i].Score += new(big.Int).Quo(bonus.Num(), bonus.Denom()).Int64()
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Score != out[j].Score {
