@@ -240,6 +240,15 @@ func (m *Mesh) driveInflight(
 func (m *Mesh) stepInflight(
 	ctx context.Context, rec *econ.InflightRecord,
 ) (advanced bool, res *Web3SettleResult, err error) {
+	// Never drive a record this node didn't issue — a foreign entry
+	// sharing the journal file or a tampered write (the watcher applies
+	// the same rule in settleDriveStep). The offer is what the signed
+	// payment commitment anchors to: nil or another issuer's means there
+	// is nothing legitimate to pay.
+	if rec.Offer == nil || rec.Offer.Issuer != m.selfID() {
+		return false, resultFor(rec,
+			"in-flight record was not issued by this node — inspect economy-settle-inflight.json"), nil
+	}
 	pid, err := peer.Decode(rec.PeerID)
 	if err != nil {
 		return false, nil, err
@@ -299,7 +308,7 @@ func (m *Mesh) stepInflight(
 			}
 		}
 		if err := m.econSettler.Queue(ctx, rec.Payment, rec.Offer.Total, pendingID); err != nil {
-			if strings.Contains(err.Error(), "already exists") {
+			if econ.IsQueueEntryExists(err) {
 				// Submit landed before a crash — adopt the entry.
 				return true, nil, m.transitionInflight(rec, econ.SettleAwaitingApproval)
 			}
@@ -646,6 +655,15 @@ func (m *Mesh) handleSettleOfferWeb3(from peer.ID, offer *econ.SettleOffer, star
 			OK: true, Kind: "settle_ack", Accepted: true,
 			AwaitingTx: true, SettleID: offer.ID(),
 		}
+	}
+	// A settlement tx is single-use. The matched receivables are fresh
+	// (still accrued), so the hash must be too: a tx that already closed
+	// any settled entry belongs to a different entry set — replaying it
+	// here would mark new debt paid with no new payment. The legitimate
+	// repeat — the identical entry set re-offered after a lost ack —
+	// took the MatchSettledReceivables branch above.
+	if econ.SettleTXConsumed(m.econLedger.Entries(), offer.TxHash) {
+		return reject("payment tx already consumed by a prior settlement")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()

@@ -375,6 +375,104 @@ func TestTrack143Phase2RedeliveryReAcks(t *testing.T) {
 	require.Equal(t, 0, sc.OpStats[OpEconSettle].Failures)
 }
 
+// A settlement tx is single-use: a phase-2 offer that recycles a hash
+// already consumed by a DIFFERENT entry set must settle_reject — one real
+// payment can never close two debts. The same-entries retry after a lost
+// ack is the MatchSettledReceivables path (covered above); this is the
+// adversarial mirror of that redelivery.
+func TestTrack143RejectsReusedTxHash(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	fc, meshA, meshB, payer := fx.fc, fx.a, fx.b, fx.payer
+	fc.MintNative(payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+	aID := meshA.node.ID().String()
+
+	// Round 1: honest settle of task-1 for 0.2 native — tx consumed.
+	seedT143(t, meshA, bID, "task-1", "0.2", econ.DirectionPayable)
+	rb1 := seedT143(t, meshB, aID, "task-1", "0.2", econ.DirectionReceivable)
+	res, err := meshA.EconomySettleWeb3(ctx, bID, "USDC")
+	require.NoError(t, err)
+	require.Equal(t, econ.SettleSettled, res.Status)
+	tx1 := res.TxHash
+	require.True(t, web3.IsHash32(tx1))
+	require.Equal(t, tx1, entryT143(t, meshB, rb1.EntryID).SettleTX)
+	require.Equal(t, "200000000000000000", fc.NativeBalance(t143Payee).String())
+
+	// Round 2: new work accrues at the same flat price; the payer crafts
+	// a phase-2 offer recycling tx1 for the fresh entries.
+	rb2 := seedT143(t, meshB, aID, "task-2", "0.2", econ.DirectionReceivable)
+	evil := &econ.SettleOffer{
+		Protocol: "econ/1.0.0",
+		Issuer:   aID,
+		PeerID:   bID,
+		Unit:     "USDC",
+		Entries:  []string{"task-2"},
+		Total:    "0.2",
+		Cutoff:   time.Now().UTC(),
+		TS:       time.Now().UTC(),
+		Nonce:    "deadbeefdeadbeefdeadbeefdeadbeef",
+		Backend:  "web3",
+		Payment: &econ.SettlePayment{
+			ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: payer,
+		},
+		TxHash: tx1,
+	}
+	require.NoError(t, evil.Sign(meshA.id.PrivateKey))
+
+	resp := meshB.handleSettleOfferWeb3(meshA.node.ID(), evil, time.Now())
+	assert.Equal(t, "settle_reject", resp.Kind)
+	assert.Contains(t, resp.Reason, "already consumed")
+	// The fresh receivable stays accrued — no free settlement.
+	assert.Equal(t, econ.StateAccrued, entryT143(t, meshB, rb2.EntryID).State)
+}
+
+// A journal record this node didn't issue — foreign issuer or missing
+// offer — must never reach the signer or the queue. stepInflight refuses
+// before any state logic, so a tampered/shared journal file can't drive
+// a payment and can't panic the daemon.
+func TestTrack143ForeignJournalRecordNotDriven(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	meshA := fx.a
+	ctx := context.Background()
+
+	foreign := &econ.InflightRecord{
+		Key:    "peer|USDC",
+		PeerID: "peer",
+		Unit:   "USDC",
+		State:  econ.SettlePaying,
+		Offer:  &econ.SettleOffer{Issuer: "someone-else", Total: "5"},
+		Payment: &econ.SettlePayment{
+			ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+		},
+	}
+	res, err := func() (r *Web3SettleResult, err error) {
+		_, r, err = meshA.stepInflight(ctx, foreign)
+		return r, err
+	}()
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Contains(t, res.Note, "not issued by this node")
+	// Nothing reached the pending queue.
+	entries, err := fx.stack.Pending.List()
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+
+	// The nil-offer record — previously a nil-pointer dereference.
+	noOffer := &econ.InflightRecord{
+		Key:    "peer2|USDC",
+		PeerID: "peer2",
+		Unit:   "USDC",
+		State:  econ.SettlePaying,
+		Payment: &econ.SettlePayment{
+			ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+		},
+	}
+	require.NotPanics(t, func() {
+		_, _, _ = meshA.stepInflight(ctx, noOffer)
+	})
+}
+
 func TestTrack143RequiresConfiguredSettler(t *testing.T) {
 	cfgA := config.MeshConfig{Enabled: true, Economy: t143Econ(t143AltAddr, "native", "wallet", t143AltAddr)}
 	cfgB := config.MeshConfig{Enabled: true, Economy: t143Econ(t143Payee, "native", "", "")}

@@ -345,6 +345,45 @@ func TestMatchSettledReceivables(t *testing.T) {
 	require.Error(t, err)
 }
 
+// SettleTXConsumed — a hash only reports spent once the ledger holds a
+// settled row under it; direction, peer, and unit are irrelevant to the
+// single-use rule.
+func TestSettleTXConsumed(t *testing.T) {
+	l := openTmpLedger(t)
+	const tx = "0xabc123"
+
+	rec, err := l.Record(Entry{
+		PeerID:    "payer",
+		Direction: DirectionReceivable,
+		TaskID:    "w1",
+		Unit:      "credits",
+		Amount:    "0.5",
+	})
+	require.NoError(t, err)
+	rec2, err := l.Record(Entry{
+		PeerID:    "other",
+		Direction: DirectionPayable,
+		TaskID:    "w2",
+		Unit:      "usdc",
+		Amount:    "9",
+	})
+	require.NoError(t, err)
+
+	// Accrued rows never consume.
+	require.False(t, SettleTXConsumed(l.Entries(), tx))
+	require.False(t, SettleTXConsumed(l.Entries(), ""))
+
+	// Settled under the tx — consumed, whichever direction the row is.
+	_, err = l.Transition(rec.EntryID, StateSettled, "s1", tx, "")
+	require.NoError(t, err)
+	require.True(t, SettleTXConsumed(l.Entries(), tx))
+	require.False(t, SettleTXConsumed(l.Entries(), "0xdifferent"))
+
+	_, err = l.Transition(rec2.EntryID, StateSettled, "s2", "0xother", "")
+	require.NoError(t, err)
+	require.True(t, SettleTXConsumed(l.Entries(), "0xother"))
+}
+
 func TestEntriesDigestOrderIndependent(t *testing.T) {
 	entries := []Entry{
 		{PeerID: "p", TaskID: "b-task", Amount: "0.5", State: StateAccrued},

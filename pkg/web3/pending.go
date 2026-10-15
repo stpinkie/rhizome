@@ -30,6 +30,12 @@ import (
 // default: entries past ExpiresAt report StatusExpired and can no longer
 // be approved.
 
+// ErrPendingIDExists reports a Submit under a caller-allocated id that
+// is already in the queue — the crash-resume signal that a prior submit
+// landed before the crash (the paired-settlement journal adopts the
+// existing entry instead of minting a duplicate).
+var ErrPendingIDExists = errors.New("pending id already exists")
+
 type PendingKind string
 
 const (
@@ -143,7 +149,7 @@ func (s *PendingStore) Submit(e *PendingEntry) (*PendingEntry, error) {
 		// Caller-allocated id (the paired-settlement journal mints one
 		// before submit so crash-resume knows whether the write landed).
 		if findPending(f, e.ID) != nil {
-			return nil, fmt.Errorf("pending id %q already exists", e.ID)
+			return nil, fmt.Errorf("%w: %q", ErrPendingIDExists, e.ID)
 		}
 	} else {
 		id, err := s.newID(f)

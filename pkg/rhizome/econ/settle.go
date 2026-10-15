@@ -306,6 +306,27 @@ func MatchSettledReceivables(entries []Entry, offer *SettleOffer) ([]Entry, erro
 	return matched, nil
 }
 
+// SettleTXConsumed reports whether any entry already carries
+// settle_tx == txHash — a spent payment proof. A settlement transaction
+// is single-use: it may only ever close the one entry set it paid for.
+// A phase-2 offer that matches FRESH accrued receivables must carry a
+// hash this ledger has never settled under; a consumed hash on fresh
+// entries is a reuse attempt (fresh debt marked paid with no fresh
+// payment). The legitimate repeat — the identical entry set re-offered
+// after a lost ack — is MatchSettledReceivables' job, reachable only
+// when the accrued match fails.
+func SettleTXConsumed(entries []Entry, txHash string) bool {
+	if txHash == "" {
+		return false
+	}
+	for _, e := range entries {
+		if e.State == StateSettled && e.SettleTX == txHash {
+			return true
+		}
+	}
+	return false
+}
+
 // EntriesDigest is the ledger_view digest — a content hash over the
 // (workRef, amount, state) tuples sorted by ref, so two operators holding
 // the same logical entries get the same digest regardless of local

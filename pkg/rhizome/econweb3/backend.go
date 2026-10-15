@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -264,6 +265,9 @@ func (b *Backend) Queue(ctx context.Context, p *econ.SettlePayment, amount, pend
 		entry.ExpiresAt = time.Now().UTC().Add(b.approveTTL)
 	}
 	if _, err := b.stack.Pending.Submit(entry); err != nil {
+		if errors.Is(err, web3.ErrPendingIDExists) {
+			return econ.ErrQueueEntryExists
+		}
 		return fmt.Errorf("econweb3: queue payment: %w", err)
 	}
 	return nil
