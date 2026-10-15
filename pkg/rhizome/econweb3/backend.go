@@ -208,6 +208,9 @@ func (b *Backend) paymentTx(
 // caller-minted pending id, after the same signing-policy evaluation the
 // web3_send tool applies — the human gate stays the human gate.
 func (b *Backend) Queue(ctx context.Context, p *econ.SettlePayment, amount, pendingID string) error {
+	if p == nil {
+		return fmt.Errorf("econweb3: missing payment commitment")
+	}
 	if b.stack == nil || b.stack.Pending == nil {
 		return fmt.Errorf("econweb3: no pending-approval queue configured")
 	}
@@ -296,6 +299,9 @@ func (b *Backend) QueuedTx(pendingID string) (string, bool, error) {
 func (b *Backend) SignRaw(
 	ctx context.Context, p *econ.SettlePayment, amount string,
 ) ([]byte, string, error) {
+	if p == nil {
+		return nil, "", fmt.Errorf("econweb3: missing payment commitment")
+	}
 	if b.stack == nil || b.stack.Wallets == nil {
 		return nil, "", fmt.Errorf("econweb3: no wallet store configured")
 	}

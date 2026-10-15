@@ -282,6 +282,99 @@ func TestTrack143PayeeWithoutWeb3Advert(t *testing.T) {
 	assert.Contains(t, err.Error(), "web3")
 }
 
+// A phase-2 ack lost after the payee committed (settle_tx written) must
+// not turn a completed settlement into a divergence: the retried offer —
+// a fresh document with a new nonce/id — re-acks against the rows already
+// settled under the same tx, and the payer converges to settled.
+func TestTrack143Phase2RedeliveryReAcks(t *testing.T) {
+	fx := newT143Fixture(t, "approval", "native")
+	fc, meshA, meshB, stack, payer := fx.fc, fx.a, fx.b, fx.stack, fx.payer
+	fc.MintNative(payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+	aID := meshA.node.ID().String()
+
+	pa := seedT143(t, meshA, bID, "task-l143", "0.2", econ.DirectionPayable)
+	rb := seedT143(t, meshB, aID, "task-l143", "0.2", econ.DirectionReceivable)
+
+	res, err := meshA.EconomySettleWeb3(ctx, bID, "USDC")
+	require.NoError(t, err)
+	require.Equal(t, econ.SettleAwaitingApproval, res.Status)
+
+	// Operator approves; the transfer executes for real on FakeChain.
+	_, err = stack.Pending.Resolve(res.PendingID, true, "operator")
+	require.NoError(t, err)
+	_, err = stack.Pending.ExecuteApproved(ctx, res.PendingID, stack.Wallets,
+		web3.NewStaticProvider(fc.Endpoint(), ""), stack.Ledger)
+	require.NoError(t, err)
+
+	// Land the record in broadcast: driveInflight would run phase 2 to
+	// completion in one pass, so step the awaiting_approval state only.
+	rec, err := meshA.inflightRecord(bID, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Equal(t, econ.SettleAwaitingApproval, rec.State)
+	advanced, res2, err := meshA.stepInflight(ctx, rec)
+	require.NoError(t, err)
+	require.Nil(t, res2)
+	require.True(t, advanced)
+
+	rec, err = meshA.inflightRecord(bID, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Equal(t, econ.SettleBroadcast, rec.State)
+	require.True(t, web3.IsHash32(rec.TxHash))
+
+	// The lost ack: deliver a phase-2 offer straight to the payee's
+	// handler — its receivables settle under the tx — and discard the
+	// response as if the frame never reached the payer.
+	offer2, err := econ.Phase2Offer(rec.Offer, rec.TxHash)
+	require.NoError(t, err)
+	require.NoError(t, offer2.Sign(meshA.id.PrivateKey))
+	resp := meshB.handleSettleOfferWeb3(meshA.node.ID(), offer2, time.Now())
+	require.True(t, resp.OK)
+	require.True(t, resp.Accepted)
+	require.NotEmpty(t, resp.SettleID)
+	require.Equal(t, econ.StateSettled, entryT143(t, meshB, rb.EntryID).State)
+	require.Equal(t, rec.TxHash, entryT143(t, meshB, rb.EntryID).SettleTX)
+
+	// The payer retries phase 2 with a new offer document. The payee
+	// must re-ack the committed settlement — not reject it.
+	meshA.settleDriveStep(ctx)
+
+	got := entryT143(t, meshA, pa.EntryID)
+	require.Equal(t, econ.StateSettled, got.State)
+	require.Equal(t, rec.TxHash, got.SettleTX)
+	// The payer's settle id is the retry offer's; the payee keeps the
+	// original. Both anchor the same on-chain tx — that is the shared ref.
+	require.NotEqual(t, resp.SettleID, got.SettleID)
+
+	recs, err := meshA.inflight.List()
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	require.Equal(t, econ.SettleSettled, recs[0].State)
+
+	// No false divergence: no disputed econ_settle outcome on either
+	// side, and the payee's completed outcome stands alone.
+	for _, tc := range []struct {
+		m    *Mesh
+		pidS string
+	}{{meshA, bID}, {meshB, aID}} {
+		sc, ok := tc.m.scoreStore.Get(mustPID(t, tc.pidS))
+		if !ok {
+			continue
+		}
+		for _, o := range sc.Outcomes {
+			require.False(t, o.Op == OpEconSettle && o.Outcome == OutcomeDisputed,
+				"redelivery must not record a disputed settle outcome")
+		}
+	}
+	sc, ok := meshB.scoreStore.Get(mustPID(t, aID))
+	require.True(t, ok)
+	require.Equal(t, 1, sc.OpStats[OpEconSettle].Successes)
+	require.Equal(t, 0, sc.OpStats[OpEconSettle].Failures)
+}
+
 func TestTrack143RequiresConfiguredSettler(t *testing.T) {
 	cfgA := config.MeshConfig{Enabled: true, Economy: t143Econ(t143AltAddr, "native", "wallet", t143AltAddr)}
 	cfgB := config.MeshConfig{Enabled: true, Economy: t143Econ(t143Payee, "native", "", "")}

@@ -249,6 +249,10 @@ func (m *Mesh) stepInflight(
 			r.State = state
 			r.Error = msg
 		})
+		// The journal record was persisted by Update; mirror the
+		// transition onto the caller-side snapshot so resultFor reports
+		// the terminal state, not the pre-step one.
+		rec.State, rec.Error = state, msg
 		// A rejected offer is a divergence — pending until reconciled.
 		// Failed/stalled are local or transport faults, not peer verdicts.
 		if state == econ.SettleRejected {
@@ -609,6 +613,29 @@ func (m *Mesh) handleSettleOfferWeb3(from peer.ID, offer *econ.SettleOffer, star
 	}
 	matched, err := econ.MatchReceivables(m.econLedger.Entries(), offer)
 	if err != nil {
+		if offer.TxHash != "" {
+			// Phase-2 redelivery after a lost ack: this node already
+			// verified the transfer and settled these receivables under
+			// the offer's tx — re-ack idempotently rather than rejecting
+			// a settlement that committed. The payer's retry offer is a
+			// new document (fresh nonce/ts), so the ack carries this
+			// offer's id while our receivable rows keep the original
+			// settle_id; both sides converge on settled state under the
+			// same tx hash, which is the shared anchor.
+			if already, aerr := econ.MatchSettledReceivables(
+				m.econLedger.Entries(), offer); aerr == nil && already != nil {
+				m.auditMeshFields(from, "econ.settle_offer", "", offer.ID(),
+					"ok", started, "", map[string]any{
+						"unit": offer.Unit, "amount": offer.Total,
+						"tx_hash": offer.TxHash, "entry_ids": entryIDs(already),
+						"outcome": OutcomeCompleted, "redelivery": true,
+					})
+				return econResponse{
+					OK: true, Kind: "settle_ack", Accepted: true,
+					SettleID: offer.ID(),
+				}
+			}
+		}
 		return reject(err.Error())
 	}
 	if offer.TxHash == "" {

@@ -118,13 +118,32 @@ journal at `<RHIZOME_HOME>/economy-settle-inflight.json` holds the
 (peer, unit) state machine — check `rhizome web3 pending` /
 `web3 show <id>` for a queued approval (`settle_signer=approval`), or
 re-drive: the mesh watcher resumes live records on startup and
-re-broadcasts the *same* signed raw rather than double-paying. A
-`rejected` phase-2 record means the payee's receipt verification failed
-(chain id / sender / destination / amount mismatch) — that's a real
-divergence about what was paid vs what was owed; reconcile the ledger
-side per steps 1–5 and settle the disputed entries separately. `GET
+re-broadcasts the *same* signed raw rather than double-paying. `GET
 /network/economy` (daemon) and the launcher `/api/network/economy`
 surface live in-flight records for monitoring.
+
+Phase-2 redelivery is idempotent on the payee: if the first ack was
+lost after the payee verified and settled (transport break, restart, a
+slow `eth_getTransactionByHash` inside the ack deadline), the retried
+offer matches its receivable rows by `settle_tx` and gets the same ack
+again — no false divergence, both sides converge under the shared tx
+hash. Note the two ledgers may carry *different* `settle_id`s on this
+path (the retry offer is a fresh document); `settle_tx` is the anchor.
+
+A `rejected` phase-2 record therefore means a real verification
+mismatch (chain id / sender / destination / amount) — or a settle that
+predates the redelivery path. To tell them apart, look the `tx_hash`
+up on-chain and check the peer's side: if the transfer landed and the
+peer's receivables show `settled` under that hash, your payables are
+the only open side — close them out-of-band per step 4:
+
+```bash
+rhizome mesh economy settle <peer-id> --unit <unit> --mark-only
+```
+
+If the transfer failed verification instead, that's a genuine
+disagreement about what was paid vs what was owed: reconcile the ledger
+side per steps 1–5 and settle the disputed entries separately.
 
 ## What reconciliation cannot do
 
