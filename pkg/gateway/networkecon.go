@@ -157,8 +157,29 @@ func (h *networkEconomyHandler) settle(w http.ResponseWriter, r *http.Request) {
 	case "ledger":
 		// ledger backend = bilateral book only; no external transfer rail.
 	case "web3":
-		writeJSON(w, http.StatusNotImplemented, map[string]string{
-			"error": "web3 close-out lands in Track 143 — use --backend ledger",
+		if body.MarkOnly {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "mark_only is a ledger-backend concept — web3 close-out always contacts the peer",
+			})
+			return
+		}
+		res, err := h.mesh.EconomySettleWeb3(
+			r.Context(), strings.TrimSpace(body.Peer), strings.TrimSpace(body.Unit))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"peer":       body.Peer,
+			"backend":    backend,
+			"mark_only":  false,
+			"status":     res.Status,
+			"settle_id":  res.SettleID,
+			"pending_id": res.PendingID,
+			"tx_hash":    res.TxHash,
+			"offer":      res.Offer,
+			"entries":    res.Entries,
+			"note":       res.Note,
 		})
 		return
 	default:

@@ -25,14 +25,17 @@ func TestMeshSkillOfferTriggersPull(t *testing.T) {
 	require.NoError(t, meshA.OfferSkill(ctx, meshB.host.ID(), "demo-skill"))
 
 	dir := filepath.Join(meshB.skillsLoader.GlobalSkillsDir(), "demo-skill")
+	// Poll the origin marker, not SKILL.md: the bundle files land mid-install
+	// while .skill-origin.json is written last, so it is the pull-complete
+	// signal — waiting on SKILL.md races WriteSkillOrigin on slower volumes.
+	var data []byte
 	require.Eventually(t, func() bool {
-		_, err := os.Stat(filepath.Join(dir, "SKILL.md"))
+		var err error
+		data, err = os.ReadFile(filepath.Join(dir, ".skill-origin.json"))
 		return err == nil
 	}, 15*time.Second, 100*time.Millisecond)
 
 	// The install carries the same mesh:<peer> provenance as a manual pull.
-	data, err := os.ReadFile(filepath.Join(dir, ".skill-origin.json"))
-	require.NoError(t, err)
 	assert.Contains(t, string(data), `"origin_kind": "mesh"`)
 	assert.Contains(t, string(data), "mesh:"+meshA.host.ID().String())
 }

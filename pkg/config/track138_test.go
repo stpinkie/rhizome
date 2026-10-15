@@ -70,7 +70,10 @@ func TestTrack138EconomyValidation(t *testing.T) {
 			name: "web3 with payout ok",
 			econ: MeshEconomyConfig{
 				Enabled: true, Unit: "USDC", SettleBackend: "web3",
-				Payout: &EconPayout{ChainID: "84532", Address: "0xabc", Asset: "USDC"},
+				Payout: &EconPayout{
+					ChainID: "84532",
+					Address: "0x1111111111111111111111111111111111111111", Asset: "native",
+				},
 			},
 		},
 		{
@@ -159,7 +162,7 @@ func TestTrack138EconomyAdvertPrivacy(t *testing.T) {
 	require.NoError(t, err)
 	for _, priv := range []string{
 		"bill_peers", "max_cost_per_task", "max_cost_per_day",
-		"settle_threshold", "settle_backend", "accept_units",
+		"settle_threshold", `"settle_backend"`, "accept_units",
 	} {
 		assert.NotContains(t, string(raw), priv, "private field %q leaked into advert", priv)
 	}
@@ -188,10 +191,13 @@ func TestTrack138EconomyJSONRoundTrip(t *testing.T) {
 		Enabled: true,
 		Economy: MeshEconomyConfig{
 			Enabled: true, Unit: "credits",
-			PriceSheet:      EconPriceSheet{PerTask: "0.01"},
-			BillPeers:       []string{testPeerID(t)},
-			SettleBackend:   "web3",
-			Payout:          &EconPayout{ChainID: "84532", Address: "0xabc", Asset: "USDC"},
+			PriceSheet:    EconPriceSheet{PerTask: "0.01"},
+			BillPeers:     []string{testPeerID(t)},
+			SettleBackend: "web3",
+			Payout: &EconPayout{
+				ChainID: "84532",
+				Address: "0x1111111111111111111111111111111111111111", Asset: "native",
+			},
 			SettleThreshold: "5",
 		},
 	}
@@ -204,6 +210,6 @@ func TestTrack138EconomyJSONRoundTrip(t *testing.T) {
 	assert.Equal(t, "0.01", back.Economy.PriceSheet.PerTask)
 	assert.Equal(t, "web3", back.Economy.SettleBackend)
 	require.NotNil(t, back.Economy.Payout)
-	assert.Equal(t, "0xabc", back.Economy.Payout.Address)
+	assert.Equal(t, "0x1111111111111111111111111111111111111111", back.Economy.Payout.Address)
 	assert.Equal(t, "5", back.Economy.SettleThreshold)
 }

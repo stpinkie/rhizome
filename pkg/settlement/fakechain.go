@@ -46,6 +46,13 @@ type FakeChain struct {
 	logs       []*fakeLog
 	nonces     map[string]uint64 // sender -> tx count (eth_getTransactionCount)
 
+	// Paired-settlement surface (Track 143): applied transactions
+	// retrievable by hash, a native-asset ledger for plain value sends,
+	// and per-token decimals() for base-unit conversion tests.
+	txs           map[string]*fakeTx
+	native        map[string]*big.Int // holder -> wei
+	tokenDecimals map[string]int64    // token -> decimals (default 18)
+
 	// graduated mode (Track 127): cfg.Factory hosts the session-keyed
 	// RhizomeEscrow surface instead of the Smart Invoice factory.
 	gradMode     bool
@@ -79,6 +86,17 @@ type fakeReceipt struct {
 	logs   []*fakeLog
 }
 
+// fakeTx is an applied transaction retrievable via
+// eth_getTransactionByHash — the fields payee verification reads.
+type fakeTx struct {
+	from, to string
+	value    *big.Int
+	data     []byte
+	chainID  uint64
+	nonce    uint64
+	block    uint64
+}
+
 type fakeLog struct {
 	address string
 	topics  []string
@@ -104,6 +122,9 @@ func NewFakeChain(t *testing.T, cfg RailConfig) *FakeChain {
 		rates:                   map[string]int64{},
 		receipts:                map[string]*fakeReceipt{},
 		nonces:                  map[string]uint64{},
+		txs:                     map[string]*fakeTx{},
+		native:                  map[string]*big.Int{},
+		tokenDecimals:           map[string]int64{},
 		gradMode:                cfg.Kind == RailKindRhizome,
 		gradSessions:            map[string]*gradSession{},
 		klerosCost:              new(big.Int),
@@ -150,6 +171,36 @@ func (fc *FakeChain) Mint(token, holder string, amount *big.Int) {
 		l[h] = new(big.Int)
 	}
 	l[h].Add(l[h], amount)
+}
+
+// MintNative credits a native-asset balance — the funding seam for
+// plain-value payout transfers.
+func (fc *FakeChain) MintNative(holder string, amount *big.Int) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	h := normAddr(holder)
+	if fc.native[h] == nil {
+		fc.native[h] = new(big.Int)
+	}
+	fc.native[h].Add(fc.native[h], amount)
+}
+
+// NativeBalance reports a native-asset balance.
+func (fc *FakeChain) NativeBalance(holder string) *big.Int {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if b := fc.native[normAddr(holder)]; b != nil {
+		return new(big.Int).Set(b)
+	}
+	return new(big.Int)
+}
+
+// SetDecimals overrides a token's decimals() return (default 18) —
+// USDC-shaped fixtures set 6.
+func (fc *FakeChain) SetDecimals(token string, decimals int64) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.tokenDecimals[normAddr(token)] = decimals
 }
 
 // Balance reports a token balance.
@@ -264,6 +315,10 @@ func (fc *FakeChain) dispatch(req rpcReq) (any, *rpcError) {
 		return "0x3b9aca00", nil // 1 gwei — legacy pricing path
 	case "eth_getTransactionReceipt":
 		return fc.ethGetReceipt(req.Params)
+	case "eth_getTransactionByHash":
+		return fc.ethGetTransaction(req.Params)
+	case "eth_getBalance":
+		return fc.ethGetBalance(req.Params)
 	case "eth_getLogs":
 		return fc.ethGetLogs(req.Params)
 	default:
@@ -435,7 +490,11 @@ func (fc *FakeChain) tokenView(
 		}
 		return encRet([]string{"uint256"}, []any{bal.String()})
 	case hex.EncodeToString(sel("decimals", erc20ABI, 0)):
-		return encRet([]string{"uint8"}, []any{"18"})
+		dec := fc.tokenDecimals[token]
+		if dec == 0 {
+			dec = 18
+		}
+		return encRet([]string{"uint8"}, []any{strconv.FormatInt(dec, 10)})
 	case hex.EncodeToString(sel("symbol", erc20ABI, 0)):
 		return encRet([]string{"string"}, []any{"TKN"})
 	case hex.EncodeToString(sel("allowance", erc20ABI, 2)):
@@ -478,7 +537,13 @@ func (fc *FakeChain) ethSendTransaction(params []json.RawMessage) (any, *rpcErro
 		return nil, rpcErr(-32602, "invalid eth_sendTransaction params")
 	}
 	data, _ := hex.DecodeString(trimHex(c.Data))
-	return fc.applyTx(normAddr(c.From), normAddr(c.To), data, c.To)
+	value := new(big.Int)
+	if c.Value != "" {
+		if v, err := web3.ParseQuantity(c.Value); err == nil {
+			value = v
+		}
+	}
+	return fc.applyTx(normAddr(c.From), normAddr(c.To), data, c.To, value, fc.chainID, 0, "")
 }
 
 // ethSendRawTransaction decodes a signed tx (sender recovered from the
@@ -499,7 +564,17 @@ func (fc *FakeChain) ethSendRawTransaction(params []json.RawMessage) (any, *rpcE
 	if want := fc.nonces[normAddr(dt.From)]; dt.Nonce != want {
 		return nil, revert(fmt.Sprintf("nonce %d, expected %d", dt.Nonce, want))
 	}
-	return fc.applyTx(normAddr(dt.From), normAddr(dt.To), dt.Data, dt.To)
+	// Signed txs carry a canonical hash — keccak(raw) — so a crash-resume
+	// re-broadcast resolves to the SAME tx record instead of minting a
+	// synthetic second hash (geth answers "already known"; here the
+	// nonce guard above is the dedupe, and the hash binds the record).
+	rawBytes, derr := hex.DecodeString(trimHex(hexRaw))
+	if derr != nil {
+		return nil, rpcErr(-32602, "fakechain: raw tx hex: "+derr.Error())
+	}
+	txHash := "0x" + hex.EncodeToString(web3.Keccak256(rawBytes))
+	return fc.applyTx(normAddr(dt.From), normAddr(dt.To), dt.Data, dt.To,
+		dt.ValueWei, dt.ChainID, dt.Nonce, txHash)
 }
 
 // ethGetTransactionCount returns the sender's mined-tx count.
@@ -513,16 +588,23 @@ func (fc *FakeChain) ethGetTransactionCount(params []json.RawMessage) (any, *rpc
 
 // applyTx dispatches a mined-immediately transaction and bumps the
 // sender nonce — the shared core of eth_sendTransaction and
-// eth_sendRawTransaction.
+// eth_sendRawTransaction. Empty/short calldata is a plain value send
+// against the native ledger; data-bearing calls to a known contract
+// dispatch; a call to an address with no code still moves value (EOA
+// posture) but reverts when it carries no value — the market fixture's
+// "no code" guard.
 func (fc *FakeChain) applyTx(
-	from, to string, data []byte, toLabel string,
+	from, to string, data []byte, toLabel string, value *big.Int,
+	chainID, nonce uint64, txHash string,
 ) (any, *rpcError) {
-	if len(data) < 4 {
-		return nil, revert("empty calldata")
+	if value == nil {
+		value = new(big.Int)
 	}
 	var logs []*fakeLog
 	var rerr *rpcError
 	switch {
+	case len(data) < 4:
+		rerr = fc.nativeMove(from, to, value)
 	case to == normAddr(fc.factory) && fc.gradMode:
 		logs, rerr = fc.gradTx(from, data)
 	case to == fc.klerosAdapter && fc.klerosAdapter != "":
@@ -533,6 +615,10 @@ func (fc *FakeChain) applyTx(
 		logs, rerr = fc.txToken(from, to, data)
 	case fc.escrows[to] != nil:
 		logs, rerr = fc.txEscrow(from, to, data)
+	case value.Sign() > 0:
+		// Value-bearing call to an EOA — the data is ignored, the
+		// transfer applies.
+		rerr = fc.nativeMove(from, to, value)
 	default:
 		rerr = revert("no code at " + toLabel)
 	}
@@ -542,8 +628,11 @@ func (fc *FakeChain) applyTx(
 	fc.block++
 	fc.txSeq++
 	fc.nonces[from]++
-	hash := "0x" + hex.EncodeToString(web3.Keccak256(
-		[]byte(fmt.Sprintf("faketx:%d:%s:%s", fc.txSeq, from, hex.EncodeToString(data)))))
+	hash := txHash
+	if hash == "" {
+		hash = "0x" + hex.EncodeToString(web3.Keccak256(
+			[]byte(fmt.Sprintf("faketx:%d:%s:%s", fc.txSeq, from, hex.EncodeToString(data)))))
+	}
 	for i, l := range logs {
 		l.block = fc.block
 		l.txHash = hash
@@ -551,7 +640,74 @@ func (fc *FakeChain) applyTx(
 		fc.logs = append(fc.logs, l)
 	}
 	fc.receipts[hash] = &fakeReceipt{status: "0x1", block: fc.block, logs: logs}
+	fc.txs[hash] = &fakeTx{
+		from: from, to: to, value: value, data: data,
+		chainID: chainID, nonce: nonce, block: fc.block,
+	}
 	return hash, nil
+}
+
+// nativeMove applies a plain value send against the native ledger.
+func (fc *FakeChain) nativeMove(from, to string, value *big.Int) *rpcError {
+	bal := fc.native[from]
+	if bal == nil {
+		bal = new(big.Int)
+	}
+	if bal.Cmp(value) < 0 {
+		return revert(fmt.Sprintf("insufficient native balance %s for %s", bal, value))
+	}
+	if fc.native[from] == nil {
+		fc.native[from] = new(big.Int)
+	}
+	fc.native[from].Sub(fc.native[from], value)
+	if fc.native[to] == nil {
+		fc.native[to] = new(big.Int)
+	}
+	fc.native[to].Add(fc.native[to], value)
+	return nil
+}
+
+// ethGetTransaction returns the applied tx object for
+// eth_getTransactionByHash; absent hashes answer null.
+func (fc *FakeChain) ethGetTransaction(params []json.RawMessage) (any, *rpcError) {
+	var hash string
+	if len(params) == 0 || json.Unmarshal(params[0], &hash) != nil {
+		return nil, rpcErr(-32602, "invalid getTransactionByHash params")
+	}
+	tx := fc.txs[hash]
+	if tx == nil {
+		return nil, nil
+	}
+	value := tx.value
+	if value == nil {
+		value = new(big.Int)
+	}
+	return map[string]any{
+		"hash":             hash,
+		"from":             tx.from,
+		"to":               tx.to,
+		"value":            web3.QuantityString(value),
+		"input":            "0x" + hex.EncodeToString(tx.data),
+		"nonce":            "0x" + strconv.FormatUint(tx.nonce, 16),
+		"gas":              "0x186a0",
+		"gasPrice":         "0x3b9aca00",
+		"blockNumber":      "0x" + strconv.FormatUint(tx.block, 16),
+		"chainId":          "0x" + strconv.FormatUint(tx.chainID, 16),
+		"transactionIndex": "0x0",
+	}, nil
+}
+
+// ethGetBalance returns the native-asset balance (eth_getBalance).
+func (fc *FakeChain) ethGetBalance(params []json.RawMessage) (any, *rpcError) {
+	var addr string
+	if len(params) == 0 || json.Unmarshal(params[0], &addr) != nil {
+		return nil, rpcErr(-32602, "invalid getBalance params")
+	}
+	bal := fc.native[normAddr(addr)]
+	if bal == nil {
+		bal = new(big.Int)
+	}
+	return web3.QuantityString(bal), nil
 }
 
 func (fc *FakeChain) txFactory(from string, data []byte) ([]*fakeLog, *rpcError) {
