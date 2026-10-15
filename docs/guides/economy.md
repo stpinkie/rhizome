@@ -169,7 +169,11 @@ machinery (`settle_signer=approval` queues it in the human-gated
 pending-approval queue — `rhizome web3 approve <id>` executes;
 `settle_signer=wallet` signs inline from `settle_from`); the payer
 re-offers with `tx_hash`; the payee verifies the confirmed receipt —
-chain id, sender, destination, exact amount — before both ledgers
+chain id, sender, destination, exact amount — and rejects a hash the
+ledger already settled under: a tx is single-use, so replaying it
+against fresh receivables is a `settle_reject`, not a second
+settlement. (The identical-entries retry after a lost ack re-acks
+idempotently — the tx is the shared anchor.) Only then do both ledgers
 settle under `settle_tx=<tx hash>`. A crash anywhere in phase 2 resumes
 from `<RHIZOME_HOME>/economy-settle-inflight.json` rather than
 double-paying. The peer must advertise `settle_backends:["web3"]` —
