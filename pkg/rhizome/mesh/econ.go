@@ -70,6 +70,25 @@ func (m *Mesh) EconomyResolve(taskID string, drop bool) ([]econ.Entry, error) {
 	return out, nil
 }
 
+// EconQuoteFor is the claimant-side quote for swarm claims (Track 145):
+// the local advertised sheet's estimate for the offered task — per_task
+// plus a task-size prompt-token hint, floored at min_charge — in the
+// advert's unit. "" means an unpriced claim (economy disabled or no
+// advert); "0" means the offerer is not on bill_peers and would not be
+// charged at all.
+func (m *Mesh) EconQuoteFor(offerer, task string) string {
+	if m == nil || !m.cfg.Economy.Enabled {
+		return ""
+	}
+	if adv := m.cfg.Economy.Advert(); adv == nil {
+		return ""
+	}
+	if !econ.IsBillable(&m.cfg.Economy, offerer) {
+		return "0"
+	}
+	return econ.EstimateTaskCharge(m.cfg.Economy.PriceSheet, task)
+}
+
 // EconomyMarkSettled writes the --mark-only settle marker: the node's
 // accrued payable entries for peerID transition to settled under a signed
 // local offer id. The payee is not contacted — the marker attests the

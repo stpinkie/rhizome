@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,49 @@ func TestParseSubtasksPassesNewFields(t *testing.T) {
 	assert.Equal(t, []string{"a"}, subs[1].DependsOn)
 	assert.Nil(t, subs[1].Requires)
 	assert.Zero(t, subs[1].Timeout)
+}
+
+// TestSwarmOfferMaxPriceAcceptedAndValidated (Track 145): the gateway
+// forwards max_price into the offer and surfaces the swarm validation
+// error as a 400.
+func TestSwarmOfferMaxPriceAcceptedAndValidated(t *testing.T) {
+	ctx := context.Background()
+	id := testutil.NewIdentity(t)
+	node, err := rnet.NewNode(ctx, id.Libp2pPrivKey, rnet.Config{
+		ListenAddrs:       []string{"/ip4/127.0.0.1/tcp/0"},
+		DisableNATPortMap: true,
+		DisableMDNS:       true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { node.Close() })
+
+	sw := swarm.New(node, id, config.SwarmConfig{Enabled: true},
+		func(peer.ID) bool { return true }, nil, t.TempDir())
+	require.NoError(t, sw.Join(ctx, "ops"))
+
+	SetSwarm(sw)
+	t.Cleanup(func() { SetSwarm(nil) })
+
+	h := &networkSwarmsHandler{authToken: testTasksToken}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/network/swarms/ops/offers",
+		strings.NewReader(`{"agent_id":"main","task":"priced","max_price":"0.5"}`)))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		OfferID string `json:"offer_id"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.OfferID)
+	info, ok := sw.OfferInfo(resp.OfferID)
+	require.True(t, ok)
+	assert.Equal(t, "0.5", info.MaxPrice)
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/network/swarms/ops/offers",
+		strings.NewReader(`{"agent_id":"main","task":"priced","max_price":"nope"}`)))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "max_price")
 }
 
 // TestSwarmHealthServesDoctorReport verifies the dashboard's resource-

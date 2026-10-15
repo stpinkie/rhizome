@@ -35,6 +35,9 @@ type Subtask struct {
 	// zero uses the swarm's default offer TTL. JSON accepts a Go duration
 	// string ("5m") or a nanosecond number.
 	Timeout time.Duration `json:"timeout,omitempty"`
+	// MaxPrice is the per-subtask spend cap forwarded to the offer
+	// (canonical decimal); claims quoting above it are filtered.
+	MaxPrice string `json:"max_price,omitempty"`
 }
 
 // UnmarshalJSON accepts timeout as a Go duration string ("5m") or a
@@ -326,6 +329,7 @@ func (s *Swarm) RunGoal(ctx context.Context, swarmID, goal, defaultAgent string)
 				Tools:    subtasks[i].Tools,
 				Timeout:  subtasks[i].Timeout,
 				Requires: subtaskRequires(subtasks[i]),
+				MaxPrice: subtasks[i].MaxPrice,
 			})
 			if err != nil {
 				res.Subtasks[i].Status = "failed"
@@ -613,6 +617,7 @@ func (s *Swarm) RetryRun(
 			Tools:    res.Subtasks[i].Tools,
 			Timeout:  res.Subtasks[i].Timeout,
 			Requires: subtaskRequires(res.Subtasks[i].Subtask),
+			MaxPrice: res.Subtasks[i].MaxPrice,
 		})
 		if err != nil {
 			res.Subtasks[i].Status = "failed"

@@ -218,6 +218,22 @@ func Compute(sheet config.EconPriceSheet, usage *toolshared.RemoteUsage, maxChar
 	return decimalString(total), truncated, nil
 }
 
+// EstimateTaskCharge prices a prospective task against the sheet for a
+// swarm claim quote: the per-task price plus the prompt-token task-size
+// hint (the shared ~2.5 chars/token estimator convention), floored at
+// min_charge. Completion tokens and duration are unknowable pre-run, so
+// the quote is an honest estimate, not a bid. An empty sheet quotes "0".
+func EstimateTaskCharge(sheet config.EconPriceSheet, task string) string {
+	usage := &toolshared.RemoteUsage{
+		PromptTokens: len([]rune(task)) * 2 / 5,
+	}
+	amount, _, err := Compute(sheet, usage, "")
+	if err != nil {
+		return ""
+	}
+	return amount
+}
+
 // VerifyCharge is the caller-side check on a received charge: the sheet
 // digest must match the cached advert, the unit must be accepted, and the
 // amount must not exceed the charged bound max(min_charge, sheet·usage)

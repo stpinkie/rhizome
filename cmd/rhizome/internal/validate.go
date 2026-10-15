@@ -73,11 +73,17 @@ func ValidateTaskID(s string) error {
 // ValidateMaxCost checks that s is empty (unset) or a canonical non-negative
 // decimal usable as a --max-cost spend cap.
 func ValidateMaxCost(s string) error {
+	return ValidateSpendCap("max-cost", s)
+}
+
+// ValidateSpendCap checks that s is empty (unset) or a canonical
+// non-negative decimal usable as a --<name> spend cap.
+func ValidateSpendCap(name, s string) error {
 	if s == "" {
 		return nil
 	}
 	if _, ok := econ.ParseDecimal(s); !ok {
-		return fmt.Errorf("invalid max-cost %q (canonical decimal, e.g. \"0.5\")", s)
+		return fmt.Errorf("invalid %s %q (canonical decimal, e.g. \"0.5\")", name, s)
 	}
 	return nil
 }

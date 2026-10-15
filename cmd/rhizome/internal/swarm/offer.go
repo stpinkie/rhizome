@@ -69,6 +69,7 @@ func newOfferCommand() *cobra.Command {
 	var waitDur time.Duration
 	var cancelOfferID string
 	var reqAgents, reqModels, reqSkills []string
+	var maxPrice string
 
 	cmd := &cobra.Command{
 		Use:   "offer <swarm-id> <agent-id> <task>",
@@ -113,6 +114,10 @@ func newOfferCommand() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			if err := internal.ValidateSpendCap("max-price", maxPrice); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			task := args[2]
 
 			// Attachment paths are resolved on the daemon host (the CLI talks
@@ -132,12 +137,13 @@ func newOfferCommand() *cobra.Command {
 				}
 			}
 			payload, _ := json.Marshal(map[string]any{
-				"agent_id": agentID,
-				"model":    model,
-				"task":     task,
-				"tools":    tools,
-				"media":    media,
-				"requires": requires,
+				"agent_id":  agentID,
+				"model":     model,
+				"task":      task,
+				"tools":     tools,
+				"media":     media,
+				"requires":  requires,
+				"max_price": maxPrice,
 			})
 			data, code, err := daemonRequest(http.MethodPost,
 				"/network/swarms/"+swarmID+"/offers", payload, 15*time.Second)
@@ -230,6 +236,8 @@ func newOfferCommand() *cobra.Command {
 		StringSliceVar(&reqModels, "require-model", nil, "Only members advertising one of these models may claim")
 	cmd.Flags().
 		StringSliceVar(&reqSkills, "require-skill", nil, "Only members with one of these skills may claim")
+	cmd.Flags().
+		StringVar(&maxPrice, "max-price", "", "Spend cap for this offer (canonical decimal, e.g. \"0.5\") — claims quoting above it are skipped")
 	return cmd
 }
 

@@ -48,6 +48,9 @@ func wireSwarm(sw *swarm.Swarm, m *mesh.Mesh, agentLoop *agent.AgentLoop, cfg *c
 	// Offerers rank claims by their recorded peer score (then load, then
 	// arrival order) — proven peers earn work; new members must build it.
 	sw.SetScoreLookup(m.PeerScore)
+	// Claims carry the claimant's advertised-sheet estimate so offerers can
+	// filter them against offer.max_price; unpriced claims proceed.
+	sw.SetQuoteFunc(m.EconQuoteFor)
 	sw.SetCapProbe(func() (string, int, string) {
 		return "", m.ActiveTaskCount(), m.Role()
 	})
@@ -180,13 +183,15 @@ Goal: %s
 Break the goal into subtasks. Subtasks that depend on earlier work run after
 their prerequisites; independent subtasks run in parallel. Reply with ONLY a
 JSON array — either of strings (task descriptions) or objects with
-{"id","agent_id","task","depends_on","model","tools","timeout","requires"}
+{"id","agent_id","task","depends_on","model","tools","timeout","requires","max_price"}
 fields, where depends_on lists the ids of prerequisite subtasks (omit it for
 independent work). Optional fields: model names a specific model; tools
 lists tool names to allow; timeout is a duration like "5m" bounding how long
 the subtask waits for a claimant; requires is
 {"agents":[],"models":[],"skills":[]} constraining which swarm members may
-claim it. No prose, no markdown fences.`
+claim it; max_price is a canonical decimal (e.g. "0.5") capping what the
+subtask may be charged — claims quoting above it are skipped. No prose, no
+markdown fences.`
 
 const synthesizePrompt = `Goal: %s
 
