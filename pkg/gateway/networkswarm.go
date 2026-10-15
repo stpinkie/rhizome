@@ -247,6 +247,9 @@ type offerRequest struct {
 	Media []mesh.MediaAttachment `json:"media,omitempty"`
 	// Requires constrains which members may claim (capability-aware).
 	Requires *rswarm.OfferRequirements `json:"requires,omitempty"`
+	// MaxPrice is the offerer's spend cap (canonical decimal) — claims
+	// quoting above it are filtered before assignment.
+	MaxPrice string `json:"max_price,omitempty"`
 }
 
 // submitOffer publishes a task offer to a swarm and returns the offer id.
@@ -279,6 +282,7 @@ func (h *networkSwarmsHandler) submitOffer(w http.ResponseWriter, r *http.Reques
 		Tools:    body.Tools,
 		Media:    body.Media,
 		Requires: requires,
+		MaxPrice: body.MaxPrice,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

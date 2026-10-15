@@ -11,6 +11,7 @@ import (
 
 	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/rhizome/agenttask"
+	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 )
 
@@ -69,6 +70,10 @@ type Offer struct {
 	Attempt int `json:"attempt,omitempty"`
 	// TTLSeconds bounds how long the offer stays open for claims.
 	TTLSeconds int64 `json:"ttl_seconds,omitempty"`
+	// MaxPrice is the offerer's per-task spend cap (canonical decimal in
+	// the claimant's advertised unit — advisory). Claims quoting above it
+	// are filtered before the (score, load) pick; unpriced claims proceed.
+	MaxPrice string `json:"max_price,omitempty"`
 }
 
 // Claim is a member's bid for an offer, sent point-to-point to the offerer.
@@ -83,6 +88,10 @@ type Claim struct {
 	// CapDigest is the claimant's advertised capability digest, so the
 	// offerer can weight claims by capability as well as load.
 	CapDigest string `json:"cap_digest,omitempty"`
+	// Quote is the claimant's charge estimate from its own advertised
+	// economy sheet (per_task + a task-size hint — an honest estimate, not
+	// a bid). Absent on unpriced claims (no economy terms or old builds).
+	Quote string `json:"quote,omitempty"`
 }
 
 // Assign announces which claimant won an offer.
@@ -113,6 +122,10 @@ type OfferRequest struct {
 	// Timeout bounds how long the offer stays open for claims; zero uses
 	// swarm.queue.offer_ttl.
 	Timeout time.Duration
+	// MaxPrice is the offerer's spend cap for the task (canonical decimal);
+	// claims quoting above it are filtered before assignment. Empty = any
+	// price.
+	MaxPrice string
 }
 
 // OfferStatus is the lifecycle state of a tracked offer.
@@ -172,6 +185,9 @@ type ClaimInfo struct {
 	// Score is the offerer's recorded score for the claimant; nil means no
 	// score record exists (unscored claimants rank below any scored peer).
 	Score *float64 `json:"score,omitempty"`
+	// Quote is the claimant's advertised-sheet charge estimate; empty when
+	// the claim is unpriced.
+	Quote string `json:"quote,omitempty"`
 }
 
 // TaskSubmitter submits a task to a peer; usually
@@ -193,6 +209,12 @@ type CapMatcher func(swarmID string, req OfferRequirements) bool
 // ScoreLookup resolves the offerer's recorded quality score for a claimant;
 // usually mesh.Mesh.PeerScore. A nil lookup ranks claims purely by load.
 type ScoreLookup func(pid peer.ID) (mesh.PeerScore, bool)
+
+// QuoteFunc estimates the charge the local node would bill the offerer for
+// the offered task, computed from the advertised economy sheet (an honest
+// estimate, not a bid). An empty result means an unpriced claim — economy
+// disabled or nothing to charge. Usually mesh.Mesh.EconQuoteFor.
+type QuoteFunc func(offerer, task string) string
 
 // trackedOffer is the runtime record for one offer we published.
 type trackedOffer struct {
@@ -250,6 +272,7 @@ type workQueue struct {
 	evaluator   OfferEvaluator
 	matcher     CapMatcher
 	scoreLookup ScoreLookup
+	quote       QuoteFunc
 
 	// store persists non-terminal published offers so Start can re-drive
 	// them after a restart; nil disables persistence.
@@ -433,6 +456,15 @@ func (s *Swarm) SetScoreLookup(fn ScoreLookup) {
 	s.queue.mu.Unlock()
 }
 
+// SetQuoteFunc wires the claimant-side charge estimate (usually
+// mesh.Mesh.EconQuoteFor): claims carry `quote` so an offerer can filter
+// them against Offer.MaxPrice. Without it claims are always unpriced.
+func (s *Swarm) SetQuoteFunc(fn QuoteFunc) {
+	s.queue.mu.Lock()
+	s.queue.quote = fn
+	s.queue.mu.Unlock()
+}
+
 // start subscribes the queue to every currently-joined swarm and starts the
 // periodic offer reaper.
 func (q *workQueue) start() {
@@ -565,6 +597,12 @@ func (q *workQueue) onOffer(swarmID string, env Envelope, o Offer) {
 	if probe := q.s.probe(); probe != nil {
 		claim.CapDigest, claim.ActiveTasks, _ = probe()
 	}
+	q.mu.Lock()
+	quoteFn := q.quote
+	q.mu.Unlock()
+	if quoteFn != nil {
+		claim.Quote = quoteFn(o.Offerer, o.Task)
+	}
 	offerer, err := peer.Decode(o.Offerer)
 	if err != nil {
 		return
@@ -646,6 +684,11 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 	if req.AgentID == "" || req.Task == "" {
 		return "", fmt.Errorf("agent id and task are required")
 	}
+	if req.MaxPrice != "" {
+		if _, ok := econ.ParseDecimal(req.MaxPrice); !ok {
+			return "", fmt.Errorf("invalid max_price %q (canonical decimal, e.g. \"0.5\")", req.MaxPrice)
+		}
+	}
 
 	q := s.queue
 	q.mu.Lock()
@@ -669,6 +712,7 @@ func (s *Swarm) Offer(ctx context.Context, swarmID string, req OfferRequest) (st
 		CreatedAt:  time.Now(),
 		Media:      req.Media,
 		TTLSeconds: int64(ttl.Seconds()),
+		MaxPrice:   req.MaxPrice,
 	}
 	if !req.Requires.Empty() {
 		reqCopy := req.Requires
@@ -814,6 +858,31 @@ func (s *Swarm) rankClaims(claims []Claim) []claimEntry {
 	return ranked
 }
 
+// filterClaimsByPrice drops claims whose quote exceeds the offer's
+// max_price (canonical decimals). Unpriced claims — empty or unparseable
+// quotes from old or non-economy members — always stay eligible; the cap
+// only filters claimants that named a price. Returns the eligible claims
+// and how many were dropped.
+func filterClaimsByPrice(claims []Claim, maxPrice string) ([]Claim, int) {
+	if maxPrice == "" {
+		return claims, 0
+	}
+	capR, ok := econ.ParseDecimal(maxPrice)
+	if !ok {
+		return claims, 0
+	}
+	eligible := make([]Claim, 0, len(claims))
+	dropped := 0
+	for _, c := range claims {
+		if q, ok := econ.ParseDecimal(c.Quote); ok && q.Cmp(capR) > 0 {
+			dropped++
+			continue
+		}
+		eligible = append(eligible, c)
+	}
+	return eligible, dropped
+}
+
 // resolveOffer runs the offer/claim/assign loop with retry: claims are
 // collected for the claim window, the best-ranked claimer is assigned, the
 // remote task is watched, and a failed/stalled attempt re-opens the offer up
@@ -875,10 +944,33 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 			return
 		}
 
+		// max_price eligibility (Track 145): claims quoting above the
+		// offerer's cap are dropped before the pick. Unpriced claims —
+		// absent or unparseable quote — proceed unpriced: old members
+		// ignore these fields entirely.
+		claims, overCap := filterClaimsByPrice(to.claims, to.info.MaxPrice)
+		if len(claims) == 0 {
+			q := s.queue
+			q.mu.Lock()
+			to.info.Status = OfferExpired
+			to.info.Error = fmt.Sprintf(
+				"%d claim(s) exceeded max_price %s", overCap, to.info.MaxPrice)
+			q.persistLocked()
+			q.mu.Unlock()
+			s.finishOffer(to)
+			s.finishTracked(to)
+			s.publishEvent(runtimeevents.KindSwarmOfferExpired, map[string]any{
+				"swarm_id": swarmID,
+				"offer_id": to.info.OfferID,
+				"reason":   "max_price",
+			})
+			return
+		}
+
 		// Rank the claims: scored claimants first (score desc), then fewer
 		// ActiveTasks, then earlier claim order. The ranked view also feeds
 		// OfferInfo.Claims so `swarm offers --json` shows the rationale.
-		ranked := s.rankClaims(to.claims)
+		ranked := s.rankClaims(claims)
 		best := ranked[0].claim
 		claimView := make([]ClaimInfo, len(ranked))
 		for i, rc := range ranked {
@@ -887,6 +979,7 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 				CapDigest:   rc.claim.CapDigest,
 				ActiveTasks: rc.claim.ActiveTasks,
 				Score:       rc.score,
+				Quote:       rc.claim.Quote,
 			}
 		}
 
