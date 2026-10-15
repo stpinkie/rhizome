@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -267,7 +268,7 @@ func MatchSettledReceivables(entries []Entry, offer *SettleOffer) ([]Entry, erro
 		e := &entries[i]
 		if e.Direction != DirectionReceivable || e.State != StateSettled ||
 			e.PeerID != offer.Issuer || e.Unit != offer.Unit ||
-			e.SettleTX != offer.TxHash {
+			!strings.EqualFold(e.SettleTX, offer.TxHash) {
 			continue
 		}
 		settled[e.workRef()] = e
@@ -320,7 +321,7 @@ func SettleTXConsumed(entries []Entry, txHash string) bool {
 		return false
 	}
 	for _, e := range entries {
-		if e.State == StateSettled && e.SettleTX == txHash {
+		if e.State == StateSettled && strings.EqualFold(e.SettleTX, txHash) {
 			return true
 		}
 	}
