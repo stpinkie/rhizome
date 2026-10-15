@@ -404,7 +404,7 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		var normalizationNotes []string
 		evidence := draftEvidenceForRule(rule, taskRecords)
 		draft, normalizationNotes = rt.normalizeDraftForWorkspace(workspace, rule, matches, evidence, draft)
-		review := ReviewDraft(draft)
+		review := ReviewDraft(draft, rt.cfg)
 		draft.Status = review.Status
 		draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, append(review.ReviewNotes, normalizationNotes...)...)
 		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, review.Findings...)
@@ -751,7 +751,7 @@ func (rt *Runtime) finalizeDraft(
 	draft.MatchedSkillRefs = collectSkillRefs(matches)
 
 	draft, normalizationNotes := rt.normalizeDraftForWorkspace(workspace, rule, matches, evidence, draft)
-	review := ReviewDraft(draft)
+	review := ReviewDraft(draft, rt.cfg)
 	draft.Status = review.Status
 	draft.ReviewNotes = append([]string(nil), review.ReviewNotes...)
 	draft.ReviewNotes = append(draft.ReviewNotes, normalizationNotes...)

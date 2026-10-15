@@ -49,11 +49,13 @@ func DefaultConfig() *Config {
 			Dimensions: []string{"chat"},
 		},
 		Evolution: EvolutionConfig{
-			Enabled:         false,
-			Mode:            "observe",
-			MinTaskCount:    2,
-			MinSuccessRatio: 0.7,
-			ColdPathTrigger: "after_turn",
+			Enabled:              false,
+			Mode:                 "observe",
+			MinTaskCount:         2,
+			MinSuccessRatio:      0.7,
+			ColdPathTrigger:      "after_turn",
+			ReviewAutoQuarantine: true,
+			MaxDraftBytes:        DefaultMaxDraftBytes,
 		},
 		Channels: defaultChannels(),
 		Hooks: HooksConfig{

@@ -51,7 +51,47 @@ var (
 	secretPrefixRe = regexp.MustCompile(
 		`(?i)(\b(?:sk|rk|pk|ek)-(?:or-[a-zA-Z0-9]+-)?)([A-Za-z0-9_.-]{4})[A-Za-z0-9_.-]{4,}([A-Za-z0-9_.-]{4})`,
 	)
+
+	// privateKeyRe matches PEM private-key block headers (BEGIN <kind>
+	// PRIVATE KEY). Detection-only — masking handles the same text through
+	// the header/body patterns above.
+	privateKeyRe = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
 )
+
+// secretDetectors maps a short kind label to each credential-shaped pattern
+// so DetectSecrets can name what matched without duplicating the regex set.
+var secretDetectors = []struct {
+	kind string
+	re   *regexp.Regexp
+}{
+	{"bot_token", botTokenRe},
+	{"bearer", bearerTokenRe},
+	{"api_key", apiKeyRe},
+	{"token", genericTokenRe},
+	{"secret_prefix", secretPrefixRe},
+	{"private_key", privateKeyRe},
+}
+
+// DetectSecrets reports which credential-shaped patterns appear in s, as a
+// deduplicated list of short kind labels (bot_token, bearer, api_key, token,
+// secret_prefix, private_key). It reuses the same patterns Mask applies so
+// detection and masking agree about what counts as secret-shaped. The result
+// is a review signal — present-tense findings for quarantine decisions — not
+// proof the text holds a live credential; use Mask/MaskAny to sanitize output.
+// Values under secret-looking map keys are a MaskAny concern, not a substring
+// concern, and are intentionally out of scope here.
+func DetectSecrets(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var kinds []string
+	for _, d := range secretDetectors {
+		if d.re.MatchString(s) {
+			kinds = append(kinds, d.kind)
+		}
+	}
+	return kinds
+}
 
 // extraMasker optionally masks configured secrets (SecureString values) on top
 // of the generic patterns. Registered via SetExtraMasker, typically from

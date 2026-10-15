@@ -82,7 +82,9 @@ The `evolution` block controls Rhizome's self-evolution runtime. When enabled, t
     "min_task_count": 2,
     "min_success_ratio": 0.7,
     "cold_path_trigger": "after_turn",
-    "cold_path_times": []
+    "cold_path_times": [],
+    "review_auto_quarantine": true,
+    "max_draft_bytes": 65536
   }
 }
 ```
@@ -96,6 +98,8 @@ The `evolution` block controls Rhizome's self-evolution runtime. When enabled, t
 | `min_success_ratio` | `0.7` | Minimum success ratio for a task cluster. Use a value greater than `0` and up to `1`. |
 | `cold_path_trigger` | `after_turn` | Runs draft generation `after_turn`, on a `scheduled` cadence, or disables automatic cold-path runs when set to `manual`. There is no user-facing manual trigger yet. Applies only in `draft` and `apply` modes. |
 | `cold_path_times` | `[]` | Scheduled run times used when `cold_path_trigger` is `scheduled`, written as `HH:MM` strings. |
+| `review_auto_quarantine` | `true` | Quarantine a draft when the review scan finds prompt-injection (`guard:`) or credential-shaped (`secret:`) content. Set `false` to keep findings visible on the draft while it stays a candidate for manual review. Structural and over-size findings are unaffected. |
+| `max_draft_bytes` | `65536` | Maximum `body_or_patch` size in bytes; over-size drafts quarantine regardless of `review_auto_quarantine`. |
 
 Use `observe` first if you want to inspect learning records without generating skill changes. Use `draft` when you want Rhizome to prepare reviewable improvements. Use `apply` only when you are comfortable letting accepted drafts update workspace skills.
 

@@ -3611,3 +3611,68 @@ func TestACPConfig_Validate(t *testing.T) {
 		}
 	}
 }
+
+func TestEvolutionConfig_ReviewAutoQuarantineDefaultAndRoundTrip(t *testing.T) {
+	if !DefaultConfig().Evolution.ReviewAutoQuarantine {
+		t.Fatal("review_auto_quarantine should default to true")
+	}
+	if DefaultConfig().Evolution.EffectiveMaxDraftBytes() != DefaultMaxDraftBytes {
+		t.Fatal("max_draft_bytes should default to 64 KiB")
+	}
+
+	mustSetupSSHKey(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	// Explicit false + custom bound are honored on load...
+	if err := os.WriteFile(
+		path,
+		[]byte(
+			`{"version":3,"evolution":{"enabled":true,"mode":"draft","review_auto_quarantine":false,"max_draft_bytes":1024}}`,
+		),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Evolution.ReviewAutoQuarantine {
+		t.Fatal("explicit review_auto_quarantine=false should be honored")
+	}
+	if cfg.Evolution.EffectiveMaxDraftBytes() != 1024 {
+		t.Fatalf("max_draft_bytes = %d, want 1024", cfg.Evolution.EffectiveMaxDraftBytes())
+	}
+
+	// ...and survive a SaveConfig/LoadConfig round-trip.
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig after SaveConfig: %v", err)
+	}
+	if reloaded.Evolution.ReviewAutoQuarantine {
+		t.Fatal("explicit review_auto_quarantine=false must survive SaveConfig/LoadConfig")
+	}
+	if reloaded.Evolution.EffectiveMaxDraftBytes() != 1024 {
+		t.Fatalf("reloaded max_draft_bytes = %d, want 1024", reloaded.Evolution.EffectiveMaxDraftBytes())
+	}
+
+	// Absent fields resolve to the defaults (true / 64 KiB).
+	if err := os.WriteFile(path,
+		[]byte(`{"version":3,"evolution":{"enabled":true,"mode":"draft"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg2, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg2.Evolution.ReviewAutoQuarantine {
+		t.Fatal("absent review_auto_quarantine should resolve to the default (true)")
+	}
+	if cfg2.Evolution.EffectiveMaxDraftBytes() != DefaultMaxDraftBytes {
+		t.Fatalf("absent max_draft_bytes = %d, want %d", cfg2.Evolution.EffectiveMaxDraftBytes(), DefaultMaxDraftBytes)
+	}
+}

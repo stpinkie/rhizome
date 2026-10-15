@@ -48,7 +48,9 @@
     "min_task_count": 2,
     "min_success_ratio": 0.7,
     "cold_path_trigger": "after_turn",
-    "cold_path_times": []
+    "cold_path_times": [],
+    "review_auto_quarantine": true,
+    "max_draft_bytes": 65536
   },
   "model_list": [
     {
