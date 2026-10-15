@@ -12,6 +12,7 @@ import { ActivityPanel } from "./activity-panel"
 import { AuditPanel } from "./audit-panel"
 import { BootstrapInput } from "./bootstrap-input"
 import { DhtPanel } from "./dht-panel"
+import { EconomyPanel } from "./economy-panel"
 import { MarketPanel } from "./market-panel"
 import { NodePanel } from "./node-panel"
 import { PairPanel } from "./pair-panel"
@@ -111,6 +112,8 @@ export function NetworkPage() {
           <SwarmsPanel />
 
           <MarketPanel />
+
+          <EconomyPanel />
 
           <ActivityPanel />
 

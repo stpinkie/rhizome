@@ -43,6 +43,17 @@ const (
 	OpMarketSell = "market_sell" // local node sold; peer was the buyer
 )
 
+// Economy operation labels recorded in PeerScore.OpStats (Track 146). Unlike
+// the market split — reported by the rhizome-market module over the bridge —
+// these are written in-core at charge/settle/dispute time; no bridge verb
+// exists for them. They share the outcome labels and the ref-commitment
+// posture (session refs + value hashes, never raw amounts in the score file).
+const (
+	OpEconCharge  = "econ_charge"  // a bilateral charge was journaled
+	OpEconSettle  = "econ_settle"  // a settle round converged/rejected/overdue
+	OpEconDispute = "econ_dispute" // operator dispute + resolution
+)
+
 // Market outcome labels carried on peer_score reports. disputed marks a
 // pending outcome — it lands in Outcomes but does not move the counters
 // until a later resolved_* report closes it out.

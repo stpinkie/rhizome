@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -307,8 +308,29 @@ func printPeerDetail(w io.Writer, p *mesh.PeerStatus) {
 				fmt.Fprintln(w, line)
 			}
 		}
+		if p.Score.Econ != nil {
+			e := p.Score.Econ
+			fmt.Fprintf(w, "    economy: %d issued / %d received, %d settled / %d disputed",
+				e.ChargesIssued, e.ChargesReceived, e.Settled, e.Disputed)
+			if e.WrittenOff > 0 {
+				fmt.Fprintf(w, " (%d written off)", e.WrittenOff)
+			}
+			fmt.Fprintln(w)
+			for _, b := range e.Balances {
+				fmt.Fprintf(w,
+					"      %-10s payable accrued %-12s settled %-12s | receivable accrued %-12s settled %-12s\n",
+					b.Unit, b.PayableAccrued, b.PayableSettled,
+					b.ReceivableAccrued, b.ReceivableSettled)
+			}
+			if len(e.OverThreshold) > 0 {
+				fmt.Fprintf(w, "      over settle_threshold: %s\n", strings.Join(e.OverThreshold, ", "))
+			}
+			if len(e.Overdue) > 0 {
+				fmt.Fprintf(w, "      OVERDUE (past settle_grace_period): %s\n", strings.Join(e.Overdue, ", "))
+			}
+		}
 		if len(p.Score.Outcomes) > 0 {
-			fmt.Fprintln(w, "    market outcomes:")
+			fmt.Fprintln(w, "    outcomes:")
 			for _, o := range p.Score.Outcomes {
 				line := fmt.Sprintf("      %s %s", o.Op, o.Outcome)
 				if o.SessionID != "" {

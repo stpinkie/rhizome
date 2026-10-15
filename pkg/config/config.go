@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -259,6 +260,11 @@ type MeshEconomyConfig struct {
 	// SettleThreshold is the accrued balance at which the operator is
 	// expected to close out (decimal string; advisory — no auto-settle).
 	SettleThreshold string `json:"settle_threshold,omitempty"`
+	// SettleGracePeriod is how long an accrued balance may sit over
+	// SettleThreshold before the payee records an econ_settle score failure
+	// on the payer (reputation pressure replacing enforcement; no
+	// auto-settle). Duration string ("168h"); 0/unset disables the check.
+	SettleGracePeriod time.Duration `json:"settle_grace_period,omitempty"`
 	// SettleBackend is "ledger" (mutual-credit marker exchange) or "web3"
 	// (on-chain transfer to the peer's advertised payout address).
 	SettleBackend string `json:"settle_backend,omitempty"`
@@ -276,6 +282,46 @@ type MeshEconomyConfig struct {
 	// sees it committed inside the signed settle offer (payment.from).
 	// Only meaningful with settle_backend "web3".
 	SettleFrom string `json:"settle_from,omitempty"`
+}
+
+// MarshalJSON serializes settle_grace_period as a duration string
+// ("72h"), matching the codebase's nested-config value-receiver
+// convention so even a bare Economy value marshal can't leak the raw
+// nanosecond int. Unset stays omitted.
+func (e MeshEconomyConfig) MarshalJSON() ([]byte, error) {
+	type Alias MeshEconomyConfig
+	grace := ""
+	if e.SettleGracePeriod != 0 {
+		grace = e.SettleGracePeriod.String()
+	}
+	return json.Marshal(&struct {
+		*Alias
+		SettleGracePeriod string `json:"settle_grace_period,omitempty"`
+	}{
+		Alias:             (*Alias)(&e),
+		SettleGracePeriod: grace,
+	})
+}
+
+func (e *MeshEconomyConfig) UnmarshalJSON(data []byte) error {
+	type Alias MeshEconomyConfig
+	aux := &struct {
+		*Alias
+		SettleGracePeriod string `json:"settle_grace_period,omitempty"`
+	}{
+		Alias: (*Alias)(e),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.SettleGracePeriod != "" {
+		d, err := time.ParseDuration(aux.SettleGracePeriod)
+		if err != nil {
+			return err
+		}
+		e.SettleGracePeriod = d
+	}
+	return nil
 }
 
 // Advert builds the public economy advertisement carried in the signed
@@ -584,6 +630,15 @@ func (e *MeshEconomyConfig) Validate() error {
 	for _, d := range decimals {
 		if err := validateEconDecimal(d.val); err != nil {
 			return fmt.Errorf("mesh.economy.%s: %w", d.name, err)
+		}
+	}
+	if e.SettleGracePeriod < 0 {
+		return fmt.Errorf("mesh.economy.settle_grace_period must not be negative")
+	}
+	if e.SettleGracePeriod != 0 {
+		thr, ok := new(big.Rat).SetString(e.SettleThreshold)
+		if !ok || thr.Sign() <= 0 {
+			return fmt.Errorf("mesh.economy.settle_grace_period requires a positive settle_threshold")
 		}
 	}
 	switch e.SettleSigner {

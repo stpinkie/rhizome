@@ -201,3 +201,33 @@ func TestNetworkEconomySettleMarkOnly(t *testing.T) {
 		assert.Equal(t, econ.MarkOnlySettleTX, e.SettleTX)
 	}
 }
+
+// Track 146 — GET /network/economy serves the read snapshot under the same
+// auth posture as the mutations.
+func TestNetworkEconomyGet(t *testing.T) {
+	m, _ := newEconMesh(t)
+	peerID := testutil.NewIdentity(t).PeerID
+	seedEconEntry(t, m, peerID, "task-get1", "0.5")
+	h := newNetworkEconomyHandler(m, testTasksToken)
+
+	// Unauthenticated → 401.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/network/economy", nil))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	// GET on a mutation sub-resource stays 405.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/network/economy/dispute", nil))
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/network/economy", nil))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var view mesh.EconomyView
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
+	assert.True(t, view.Enabled)
+	require.Contains(t, view.Peers, peerID)
+	assert.Equal(t, 1, view.Peers[peerID].ChargesReceived)
+	require.Len(t, view.RecentCharges, 1)
+	assert.Equal(t, "task-get1", view.RecentCharges[0].TaskID)
+}

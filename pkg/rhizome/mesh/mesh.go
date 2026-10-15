@@ -139,8 +139,12 @@ type PeerScoreView struct {
 	Decay *float64          `json:"decay,omitempty"`
 	Ops   map[string]OpStat `json:"ops,omitempty"`
 	// Outcomes lists recent market-session reports (peer_score bridge
-	// action) — session refs + value commitments, never amounts.
+	// action) plus in-core economy outcomes — session refs + value
+	// commitments, never amounts.
 	Outcomes []PeerOutcome `json:"outcomes,omitempty"`
+	// Econ is the bilateral-economy split for this peer (Track 146):
+	// charges issued/received, settle/dispute counts, accrued balances.
+	Econ *econ.PeerSummary `json:"econ,omitempty"`
 }
 
 // BandwidthView reports in/out byte totals and current rates.
@@ -546,6 +550,17 @@ func (m *Mesh) Start(ctx context.Context) error {
 		go func() {
 			defer m.wg.Done()
 			m.settleWatchLoop(m.ctx)
+		}()
+	}
+
+	// The overdue sweep applies the non-settlement reputation pressure:
+	// a payer whose accrued receivable sits over settle_threshold past
+	// settle_grace_period records one econ_settle failure per debt epoch.
+	if m.cfg.Economy.Enabled && m.cfg.Economy.SettleGracePeriod > 0 && m.econLedger != nil {
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			m.econWatchLoop(m.ctx)
 		}()
 	}
 
@@ -987,6 +1002,8 @@ func (m *Mesh) CallRemote(
 			// request negotiated economy terms.
 			if err := m.verifyCharge(pid, req.Econ, resp.Charge); err != nil {
 				m.recordPeerCall(pid, op, false, latency, err)
+				m.recordEconOutcome(pid.String(), OpEconCharge, OutcomeFailed,
+					req.CorrelationID, chargeOutcomeHash(resp.Charge))
 				lastErr = err
 				break
 			}
@@ -1746,6 +1763,7 @@ func (m *Mesh) recordEconCharge(
 		"amount":       charge.Amount,
 		"entry_id":     rec.EntryID,
 		"sheet_digest": charge.SheetDigest,
+		"outcome":      OutcomeCompleted,
 	}
 	if corrID != "" {
 		entry["correlation_id"] = corrID
@@ -1753,6 +1771,14 @@ func (m *Mesh) recordEconCharge(
 	m.publishMeshEvent(runtimeevents.KindMeshEconCharge, entry)
 	if m.auditLog != nil {
 		m.auditLog.Log(entry)
+	}
+	// The charge converged — book an econ_charge completion against the
+	// peer (counters only; the ledger is the per-charge record) and, on
+	// the payable side, check whether the balance just crossed
+	// settle_threshold — the advisory "time to settle" edge.
+	m.recordEconOp(peerID, OpEconCharge, true, nil)
+	if dir == econ.DirectionPayable {
+		m.checkSettleDue(peerID, charge)
 	}
 }
 
@@ -1911,8 +1937,9 @@ func (m *Mesh) fillPeerObservability(ps *PeerStatus, pid peer.ID) {
 		ps.LatencyMs = float64(lat) / float64(time.Millisecond)
 	}
 
+	econView := m.peerEconView(pid.String())
 	if m.scoreStore != nil {
-		if sc, ok := m.scoreStore.Get(pid); ok {
+		if sc, ok := m.scoreStore.Get(pid); ok || econView != nil {
 			ps.Score = &PeerScoreView{
 				Successes:    sc.Successes,
 				Failures:     sc.Failures,
@@ -1921,6 +1948,7 @@ func (m *Mesh) fillPeerObservability(ps *PeerStatus, pid peer.ID) {
 				Score:        sc.Score(),
 				Ops:          sc.OpStats,
 				Outcomes:     sc.Outcomes,
+				Econ:         econView,
 			}
 			if decay := sc.DecayFactor(); decay < 1 {
 				ps.Score.Decay = &decay

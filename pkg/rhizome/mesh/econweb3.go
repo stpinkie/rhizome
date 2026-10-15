@@ -249,6 +249,12 @@ func (m *Mesh) stepInflight(
 			r.State = state
 			r.Error = msg
 		})
+		// A rejected offer is a divergence — pending until reconciled.
+		// Failed/stalled are local or transport faults, not peer verdicts.
+		if state == econ.SettleRejected {
+			m.recordEconOutcome(rec.PeerID, OpEconSettle, OutcomeDisputed,
+				offerIDFor(rec.Offer), "")
+		}
 		m.settleEvent(rec, state, map[string]any{"error": msg})
 		return false, resultFor(rec, ""), cause
 	}
@@ -402,7 +408,13 @@ func (m *Mesh) stepInflight(
 			m.settleEvent(rec, "settled", map[string]any{
 				"settle_id": offer2.ID(), "entry_ids": entryIDs(settled),
 			})
-			m.auditMesh(pid, "econ.settle.web3", "", offer2.ID(), "ok", time.Now(), "")
+			m.recordEconOutcome(rec.PeerID, OpEconSettle, OutcomeCompleted, offer2.ID(),
+				econValueHash(offer2.Total, rec.Unit, offer2.ID()))
+			m.auditMeshFields(pid, "econ.settle.web3", "", offer2.ID(), "ok", time.Now(), "",
+				map[string]any{
+					"unit": rec.Unit, "amount": offer2.Total, "tx_hash": rec.TxHash,
+					"entry_ids": entryIDs(settled), "outcome": OutcomeCompleted,
+				})
 			return false, &Web3SettleResult{
 				Status: econ.SettleSettled, PeerID: rec.PeerID, Unit: rec.Unit,
 				SettleID: offer2.ID(), TxHash: rec.TxHash,
@@ -568,6 +580,7 @@ func (m *Mesh) settleDriveStep(ctx context.Context) {
 // settle_reject divergence.
 func (m *Mesh) handleSettleOfferWeb3(from peer.ID, offer *econ.SettleOffer, started time.Time) econResponse {
 	reject := func(reason string) econResponse {
+		m.recordEconOutcome(from.String(), OpEconSettle, OutcomeDisputed, offerIDFor(offer), "")
 		m.auditMesh(from, "econ.settle_offer", "", "", "econ:diverged", started, reason)
 		m.publishMeshEvent(runtimeevents.KindMeshError, map[string]any{
 			"stage":   "econ.settle_offer",
@@ -629,7 +642,13 @@ func (m *Mesh) handleSettleOfferWeb3(from peer.ID, offer *econ.SettleOffer, star
 		}
 		settled = append(settled, *rec)
 	}
-	m.auditMesh(from, "econ.settle_offer", "", settleID, "ok", started, "")
+	m.recordEconOutcome(from.String(), OpEconSettle, OutcomeCompleted, settleID,
+		econValueHash(offer.Total, offer.Unit, settleID))
+	m.auditMeshFields(from, "econ.settle_offer", "", settleID, "ok", started, "",
+		map[string]any{
+			"unit": offer.Unit, "amount": offer.Total, "tx_hash": offer.TxHash,
+			"entry_ids": entryIDs(settled), "outcome": OutcomeCompleted,
+		})
 	m.publishMeshEvent(runtimeevents.KindMeshEconSettle, map[string]any{
 		"peer_id":   from.String(),
 		"unit":      offer.Unit,

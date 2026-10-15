@@ -874,6 +874,8 @@ func (m *Mesh) RemoteTaskResult(
 		sent, verr := m.verifyTaskCharge(pid, taskID, resp.Charge)
 		if verr != nil {
 			m.recordPeerCall(pid, string(agenttask.OpResult), false, 0, verr)
+			m.recordEconOutcome(pid.String(), OpEconCharge, OutcomeFailed,
+				taskID, chargeOutcomeHash(resp.Charge))
 			return resp, verr
 		}
 		// A verified charge is booked payable on the caller side.

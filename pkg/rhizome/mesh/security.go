@@ -352,6 +352,22 @@ func (m *Mesh) auditMeshUsage(
 	detail string,
 	usage *toolshared.RemoteUsage,
 ) {
+	extra := map[string]any(nil)
+	if usage != nil {
+		extra = map[string]any{"usage": usage}
+	}
+	m.auditMeshFields(from, op, agentID, ref, status, started, detail, extra)
+}
+
+// auditMeshFields is the fully-parameterized audit variant: extra keys merge
+// into the entry verbatim (econ ops carry unit/amount/entry_ids here).
+func (m *Mesh) auditMeshFields(
+	from peer.ID,
+	op, agentID, ref, status string,
+	started time.Time,
+	detail string,
+	extra map[string]any,
+) {
 	entry := map[string]any{
 		"ts":          time.Now().UTC().Format(time.RFC3339Nano),
 		"peer_id":     from.String(),
@@ -364,8 +380,8 @@ func (m *Mesh) auditMeshUsage(
 	if detail != "" {
 		entry["detail"] = detail
 	}
-	if usage != nil {
-		entry["usage"] = usage
+	for k, v := range extra {
+		entry[k] = v
 	}
 
 	m.publishMeshEvent(runtimeevents.KindMeshRemoteAudit, entry)

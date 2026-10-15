@@ -56,6 +56,7 @@ func (h *Handler) registerNetworkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/network/audit", h.handleNetworkAudit)
 	mux.HandleFunc("POST /api/network/pair", h.handleNetworkPair)
 	mux.HandleFunc("POST /api/network/pair/accept", h.handleNetworkPair)
+	h.registerNetworkEconomyRoutes(mux)
 	h.registerNetworkSwarmRoutes(mux)
 }
 
