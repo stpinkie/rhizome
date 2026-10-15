@@ -276,8 +276,11 @@ func (m *Mesh) stepInflight(
 	// staying live — an endless re-drive that also burned signer and
 	// RPC calls on every watcher tick. Fail it out terminally instead.
 	if rec.Key != rec.PeerID+"|"+rec.Unit {
-		return fail(econ.SettleFailed,
-			"journal key does not match record peer/unit — economy-settle-inflight.json is tampered; refusing to drive", nil)
+		return fail(
+			econ.SettleFailed,
+			"journal key does not match record peer/unit — economy-settle-inflight.json is tampered; refusing to drive",
+			nil,
+		)
 	}
 	// The issuer string alone is forgeable — a tampered write just names
 	// this node. Before any state reaches the signer or the queue, the
@@ -289,12 +292,18 @@ func (m *Mesh) stepInflight(
 		return fail(econ.SettleFailed, "no identity key to verify the journaled offer", nil)
 	}
 	if verr := rec.Offer.Verify(m.id.Libp2pPubKey); verr != nil {
-		return fail(econ.SettleFailed,
-			"journaled offer fails signature verification — economy-settle-inflight.json is tampered; refusing to drive", nil)
+		return fail(
+			econ.SettleFailed,
+			"journaled offer fails signature verification — economy-settle-inflight.json is tampered; refusing to drive",
+			nil,
+		)
 	}
 	if rec.Offer.Payment == nil || rec.Payment == nil || *rec.Payment != *rec.Offer.Payment {
-		return fail(econ.SettleFailed,
-			"journaled payment diverges from the signed offer — economy-settle-inflight.json is tampered; refusing to drive", nil)
+		return fail(
+			econ.SettleFailed,
+			"journaled payment diverges from the signed offer — economy-settle-inflight.json is tampered; refusing to drive",
+			nil,
+		)
 	}
 	pid, err := peer.Decode(rec.PeerID)
 	if err != nil {
