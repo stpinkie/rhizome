@@ -16,6 +16,7 @@ Task-oriented guides for setup, configuration, and common Rhizome workflows.
 - [Companion Modules](modules.md): sidecar binaries (`rhizome module`) — verified installs, daemon supervision, secrets posture.
 - [ACP — Agent Client Protocol](acp.md): `rhizome acp` for Zed/JetBrains, plus binding external ACP agents to Rhizome agent ids.
 - [Open Agent Work Market](market.md): `rhizome-market` module — escrow-gated sell/buy of agent work, signer modes, wss transport, threat model (experimental).
+- [Paired Settlement — Mesh Economy](economy.md): bilateral billing between paired operators — price sheets, `bill_peers`, the ledger, settle handshakes (`ledger`/`web3`), disputes, and honest limits.
 - [Rhizome as an MCP Server](mcp-server.md): `rhizome mcp serve` — expose allowlisted local tools to MCP clients over stdio.
 
 Translations usually live beside the English source when available.
