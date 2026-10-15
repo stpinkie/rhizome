@@ -747,6 +747,17 @@ type EvolutionConfig struct {
 	MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 	ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 	ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+	// ReviewAutoQuarantine controls whether scanner findings (guard:/secret:)
+	// quarantine a draft during review. Defaults to true; set false to keep
+	// findings visible on the draft while it stays a candidate for manual
+	// review — combine with care in apply mode, where candidates can be
+	// applied directly. Structural and over-size findings are unaffected.
+	// Not omitempty so an explicit false survives config write-back.
+	ReviewAutoQuarantine bool `json:"review_auto_quarantine"`
+	// MaxDraftBytes bounds an accepted draft's body_or_patch in bytes;
+	// over-size drafts quarantine regardless of review_auto_quarantine.
+	// Defaults to 64 KiB; values <= 0 resolve to the default.
+	MaxDraftBytes int `json:"max_draft_bytes,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -762,14 +773,20 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+		// ReviewAutoQuarantine + MaxDraftBytes ride the struct so explicit
+		// values survive write-back even while evolution is disabled.
+		ReviewAutoQuarantine bool `json:"review_auto_quarantine"`
+		MaxDraftBytes        int  `json:"max_draft_bytes,omitempty"`
 	}{
-		Enabled:         c.Enabled,
-		Mode:            c.Mode,
-		StateDir:        c.StateDir,
-		MinTaskCount:    c.EffectiveMinTaskCount(),
-		MinSuccessRatio: c.EffectiveMinSuccessRatio(),
-		ColdPathTrigger: strings.TrimSpace(c.ColdPathTrigger),
-		ColdPathTimes:   c.EffectiveColdPathTimes(),
+		Enabled:              c.Enabled,
+		Mode:                 c.Mode,
+		StateDir:             c.StateDir,
+		MinTaskCount:         c.EffectiveMinTaskCount(),
+		MinSuccessRatio:      c.EffectiveMinSuccessRatio(),
+		ColdPathTrigger:      strings.TrimSpace(c.ColdPathTrigger),
+		ColdPathTimes:        c.EffectiveColdPathTimes(),
+		ReviewAutoQuarantine: c.ReviewAutoQuarantine,
+		MaxDraftBytes:        c.EffectiveMaxDraftBytes(),
 	}
 	if !out.Enabled {
 		out.Mode = ""
@@ -857,6 +874,17 @@ func (c EvolutionConfig) EffectiveColdPathTimes() []string {
 
 func (c EvolutionConfig) AutoAppliesDrafts() bool {
 	return c.EffectiveMode() == "apply"
+}
+
+// DefaultMaxDraftBytes is the body_or_patch bound used when max_draft_bytes
+// is unset or non-positive.
+const DefaultMaxDraftBytes = 64 << 10
+
+func (c EvolutionConfig) EffectiveMaxDraftBytes() int {
+	if c.MaxDraftBytes > 0 {
+		return c.MaxDraftBytes
+	}
+	return DefaultMaxDraftBytes
 }
 
 // IsolationConfig controls subprocess isolation for commands started by Rhizome.

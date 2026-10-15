@@ -785,7 +785,7 @@ func TestRuntime_RunColdPathOnce_RejectsTaskWhenSuccessJudgeRejects(t *testing.T
 	}
 }
 
-func TestRuntime_RunColdPathOnce_QuarantinesInvalidDraft(t *testing.T) {
+func TestRuntime_RunColdPathOnce_StructuralFindingsStayCandidate(t *testing.T) {
 	root := t.TempDir()
 	store := evolution.NewStore(evolution.NewPaths(root, ""))
 
@@ -834,11 +834,14 @@ func TestRuntime_RunColdPathOnce_QuarantinesInvalidDraft(t *testing.T) {
 	if len(drafts) != 1 {
 		t.Fatalf("len(drafts) = %d, want 1", len(drafts))
 	}
-	if drafts[0].Status != evolution.DraftStatusQuarantined {
-		t.Fatalf("Status = %q, want %q", drafts[0].Status, evolution.DraftStatusQuarantined)
+	if drafts[0].Status != evolution.DraftStatusCandidate {
+		t.Fatalf("Status = %q, want %q", drafts[0].Status, evolution.DraftStatusCandidate)
 	}
 	if len(drafts[0].ScanFindings) == 0 {
 		t.Fatal("expected scan findings for invalid draft")
+	}
+	if !strings.HasPrefix(drafts[0].ScanFindings[0], "structure:") {
+		t.Fatalf("finding %q missing structure: prefix", drafts[0].ScanFindings[0])
 	}
 }
 

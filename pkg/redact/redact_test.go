@@ -126,3 +126,49 @@ func TestMaskAny_FallbackPreservesJSON(t *testing.T) {
 		t.Fatalf("secretish JSON key not redacted: %s", s)
 	}
 }
+
+func TestDetectSecrets_Kinds(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"api key", `config: api_key=abcdef1234567890`, []string{"api_key"}},
+		{"secret prefix", "key is sk-abcdef1234567890wxyz", []string{"secret_prefix"}},
+		{"bearer", "request failed: Bearer abcdef1234567890XYZW", []string{"bearer"}},
+		{"telegram", "bot123456:ABCDEFGHIJKLMNOPQRSTuvwx1234", []string{"bot_token"}},
+		{"generic token", "auth_token=abcdef1234567890", []string{"token"}},
+		{"pem", "-----BEGIN RSA PRIVATE KEY-----\nMIIBOg==\n-----END RSA PRIVATE KEY-----", []string{"private_key"}},
+		{"plain", "just a normal sentence", nil},
+		{"empty", "", nil},
+	}
+	for _, tc := range cases {
+		got := DetectSecrets(tc.in)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s: DetectSecrets = %v, want %v", tc.name, got, tc.want)
+		}
+		for i, k := range tc.want {
+			if got[i] != k {
+				t.Fatalf("%s: DetectSecrets[%d] = %q, want %q", tc.name, i, got[i], k)
+			}
+		}
+	}
+}
+
+func TestDetectSecrets_MatchesMaskSet(t *testing.T) {
+	// Detection and masking must agree: every string DetectSecrets flags must
+	// also change under Mask (else review would quarantine content the logger
+	// would happily emit as-is).
+	for _, in := range []string{
+		`api_key=abcdef1234567890`,
+		"Bearer abcdef1234567890XYZW",
+		"sk-abcdef1234567890wxyz",
+	} {
+		if len(DetectSecrets(in)) == 0 {
+			t.Fatalf("DetectSecrets missed %q", in)
+		}
+		if Mask(in) == in {
+			t.Fatalf("Mask did not change detected string %q", in)
+		}
+	}
+}

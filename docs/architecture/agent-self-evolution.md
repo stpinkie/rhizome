@@ -14,7 +14,7 @@ The apply path validates generated `SKILL.md` content before writing. Invalid dr
 
 Evolution creates a persistent feedback loop: user input can become a task record, task records can be clustered into an LLM-generated draft, and an accepted draft can become `SKILL.md` content that is loaded into future agent prompts. Treat generated skill content as prompt-sensitive material, especially in `apply` mode.
 
-The current local scanner is a narrow guardrail, not a complete safety boundary. It rejects structurally invalid drafts and a small set of obvious secret-like substrings, but it does not reliably detect prompt injection, unsafe instructions, or every form of sensitive data. Use `observe` or `draft` when human review is required before skill changes reach disk.
+The review scanner is a guardrail, not a complete safety boundary. It reuses `pkg/guard`'s prompt-injection patterns over `body_or_patch`, `human_summary`, and the structured draft fields, and `pkg/redact`'s secret-pattern set for credential-shaped substrings; findings land in `scan_findings` prefixed `guard:`/`secret:`/`structure:`/`size:`. `guard:`/`secret:` findings quarantine the draft while `evolution.review_auto_quarantine` is on (default); `structure:` findings are recorded as notes and `size:` (over `max_draft_bytes`, default 64 KiB) always quarantines. Detection covers obvious attempts, not adversarial evasion — use `observe` or `draft` when human review is required before skill changes reach disk.
 
 In `apply` mode, accepted drafts can update workspace skills automatically. Existing skills are backed up before replacement, but recovery is manual: an operator must restore the desired backup if an applied skill should be rolled back.
 
