@@ -1008,6 +1008,10 @@ func (s *Swarm) resolveOffer(ctx context.Context, swarmID string, to *trackedOff
 			Tools:         to.info.Tools,
 			Async:         true,
 			Media:         to.info.Media,
+			// The offer's spend cap binds the negotiated econ max_charge
+			// on the assigned call, not just the claim filter — a quote
+			// is an estimate; max_price caps the actual bill.
+			MaxCost: to.info.MaxPrice,
 		})
 		if err != nil {
 			if s.retryOffer(ctx, swarmID, to, "submit: "+err.Error()) {

@@ -258,6 +258,132 @@ func TestMatchReceivables(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate work ref")
 }
 
+// Track 143 redelivery — a phase-2 offer retry after a lost ack: the
+// receivables it covers already settled under its tx hash, so the match
+// re-acks instead of diverging.
+func TestMatchSettledReceivables(t *testing.T) {
+	l := openTmpLedger(t)
+	payer := mkPeerID(t)
+	const tx = "0xabc123"
+
+	ids := map[string]string{}
+	for _, e := range []Entry{
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w1", Unit: "credits", Amount: "0.5"},
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w2", Unit: "credits", Amount: "0.25"},
+		// Decoys: still accrued, settled under a different tx, wrong
+		// unit, wrong direction, wrong peer.
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w3", Unit: "credits", Amount: "9"},
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w4", Unit: "credits", Amount: "9"},
+		{PeerID: payer, Direction: DirectionReceivable, TaskID: "w5", Unit: "usdc", Amount: "9"},
+		{PeerID: payer, Direction: DirectionPayable, TaskID: "w6", Unit: "credits", Amount: "9"},
+		{PeerID: "other", Direction: DirectionReceivable, TaskID: "w7", Unit: "credits", Amount: "9"},
+	} {
+		rec, err := l.Record(e)
+		require.NoError(t, err)
+		ids[e.TaskID] = rec.EntryID
+	}
+	for _, id := range []string{ids["w1"], ids["w2"]} {
+		_, err := l.Transition(id, StateSettled, "s1", tx, "")
+		require.NoError(t, err)
+	}
+	_, err := l.Transition(ids["w4"], StateSettled, "s2", "0xother", "")
+	require.NoError(t, err)
+
+	offer := &SettleOffer{
+		Issuer:  payer,
+		Unit:    "credits",
+		Entries: []string{"w1", "w2"},
+		Total:   "0.75",
+		TxHash:  tx,
+	}
+	matched, err := MatchSettledReceivables(l.Entries(), offer)
+	require.NoError(t, err)
+	require.Len(t, matched, 2)
+	for _, e := range matched {
+		require.Equal(t, tx, e.SettleTX)
+	}
+
+	// No tx hash → not a redelivery.
+	offer.TxHash = ""
+	m, err := MatchSettledReceivables(l.Entries(), offer)
+	require.NoError(t, err)
+	require.Nil(t, m)
+
+	// A tx these rows were never settled under → no redelivery.
+	offer.TxHash = "0xunknown"
+	m, err = MatchSettledReceivables(l.Entries(), offer)
+	require.NoError(t, err)
+	require.Nil(t, m)
+
+	// Refs settled under a different tx don't count.
+	offer.TxHash = tx
+	offer.Entries = []string{"w1", "w4"}
+	m, err = MatchSettledReceivables(l.Entries(), offer)
+	require.NoError(t, err)
+	require.Nil(t, m)
+
+	// Still-accrued refs can't redeliver either.
+	offer.Entries = []string{"w1", "w3"}
+	m, err = MatchSettledReceivables(l.Entries(), offer)
+	require.NoError(t, err)
+	require.Nil(t, m)
+
+	// Total drift → not this settlement.
+	offer.Entries = []string{"w1", "w2"}
+	offer.Total = "0.80"
+	m, err = MatchSettledReceivables(l.Entries(), offer)
+	require.NoError(t, err)
+	require.Nil(t, m)
+
+	// Duplicate refs error like the accrued matcher.
+	offer.Total = "0.75"
+	offer.Entries = []string{"w1", "w1"}
+	_, err = MatchSettledReceivables(l.Entries(), offer)
+	require.ErrorContains(t, err, "duplicate work ref")
+
+	_, err = MatchSettledReceivables(l.Entries(), nil)
+	require.Error(t, err)
+}
+
+// SettleTXConsumed — a hash only reports spent once the ledger holds a
+// settled row under it; direction, peer, and unit are irrelevant to the
+// single-use rule.
+func TestSettleTXConsumed(t *testing.T) {
+	l := openTmpLedger(t)
+	const tx = "0xabc123"
+
+	rec, err := l.Record(Entry{
+		PeerID:    "payer",
+		Direction: DirectionReceivable,
+		TaskID:    "w1",
+		Unit:      "credits",
+		Amount:    "0.5",
+	})
+	require.NoError(t, err)
+	rec2, err := l.Record(Entry{
+		PeerID:    "other",
+		Direction: DirectionPayable,
+		TaskID:    "w2",
+		Unit:      "usdc",
+		Amount:    "9",
+	})
+	require.NoError(t, err)
+
+	// Accrued rows never consume.
+	require.False(t, SettleTXConsumed(l.Entries(), tx))
+	require.False(t, SettleTXConsumed(l.Entries(), ""))
+
+	// Settled under the tx — consumed, whichever direction the row is.
+	_, err = l.Transition(rec.EntryID, StateSettled, "s1", tx, "")
+	require.NoError(t, err)
+	require.True(t, SettleTXConsumed(l.Entries(), tx))
+	require.False(t, SettleTXConsumed(l.Entries(), "0xdifferent"))
+
+	_, err = l.Transition(rec2.EntryID, StateSettled, "s2", "0xother", "")
+	require.NoError(t, err)
+	require.True(t, SettleTXConsumed(l.Entries(), "0xother"))
+}
+
 func TestEntriesDigestOrderIndependent(t *testing.T) {
 	entries := []Entry{
 		{PeerID: "p", TaskID: "b-task", Amount: "0.5", State: StateAccrued},

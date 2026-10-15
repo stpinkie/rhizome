@@ -114,6 +114,52 @@ func TestSwarmOfferMaxPricePicksEligibleClaim(t *testing.T) {
 	assert.Equal(t, "0.3", info.Claims[0].Quote)
 }
 
+// max_price binds the actual bill, not just the claim filter: the
+// assigned RemoteCall carries it as MaxCost so the negotiated
+// econ.max_charge caps what the claimant can charge.
+func TestSwarmOfferMaxPriceBindsAssignedCall(t *testing.T) {
+	cfg := fastPresenceConfig()
+	swarmA, swarmB := newTestPair(t, cfg, t.TempDir(), t.TempDir())
+
+	require.NoError(t, swarmA.Join(context.Background(), "work"))
+	require.NoError(t, swarmB.Join(context.Background(), "work"))
+	require.Eventually(t, func() bool {
+		return len(swarmA.Members("work")) == 1
+	}, 10*time.Second, 100*time.Millisecond)
+
+	swarmB.SetOfferEvaluator(func(_ string, o Offer) bool { return o.AgentID == "main" })
+	swarmB.SetQuoteFunc(func(_, _ string) string { return "0.3" })
+
+	var gotCall mesh.RemoteCall
+	swarmA.SetTaskSubmitter(func(_ context.Context, preferred peer.ID, call mesh.RemoteCall) (peer.ID, string, error) {
+		gotCall = call
+		return preferred, "task-1", nil
+	})
+
+	offerID, err := swarmA.Offer(context.Background(), "work", OfferRequest{
+		AgentID: "main", Task: "capped work", MaxPrice: "0.5",
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		info, ok := swarmA.queue.offerInfo(offerID)
+		return ok && info.Status == OfferAssigned
+	}, 30*time.Second, 100*time.Millisecond, "offer should assign")
+	assert.Equal(t, "0.5", gotCall.MaxCost,
+		"offer max_price must ride into the assigned call's MaxCost")
+
+	// No cap on the offer → no per-call cap on the wire.
+	offerID2, err := swarmA.Offer(context.Background(), "work", OfferRequest{
+		AgentID: "main", Task: "uncapped work",
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		info, ok := swarmA.queue.offerInfo(offerID2)
+		return ok && info.Status == OfferAssigned
+	}, 30*time.Second, 100*time.Millisecond)
+	assert.Equal(t, "", gotCall.MaxCost)
+}
+
 // When every claim quotes over max_price the offer expires with the
 // filtered count recorded — nothing is submitted.
 func TestSwarmOfferAllClaimsOverMaxPriceExpire(t *testing.T) {

@@ -240,15 +240,27 @@ func (m *Mesh) driveInflight(
 func (m *Mesh) stepInflight(
 	ctx context.Context, rec *econ.InflightRecord,
 ) (advanced bool, res *Web3SettleResult, err error) {
-	pid, err := peer.Decode(rec.PeerID)
-	if err != nil {
-		return false, nil, err
+	// Never drive a record this node didn't issue — a foreign entry
+	// sharing the journal file or a tampered write (the watcher applies
+	// the same rule in settleDriveStep). The offer is what the signed
+	// payment commitment anchors to: nil or another issuer's means there
+	// is nothing legitimate to pay.
+	if rec.Offer == nil || rec.Offer.Issuer != m.selfID() {
+		return false, resultFor(rec,
+			"in-flight record was not issued by this node — inspect economy-settle-inflight.json"), nil
 	}
 	fail := func(state, msg string, cause error) (bool, *Web3SettleResult, error) {
-		_ = m.inflight.Update(rec.PeerID, rec.Unit, func(r *econ.InflightRecord) {
+		// Update by journal key, not the record's peer/unit fields —
+		// those fields are exactly what the tamper checks below
+		// distrust, and a desynced record must still be markable.
+		_ = m.inflight.UpdateByKey(rec.Key, func(r *econ.InflightRecord) {
 			r.State = state
 			r.Error = msg
 		})
+		// The journal record was persisted by Update; mirror the
+		// transition onto the caller-side snapshot so resultFor reports
+		// the terminal state, not the pre-step one.
+		rec.State, rec.Error = state, msg
 		// A rejected offer is a divergence — pending until reconciled.
 		// Failed/stalled are local or transport faults, not peer verdicts.
 		if state == econ.SettleRejected {
@@ -257,6 +269,48 @@ func (m *Mesh) stepInflight(
 		}
 		m.settleEvent(rec, state, map[string]any{"error": msg})
 		return false, resultFor(rec, ""), cause
+	}
+	// The journal keys records peerID|unit — a record whose fields
+	// disagree with its key is a tampered/corrupt write: transitions
+	// derive the key from the fields, so it could never mutate while
+	// staying live — an endless re-drive that also burned signer and
+	// RPC calls on every watcher tick. Fail it out terminally instead.
+	if rec.Key != rec.PeerID+"|"+rec.Unit {
+		return fail(
+			econ.SettleFailed,
+			"journal key does not match record peer/unit — economy-settle-inflight.json is tampered; refusing to drive",
+			nil,
+		)
+	}
+	// The issuer string alone is forgeable — a tampered write just names
+	// this node. Before any state reaches the signer or the queue, the
+	// journaled offer must verify against our own key (it was signed at
+	// build), and the stored payment must equal the offer's
+	// signature-bound payment — a captured record with a rewritten
+	// destination still fails here.
+	if m.id == nil || m.id.Libp2pPubKey == nil {
+		return fail(econ.SettleFailed, "no identity key to verify the journaled offer", nil)
+	}
+	if verr := rec.Offer.Verify(m.id.Libp2pPubKey); verr != nil {
+		return fail(
+			econ.SettleFailed,
+			"journaled offer fails signature verification — economy-settle-inflight.json is tampered; refusing to drive",
+			nil,
+		)
+	}
+	if rec.Offer.Payment == nil || rec.Payment == nil || *rec.Payment != *rec.Offer.Payment {
+		return fail(
+			econ.SettleFailed,
+			"journaled payment diverges from the signed offer — economy-settle-inflight.json is tampered; refusing to drive",
+			nil,
+		)
+	}
+	pid, err := peer.Decode(rec.PeerID)
+	if err != nil {
+		// Acquire only journals peer ids this node already decoded —
+		// an undecodable id on a live record is a tampered write too.
+		return fail(econ.SettleFailed,
+			"journal record peer id does not decode — economy-settle-inflight.json is tampered; refusing to drive", err)
 	}
 
 	switch rec.State {
@@ -295,7 +349,7 @@ func (m *Mesh) stepInflight(
 			}
 		}
 		if err := m.econSettler.Queue(ctx, rec.Payment, rec.Offer.Total, pendingID); err != nil {
-			if strings.Contains(err.Error(), "already exists") {
+			if econ.IsQueueEntryExists(err) {
 				// Submit landed before a crash — adopt the entry.
 				return true, nil, m.transitionInflight(rec, econ.SettleAwaitingApproval)
 			}
@@ -308,6 +362,12 @@ func (m *Mesh) stepInflight(
 		// phase-1 handler is stateless, so a repeat offer is safe).
 		resp, cerr := m.econCall(ctx, pid, econRequest{Op: "settle_offer", Offer: rec.Offer})
 		if cerr != nil {
+			_ = m.inflight.Update(rec.PeerID, rec.Unit, func(r *econ.InflightRecord) {
+				r.Attempts++
+			})
+			if rec.Attempts+1 >= settlePhase2MaxAttempts {
+				return fail(econ.SettleStalled, "phase-1 delivery retries exhausted: "+cerr.Error(), cerr)
+			}
 			return false, resultFor(rec, ""), cerr
 		}
 		switch {
@@ -332,6 +392,14 @@ func (m *Mesh) stepInflight(
 		}
 		hash, done, err := m.econSettler.QueuedTx(rec.PendingID)
 		if err != nil && !done {
+			// Transient queue read failure — retry, but bound it like
+			// the other transport states so a dead store stalls out.
+			_ = m.inflight.Update(rec.PeerID, rec.Unit, func(r *econ.InflightRecord) {
+				r.Attempts++
+			})
+			if rec.Attempts+1 >= settlePhase2MaxAttempts {
+				return fail(econ.SettleStalled, "queue lookup retries exhausted: "+err.Error(), err)
+			}
 			return false, resultFor(rec, ""), err
 		}
 		if !done {
@@ -609,6 +677,29 @@ func (m *Mesh) handleSettleOfferWeb3(from peer.ID, offer *econ.SettleOffer, star
 	}
 	matched, err := econ.MatchReceivables(m.econLedger.Entries(), offer)
 	if err != nil {
+		if offer.TxHash != "" {
+			// Phase-2 redelivery after a lost ack: this node already
+			// verified the transfer and settled these receivables under
+			// the offer's tx — re-ack idempotently rather than rejecting
+			// a settlement that committed. The payer's retry offer is a
+			// new document (fresh nonce/ts), so the ack carries this
+			// offer's id while our receivable rows keep the original
+			// settle_id; both sides converge on settled state under the
+			// same tx hash, which is the shared anchor.
+			if already, aerr := econ.MatchSettledReceivables(
+				m.econLedger.Entries(), offer); aerr == nil && already != nil {
+				m.auditMeshFields(from, "econ.settle_offer", "", offer.ID(),
+					"ok", started, "", map[string]any{
+						"unit": offer.Unit, "amount": offer.Total,
+						"tx_hash": offer.TxHash, "entry_ids": entryIDs(already),
+						"outcome": OutcomeCompleted, "redelivery": true,
+					})
+				return econResponse{
+					OK: true, Kind: "settle_ack", Accepted: true,
+					SettleID: offer.ID(),
+				}
+			}
+		}
 		return reject(err.Error())
 	}
 	if offer.TxHash == "" {
@@ -619,6 +710,15 @@ func (m *Mesh) handleSettleOfferWeb3(from peer.ID, offer *econ.SettleOffer, star
 			OK: true, Kind: "settle_ack", Accepted: true,
 			AwaitingTx: true, SettleID: offer.ID(),
 		}
+	}
+	// A settlement tx is single-use. The matched receivables are fresh
+	// (still accrued), so the hash must be too: a tx that already closed
+	// any settled entry belongs to a different entry set — replaying it
+	// here would mark new debt paid with no new payment. The legitimate
+	// repeat — the identical entry set re-offered after a lost ack —
+	// took the MatchSettledReceivables branch above.
+	if econ.SettleTXConsumed(m.econLedger.Entries(), offer.TxHash) {
+		return reject("payment tx already consumed by a prior settlement")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()

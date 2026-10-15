@@ -231,6 +231,23 @@ func TestSignRawChainPinRefuses(t *testing.T) {
 	assert.Contains(t, err.Error(), "chain pin")
 }
 
+// A nil payment commitment (e.g. a journaled record with payment:null)
+// must error, never panic — Queue and SignRaw dereference p.From before
+// paymentTx's own nil check.
+func TestNilPaymentCommitmentGuard(t *testing.T) {
+	//nolint:dogsled // fixture returns (chain, stack, backend, payer); only the backend is exercised.
+	_, _, b, _ := newRailFixture(t, "approval")
+	err := b.Queue(context.Background(), nil, "1", "deadbeefcafef00d")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing payment commitment")
+
+	//nolint:dogsled // fixture returns (chain, stack, backend, payer); only the backend is exercised.
+	_, _, bw, _ := newRailFixture(t, "wallet")
+	_, _, err = bw.SignRaw(context.Background(), nil, "1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing payment commitment")
+}
+
 func TestSignerModeDefaultAndValidate(t *testing.T) {
 	b, err := New(nil, nil, Options{})
 	require.NoError(t, err)

@@ -3,6 +3,7 @@ package mesh
 import (
 	"context"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/stpinkie/rhizome/pkg/config"
 	"github.com/stpinkie/rhizome/pkg/rhizome/econ"
 	"github.com/stpinkie/rhizome/pkg/rhizome/econweb3"
+	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	"github.com/stpinkie/rhizome/pkg/settlement"
 	"github.com/stpinkie/rhizome/pkg/web3"
 )
@@ -282,6 +284,197 @@ func TestTrack143PayeeWithoutWeb3Advert(t *testing.T) {
 	assert.Contains(t, err.Error(), "web3")
 }
 
+// A phase-2 ack lost after the payee committed (settle_tx written) must
+// not turn a completed settlement into a divergence: the retried offer —
+// a fresh document with a new nonce/id — re-acks against the rows already
+// settled under the same tx, and the payer converges to settled.
+func TestTrack143Phase2RedeliveryReAcks(t *testing.T) {
+	fx := newT143Fixture(t, "approval", "native")
+	fc, meshA, meshB, stack, payer := fx.fc, fx.a, fx.b, fx.stack, fx.payer
+	fc.MintNative(payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+	aID := meshA.node.ID().String()
+
+	pa := seedT143(t, meshA, bID, "task-l143", "0.2", econ.DirectionPayable)
+	rb := seedT143(t, meshB, aID, "task-l143", "0.2", econ.DirectionReceivable)
+
+	res, err := meshA.EconomySettleWeb3(ctx, bID, "USDC")
+	require.NoError(t, err)
+	require.Equal(t, econ.SettleAwaitingApproval, res.Status)
+
+	// Operator approves; the transfer executes for real on FakeChain.
+	_, err = stack.Pending.Resolve(res.PendingID, true, "operator")
+	require.NoError(t, err)
+	_, err = stack.Pending.ExecuteApproved(ctx, res.PendingID, stack.Wallets,
+		web3.NewStaticProvider(fc.Endpoint(), ""), stack.Ledger)
+	require.NoError(t, err)
+
+	// Land the record in broadcast: driveInflight would run phase 2 to
+	// completion in one pass, so step the awaiting_approval state only.
+	rec, err := meshA.inflightRecord(bID, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Equal(t, econ.SettleAwaitingApproval, rec.State)
+	advanced, res2, err := meshA.stepInflight(ctx, rec)
+	require.NoError(t, err)
+	require.Nil(t, res2)
+	require.True(t, advanced)
+
+	rec, err = meshA.inflightRecord(bID, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Equal(t, econ.SettleBroadcast, rec.State)
+	require.True(t, web3.IsHash32(rec.TxHash))
+
+	// The lost ack: deliver a phase-2 offer straight to the payee's
+	// handler — its receivables settle under the tx — and discard the
+	// response as if the frame never reached the payer.
+	offer2, err := econ.Phase2Offer(rec.Offer, rec.TxHash)
+	require.NoError(t, err)
+	require.NoError(t, offer2.Sign(meshA.id.PrivateKey))
+	resp := meshB.handleSettleOfferWeb3(meshA.node.ID(), offer2, time.Now())
+	require.True(t, resp.OK)
+	require.True(t, resp.Accepted)
+	require.NotEmpty(t, resp.SettleID)
+	require.Equal(t, econ.StateSettled, entryT143(t, meshB, rb.EntryID).State)
+	require.Equal(t, rec.TxHash, entryT143(t, meshB, rb.EntryID).SettleTX)
+
+	// The payer retries phase 2 with a new offer document. The payee
+	// must re-ack the committed settlement — not reject it.
+	meshA.settleDriveStep(ctx)
+
+	got := entryT143(t, meshA, pa.EntryID)
+	require.Equal(t, econ.StateSettled, got.State)
+	require.Equal(t, rec.TxHash, got.SettleTX)
+	// The payer's settle id is the retry offer's; the payee keeps the
+	// original. Both anchor the same on-chain tx — that is the shared ref.
+	require.NotEqual(t, resp.SettleID, got.SettleID)
+
+	recs, err := meshA.inflight.List()
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	require.Equal(t, econ.SettleSettled, recs[0].State)
+
+	// No false divergence: no disputed econ_settle outcome on either
+	// side, and the payee's completed outcome stands alone.
+	for _, tc := range []struct {
+		m    *Mesh
+		pidS string
+	}{{meshA, bID}, {meshB, aID}} {
+		sc, ok := tc.m.scoreStore.Get(mustPID(t, tc.pidS))
+		if !ok {
+			continue
+		}
+		for _, o := range sc.Outcomes {
+			require.False(t, o.Op == OpEconSettle && o.Outcome == OutcomeDisputed,
+				"redelivery must not record a disputed settle outcome")
+		}
+	}
+	sc, ok := meshB.scoreStore.Get(mustPID(t, aID))
+	require.True(t, ok)
+	require.Equal(t, 1, sc.OpStats[OpEconSettle].Successes)
+	require.Equal(t, 0, sc.OpStats[OpEconSettle].Failures)
+}
+
+// A settlement tx is single-use: a phase-2 offer that recycles a hash
+// already consumed by a DIFFERENT entry set must settle_reject — one real
+// payment can never close two debts. The same-entries retry after a lost
+// ack is the MatchSettledReceivables path (covered above); this is the
+// adversarial mirror of that redelivery.
+func TestTrack143RejectsReusedTxHash(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	fc, meshA, meshB, payer := fx.fc, fx.a, fx.b, fx.payer
+	fc.MintNative(payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+	aID := meshA.node.ID().String()
+
+	// Round 1: honest settle of task-1 for 0.2 native — tx consumed.
+	seedT143(t, meshA, bID, "task-1", "0.2", econ.DirectionPayable)
+	rb1 := seedT143(t, meshB, aID, "task-1", "0.2", econ.DirectionReceivable)
+	res, err := meshA.EconomySettleWeb3(ctx, bID, "USDC")
+	require.NoError(t, err)
+	require.Equal(t, econ.SettleSettled, res.Status)
+	tx1 := res.TxHash
+	require.True(t, web3.IsHash32(tx1))
+	require.Equal(t, tx1, entryT143(t, meshB, rb1.EntryID).SettleTX)
+	require.Equal(t, "200000000000000000", fc.NativeBalance(t143Payee).String())
+
+	// Round 2: new work accrues at the same flat price; the payer crafts
+	// a phase-2 offer recycling tx1 for the fresh entries.
+	rb2 := seedT143(t, meshB, aID, "task-2", "0.2", econ.DirectionReceivable)
+	evil := &econ.SettleOffer{
+		Protocol: "econ/1.0.0",
+		Issuer:   aID,
+		PeerID:   bID,
+		Unit:     "USDC",
+		Entries:  []string{"task-2"},
+		Total:    "0.2",
+		Cutoff:   time.Now().UTC(),
+		TS:       time.Now().UTC(),
+		Nonce:    "deadbeefdeadbeefdeadbeefdeadbeef",
+		Backend:  "web3",
+		Payment: &econ.SettlePayment{
+			ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: payer,
+		},
+		TxHash: tx1,
+	}
+	require.NoError(t, evil.Sign(meshA.id.PrivateKey))
+
+	resp := meshB.handleSettleOfferWeb3(meshA.node.ID(), evil, time.Now())
+	assert.Equal(t, "settle_reject", resp.Kind)
+	assert.Contains(t, resp.Reason, "already consumed")
+	// The fresh receivable stays accrued — no free settlement.
+	assert.Equal(t, econ.StateAccrued, entryT143(t, meshB, rb2.EntryID).State)
+}
+
+// A journal record this node didn't issue — foreign issuer or missing
+// offer — must never reach the signer or the queue. stepInflight refuses
+// before any state logic, so a tampered/shared journal file can't drive
+// a payment and can't panic the daemon.
+func TestTrack143ForeignJournalRecordNotDriven(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	meshA := fx.a
+	ctx := context.Background()
+
+	foreign := &econ.InflightRecord{
+		Key:    "peer|USDC",
+		PeerID: "peer",
+		Unit:   "USDC",
+		State:  econ.SettlePaying,
+		Offer:  &econ.SettleOffer{Issuer: "someone-else", Total: "5"},
+		Payment: &econ.SettlePayment{
+			ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+		},
+	}
+	res, err := func() (r *Web3SettleResult, err error) {
+		_, r, err = meshA.stepInflight(ctx, foreign)
+		return r, err
+	}()
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Contains(t, res.Note, "not issued by this node")
+	// Nothing reached the pending queue.
+	entries, err := fx.stack.Pending.List()
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+
+	// The nil-offer record — previously a nil-pointer dereference.
+	noOffer := &econ.InflightRecord{
+		Key:    "peer2|USDC",
+		PeerID: "peer2",
+		Unit:   "USDC",
+		State:  econ.SettlePaying,
+		Payment: &econ.SettlePayment{
+			ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+		},
+	}
+	require.NotPanics(t, func() {
+		_, _, _ = meshA.stepInflight(ctx, noOffer)
+	})
+}
+
 func TestTrack143RequiresConfiguredSettler(t *testing.T) {
 	cfgA := config.MeshConfig{Enabled: true, Economy: t143Econ(t143AltAddr, "native", "wallet", t143AltAddr)}
 	cfgB := config.MeshConfig{Enabled: true, Economy: t143Econ(t143Payee, "native", "", "")}
@@ -292,4 +485,270 @@ func TestTrack143RequiresConfiguredSettler(t *testing.T) {
 	_, err := meshA.EconomySettleWeb3(context.Background(), bID, "USDC")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not configured")
+}
+
+// A forged record that names this node as issuer slips past the naive
+// issuer check — but the journaled offer must verify against our own
+// key, and the stored payment must equal the offer's signature-bound
+// payment. Either failure goes terminal-failed without touching the
+// signer: a tampered economy-settle-inflight.json can't spend.
+func TestTrack143ForgedIssuerRecordNotDriven(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	fc, meshA, meshB := fx.fc, fx.a, fx.b
+	fc.MintNative(fx.payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+	attacker := "0x8888888888888888888888888888888888888888"
+
+	evilPayment := &econ.SettlePayment{
+		ChainID: t143ChainID, Address: attacker, Asset: "native", From: fx.payer,
+	}
+	// Issuer copied from this node — but nothing signed by our key.
+	forged := &econ.SettleOffer{
+		Issuer:  meshA.selfID(),
+		PeerID:  bID,
+		Unit:    "USDC",
+		Total:   "5",
+		Payment: evilPayment,
+	}
+	_, owned, err := meshA.inflight.Acquire(bID, "USDC", forged, evilPayment)
+	require.NoError(t, err)
+	require.True(t, owned)
+	require.NoError(t, meshA.inflight.Update(bID, "USDC", func(r *econ.InflightRecord) {
+		r.State = econ.SettlePaying
+	}))
+	rec, err := meshA.inflightRecord(bID, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	res, err := func() (*Web3SettleResult, error) {
+		_, r, err := meshA.stepInflight(ctx, rec)
+		return r, err
+	}()
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, econ.SettleFailed, res.Status)
+	assert.Contains(t, res.Note, "signature")
+	assert.Equal(t, "0", fc.NativeBalance(attacker).String(),
+		"a forged journal record must never reach the signer")
+
+	recs, err := meshA.inflight.Live()
+	require.NoError(t, err)
+	assert.Empty(t, recs, "tampered record goes terminal — it is not retried")
+}
+
+// A captured record keeps a valid signature but has its journaled
+// payment rewritten: the offer verifies, the payment diverges — refused
+// the same way. Trusting rec.Payment alone would pay the attacker.
+func TestTrack143TamperedPaymentNotDriven(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	fc, meshA, meshB := fx.fc, fx.a, fx.b
+	fc.MintNative(fx.payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+	attacker := "0x8888888888888888888888888888888888888888"
+
+	seedT143(t, meshA, bID, "task-t143", "0.2", econ.DirectionPayable)
+	offer, err := econ.BuildOffer(meshA.selfID(), bID, "USDC",
+		meshA.econLedger.Entries(), time.Now().UTC())
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+	offer.Backend = "web3"
+	offer.Payment = &econ.SettlePayment{
+		ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+	}
+	require.NoError(t, offer.Sign(meshA.id.PrivateKey))
+	_, owned, err := meshA.inflight.Acquire(bID, "USDC", offer, offer.Payment)
+	require.NoError(t, err)
+	require.True(t, owned)
+
+	require.NoError(t, meshA.inflight.Update(bID, "USDC", func(r *econ.InflightRecord) {
+		r.Payment = &econ.SettlePayment{
+			ChainID: t143ChainID, Address: attacker, Asset: "native", From: fx.payer,
+		}
+		r.State = econ.SettlePaying
+	}))
+	rec, err := meshA.inflightRecord(bID, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	res, err := func() (*Web3SettleResult, error) {
+		_, r, err := meshA.stepInflight(ctx, rec)
+		return r, err
+	}()
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, econ.SettleFailed, res.Status)
+	assert.Contains(t, res.Note, "diverges")
+	assert.Equal(t, "0", fc.NativeBalance(attacker).String())
+	assert.Equal(t, "0", fc.NativeBalance(t143Payee).String())
+}
+
+// An offered-state record retries phase-1 delivery — but bounded like
+// every other transport state: a permanently dead peer stalls the
+// record instead of spinning the watcher forever.
+func TestTrack143OfferedRetriesStall(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	meshA := fx.a
+	ctx := context.Background()
+	dead := testutil.NewIdentity(t).PeerID
+
+	seedT143(t, meshA, dead, "task-s143", "0.2", econ.DirectionPayable)
+	offer, err := econ.BuildOffer(meshA.selfID(), dead, "USDC",
+		meshA.econLedger.Entries(), time.Now().UTC())
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+	offer.Backend = "web3"
+	offer.Payment = &econ.SettlePayment{
+		ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+	}
+	require.NoError(t, offer.Sign(meshA.id.PrivateKey))
+	_, owned, err := meshA.inflight.Acquire(dead, "USDC", offer, offer.Payment)
+	require.NoError(t, err)
+	require.True(t, owned)
+	require.NoError(t, meshA.inflight.Update(dead, "USDC", func(r *econ.InflightRecord) {
+		r.Attempts = settlePhase2MaxAttempts - 1
+	}))
+	rec, err := meshA.inflightRecord(dead, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	res, err := func() (*Web3SettleResult, error) {
+		_, r, err := meshA.stepInflight(ctx, rec)
+		return r, err
+	}()
+	require.Error(t, err, "the transport failure surfaces as the cause")
+	require.NotNil(t, res)
+	assert.Equal(t, econ.SettleStalled, res.Status)
+}
+
+// The economy snapshot must not serve journaled raw signed transactions
+// — broadcastable payload — on a read surface.
+func TestTrack143EconomyViewRedactsSignedRaw(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	meshA, meshB := fx.a, fx.b
+	bID := meshB.node.ID().String()
+
+	seedT143(t, meshA, bID, "task-v143", "0.1", econ.DirectionPayable)
+	offer, err := econ.BuildOffer(meshA.selfID(), bID, "USDC",
+		meshA.econLedger.Entries(), time.Now().UTC())
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+	offer.Backend = "web3"
+	offer.Payment = &econ.SettlePayment{
+		ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+	}
+	require.NoError(t, offer.Sign(meshA.id.PrivateKey))
+	_, owned, err := meshA.inflight.Acquire(bID, "USDC", offer, offer.Payment)
+	require.NoError(t, err)
+	require.True(t, owned)
+	txHash := "0x" + strings.Repeat("ab", 32)
+	require.NoError(t, meshA.inflight.Update(bID, "USDC", func(r *econ.InflightRecord) {
+		r.State = econ.SettleBroadcast
+		r.TxHash = txHash
+		r.SignedRaw = "0xdeadbeef"
+	}))
+
+	v := meshA.EconomyView()
+	require.NotNil(t, v)
+	require.Len(t, v.Inflight, 1)
+	assert.Empty(t, v.Inflight[0].SignedRaw,
+		"signed raw is crash-resume material, not something a status endpoint serves")
+	assert.Equal(t, txHash, v.Inflight[0].TxHash)
+
+	// The journaled record keeps its resume material untouched.
+	recs, err := meshA.inflight.Live()
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, "0xdeadbeef", recs[0].SignedRaw)
+}
+
+// An approval-queue send that lands while its reply is lost must not go
+// down as "failed" — that posture would mint a second payment for the
+// same debt on retry. ExecuteApproved adopts the on-chain hash and the
+// settle completes normally.
+func TestTrack143ApprovalSendReplyLostAdopts(t *testing.T) {
+	fx := newT143Fixture(t, "approval", "native")
+	fc, meshA, meshB, stack, payer := fx.fc, fx.a, fx.b, fx.stack, fx.payer
+	fc.MintNative(payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+	aID := meshA.node.ID().String()
+
+	pa := seedT143(t, meshA, bID, "task-lost143", "0.3", econ.DirectionPayable)
+	rb := seedT143(t, meshB, aID, "task-lost143", "0.3", econ.DirectionReceivable)
+
+	res, err := meshA.EconomySettleWeb3(ctx, bID, "USDC")
+	require.NoError(t, err)
+	require.Equal(t, econ.SettleAwaitingApproval, res.Status)
+
+	_, err = stack.Pending.Resolve(res.PendingID, true, "operator")
+	require.NoError(t, err)
+
+	// The send lands but the reply is lost in transit.
+	fc.SetSendReplyError("gateway timeout")
+	t.Cleanup(func() { fc.SetSendReplyError("") })
+	done, err := stack.Pending.ExecuteApproved(ctx, res.PendingID, stack.Wallets,
+		web3.NewStaticProvider(fc.Endpoint(), ""), stack.Ledger)
+	require.NoError(t, err)
+	require.Equal(t, web3.StatusSent, done.Status)
+	require.True(t, web3.IsHash32(done.TxHash))
+	// Money moved once — the reply was lost, not the send.
+	assert.Equal(t, "300000000000000000", fc.NativeBalance(t143Payee).String())
+
+	meshA.settleDriveStep(ctx)
+	assert.Equal(t, econ.StateSettled, entryT143(t, meshA, pa.EntryID).State)
+	assert.Equal(t, econ.StateSettled, entryT143(t, meshB, rb.EntryID).State)
+	assert.Equal(t, done.TxHash, entryT143(t, meshA, pa.EntryID).SettleTX)
+}
+
+// A record whose journal key disagrees with its peer/unit fields is a
+// tampered write: transitions derive the key from the fields, so it
+// could never mutate while staying live — an endless re-drive that
+// burned signer and RPC calls on every watcher tick. The desync check
+// fails it out terminally before any state reaches the signer.
+func TestTrack143DesyncedRecordKeyFails(t *testing.T) {
+	fx := newT143Fixture(t, "wallet", "native")
+	fc, meshA, meshB := fx.fc, fx.a, fx.b
+	fc.MintNative(fx.payer, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	ctx := context.Background()
+	bID := meshB.node.ID().String()
+
+	seedT143(t, meshA, bID, "task-k143", "0.2", econ.DirectionPayable)
+	offer, err := econ.BuildOffer(meshA.selfID(), bID, "USDC",
+		meshA.econLedger.Entries(), time.Now().UTC())
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+	offer.Backend = "web3"
+	offer.Payment = &econ.SettlePayment{
+		ChainID: t143ChainID, Address: t143Payee, Asset: "native", From: fx.payer,
+	}
+	require.NoError(t, offer.Sign(meshA.id.PrivateKey))
+	_, owned, err := meshA.inflight.Acquire(bID, "USDC", offer, offer.Payment)
+	require.NoError(t, err)
+	require.True(t, owned)
+	// Corrupt the record's peer field after the keyed write lands —
+	// derived-key updates can no longer reach it.
+	require.NoError(t, meshA.inflight.Update(bID, "USDC", func(r *econ.InflightRecord) {
+		r.PeerID = testutil.NewIdentity(t).PeerID
+		r.State = econ.SettlePaying
+	}))
+	rec, err := meshA.inflightRecord(bID, "USDC")
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	res, err := func() (*Web3SettleResult, error) {
+		_, r, err := meshA.stepInflight(ctx, rec)
+		return r, err
+	}()
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, econ.SettleFailed, res.Status)
+	assert.Contains(t, res.Note, "key")
+	assert.Equal(t, "0", fc.NativeBalance(t143Payee).String(),
+		"a desynced record must never reach the signer")
+
+	recs, err := meshA.inflight.Live()
+	require.NoError(t, err)
+	assert.Empty(t, recs, "a desynced record goes terminal — the watcher cannot loop on it")
 }

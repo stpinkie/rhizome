@@ -226,3 +226,132 @@ func TestPending_BoundsQueue(t *testing.T) {
 		t.Fatal("101st live pending entry must be refused")
 	}
 }
+
+// A broadcast whose reply was lost must not record "failed": when the
+// signed hash is already visible on-chain the entry completes as sent —
+// a blind failure would invite a second payment for the same debt.
+func TestPending_ExecuteApprovedAdoptsLandedSend(t *testing.T) {
+	useScryptWallet(t)
+	dir := t.TempDir()
+	wallets := OpenWalletStore(dir)
+	if _, err := wallets.Import(testKeyOne, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := rpcServer(t, func(method string, _ json.RawMessage, _ uint64) (any, *RPCError) {
+		switch method {
+		case "eth_chainId":
+			return "0xaa36a7", nil // sepolia
+		case "eth_getTransactionCount":
+			return "0x0", nil
+		case "eth_estimateGas":
+			return "0x5208", nil
+		case "eth_getBlockByNumber":
+			return map[string]any{
+				"number": "0x1", "hash": "0xabc", "parentHash": "0x0",
+				"timestamp": "0x1", "gasUsed": "0x0", "gasLimit": "0x0",
+				"baseFeePerGas": "0x3b9aca00", "transactions": []any{},
+			}, nil
+		case "eth_maxPriorityFeePerGas":
+			return "0x3b9aca00", nil
+		case "eth_sendRawTransaction":
+			// The reply never arrives — but the tx landed.
+			return nil, &RPCError{Code: -32603, Message: "gateway timeout"}
+		case "eth_getTransactionByHash":
+			// The endpoint sees the hash — the send landed.
+			return map[string]any{"hash": "0xabc", "blockNumber": "0x1"}, nil
+		default:
+			t.Fatalf("unexpected method %q", method)
+			return nil, nil
+		}
+	})
+	defer srv.Close()
+	provider := NewStaticProvider(srv.URL, "")
+	ledger := OpenSpendLedger(dir)
+
+	s := OpenPendingStore(dir)
+	e, err := s.Submit(&PendingEntry{
+		Kind: KindSend, ChainID: 11155111, From: testKeyOneAddr,
+		To:       "0x00000000000000000000000000000000000000ff",
+		ValueWei: "42", Summary: "send 42 wei",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Resolve(e.ID, true, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	done, err := s.ExecuteApproved(context.Background(), e.ID, wallets, provider, ledger)
+	if err != nil {
+		t.Fatalf("a landed send must complete, not fail: %v", err)
+	}
+	if done.Status != StatusSent || !IsHash32(done.TxHash) {
+		t.Fatalf("landed send must adopt the signed hash, got %+v", done)
+	}
+	spent, err := ledger.SpendSince(testKeyOneAddr, time.Now().UTC().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spent.Cmp(big.NewInt(42)) != 0 {
+		t.Fatalf("ledger spend = %s, want 42", spent)
+	}
+}
+
+// The mirror: a broadcast that genuinely didn't reach the chain still
+// records failed — the on-chain lookup distinguishes the two cases.
+func TestPending_ExecuteApprovedUnlandedSendFails(t *testing.T) {
+	useScryptWallet(t)
+	dir := t.TempDir()
+	wallets := OpenWalletStore(dir)
+	if _, err := wallets.Import(testKeyOne, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := rpcServer(t, func(method string, _ json.RawMessage, _ uint64) (any, *RPCError) {
+		switch method {
+		case "eth_chainId":
+			return "0xaa36a7", nil
+		case "eth_getTransactionCount":
+			return "0x0", nil
+		case "eth_estimateGas":
+			return "0x5208", nil
+		case "eth_getBlockByNumber":
+			return map[string]any{
+				"number": "0x1", "hash": "0xabc", "parentHash": "0x0",
+				"timestamp": "0x1", "gasUsed": "0x0", "gasLimit": "0x0",
+				"baseFeePerGas": "0x3b9aca00", "transactions": []any{},
+			}, nil
+		case "eth_maxPriorityFeePerGas":
+			return "0x3b9aca00", nil
+		case "eth_sendRawTransaction":
+			return nil, &RPCError{Code: -32603, Message: "gateway timeout"}
+		case "eth_getTransactionByHash":
+			return nil, nil // not found — the send never landed
+		default:
+			t.Fatalf("unexpected method %q", method)
+			return nil, nil
+		}
+	})
+	defer srv.Close()
+
+	s := OpenPendingStore(dir)
+	e, err := s.Submit(&PendingEntry{
+		Kind: KindSend, ChainID: 11155111, From: testKeyOneAddr,
+		To:       "0x00000000000000000000000000000000000000ff",
+		ValueWei: "42", Summary: "send 42 wei",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Resolve(e.ID, true, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	done, err := s.ExecuteApproved(context.Background(), e.ID, wallets,
+		NewStaticProvider(srv.URL, ""), nil)
+	if err == nil {
+		t.Fatal("an unlanded broadcast must still record failed")
+	}
+	if done.Status != StatusFailed {
+		t.Fatalf("status = %s, want failed", done.Status)
+	}
+}

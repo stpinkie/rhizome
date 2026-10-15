@@ -67,6 +67,11 @@ type FakeChain struct {
 	klerosSeq               uint64            // dispute id mint seq
 	klerosDisputes          map[uint64]string // disputeID -> sessionID hex
 	klerosDisputesBySession map[string]uint64 // sessionID hex -> disputeID
+
+	// sendReplyErr, when non-empty, makes eth_sendRawTransaction apply
+	// the tx but answer with an RPC error — the "send landed while the
+	// reply was lost" edge the approval executor must not misrecord.
+	sendReplyErr string
 }
 
 type fakeEscrow struct {
@@ -142,6 +147,15 @@ func (fc *FakeChain) Endpoint() string { return fc.srv.URL }
 
 // SetNow pins the block timestamp (unix seconds).
 func (fc *FakeChain) SetNow(unix int64) { fc.mu.Lock(); fc.now = unix; fc.mu.Unlock() }
+
+// SetSendReplyError makes eth_sendRawTransaction apply the tx but answer
+// with an RPC error carrying msg — a landed send whose reply never
+// reached the sender. Pass "" to clear.
+func (fc *FakeChain) SetSendReplyError(msg string) {
+	fc.mu.Lock()
+	fc.sendReplyErr = msg
+	fc.mu.Unlock()
+}
 
 // Advance moves the block clock forward — drives termination boundaries.
 func (fc *FakeChain) Advance(secs int64) { fc.mu.Lock(); fc.now += secs; fc.mu.Unlock() }
@@ -573,8 +587,12 @@ func (fc *FakeChain) ethSendRawTransaction(params []json.RawMessage) (any, *rpcE
 		return nil, rpcErr(-32602, "fakechain: raw tx hex: "+derr.Error())
 	}
 	txHash := "0x" + hex.EncodeToString(web3.Keccak256(rawBytes))
-	return fc.applyTx(normAddr(dt.From), normAddr(dt.To), dt.Data, dt.To,
+	res, rerr := fc.applyTx(normAddr(dt.From), normAddr(dt.To), dt.Data, dt.To,
 		dt.ValueWei, dt.ChainID, dt.Nonce, txHash)
+	if rerr == nil && fc.sendReplyErr != "" {
+		return nil, rpcErr(-32603, fc.sendReplyErr)
+	}
+	return res, rerr
 }
 
 // ethGetTransactionCount returns the sender's mined-tx count.

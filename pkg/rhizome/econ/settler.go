@@ -17,6 +17,18 @@ func IsVerifyPending(err error) bool {
 	return errors.Is(err, ErrVerifyPending)
 }
 
+// ErrQueueEntryExists reports a Queue call under a pending id that is
+// already in the approval queue — the crash-resume signal that the
+// submit landed before the crash. The mesh adopts the existing entry
+// rather than failing the record. Rails translate their store's
+// duplicate-id error into this sentinel.
+var ErrQueueEntryExists = errors.New("queue entry already exists")
+
+// IsQueueEntryExists reports whether err marks a duplicate queue submit.
+func IsQueueEntryExists(err error) bool {
+	return errors.Is(err, ErrQueueEntryExists)
+}
+
 // Settler is the close-out rail behind a settle_backend=web3 node —
 // implemented by pkg/rhizome/econweb3 and declared here so the mesh
 // drives it without importing the web3 stack. The mesh owns the

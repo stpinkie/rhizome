@@ -281,16 +281,18 @@ for execution claims; portable signed reputation.
 
 ## Appendix — superseded seed: intra-mesh bilateral-ledger economy
 
-**Scheduled → v0.17.0 (Tracks 137–147, `v0.17.0-sprint.md` — "Paired
-Settlement").** Picked up as the trusted tier of the economy story: the
-right shape for *inter-operator* settlement between paired meshes (two
-different operators who paired — ledger as invoice/reconciliation); it is
-not an economy between a single operator's own nodes. The sketch below is
-the seed the sprint doc refines — notable deltas there: billing is scoped
-by an explicit `bill_peers` allowlist (never implied by trust), wire fields
+**Shipped → v0.17.0 (Tracks 137–147, `v0.17.0-sprint.md` — "Paired
+Settlement"; tag pending).** Landed as the trusted tier of the economy
+story: *inter-operator* settlement between paired meshes (two different
+operators who paired — ledger as invoice/reconciliation); it is not an
+economy between a single operator's own nodes. The sketch below is the
+seed the sprint doc refined — notable deltas there: billing is scoped by
+an explicit `bill_peers` allowlist (never implied by trust), wire fields
 are manifest-negotiated (the Track-94 `want_usage` pattern), and the
 "SettlementRail" name yielded to `econ.SettleBackend` since
-`pkg/settlement.Rail` now names the escrow lifecycle.
+`pkg/settlement.Rail` now names the escrow lifecycle. Operator guide:
+`docs/guides/economy.md`; divergence runbook:
+`docs/operations/economy-reconcile.md`.
 
 - `mesh.economy` config: `enabled, unit ("credits"), price_sheet
   {per_task, per_1k_prompt_tokens, per_1k_completion_tokens, per_second,

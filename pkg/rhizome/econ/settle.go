@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -240,6 +241,91 @@ func MatchReceivables(entries []Entry, offer *SettleOffer) ([]Entry, error) {
 			offer.Total, decimalString(total))
 	}
 	return matched, nil
+}
+
+// MatchSettledReceivables is the phase-2 redelivery path: a web3 offer
+// carrying TxHash whose receivables this node ALREADY settled under that
+// exact transaction — the shape of a retry after the first ack was lost
+// (the payee committed, the payer never saw it). Every offered work ref
+// must match exactly one settled receivable for the offer's issuer and
+// unit whose settle_tx equals the offer's TxHash, and the matched
+// amounts must sum to the offered total. Returns the matched entries on
+// success; a nil slice (no error) means the retry does not correspond
+// to a completed settlement and the caller rejects as a divergence.
+// The settle_tx marker is the proof: this node only writes it after a
+// successful on-chain Verify, so trusting it re-acks safely without a
+// second chain read — and a fabricated tx hash cannot match rows the
+// node never settled under it.
+func MatchSettledReceivables(entries []Entry, offer *SettleOffer) ([]Entry, error) {
+	if offer == nil {
+		return nil, fmt.Errorf("missing settle offer")
+	}
+	if offer.TxHash == "" {
+		return nil, nil
+	}
+	settled := make(map[string]*Entry) // workRef → settled receivable row
+	for i := range entries {
+		e := &entries[i]
+		if e.Direction != DirectionReceivable || e.State != StateSettled ||
+			e.PeerID != offer.Issuer || e.Unit != offer.Unit ||
+			!strings.EqualFold(e.SettleTX, offer.TxHash) {
+			continue
+		}
+		settled[e.workRef()] = e
+	}
+	if len(settled) == 0 {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	matched := make([]Entry, 0, len(offer.Entries))
+	total := new(big.Rat)
+	for _, ref := range offer.Entries {
+		if seen[ref] {
+			return nil, fmt.Errorf("duplicate work ref %s in offer", ref)
+		}
+		seen[ref] = true
+		e, ok := settled[ref]
+		if !ok {
+			// Some refs settled under this tx and some did not — a
+			// genuinely mixed offer is a divergence, not a redelivery.
+			return nil, nil
+		}
+		amt, ok := parseDecimal(e.Amount)
+		if !ok {
+			return nil, fmt.Errorf("entry %s has unparseable amount %q", e.EntryID, e.Amount)
+		}
+		total.Add(total, amt)
+		matched = append(matched, *e)
+	}
+	offered, ok := parseDecimal(offer.Total)
+	if !ok {
+		return nil, fmt.Errorf("offer total %q is not a decimal", offer.Total)
+	}
+	if offered.Cmp(total) != 0 {
+		return nil, nil
+	}
+	return matched, nil
+}
+
+// SettleTXConsumed reports whether any entry already carries
+// settle_tx == txHash — a spent payment proof. A settlement transaction
+// is single-use: it may only ever close the one entry set it paid for.
+// A phase-2 offer that matches FRESH accrued receivables must carry a
+// hash this ledger has never settled under; a consumed hash on fresh
+// entries is a reuse attempt (fresh debt marked paid with no fresh
+// payment). The legitimate repeat — the identical entry set re-offered
+// after a lost ack — is MatchSettledReceivables' job, reachable only
+// when the accrued match fails.
+func SettleTXConsumed(entries []Entry, txHash string) bool {
+	if txHash == "" {
+		return false
+	}
+	for _, e := range entries {
+		if e.State == StateSettled && strings.EqualFold(e.SettleTX, txHash) {
+			return true
+		}
+	}
+	return false
 }
 
 // EntriesDigest is the ledger_view digest — a content hash over the
