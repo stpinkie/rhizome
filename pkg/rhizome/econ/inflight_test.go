@@ -127,3 +127,48 @@ func TestInflightMintPendingIDShape(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, id, id2)
 }
+
+func TestInflightRedactedStripsSignedRaw(t *testing.T) {
+	rec := &InflightRecord{
+		Key: "peerB|USDC", PeerID: "peerB", Unit: "USDC",
+		State:     SettleBroadcast,
+		Offer:     t143Offer("issuerA", "peerB"),
+		TxHash:    "0xabc",
+		SignedRaw: "0xdeadbeef",
+	}
+	out := rec.Redacted()
+	require.NotNil(t, out)
+	assert.Empty(t, out.SignedRaw, "signed raw is crash-resume material, not display data")
+	assert.Equal(t, "0xabc", out.TxHash)
+	assert.Equal(t, SettleBroadcast, out.State)
+	// The source record keeps its resume material untouched.
+	assert.Equal(t, "0xdeadbeef", rec.SignedRaw)
+	assert.Nil(t, (*InflightRecord)(nil).Redacted())
+}
+
+func TestInflightUpdateByKeyReachesDesyncedRecord(t *testing.T) {
+	j := OpenInflightJournal(filepath.Join(t.TempDir(), "inflight.json"))
+	offer := t143Offer("issuerA", "peerB")
+	rec, owned, err := j.Acquire("peerB", "USDC", offer, offer.Payment)
+	require.NoError(t, err)
+	require.True(t, owned)
+
+	// Corrupt the peer field: the derived-key Update can no longer
+	// reach the record (it looks up peerX|USDC), so without a key-
+	// direct path the desynced record would stay live forever.
+	require.NoError(t, j.Update("peerB", "USDC", func(r *InflightRecord) {
+		r.PeerID = "peerX"
+	}))
+	require.Error(t, j.Update("peerX", "USDC", func(r *InflightRecord) {}),
+		"derived key no longer matches the stored journal key")
+
+	require.NoError(t, j.UpdateByKey(rec.Key, func(r *InflightRecord) {
+		r.State = SettleFailed
+		r.Error = "desynced"
+	}))
+	live, err := j.Live()
+	require.NoError(t, err)
+	assert.Empty(t, live, "UpdateByKey marks a desynced record terminal")
+	require.Error(t, j.UpdateByKey(rec.Key, func(r *InflightRecord) {}),
+		"terminal records are immutable")
+}

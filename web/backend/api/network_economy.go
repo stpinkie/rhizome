@@ -109,7 +109,7 @@ func (h *Handler) economyFromFiles() (*mesh.EconomyView, error) {
 			cfg.Mesh.Economy.SettleThreshold, cfg.Mesh.Economy.SettleGracePeriod, time.Now())
 	}
 	if n := len(entries); n > 0 {
-		start := n - 25
+		start := n - mesh.EconRecentLimit
 		if start < 0 {
 			start = 0
 		}
@@ -117,7 +117,12 @@ func (h *Handler) economyFromFiles() (*mesh.EconomyView, error) {
 	}
 	journal := econ.OpenInflightJournal(econ.InflightJournalPath(home))
 	if live, jerr := journal.Live(); jerr == nil && len(live) > 0 {
-		view.Inflight = live
+		// Strip journaled raw signed transactions — same read-surface
+		// posture as Mesh.EconomyView.
+		view.Inflight = make([]*econ.InflightRecord, len(live))
+		for i, r := range live {
+			view.Inflight[i] = r.Redacted()
+		}
 	}
 	return view, nil
 }

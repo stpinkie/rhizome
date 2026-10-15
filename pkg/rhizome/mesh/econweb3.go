@@ -249,12 +249,11 @@ func (m *Mesh) stepInflight(
 		return false, resultFor(rec,
 			"in-flight record was not issued by this node — inspect economy-settle-inflight.json"), nil
 	}
-	pid, err := peer.Decode(rec.PeerID)
-	if err != nil {
-		return false, nil, err
-	}
 	fail := func(state, msg string, cause error) (bool, *Web3SettleResult, error) {
-		_ = m.inflight.Update(rec.PeerID, rec.Unit, func(r *econ.InflightRecord) {
+		// Update by journal key, not the record's peer/unit fields —
+		// those fields are exactly what the tamper checks below
+		// distrust, and a desynced record must still be markable.
+		_ = m.inflight.UpdateByKey(rec.Key, func(r *econ.InflightRecord) {
 			r.State = state
 			r.Error = msg
 		})
@@ -270,6 +269,39 @@ func (m *Mesh) stepInflight(
 		}
 		m.settleEvent(rec, state, map[string]any{"error": msg})
 		return false, resultFor(rec, ""), cause
+	}
+	// The journal keys records peerID|unit — a record whose fields
+	// disagree with its key is a tampered/corrupt write: transitions
+	// derive the key from the fields, so it could never mutate while
+	// staying live — an endless re-drive that also burned signer and
+	// RPC calls on every watcher tick. Fail it out terminally instead.
+	if rec.Key != rec.PeerID+"|"+rec.Unit {
+		return fail(econ.SettleFailed,
+			"journal key does not match record peer/unit — economy-settle-inflight.json is tampered; refusing to drive", nil)
+	}
+	// The issuer string alone is forgeable — a tampered write just names
+	// this node. Before any state reaches the signer or the queue, the
+	// journaled offer must verify against our own key (it was signed at
+	// build), and the stored payment must equal the offer's
+	// signature-bound payment — a captured record with a rewritten
+	// destination still fails here.
+	if m.id == nil || m.id.Libp2pPubKey == nil {
+		return fail(econ.SettleFailed, "no identity key to verify the journaled offer", nil)
+	}
+	if verr := rec.Offer.Verify(m.id.Libp2pPubKey); verr != nil {
+		return fail(econ.SettleFailed,
+			"journaled offer fails signature verification — economy-settle-inflight.json is tampered; refusing to drive", nil)
+	}
+	if rec.Offer.Payment == nil || rec.Payment == nil || *rec.Payment != *rec.Offer.Payment {
+		return fail(econ.SettleFailed,
+			"journaled payment diverges from the signed offer — economy-settle-inflight.json is tampered; refusing to drive", nil)
+	}
+	pid, err := peer.Decode(rec.PeerID)
+	if err != nil {
+		// Acquire only journals peer ids this node already decoded —
+		// an undecodable id on a live record is a tampered write too.
+		return fail(econ.SettleFailed,
+			"journal record peer id does not decode — economy-settle-inflight.json is tampered; refusing to drive", err)
 	}
 
 	switch rec.State {
@@ -321,6 +353,12 @@ func (m *Mesh) stepInflight(
 		// phase-1 handler is stateless, so a repeat offer is safe).
 		resp, cerr := m.econCall(ctx, pid, econRequest{Op: "settle_offer", Offer: rec.Offer})
 		if cerr != nil {
+			_ = m.inflight.Update(rec.PeerID, rec.Unit, func(r *econ.InflightRecord) {
+				r.Attempts++
+			})
+			if rec.Attempts+1 >= settlePhase2MaxAttempts {
+				return fail(econ.SettleStalled, "phase-1 delivery retries exhausted: "+cerr.Error(), cerr)
+			}
 			return false, resultFor(rec, ""), cerr
 		}
 		switch {
@@ -345,6 +383,14 @@ func (m *Mesh) stepInflight(
 		}
 		hash, done, err := m.econSettler.QueuedTx(rec.PendingID)
 		if err != nil && !done {
+			// Transient queue read failure — retry, but bound it like
+			// the other transport states so a dead store stalls out.
+			_ = m.inflight.Update(rec.PeerID, rec.Unit, func(r *econ.InflightRecord) {
+				r.Attempts++
+			})
+			if rec.Attempts+1 >= settlePhase2MaxAttempts {
+				return fail(econ.SettleStalled, "queue lookup retries exhausted: "+err.Error(), err)
+			}
 			return false, resultFor(rec, ""), err
 		}
 		if !done {

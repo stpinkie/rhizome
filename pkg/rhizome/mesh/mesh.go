@@ -286,6 +286,12 @@ type Mesh struct {
 	// and synchronous settle calls (one driver per record at a time).
 	settleDrive   map[string]bool
 	settleDriveMu sync.Mutex
+
+	// overdueNotified dedupes the per-epoch overdue penalty beyond the
+	// bounded score Outcomes list — an evicted ref must not re-arm the
+	// penalty while the same debt epoch stays unpaid.
+	overdueNotified   map[string]time.Time
+	overdueNotifiedMu sync.Mutex
 }
 
 // maxEconSent bounds the caller-side negotiated-terms journal.
@@ -308,19 +314,20 @@ func NewMesh(
 	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error),
 ) *Mesh {
 	m := &Mesh{
-		node:        node,
-		syncer:      syncer,
-		id:          id,
-		cfg:         cfg,
-		host:        node.Host(),
-		caps:        make(map[peer.ID]Capability),
-		trust:       make(map[peer.ID]bool),
-		runFunc:     runFunc,
-		stop:        make(chan struct{}),
-		replay:      newReplayGuard(cfg.RequestMaxSkew),
-		econSent:    make(map[string]econSentRecord),
-		inflight:    econ.OpenInflightJournal(econ.InflightJournalPath(config.GetHome())),
-		settleDrive: make(map[string]bool),
+		node:            node,
+		syncer:          syncer,
+		id:              id,
+		cfg:             cfg,
+		host:            node.Host(),
+		caps:            make(map[peer.ID]Capability),
+		trust:           make(map[peer.ID]bool),
+		runFunc:         runFunc,
+		stop:            make(chan struct{}),
+		replay:          newReplayGuard(cfg.RequestMaxSkew),
+		econSent:        make(map[string]econSentRecord),
+		inflight:        econ.OpenInflightJournal(econ.InflightJournalPath(config.GetHome())),
+		settleDrive:     make(map[string]bool),
+		overdueNotified: make(map[string]time.Time),
 	}
 	if l, err := econ.OpenLedger(defaultLedgerPath()); err != nil {
 		logger.WarnCF("mesh", "economy ledger open failed; charges will not be journaled", map[string]any{

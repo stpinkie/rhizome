@@ -23,8 +23,12 @@ import (
 // posture — session refs + value commitments in Outcomes, never raw amounts;
 // op counters under econ_charge/econ_settle/econ_dispute.
 
-// econRecentLimit bounds the recent-charges tail on the economy snapshot.
-const econRecentLimit = 25
+// EconRecentLimit bounds the recent-charges tail on the economy snapshot.
+const EconRecentLimit = 25
+
+// overdueNotifyTTL bounds the in-memory overdue dedupe — an epoch still
+// unpaid this long re-fires once rather than going silent.
+const overdueNotifyTTL = 30 * 24 * time.Hour
 
 // econValueHash commits charged/settled value without persisting amounts —
 // sha256 over the joined parts, same posture as the market value_hash.
@@ -264,7 +268,13 @@ func (m *Mesh) econSweepOverdue(now time.Time) {
 		}
 		sort.Strings(ids)
 		sessionID := "overdue|" + unit + "|" + econValueHash(ids...)[:16]
-		if m.hasOutcomeSession(peerID, OpEconSettle, sessionID) {
+		// The persisted outcome ref is the restart-safe dedupe, but it
+		// can evict from the bounded Outcomes list under churn — the
+		// in-memory set covers eviction within a process lifetime and
+		// also records the ref's own hits, so an evicted epoch stays
+		// deduped until the TTL lapses.
+		if m.overdueDedup(sessionID, now) ||
+			m.hasOutcomeSession(peerID, OpEconSettle, sessionID) {
 			continue
 		}
 		amount := "0"
@@ -290,6 +300,27 @@ func (m *Mesh) econSweepOverdue(now time.Time) {
 				})
 		}
 	}
+}
+
+// overdueDedup reports whether this process already notified the epoch —
+// the dedupe that survives Outcomes-list eviction (the score ref lives
+// only 32 entries deep). Entries hold their FIRST notification time:
+// hits inside the TTL do not refresh, so an epoch still unpaid past it
+// re-fires once (a fresh stamp) rather than going silent; epochs that
+// left the overdue set expire out of the map on the same TTL.
+func (m *Mesh) overdueDedup(sessionID string, now time.Time) bool {
+	m.overdueNotifiedMu.Lock()
+	defer m.overdueNotifiedMu.Unlock()
+	for k, t := range m.overdueNotified {
+		if now.Sub(t) > overdueNotifyTTL {
+			delete(m.overdueNotified, k)
+		}
+	}
+	_, seen := m.overdueNotified[sessionID]
+	if !seen {
+		m.overdueNotified[sessionID] = now
+	}
+	return seen
 }
 
 // hasOutcomeSession reports whether the peer's score already carries an
@@ -366,7 +397,7 @@ func (m *Mesh) EconomyView() *EconomyView {
 		m.flagPeerThresholds(s, pid, entries)
 	}
 	if n := len(entries); n > 0 {
-		start := n - econRecentLimit
+		start := n - EconRecentLimit
 		if start < 0 {
 			start = 0
 		}
@@ -374,7 +405,12 @@ func (m *Mesh) EconomyView() *EconomyView {
 	}
 	if m.inflight != nil {
 		if live, err := m.inflight.Live(); err == nil && len(live) > 0 {
-			v.Inflight = live
+			// Strip journaled raw signed transactions — crash-resume
+			// material, not something a status endpoint should serve.
+			v.Inflight = make([]*econ.InflightRecord, len(live))
+			for i, r := range live {
+				v.Inflight[i] = r.Redacted()
+			}
 		}
 	}
 	return v

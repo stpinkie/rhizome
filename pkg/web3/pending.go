@@ -332,13 +332,21 @@ func (s *PendingStore) ExecuteApproved(ctx context.Context, id string,
 		if err := FillTxDefaults(ctx, provider, e.From, req); err != nil {
 			return fail(fmt.Errorf("fill tx: %w", err))
 		}
-		raw, _, err := SignTx(req, priv)
+		raw, signedHash, err := SignTx(req, priv)
 		if err != nil {
 			return fail(err)
 		}
 		txHash, err := SendRawTransaction(ctx, provider, raw)
 		if err != nil {
-			return fail(fmt.Errorf("broadcast: %w", err))
+			// The send may have landed while the reply was lost — check
+			// whether the signed hash is already visible on-chain before
+			// recording a failure; a blind "failed" invites a second
+			// payment for the same debt on retry.
+			if found, lookErr := txOnChain(ctx, provider, signedHash); lookErr == nil && found {
+				txHash = signedHash
+			} else {
+				return fail(fmt.Errorf("broadcast: %w", err))
+			}
 		}
 		if ledger != nil {
 			_ = ledger.Record(SpendEntry{
@@ -351,6 +359,20 @@ func (s *PendingStore) ExecuteApproved(ctx context.Context, id string,
 		}
 		return s.Complete(id, txHash, "", nil)
 	}
+}
+
+// txOnChain reports whether a transaction hash is already visible at the
+// endpoint — the landed-send check behind the broadcast error path, so a
+// lost reply is recorded as the send it actually was, not a failure.
+func txOnChain(ctx context.Context, p *Provider, txHash string) (bool, error) {
+	if p == nil || txHash == "" {
+		return false, nil
+	}
+	raw, err := p.Call(ctx, "eth_getTransactionByHash", []any{txHash})
+	if err != nil {
+		return false, err
+	}
+	return len(raw) > 0 && string(raw) != "null", nil
 }
 
 // txRequest reconstructs the unsigned transaction from entry fields.

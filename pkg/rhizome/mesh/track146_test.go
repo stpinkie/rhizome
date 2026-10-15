@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -294,4 +295,98 @@ func TestTrack146EconomyView(t *testing.T) {
 	assert.Contains(t, s.OverThreshold, "credits")
 	require.Len(t, v.RecentCharges, 1)
 	assert.Equal(t, "c1", v.RecentCharges[0].CorrelationID)
+}
+
+// The outcome ref that dedupes the overdue penalty lives in the bounded
+// Outcomes list — under churn it evicts while the debt is still unpaid.
+// The in-memory dedupe set must keep the epoch from re-penalizing.
+func TestTrack146OverdueDedupSurvivesOutcomeEviction(t *testing.T) {
+	m, _ := newEconObsMesh(t, config.MeshEconomyConfig{
+		Unit:              "credits",
+		SettleThreshold:   "1.0",
+		SettleGracePeriod: time.Hour,
+	})
+	payer := testutil.NewIdentity(t).PeerID
+	old := time.Now().UTC().Add(-2 * time.Hour)
+	e, err := m.econLedger.Record(econ.Entry{
+		PeerID:    payer,
+		Direction: econ.DirectionReceivable,
+		TaskID:    "task-evict",
+		Unit:      "credits",
+		Amount:    "1.5",
+		State:     econ.StateAccrued,
+		TS:        old,
+	})
+	require.NoError(t, err)
+	sessionID := "overdue|credits|" + econValueHash(e.EntryID)[:16]
+
+	m.econSweepOverdue(time.Now())
+	require.True(t, m.hasOutcomeSession(payer, OpEconSettle, sessionID))
+	sc, _ := m.scoreStore.Get(mustPID(t, payer))
+	require.Equal(t, 1, sc.OpStats[OpEconSettle].Failures)
+
+	// Churn the bounded Outcomes list until the sweep's ref evicts.
+	for i := range maxPeerOutcomes + 4 {
+		m.scoreStore.RecordOutcome(mustPID(t, payer), OpEconSettle, OutcomeDisputed,
+			fmt.Sprintf("other-%d", i), "")
+	}
+	require.False(t, m.hasOutcomeSession(payer, OpEconSettle, sessionID),
+		"test setup must evict the sweep ref from the bounded list")
+
+	m.econSweepOverdue(time.Now())
+	sc, _ = m.scoreStore.Get(mustPID(t, payer))
+	assert.Equal(t, 1, sc.OpStats[OpEconSettle].Failures,
+		"an evicted outcome ref must not re-penalize the same debt epoch")
+}
+
+// The in-memory dedupe stamps an epoch's FIRST notification — hits
+// inside the TTL do not refresh it. An epoch still unpaid past the TTL
+// re-penalizes once (a fresh stamp) rather than going silent forever.
+func TestTrack146OverdueDedupTTLRefires(t *testing.T) {
+	m, _ := newEconObsMesh(t, config.MeshEconomyConfig{
+		Unit:              "credits",
+		SettleThreshold:   "1.0",
+		SettleGracePeriod: time.Hour,
+	})
+	payer := testutil.NewIdentity(t).PeerID
+	old := time.Now().UTC().Add(-2 * time.Hour)
+	e, err := m.econLedger.Record(econ.Entry{
+		PeerID:    payer,
+		Direction: econ.DirectionReceivable,
+		TaskID:    "task-ttl",
+		Unit:      "credits",
+		Amount:    "1.5",
+		State:     econ.StateAccrued,
+		TS:        old,
+	})
+	require.NoError(t, err)
+	sessionID := "overdue|credits|" + econValueHash(e.EntryID)[:16]
+
+	t0 := time.Now().UTC()
+	m.econSweepOverdue(t0)
+	sc, _ := m.scoreStore.Get(mustPID(t, payer))
+	require.Equal(t, 1, sc.OpStats[OpEconSettle].Failures)
+
+	// Evict the persisted ref so only the memory dedupe guards the epoch.
+	for i := range maxPeerOutcomes + 4 {
+		m.scoreStore.RecordOutcome(mustPID(t, payer), OpEconSettle, OutcomeDisputed,
+			fmt.Sprintf("other-%d", i), "")
+	}
+	require.False(t, m.hasOutcomeSession(payer, OpEconSettle, sessionID))
+
+	// Inside the TTL the epoch stays deduped.
+	m.econSweepOverdue(t0.Add(overdueNotifyTTL / 2))
+	sc, _ = m.scoreStore.Get(mustPID(t, payer))
+	require.Equal(t, 1, sc.OpStats[OpEconSettle].Failures)
+
+	// Past the TTL it re-fires once — a second failure on the same epoch.
+	m.econSweepOverdue(t0.Add(overdueNotifyTTL + time.Hour))
+	sc, _ = m.scoreStore.Get(mustPID(t, payer))
+	assert.Equal(t, 2, sc.OpStats[OpEconSettle].Failures,
+		"an epoch unpaid past the dedupe TTL must re-penalize once")
+
+	// The fresh stamp dedupes again inside the new window.
+	m.econSweepOverdue(t0.Add(overdueNotifyTTL + 2*time.Hour))
+	sc, _ = m.scoreStore.Get(mustPID(t, payer))
+	assert.Equal(t, 2, sc.OpStats[OpEconSettle].Failures)
 }

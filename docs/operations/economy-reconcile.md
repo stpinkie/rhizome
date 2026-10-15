@@ -115,8 +115,8 @@ outcomes land pending on the open and terminal (`resolved_for_peer` /
 `--backend web3` adds a phase-2 failure mode: the payee acked
 `awaiting_tx` but the on-chain transfer never verified. The in-flight
 journal at `<RHIZOME_HOME>/economy-settle-inflight.json` holds the
-(peer, unit) state machine — check `rhizome web3 pending` /
-`web3 show <id>` for a queued approval (`settle_signer=approval`), or
+(peer, unit) state machine — check `rhizome web3 pending`
+for a queued approval (`settle_signer=approval`), or
 re-drive: the mesh watcher resumes live records on startup and
 re-broadcasts the *same* signed raw rather than double-paying. `GET
 /network/economy` (daemon) and the launcher `/api/network/economy`
@@ -129,6 +129,18 @@ offer matches its receivable rows by `settle_tx` and gets the same ack
 again — no false divergence, both sides converge under the shared tx
 hash. Note the two ledgers may carry *different* `settle_id`s on this
 path (the retry offer is a fresh document); `settle_tx` is the anchor.
+
+An approval-queue entry can also read `failed` without the payment
+having missed the chain: a send that landed while its reply was lost
+is *adopted* — `ExecuteApproved` checks the signed hash on-chain and
+records it `sent` with the real `tx_hash` when it's already visible —
+but a lookup that itself can't reach the endpoint still reports
+`failed`. Before retrying a `failed` settle payment, check the entry
+(`rhizome web3 pending --status failed --json`) and the wallet's
+on-chain history: if the
+transfer actually landed, do **not** re-run `economy settle` — that
+mints a fresh payment for the same debt. Close your payables locally
+with `--mark-only` instead.
 
 A `rejected` phase-2 record therefore means a real verification
 mismatch (chain id / sender / destination / amount) — or a settle that

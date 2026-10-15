@@ -81,6 +81,19 @@ func (r *InflightRecord) Terminal() bool {
 	return false
 }
 
+// Redacted returns a copy of the record safe for read surfaces: the
+// journaled raw signed transaction — needed for crash-resume, not for
+// display — is stripped so status APIs never serve a ready-to-broadcast
+// payload.
+func (r *InflightRecord) Redacted() *InflightRecord {
+	if r == nil {
+		return nil
+	}
+	c := *r
+	c.SignedRaw = ""
+	return &c
+}
+
 // InflightJournal persists payer-side close-out records at
 // <home>/economy-settle-inflight.json (atomic whole-file writes — the
 // peer-adverts posture).
@@ -163,13 +176,20 @@ func (j *InflightJournal) Acquire(
 // record untouched — pass pointers to clear-vs-set intentionally via
 // explicit zero values.
 func (j *InflightJournal) Update(peerID, unit string, mutate func(*InflightRecord)) error {
+	return j.UpdateByKey(peerID+"|"+unit, mutate)
+}
+
+// UpdateByKey patches a live record by its journal key — the mutation
+// path for records whose own peer/unit fields may disagree with the
+// key (a tampered write): derived-key lookups could never reach such a
+// record, so failing it out requires matching the stored key directly.
+func (j *InflightJournal) UpdateByKey(key string, mutate func(*InflightRecord)) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	f, err := j.read()
 	if err != nil {
 		return err
 	}
-	key := peerID + "|" + unit
 	for _, r := range f.Records {
 		if r.Key == key && !r.Terminal() {
 			mutate(r)
