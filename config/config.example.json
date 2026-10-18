@@ -50,6 +50,9 @@
     "cold_path_trigger": "after_turn",
     "cold_path_times": [],
     "review_auto_quarantine": true,
+    "apply_require_review": true,
+    "apply_max_per_day": 3,
+    "protected_skills": [],
     "max_draft_bytes": 65536,
     "backup_keep": 5
   },

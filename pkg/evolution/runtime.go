@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	"github.com/stpinkie/rhizome/pkg/fileutil"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/skills"
 )
@@ -372,6 +373,14 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 	if err != nil {
 		return err
 	}
+	// Apply-mode policy: AutoAppliesDrafts folds mode + apply_require_review;
+	// the rolling-24h budget bounds how many auto-applies one window allows.
+	autoApply := rt.cfg.AutoAppliesDrafts() && applier != nil
+	autoApplyBudget := rt.cfg.EffectiveApplyMaxPerDay() -
+		countAutoAppliesSince(existingDrafts, workspace, rt.now().Add(-autoApplyWindow))
+	if autoApplyBudget < 0 {
+		autoApplyBudget = 0
+	}
 	readyRuleByID := make(map[string]LearningRecord, len(readyRules))
 	for _, rule := range readyRules {
 		readyRuleByID[rule.ID] = rule
@@ -409,18 +418,32 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, append(review.ReviewNotes, normalizationNotes...)...)
 		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, review.Findings...)
 		changedExistingDrafts = true
-		if draft.Status != DraftStatusCandidate || mode != "apply" || applier == nil {
+		if draft.Status != DraftStatusCandidate {
 			if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
 				return saveErr
 			}
 			continue
 		}
-		updatedDraft, applyErr := rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID)
+		if park := rt.autoApplyParkReason(applier, draft, autoApplyBudget); park != "" {
+			draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, park)
+			if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
+				return saveErr
+			}
+			continue
+		}
+		if !autoApply {
+			if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
+				return saveErr
+			}
+			continue
+		}
+		updatedDraft, applyErr := rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID, applyViaAuto)
 		if applyErr != nil {
 			return applyErr
 		}
 		if updatedDraft.Status == DraftStatusAccepted {
 			appliedExistingDrafts++
+			autoApplyBudget--
 			changedExistingDrafts = true
 		}
 	}
@@ -493,13 +516,20 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			"status":       string(draft.Status),
 			"run_id":       runID,
 		})
-		if mode == "apply" && applier != nil && draft.Status == DraftStatusCandidate {
-			var err error
-			draft, err = rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID)
-			if err != nil {
-				return err
+		if draft.Status == DraftStatusCandidate {
+			if park := rt.autoApplyParkReason(applier, draft, autoApplyBudget); park != "" {
+				draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, park)
+			} else if autoApply {
+				var err error
+				draft, err = rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID, applyViaAuto)
+				if err != nil {
+					return err
+				}
+				draftSaved = true
+				if draft.Status == DraftStatusAccepted {
+					autoApplyBudget--
+				}
 			}
-			draftSaved = true
 		}
 
 		if !draftSaved {
@@ -1344,6 +1374,57 @@ func (rt *Runtime) saveAppliedProfile(store *Store, workspace string, draft Skil
 	return SaveAppliedProfile(store, workspace, draft, now)
 }
 
+// applyVia* values land on SkillDraft.AppliedVia and .evolution-origin.json's
+// review field — "auto" for the cold path, "accept" for manual draft accept.
+const (
+	applyViaAuto   = "auto"
+	applyViaAccept = "accept"
+)
+
+// autoApplyWindow is the rolling look-back evolution.apply_max_per_day
+// counts auto-applies over.
+const autoApplyWindow = 24 * time.Hour
+
+func countAutoAppliesSince(drafts []SkillDraft, workspace string, cutoff time.Time) int {
+	count := 0
+	for _, draft := range drafts {
+		if draft.WorkspaceID != workspace || draft.Status != DraftStatusAccepted {
+			continue
+		}
+		if draft.AppliedVia != applyViaAuto || draft.AppliedAt == nil || draft.AppliedAt.Before(cutoff) {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+// autoApplyParkReason reports the policy note that keeps an apply-mode
+// candidate parked for manual accept — "" when the draft may auto-apply
+// now, or when the cold path isn't armed to apply at all (draft mode, no
+// applier), which parks silently like draft mode.
+func (rt *Runtime) autoApplyParkReason(applier *Applier, draft SkillDraft, budget int) string {
+	if applier == nil || rt.cfg.EffectiveMode() != "apply" {
+		return ""
+	}
+	if !rt.cfg.AutoAppliesDrafts() {
+		return "apply mode parks drafts for review (evolution.apply_require_review); apply via draft accept"
+	}
+	if rt.cfg.IsProtectedSkill(draft.TargetSkillName) {
+		return fmt.Sprintf(
+			"target skill %q is protected (evolution.protected_skills); auto-apply skipped — accept via draft accept",
+			draft.TargetSkillName,
+		)
+	}
+	if budget <= 0 {
+		return fmt.Sprintf(
+			"auto-apply deferred by evolution.apply_max_per_day=%d in the last 24h; parks until the window clears — accept via draft accept",
+			rt.cfg.EffectiveApplyMaxPerDay(),
+		)
+	}
+	return ""
+}
+
 func (rt *Runtime) applyCandidateDraft(
 	ctx context.Context,
 	workspace string,
@@ -1351,12 +1432,14 @@ func (rt *Runtime) applyCandidateDraft(
 	applier *Applier,
 	draft SkillDraft,
 	runID string,
+	via string,
 ) (SkillDraft, error) {
 	logger.InfoCF("evolution", "Applying skill draft", map[string]any{
 		"workspace":    workspace,
 		"draft_id":     draft.ID,
 		"target_skill": draft.TargetSkillName,
 		"change_kind":  string(draft.ChangeKind),
+		"via":          via,
 		"run_id":       runID,
 	})
 	rollbackApply, err := applier.applyDraftWithRollback(ctx, workspace, draft)
@@ -1386,7 +1469,62 @@ func (rt *Runtime) applyCandidateDraft(
 		return draft, fmt.Errorf("%w: %v", ErrApplyDraftFailed, err)
 	}
 
+	now := rt.now()
+	// The provenance marker lives inside the commit boundary: a write
+	// failure rolls the skill file back and quarantines the draft. A prior
+	// marker is snapshotted so the wrapped rollback restores it — after the
+	// file rollback, which removes the just-written marker itself.
+	originDir := filepath.Join(workspace, "skills", draft.TargetSkillName)
+	originPath := filepath.Join(originDir, skills.EvolutionOriginFile)
+	prevOrigin, _ := os.ReadFile(originPath)
+	rollback := func() error {
+		applyErr := rollbackApply()
+		var originErr error
+		if len(prevOrigin) == 0 {
+			if err := os.Remove(originPath); err != nil && !os.IsNotExist(err) {
+				originErr = err
+			}
+		} else if err := os.MkdirAll(originDir, 0o755); err != nil {
+			originErr = err
+		} else {
+			originErr = fileutil.WriteFileAtomic(originPath, prevOrigin, 0o600)
+		}
+		return errorsJoin(applyErr, originErr)
+	}
+
+	if err := skills.WriteEvolutionOrigin(originDir, skills.EvolutionOriginMeta{
+		Version:         1,
+		OriginKind:      skills.EvolutionOriginKind,
+		DraftID:         draft.ID,
+		SourcePatternID: draft.SourceRecordID,
+		AppliedAt:       now.UnixMilli(),
+		Review:          via,
+	}); err != nil {
+		logger.WarnCF("evolution", "Skill draft provenance write failed after apply", map[string]any{
+			"workspace":    workspace,
+			"draft_id":     draft.ID,
+			"target_skill": draft.TargetSkillName,
+			"error":        err.Error(),
+			"run_id":       runID,
+		})
+		draft.Status = DraftStatusQuarantined
+		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, fmt.Sprintf("provenance write failed: %v", err))
+		if rollbackErr := rollback(); rollbackErr != nil {
+			draft.ScanFindings = appendUniqueStrings(
+				draft.ScanFindings,
+				fmt.Sprintf("apply rollback failed: %v", rollbackErr),
+			)
+		}
+		if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
+			return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, err), saveErr)
+		}
+		return draft, fmt.Errorf("%w: %v", ErrApplyDraftFailed, err)
+	}
+
 	draft.Status = DraftStatusAccepted
+	draft.UpdatedAt = &now
+	draft.AppliedAt = &now
+	draft.AppliedVia = via
 	if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
 		logger.WarnCF("evolution", "Skill draft save failed after apply", map[string]any{
 			"workspace":    workspace,
@@ -1395,7 +1533,7 @@ func (rt *Runtime) applyCandidateDraft(
 			"error":        saveErr.Error(),
 			"run_id":       runID,
 		})
-		if rollbackErr := rollbackApply(); rollbackErr != nil {
+		if rollbackErr := rollback(); rollbackErr != nil {
 			return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, saveErr), rollbackErr)
 		}
 		return draft, fmt.Errorf("%w: %v", ErrApplyDraftFailed, saveErr)
@@ -1411,7 +1549,7 @@ func (rt *Runtime) applyCandidateDraft(
 		})
 		draft.Status = DraftStatusQuarantined
 		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, fmt.Sprintf("profile save failed: %v", err))
-		if rollbackErr := rollbackApply(); rollbackErr != nil {
+		if rollbackErr := rollback(); rollbackErr != nil {
 			draft.ScanFindings = appendUniqueStrings(
 				draft.ScanFindings,
 				fmt.Sprintf("apply rollback failed: %v", rollbackErr),
@@ -1479,11 +1617,14 @@ func (rt *Runtime) recordRollbackAudit(store *Store, draft SkillDraft, applyErr 
 	)
 }
 
+// profileOrigin normalizes profile provenance: manual stays manual, every
+// evolution-applied skill reports "evolution" (pre-Track-152 "evolved"
+// profiles normalize on their next apply).
 func profileOrigin(origin string) string {
 	if origin == "manual" {
 		return origin
 	}
-	return "evolved"
+	return "evolution"
 }
 
 func appendUniqueStrings(existing []string, values ...string) []string {

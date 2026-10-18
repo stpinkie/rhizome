@@ -443,6 +443,16 @@ func TestEvolutionConfig_ModeSemantics(t *testing.T) {
 			wantRunsCold:  true,
 			wantAutoApply: true,
 		},
+		{
+			name: "apply with require_review runs cold path without applying",
+			cfg: EvolutionConfig{
+				Enabled:            true,
+				Mode:               "apply",
+				ApplyRequireReview: true,
+			},
+			wantRunsCold:  true,
+			wantAutoApply: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -544,7 +554,8 @@ func TestLoadConfig_EvolutionExplicitApplyModeAutoApplies(t *testing.T) {
 		"version": 3,
 		"evolution": {
 			"enabled": true,
-			"mode": "apply"
+			"mode": "apply",
+			"apply_require_review": false
 		}
 	}`
 	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
@@ -561,6 +572,32 @@ func TestLoadConfig_EvolutionExplicitApplyModeAutoApplies(t *testing.T) {
 	assert.Equal(t, "apply", cfg.Evolution.EffectiveMode())
 	assert.True(t, cfg.Evolution.RunsColdPathAutomatically())
 	assert.True(t, cfg.Evolution.AutoAppliesDrafts())
+}
+
+// mode:apply alone no longer auto-applies — apply_require_review defaults
+// true and parks drafts for manual accept (Track 152).
+func TestLoadConfig_EvolutionApplyModeRequiresReviewByDefault(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := `{
+		"version": 3,
+		"evolution": {
+			"enabled": true,
+			"mode": "apply"
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile(configPath): %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+
+	assert.True(t, cfg.Evolution.ApplyRequireReview)
+	assert.Equal(t, "apply", cfg.Evolution.EffectiveMode())
+	assert.False(t, cfg.Evolution.AutoAppliesDrafts())
 }
 
 func TestSaveConfig_DisabledEvolutionOmitsApplyMode(t *testing.T) {
@@ -3686,5 +3723,98 @@ func TestEvolutionConfig_ReviewAutoQuarantineDefaultAndRoundTrip(t *testing.T) {
 	}
 	if cfg2.Evolution.EffectiveBackupKeep() != DefaultBackupKeep {
 		t.Fatalf("absent backup_keep = %d, want %d", cfg2.Evolution.EffectiveBackupKeep(), DefaultBackupKeep)
+	}
+}
+
+func TestEvolutionConfig_ApplyPolicyDefaultAndRoundTrip(t *testing.T) {
+	if !DefaultConfig().Evolution.ApplyRequireReview {
+		t.Fatal("apply_require_review should default to true")
+	}
+	if DefaultConfig().Evolution.EffectiveApplyMaxPerDay() != DefaultApplyMaxPerDay {
+		t.Fatalf("apply_max_per_day should default to %d", DefaultApplyMaxPerDay)
+	}
+	if DefaultConfig().Evolution.IsProtectedSkill("weather") {
+		t.Fatal("protected_skills should default to empty")
+	}
+
+	mustSetupSSHKey(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	// Explicit false + custom cap + protected list are honored on load...
+	if err := os.WriteFile(
+		path,
+		[]byte(
+			`{"version":3,"evolution":{"enabled":true,"mode":"apply","apply_require_review":false,"apply_max_per_day":7,"protected_skills":["weather","weather","  ","Calendar"]}}`,
+		),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Evolution.ApplyRequireReview {
+		t.Fatal("explicit apply_require_review=false should be honored")
+	}
+	if !cfg.Evolution.AutoAppliesDrafts() {
+		t.Fatal("apply mode + apply_require_review=false should auto-apply")
+	}
+	if cfg.Evolution.EffectiveApplyMaxPerDay() != 7 {
+		t.Fatalf("apply_max_per_day = %d, want 7", cfg.Evolution.EffectiveApplyMaxPerDay())
+	}
+	if !cfg.Evolution.IsProtectedSkill("weather") || !cfg.Evolution.IsProtectedSkill("calendar") {
+		t.Fatal("protected_skills should match exact names case-insensitively")
+	}
+	if cfg.Evolution.IsProtectedSkill("weather-alerts") || cfg.Evolution.IsProtectedSkill("") {
+		t.Fatal("protected_skills must not match prefixes or empties")
+	}
+	if got := cfg.Evolution.EffectiveProtectedSkills(); len(got) != 2 || got[0] != "weather" || got[1] != "Calendar" {
+		t.Fatalf("EffectiveProtectedSkills = %v, want [weather Calendar] (trimmed+deduped)", got)
+	}
+
+	// ...and survive a SaveConfig/LoadConfig round-trip.
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig after SaveConfig: %v", err)
+	}
+	if reloaded.Evolution.ApplyRequireReview {
+		t.Fatal("explicit apply_require_review=false must survive SaveConfig/LoadConfig")
+	}
+	if reloaded.Evolution.EffectiveApplyMaxPerDay() != 7 {
+		t.Fatalf("reloaded apply_max_per_day = %d, want 7", reloaded.Evolution.EffectiveApplyMaxPerDay())
+	}
+	if !reloaded.Evolution.IsProtectedSkill("weather") || !reloaded.Evolution.IsProtectedSkill("calendar") {
+		t.Fatal("reloaded protected_skills lost entries")
+	}
+
+	// Absent fields resolve to the defaults (true / 3 / empty).
+	if err := os.WriteFile(path,
+		[]byte(`{"version":3,"evolution":{"enabled":true,"mode":"apply"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg2, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg2.Evolution.ApplyRequireReview {
+		t.Fatal("absent apply_require_review should resolve to the default (true)")
+	}
+	if cfg2.Evolution.AutoAppliesDrafts() {
+		t.Fatal("absent apply_require_review means apply mode parks drafts for review")
+	}
+	if cfg2.Evolution.EffectiveApplyMaxPerDay() != DefaultApplyMaxPerDay {
+		t.Fatalf(
+			"absent apply_max_per_day = %d, want %d",
+			cfg2.Evolution.EffectiveApplyMaxPerDay(),
+			DefaultApplyMaxPerDay,
+		)
+	}
+	if len(cfg2.Evolution.EffectiveProtectedSkills()) != 0 {
+		t.Fatalf("absent protected_skills = %v, want empty", cfg2.Evolution.EffectiveProtectedSkills())
 	}
 }

@@ -754,6 +754,19 @@ type EvolutionConfig struct {
 	// applied directly. Structural and over-size findings are unaffected.
 	// Not omitempty so an explicit false survives config write-back.
 	ReviewAutoQuarantine bool `json:"review_auto_quarantine"`
+	// ApplyRequireReview gates apply mode behind manual review: when true
+	// (the default) apply-mode drafts park as candidates and only apply via
+	// `draft accept`; false restores direct auto-apply. Not omitempty so an
+	// explicit false survives config write-back.
+	ApplyRequireReview bool `json:"apply_require_review"`
+	// ApplyMaxPerDay bounds auto-applies in a rolling 24h window per
+	// workspace; drafts beyond the cap park as candidates until the window
+	// clears. Defaults to 3; values <= 0 resolve to the default.
+	ApplyMaxPerDay int `json:"apply_max_per_day,omitempty"`
+	// ProtectedSkills names skills the cold path never auto-applies over —
+	// exact name match. Drafts targeting them always park for manual
+	// `draft accept`.
+	ProtectedSkills []string `json:"protected_skills,omitempty"`
 	// MaxDraftBytes bounds an accepted draft's body_or_patch in bytes;
 	// over-size drafts quarantine regardless of review_auto_quarantine.
 	// Defaults to 64 KiB; values <= 0 resolve to the default.
@@ -778,11 +791,15 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
-		// ReviewAutoQuarantine + MaxDraftBytes ride the struct so explicit
-		// values survive write-back even while evolution is disabled.
-		ReviewAutoQuarantine bool `json:"review_auto_quarantine"`
-		MaxDraftBytes        int  `json:"max_draft_bytes,omitempty"`
-		BackupKeep           int  `json:"backup_keep,omitempty"`
+		// ReviewAutoQuarantine + MaxDraftBytes + the apply-policy fields ride
+		// the struct so explicit values survive write-back even while
+		// evolution is disabled.
+		ReviewAutoQuarantine bool     `json:"review_auto_quarantine"`
+		ApplyRequireReview   bool     `json:"apply_require_review"`
+		MaxDraftBytes        int      `json:"max_draft_bytes,omitempty"`
+		BackupKeep           int      `json:"backup_keep,omitempty"`
+		ApplyMaxPerDay       int      `json:"apply_max_per_day,omitempty"`
+		ProtectedSkills      []string `json:"protected_skills,omitempty"`
 	}{
 		Enabled:              c.Enabled,
 		Mode:                 c.Mode,
@@ -792,8 +809,11 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		ColdPathTrigger:      strings.TrimSpace(c.ColdPathTrigger),
 		ColdPathTimes:        c.EffectiveColdPathTimes(),
 		ReviewAutoQuarantine: c.ReviewAutoQuarantine,
+		ApplyRequireReview:   c.ApplyRequireReview,
 		MaxDraftBytes:        c.EffectiveMaxDraftBytes(),
 		BackupKeep:           c.EffectiveBackupKeep(),
+		ApplyMaxPerDay:       c.EffectiveApplyMaxPerDay(),
+		ProtectedSkills:      c.EffectiveProtectedSkills(),
 	}
 	if !out.Enabled {
 		out.Mode = ""
@@ -879,8 +899,10 @@ func (c EvolutionConfig) EffectiveColdPathTimes() []string {
 	return out
 }
 
+// AutoAppliesDrafts reports whether the cold path applies candidate drafts
+// without a manual accept — apply mode minus the review gate.
 func (c EvolutionConfig) AutoAppliesDrafts() bool {
-	return c.EffectiveMode() == "apply"
+	return c.EffectiveMode() == "apply" && !c.ApplyRequireReview
 }
 
 // DefaultMaxDraftBytes is the body_or_patch bound used when max_draft_bytes
@@ -903,6 +925,53 @@ func (c EvolutionConfig) EffectiveBackupKeep() int {
 		return c.BackupKeep
 	}
 	return DefaultBackupKeep
+}
+
+// DefaultApplyMaxPerDay is the rolling-24h auto-apply bound used when
+// apply_max_per_day is unset or non-positive.
+const DefaultApplyMaxPerDay = 3
+
+func (c EvolutionConfig) EffectiveApplyMaxPerDay() int {
+	if c.ApplyMaxPerDay > 0 {
+		return c.ApplyMaxPerDay
+	}
+	return DefaultApplyMaxPerDay
+}
+
+// EffectiveProtectedSkills normalizes the protected-skill list for
+// write-back — trimmed, deduplicated case-insensitively, empties dropped.
+func (c EvolutionConfig) EffectiveProtectedSkills() []string {
+	out := make([]string, 0, len(c.ProtectedSkills))
+	seen := make(map[string]struct{}, len(c.ProtectedSkills))
+	for _, name := range c.ProtectedSkills {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, name)
+	}
+	return out
+}
+
+// IsProtectedSkill reports whether name is on the protected_skills list —
+// exact match, case-insensitive (skill names normalize lowercase; the fold
+// only hardens against hand-written config casing).
+func (c EvolutionConfig) IsProtectedSkill(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, protected := range c.ProtectedSkills {
+		if strings.EqualFold(strings.TrimSpace(protected), name) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsolationConfig controls subprocess isolation for commands started by Rhizome.

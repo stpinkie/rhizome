@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -41,12 +42,15 @@ func newStatusCommand() *cobra.Command {
 
 			if asJSON {
 				out := map[string]any{
-					"enabled":           ev.Enabled,
-					"mode":              ev.EffectiveMode(),
-					"cold_path_trigger": ev.ColdPathTriggerMode(),
-					"cold_path_times":   ev.EffectiveColdPathTimes(),
-					"state_dir":         ev.StateDir,
-					"workspaces":        workspaceStatusesJSON(cfg, daemonStatus),
+					"enabled":              ev.Enabled,
+					"mode":                 ev.EffectiveMode(),
+					"cold_path_trigger":    ev.ColdPathTriggerMode(),
+					"cold_path_times":      ev.EffectiveColdPathTimes(),
+					"state_dir":            ev.StateDir,
+					"apply_require_review": ev.ApplyRequireReview,
+					"apply_max_per_day":    ev.EffectiveApplyMaxPerDay(),
+					"protected_skills":     ev.EffectiveProtectedSkills(),
+					"workspaces":           workspaceStatusesJSON(cfg, daemonStatus),
 				}
 				if rs, ok := daemonStatus["last_runs"]; ok {
 					out["last_runs"] = rs
@@ -62,6 +66,15 @@ func newStatusCommand() *cobra.Command {
 				fmt.Fprintf(w, "Evolution: mode=%s trigger=%s min_tasks=%d min_success=%.2f\n",
 					ev.EffectiveMode(), ev.ColdPathTriggerMode(),
 					ev.EffectiveMinTaskCount(), ev.EffectiveMinSuccessRatio())
+				if ev.EffectiveMode() == "apply" {
+					protected := ev.EffectiveProtectedSkills()
+					if len(protected) == 0 {
+						protected = []string{"-"}
+					}
+					fmt.Fprintf(w, "  apply: require_review=%t max_per_day=%d protected=%s\n",
+						ev.ApplyRequireReview, ev.EffectiveApplyMaxPerDay(),
+						strings.Join(protected, ","))
+				}
 				if times := ev.EffectiveColdPathTimes(); len(times) > 0 {
 					fmt.Fprintf(w, "  scheduled at: %v\n", times)
 				}

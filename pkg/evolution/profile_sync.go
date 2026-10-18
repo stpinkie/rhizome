@@ -11,7 +11,7 @@ func SaveAppliedProfile(store *Store, workspace string, draft SkillDraft, now ti
 			*profile = SkillProfile{
 				SkillName:   draft.TargetSkillName,
 				WorkspaceID: workspace,
-				Origin:      "evolved",
+				Origin:      "evolution",
 			}
 		}
 

@@ -71,14 +71,17 @@ func (h *evolutionHandler) handleStatus(w http.ResponseWriter, _ *http.Request) 
 	evCfg := h.evolutionConfig()
 	workspaces := h.workspaces()
 	out := map[string]any{
-		"enabled":           evCfg.Enabled,
-		"mode":              evCfg.EffectiveMode(),
-		"cold_path_trigger": evCfg.ColdPathTriggerMode(),
-		"cold_path_times":   evCfg.EffectiveColdPathTimes(),
-		"state_dir":         evCfg.StateDir,
-		"min_task_count":    evCfg.EffectiveMinTaskCount(),
-		"min_success_ratio": evCfg.EffectiveMinSuccessRatio(),
-		"workspaces":        []any{},
+		"enabled":              evCfg.Enabled,
+		"mode":                 evCfg.EffectiveMode(),
+		"cold_path_trigger":    evCfg.ColdPathTriggerMode(),
+		"cold_path_times":      evCfg.EffectiveColdPathTimes(),
+		"state_dir":            evCfg.StateDir,
+		"min_task_count":       evCfg.EffectiveMinTaskCount(),
+		"min_success_ratio":    evCfg.EffectiveMinSuccessRatio(),
+		"apply_require_review": evCfg.ApplyRequireReview,
+		"apply_max_per_day":    evCfg.EffectiveApplyMaxPerDay(),
+		"protected_skills":     evCfg.EffectiveProtectedSkills(),
+		"workspaces":           []any{},
 	}
 	statuses := make([]any, 0, len(workspaces))
 	for _, ws := range workspaces {

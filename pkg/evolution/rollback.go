@@ -133,6 +133,16 @@ func (rt *Runtime) RollbackSkill(
 	}
 	result.Restored = true
 
+	// Provenance follows content: a restored version attributable to an
+	// applied draft rewrites the marker from the draft record; anything
+	// else loses it rather than claiming stale provenance. A pre-create
+	// removal already swept the marker inside rollbackSkill.
+	if !result.Removed {
+		if err := reconcileEvolutionProvenance(store, workspace, skillName, result.RestoredVersion); err != nil {
+			return result, fmt.Errorf("reconcile evolution provenance: %w", err)
+		}
+	}
+
 	if err := rt.recordRollback(store, result, req.To); err != nil {
 		return result, fmt.Errorf("record rollback history: %w", err)
 	}
@@ -211,6 +221,60 @@ func versionForSnapshot(applier *Applier, workspace, skillName string, body []by
 	return ""
 }
 
+// reconcileEvolutionProvenance rewrites .evolution-origin.json so the
+// marker describes the restored version's content: attributable to an
+// applied draft → that draft's provenance; otherwise the marker is
+// removed rather than left claiming stale provenance.
+func reconcileEvolutionProvenance(store *Store, workspace, skillName, version string) error {
+	skillDir := filepath.Join(workspace, "skills", skillName)
+	meta, ok, err := evolutionProvenanceForVersion(store, workspace, version)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if err := os.Remove(filepath.Join(skillDir, skills.EvolutionOriginFile)); err != nil &&
+			!os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return skills.WriteEvolutionOrigin(skillDir, meta)
+}
+
+// evolutionProvenanceForVersion resolves the marker for a restored version
+// name (which doubles as its draft id). Only drafts applied since
+// AppliedVia/AppliedAt landed can substantiate provenance; anything else —
+// a missing or unapplied draft — leaves the marker unwritten.
+func evolutionProvenanceForVersion(
+	store *Store,
+	workspace, version string,
+) (skills.EvolutionOriginMeta, bool, error) {
+	if version == "" {
+		return skills.EvolutionOriginMeta{}, false, nil
+	}
+	drafts, err := store.LoadDrafts()
+	if err != nil {
+		return skills.EvolutionOriginMeta{}, false, err
+	}
+	for _, d := range drafts {
+		if d.ID != version || d.WorkspaceID != workspace || d.Status != DraftStatusAccepted {
+			continue
+		}
+		if d.AppliedVia == "" || d.AppliedAt == nil {
+			return skills.EvolutionOriginMeta{}, false, nil
+		}
+		return skills.EvolutionOriginMeta{
+			Version:         1,
+			OriginKind:      skills.EvolutionOriginKind,
+			DraftID:         d.ID,
+			SourcePatternID: d.SourceRecordID,
+			AppliedAt:       d.AppliedAt.UnixMilli(),
+			Review:          d.AppliedVia,
+		}, true, nil
+	}
+	return skills.EvolutionOriginMeta{}, false, nil
+}
+
 // lastApplyAction returns the most recent apply-mode action in the profile's
 // history — rollback/lifecycle entries are not applies.
 func lastApplyAction(profile SkillProfile) string {
@@ -237,7 +301,7 @@ func (rt *Runtime) recordRollback(store *Store, result RollbackResult, toVersion
 			*p = SkillProfile{
 				SkillName:   result.Skill,
 				WorkspaceID: result.Workspace,
-				Origin:      "evolved",
+				Origin:      "evolution",
 			}
 		}
 		p.CurrentVersion = result.RestoredVersion

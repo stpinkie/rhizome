@@ -148,7 +148,7 @@ func (rt *Runtime) AcceptDraft(ctx context.Context, workspace, draftID string, f
 		return SkillDraft{}, errors.New("no applier available for workspace")
 	}
 	runID := fmt.Sprintf("manual-%d", rt.now().UnixNano())
-	return rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID)
+	return rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID, applyViaAccept)
 }
 
 // RejectDraft marks a candidate or quarantined draft rejected — a terminal
