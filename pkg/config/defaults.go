@@ -56,6 +56,7 @@ func DefaultConfig() *Config {
 			ColdPathTrigger:      "after_turn",
 			ReviewAutoQuarantine: true,
 			MaxDraftBytes:        DefaultMaxDraftBytes,
+			BackupKeep:           DefaultBackupKeep,
 		},
 		Channels: defaultChannels(),
 		Hooks: HooksConfig{

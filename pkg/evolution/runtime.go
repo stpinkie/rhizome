@@ -1426,6 +1426,27 @@ func (rt *Runtime) applyCandidateDraft(
 		}
 		return draft, fmt.Errorf("%w: %v", ErrApplyDraftFailed, err)
 	}
+	// The apply is committed — record the post-apply version snapshot and
+	// bound the backup dir. Bookkeeping failures degrade rollback reach but
+	// never roll back a committed apply.
+	if err := applier.WriteVersionSnapshot(workspace, draft.TargetSkillName, draft.ID); err != nil {
+		logger.WarnCF("evolution", "Version snapshot failed after apply", map[string]any{
+			"workspace":    workspace,
+			"draft_id":     draft.ID,
+			"target_skill": draft.TargetSkillName,
+			"error":        err.Error(),
+			"run_id":       runID,
+		})
+	}
+	if err := applier.PruneBackups(workspace, draft.TargetSkillName, rt.cfg.EffectiveBackupKeep()); err != nil {
+		logger.WarnCF("evolution", "Backup prune failed after apply", map[string]any{
+			"workspace":    workspace,
+			"draft_id":     draft.ID,
+			"target_skill": draft.TargetSkillName,
+			"error":        err.Error(),
+			"run_id":       runID,
+		})
+	}
 	logger.InfoCF("evolution", "Applied skill draft successfully", map[string]any{
 		"workspace":    workspace,
 		"draft_id":     draft.ID,

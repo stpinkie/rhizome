@@ -153,6 +153,90 @@ func newSkillsCommand() *cobra.Command {
 	}
 	sel.register(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
+	cmd.AddCommand(newSkillsHistoryCommand())
+	return cmd
+}
+
+// newSkillsHistoryCommand renders a skill's VersionHistory — version,
+// action, draft link, rollback marks — daemonless off the state dir.
+func newSkillsHistoryCommand() *cobra.Command {
+	var sel workspaceSelection
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "history <name>",
+		Short: "Show a skill's version history (drafts, applies, rollbacks)",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			w := cmd.OutOrStdout()
+			cfg, err := loadEvolutionConfig()
+			if err != nil {
+				fmt.Fprintf(w, "error: %v\n", err)
+				return
+			}
+			workspaces, err := sel.workspaces(cfg)
+			if err != nil {
+				fmt.Fprintf(w, "error: %v\n", err)
+				return
+			}
+			explicit := sel.workspace != "" || sel.agent != ""
+			var found *rhevo.SkillProfile
+			for _, ws := range workspaces {
+				profiles, err := storeFor(cfg, ws).LoadProfiles()
+				if err != nil {
+					fmt.Fprintf(w, "error: %v\n", err)
+					return
+				}
+				for _, p := range profiles {
+					if p.SkillName != args[0] {
+						continue
+					}
+					if explicit && p.WorkspaceID != "" && p.WorkspaceID != ws {
+						continue
+					}
+					if found != nil && found.WorkspaceID != p.WorkspaceID {
+						fmt.Fprintf(w, "error: skill %q is ambiguous across workspaces; pass --workspace\n", args[0])
+						return
+					}
+					cp := p
+					found = &cp
+				}
+			}
+			if found == nil {
+				fmt.Fprintf(w, "No profile for skill %q.\n", args[0])
+				return
+			}
+			if asJSON {
+				data, _ := json.MarshalIndent(found.VersionHistory, "", "  ")
+				fmt.Fprintln(w, string(data))
+				return
+			}
+			fmt.Fprintf(w, "%s  current=v%s  %s\n", found.SkillName, found.CurrentVersion, found.Status)
+			if len(found.VersionHistory) == 0 {
+				fmt.Fprintln(w, "  no version history.")
+				return
+			}
+			for _, e := range found.VersionHistory {
+				mark := ""
+				if e.Rollback {
+					mark = " [rollback]"
+				}
+				fmt.Fprintf(w, "  %s  v%-40s  %-10s%s",
+					e.Timestamp.Local().Format("2006-01-02 15:04"), e.Version, e.Action, mark)
+				if e.DraftID != "" && e.DraftID != e.Version {
+					fmt.Fprintf(w, "  draft=%s", e.DraftID)
+				}
+				fmt.Fprintln(w)
+				if e.RollbackReason != "" {
+					fmt.Fprintf(w, "      reason: %s\n", e.RollbackReason)
+				}
+				if e.Summary != "" {
+					fmt.Fprintf(w, "      %s\n", e.Summary)
+				}
+			}
+		},
+	}
+	sel.register(cmd)
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
 	return cmd
 }
 

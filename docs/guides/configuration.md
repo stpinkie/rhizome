@@ -84,7 +84,8 @@ The `evolution` block controls Rhizome's self-evolution runtime. When enabled, t
     "cold_path_trigger": "after_turn",
     "cold_path_times": [],
     "review_auto_quarantine": true,
-    "max_draft_bytes": 65536
+    "max_draft_bytes": 65536,
+    "backup_keep": 5
   }
 }
 ```
@@ -100,6 +101,7 @@ The `evolution` block controls Rhizome's self-evolution runtime. When enabled, t
 | `cold_path_times` | `[]` | Scheduled run times used when `cold_path_trigger` is `scheduled`, written as `HH:MM` strings. |
 | `review_auto_quarantine` | `true` | Quarantine a draft when the review scan finds prompt-injection (`guard:`) or credential-shaped (`secret:`) content. Set `false` to keep findings visible on the draft while it stays a candidate for manual review. Structural and over-size findings are unaffected. |
 | `max_draft_bytes` | `65536` | Maximum `body_or_patch` size in bytes; over-size drafts quarantine regardless of `review_auto_quarantine`. |
+| `backup_keep` | `5` | Per-skill bound on retained backups — the newest `backup_keep` timestamped snapshots and the newest `backup_keep` per-version snapshots are kept; older ones are pruned at apply/rollback time. `rhizome evolution rollback` fails with an archived-path hint when its target was pruned. |
 
 Use `observe` first if you want to inspect learning records without generating skill changes. Use `draft` when you want Rhizome to prepare reviewable improvements. Use `apply` only when you are comfortable letting accepted drafts update workspace skills.
 
