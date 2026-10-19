@@ -130,6 +130,12 @@ func (a *Applier) rollbackSkill(skillPath, backupPath string, hadOriginal bool) 
 		return err
 	}
 	skillDir := filepath.Dir(skillPath)
+	// A pre-create restore removes the evolution provenance marker too —
+	// the skill never existed, so neither should its origin record.
+	if err := os.Remove(filepath.Join(skillDir, skills.EvolutionOriginFile)); err != nil &&
+		!os.IsNotExist(err) {
+		return err
+	}
 	if err := os.Remove(skillDir); err != nil && !os.IsNotExist(err) && !isDirNotEmptyError(err) {
 		return err
 	}
@@ -270,7 +276,11 @@ func isDirNotEmptyError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "directory not empty")
+	msg := strings.ToLower(err.Error())
+	// POSIX reports "directory not empty"; Windows says "The directory is
+	// not empty." — match both phrasings.
+	return strings.Contains(msg, "directory not empty") ||
+		strings.Contains(msg, "directory is not empty")
 }
 
 func validateAppliedSkillBody(body, targetSkillName string, allowExtraFrontmatterFields bool) error {

@@ -55,8 +55,10 @@ func DefaultConfig() *Config {
 			MinSuccessRatio:      0.7,
 			ColdPathTrigger:      "after_turn",
 			ReviewAutoQuarantine: true,
+			ApplyRequireReview:   true,
 			MaxDraftBytes:        DefaultMaxDraftBytes,
 			BackupKeep:           DefaultBackupKeep,
+			ApplyMaxPerDay:       DefaultApplyMaxPerDay,
 		},
 		Channels: defaultChannels(),
 		Hooks: HooksConfig{

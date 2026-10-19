@@ -127,6 +127,11 @@ type SkillDraft struct {
 	Status             DraftStatus `json:"status"`
 	ReviewNotes        []string    `json:"review_notes,omitempty"`
 	ScanFindings       []string    `json:"scan_findings,omitempty"`
+	// AppliedVia/AppliedAt record how and when an accepted draft committed —
+	// "auto" (cold-path apply) or "accept" (manual draft accept). Empty on
+	// unapplied drafts and on drafts accepted before Track 152.
+	AppliedVia string     `json:"applied_via,omitempty"`
+	AppliedAt  *time.Time `json:"applied_at,omitempty"`
 }
 
 type SkillVersionEntry struct {
