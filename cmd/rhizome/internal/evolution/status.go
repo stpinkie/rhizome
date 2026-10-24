@@ -42,15 +42,17 @@ func newStatusCommand() *cobra.Command {
 
 			if asJSON {
 				out := map[string]any{
-					"enabled":              ev.Enabled,
-					"mode":                 ev.EffectiveMode(),
-					"cold_path_trigger":    ev.ColdPathTriggerMode(),
-					"cold_path_times":      ev.EffectiveColdPathTimes(),
-					"state_dir":            ev.StateDir,
-					"apply_require_review": ev.ApplyRequireReview,
-					"apply_max_per_day":    ev.EffectiveApplyMaxPerDay(),
-					"protected_skills":     ev.EffectiveProtectedSkills(),
-					"workspaces":           workspaceStatusesJSON(cfg, daemonStatus),
+					"enabled":                     ev.Enabled,
+					"mode":                        ev.EffectiveMode(),
+					"cold_path_trigger":           ev.ColdPathTriggerMode(),
+					"cold_path_times":             ev.EffectiveColdPathTimes(),
+					"state_dir":                   ev.StateDir,
+					"apply_require_review":        ev.ApplyRequireReview,
+					"apply_max_per_day":           ev.EffectiveApplyMaxPerDay(),
+					"protected_skills":            ev.EffectiveProtectedSkills(),
+					"retention_task_records_days": ev.EffectiveRetentionTaskRecordsDays(),
+					"retention_drafts_days":       ev.EffectiveRetentionDraftsDays(),
+					"workspaces":                  workspaceStatusesJSON(cfg, daemonStatus),
 				}
 				if rs, ok := daemonStatus["last_runs"]; ok {
 					out["last_runs"] = rs
@@ -78,6 +80,8 @@ func newStatusCommand() *cobra.Command {
 				if times := ev.EffectiveColdPathTimes(); len(times) > 0 {
 					fmt.Fprintf(w, "  scheduled at: %v\n", times)
 				}
+				fmt.Fprintf(w, "  retention: task_records=%dd drafts=%dd\n",
+					ev.EffectiveRetentionTaskRecordsDays(), ev.EffectiveRetentionDraftsDays())
 			}
 			for _, ws := range rhevo.ConfigWorkspaces(cfg) {
 				st, err := rhevo.SummarizeWorkspace(storeFor(cfg, ws), ws)

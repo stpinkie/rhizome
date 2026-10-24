@@ -776,6 +776,17 @@ type EvolutionConfig struct {
 	// apply/rollback time. Defaults to 5; values <= 0 resolve to the
 	// default.
 	BackupKeep int `json:"backup_keep,omitempty"`
+	// RetentionTaskRecordsDays bounds how long unclustered task-stream
+	// learning records are kept; records older than the window are pruned
+	// during lifecycle maintenance and by `evolution prune`. Clustered
+	// records (the history patterns cite) are never pruned. Defaults to 90
+	// days; values <= 0 resolve to the default.
+	RetentionTaskRecordsDays int `json:"retention_task_records_days,omitempty"`
+	// RetentionDraftsDays bounds how long rejected drafts are kept;
+	// rejected drafts older than the window are pruned by the same sweep.
+	// Unsettled (candidate/quarantined) and accepted drafts are never
+	// pruned. Defaults to 30 days; values <= 0 resolve to the default.
+	RetentionDraftsDays int `json:"retention_drafts_days,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -794,26 +805,30 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		// ReviewAutoQuarantine + MaxDraftBytes + the apply-policy fields ride
 		// the struct so explicit values survive write-back even while
 		// evolution is disabled.
-		ReviewAutoQuarantine bool     `json:"review_auto_quarantine"`
-		ApplyRequireReview   bool     `json:"apply_require_review"`
-		MaxDraftBytes        int      `json:"max_draft_bytes,omitempty"`
-		BackupKeep           int      `json:"backup_keep,omitempty"`
-		ApplyMaxPerDay       int      `json:"apply_max_per_day,omitempty"`
-		ProtectedSkills      []string `json:"protected_skills,omitempty"`
+		ReviewAutoQuarantine     bool     `json:"review_auto_quarantine"`
+		ApplyRequireReview       bool     `json:"apply_require_review"`
+		MaxDraftBytes            int      `json:"max_draft_bytes,omitempty"`
+		BackupKeep               int      `json:"backup_keep,omitempty"`
+		ApplyMaxPerDay           int      `json:"apply_max_per_day,omitempty"`
+		ProtectedSkills          []string `json:"protected_skills,omitempty"`
+		RetentionTaskRecordsDays int      `json:"retention_task_records_days,omitempty"`
+		RetentionDraftsDays      int      `json:"retention_drafts_days,omitempty"`
 	}{
-		Enabled:              c.Enabled,
-		Mode:                 c.Mode,
-		StateDir:             c.StateDir,
-		MinTaskCount:         c.EffectiveMinTaskCount(),
-		MinSuccessRatio:      c.EffectiveMinSuccessRatio(),
-		ColdPathTrigger:      strings.TrimSpace(c.ColdPathTrigger),
-		ColdPathTimes:        c.EffectiveColdPathTimes(),
-		ReviewAutoQuarantine: c.ReviewAutoQuarantine,
-		ApplyRequireReview:   c.ApplyRequireReview,
-		MaxDraftBytes:        c.EffectiveMaxDraftBytes(),
-		BackupKeep:           c.EffectiveBackupKeep(),
-		ApplyMaxPerDay:       c.EffectiveApplyMaxPerDay(),
-		ProtectedSkills:      c.EffectiveProtectedSkills(),
+		Enabled:                  c.Enabled,
+		Mode:                     c.Mode,
+		StateDir:                 c.StateDir,
+		MinTaskCount:             c.EffectiveMinTaskCount(),
+		MinSuccessRatio:          c.EffectiveMinSuccessRatio(),
+		ColdPathTrigger:          strings.TrimSpace(c.ColdPathTrigger),
+		ColdPathTimes:            c.EffectiveColdPathTimes(),
+		ReviewAutoQuarantine:     c.ReviewAutoQuarantine,
+		ApplyRequireReview:       c.ApplyRequireReview,
+		MaxDraftBytes:            c.EffectiveMaxDraftBytes(),
+		BackupKeep:               c.EffectiveBackupKeep(),
+		ApplyMaxPerDay:           c.EffectiveApplyMaxPerDay(),
+		ProtectedSkills:          c.EffectiveProtectedSkills(),
+		RetentionTaskRecordsDays: c.EffectiveRetentionTaskRecordsDays(),
+		RetentionDraftsDays:      c.EffectiveRetentionDraftsDays(),
 	}
 	if !out.Enabled {
 		out.Mode = ""
@@ -925,6 +940,28 @@ func (c EvolutionConfig) EffectiveBackupKeep() int {
 		return c.BackupKeep
 	}
 	return DefaultBackupKeep
+}
+
+// DefaultRetentionTaskRecordsDays is the task-record retention window used
+// when retention_task_records_days is unset or non-positive.
+const DefaultRetentionTaskRecordsDays = 90
+
+func (c EvolutionConfig) EffectiveRetentionTaskRecordsDays() int {
+	if c.RetentionTaskRecordsDays > 0 {
+		return c.RetentionTaskRecordsDays
+	}
+	return DefaultRetentionTaskRecordsDays
+}
+
+// DefaultRetentionDraftsDays is the rejected-draft retention window used
+// when retention_drafts_days is unset or non-positive.
+const DefaultRetentionDraftsDays = 30
+
+func (c EvolutionConfig) EffectiveRetentionDraftsDays() int {
+	if c.RetentionDraftsDays > 0 {
+		return c.RetentionDraftsDays
+	}
+	return DefaultRetentionDraftsDays
 }
 
 // DefaultApplyMaxPerDay is the rolling-24h auto-apply bound used when
