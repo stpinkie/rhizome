@@ -5,8 +5,11 @@ import "time"
 type RecordKind string
 
 const (
-	RecordKindTask       RecordKind = "task"
-	RecordKindPattern    RecordKind = "pattern"
+	RecordKindTask    RecordKind = "task"
+	RecordKindPattern RecordKind = "pattern"
+	// RecordKindFeedback marks operator feedback records (v0.18.0 Track
+	// 154) — they ride the task stream for retention but never cluster.
+	RecordKindFeedback   RecordKind = "feedback"
 	legacyRecordKindCase RecordKind = "case"
 	legacyRecordKindRule RecordKind = "rule"
 	// Deprecated: use RecordKindTask.

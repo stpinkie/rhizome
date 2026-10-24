@@ -153,6 +153,18 @@ func (al *AgentLoop) PruneEvolutionState(workspace string, dryRun bool) (evoluti
 	return bridge.pruneState(workspace, dryRun)
 }
 
+// RecordEvolutionFeedback writes an operator feedback record against a
+// task record or session — the `evolution feedback` mutation path.
+func (al *AgentLoop) RecordEvolutionFeedback(
+	workspace, signal, recordID, sessionKey, reason string,
+) (evolution.LearningRecord, error) {
+	bridge := al.currentEvolutionBridge()
+	if bridge == nil {
+		return evolution.LearningRecord{}, errEvolutionUnavailable
+	}
+	return bridge.recordFeedback(workspace, signal, recordID, sessionKey, reason)
+}
+
 // EvolutionLastRuns returns the per-workspace record of the most recent
 // cold-path activity the bridge observed.
 func (al *AgentLoop) EvolutionLastRuns() map[string]EvolutionRunRecord {
