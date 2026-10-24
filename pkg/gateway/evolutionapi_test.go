@@ -250,6 +250,38 @@ func TestEvolutionHandlerSkillRollbackNeedsAgentLoop(t *testing.T) {
 	}
 }
 
+func TestEvolutionHandlerSkillLifecycleAndPruneNeedAgentLoop(t *testing.T) {
+	cfg, workspace := testEvolutionConfig(t)
+	store := evolution.NewStore(evolution.NewPaths(workspace, cfg.Evolution.StateDir))
+	if err := store.SaveProfile(evolution.SkillProfile{
+		WorkspaceID: workspace, SkillName: "weather", Status: evolution.SkillStatusActive,
+	}); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+	h := newEvolutionHandler(nil, cfg, testTasksToken)
+
+	for _, action := range []string{"archive", "restore"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, authedRequest(http.MethodPost, "/evolution/skills/weather/"+action,
+			strings.NewReader(`{}`)))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s status = %d, want %d", action, rec.Code, http.StatusServiceUnavailable)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/evolution/prune",
+		strings.NewReader(`{"all":true}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("prune status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+
+	// No mutation happened.
+	profiles, _ := store.LoadProfiles()
+	if profiles[0].Status != evolution.SkillStatusActive {
+		t.Fatalf("profile mutated despite missing agent loop: %s", profiles[0].Status)
+	}
+}
+
 func TestEvolutionHandlerFeedback(t *testing.T) {
 	cfg, _ := testEvolutionConfig(t)
 	h := newEvolutionHandler(nil, cfg, testTasksToken)

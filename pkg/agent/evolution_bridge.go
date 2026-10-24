@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -488,6 +489,30 @@ func (b *evolutionBridge) rollbackSkill(
 		return evolution.RollbackResult{}, errors.New("evolution runtime unavailable")
 	}
 	return b.runtime.RollbackSkill(ctx, workspace, skillName, req)
+}
+
+func (b *evolutionBridge) transitionSkill(
+	workspace, skillName string,
+	target evolution.SkillStatus,
+) (evolution.SkillProfile, error) {
+	if b == nil || b.runtime == nil {
+		return evolution.SkillProfile{}, errors.New("evolution runtime unavailable")
+	}
+	switch target {
+	case evolution.SkillStatusArchived:
+		return b.runtime.ArchiveSkill(workspace, skillName)
+	case evolution.SkillStatusActive:
+		return b.runtime.RestoreSkill(workspace, skillName)
+	default:
+		return evolution.SkillProfile{}, fmt.Errorf("%w: unsupported target %q", evolution.ErrSkillTransition, target)
+	}
+}
+
+func (b *evolutionBridge) pruneState(workspace string, dryRun bool) (evolution.PruneSummary, error) {
+	if b == nil || b.runtime == nil {
+		return evolution.PruneSummary{}, errors.New("evolution runtime unavailable")
+	}
+	return b.runtime.PruneState(workspace, dryRun)
 }
 
 func (b *evolutionBridge) recordFeedback(
