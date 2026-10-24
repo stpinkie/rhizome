@@ -15,7 +15,23 @@ type LifecycleRunSummary struct {
 	EvaluatedProfiles    int
 	TransitionedProfiles int
 	DeletedSkills        int
+	PrunedTaskRecords    int
+	PrunedDrafts         int
 }
+
+// PruneSummary reports what a retention sweep removed (or would remove
+// under DryRun) from one workspace's evolution state.
+type PruneSummary struct {
+	Workspace         string `json:"workspace"`
+	DryRun            bool   `json:"dry_run,omitempty"`
+	TaskRecordsPruned int    `json:"task_records_pruned"`
+	DraftsPruned      int    `json:"drafts_pruned"`
+}
+
+// ErrSkillTransition is returned when a manual lifecycle transition is not
+// valid for the profile's current status (e.g. restoring a deleted skill —
+// recover with `evolution rollback` instead).
+var ErrSkillTransition = errors.New("invalid lifecycle transition")
 
 func NextLifecycleState(profile SkillProfile, now time.Time) SkillStatus {
 	if profile.Origin == "manual" || profile.LastUsedAt.IsZero() {
@@ -66,6 +82,21 @@ func ApplyLifecycleState(paths Paths, profile SkillProfile, next SkillStatus) er
 }
 
 func RunLifecycleOnce(store *Store, paths Paths, workspace string, now time.Time) (LifecycleRunSummary, error) {
+	evCfg := config.Global().Evolution
+	return RunLifecycleOnceWithRetention(store, paths, workspace, now,
+		evCfg.EffectiveRetentionTaskRecordsDays(),
+		evCfg.EffectiveRetentionDraftsDays())
+}
+
+// RunLifecycleOnceWithRetention is RunLifecycleOnce with explicit
+// retention windows — the runtime passes its own config here.
+func RunLifecycleOnceWithRetention(
+	store *Store,
+	paths Paths,
+	workspace string,
+	now time.Time,
+	taskDays, draftsDays int,
+) (LifecycleRunSummary, error) {
 	if store == nil {
 		return LifecycleRunSummary{}, nil
 	}
@@ -107,7 +138,179 @@ func RunLifecycleOnce(store *Store, paths Paths, workspace string, now time.Time
 		}
 	}
 
+	pruned, err := PruneExpired(store, workspace, now, taskDays, draftsDays, false)
+	if err != nil {
+		return summary, err
+	}
+	summary.PrunedTaskRecords = pruned.TaskRecordsPruned
+	summary.PrunedDrafts = pruned.DraftsPruned
+
 	return summary, nil
+}
+
+// TransitionSkill performs an operator-requested lifecycle transition on a
+// skill profile: "archive" parks an active/cold skill, "restore" returns a
+// cold/archived skill to active. Thresholds are bypassed — the operator's
+// call is the signal. Already-at-target is a no-op returning the profile
+// unchanged; anything else (archiving a deleted skill, restoring an active
+// one, restoring deleted) is ErrSkillTransition.
+func TransitionSkill(
+	store *Store,
+	workspace, skillName string,
+	target SkillStatus,
+	now time.Time,
+) (SkillProfile, error) {
+	if store == nil {
+		return SkillProfile{}, fmt.Errorf("evolution store unavailable")
+	}
+	var (
+		out      SkillProfile
+		previous SkillStatus
+	)
+	err := store.UpdateProfile(workspace, skillName, func(profile *SkillProfile, exists bool) error {
+		if !exists {
+			return fmt.Errorf("no profile for skill %q", skillName)
+		}
+		previous = profile.Status
+		switch target {
+		case SkillStatusArchived:
+			if profile.Status != SkillStatusActive && profile.Status != SkillStatusCold {
+				return fmt.Errorf("%w: cannot archive a %s skill", ErrSkillTransition, profile.Status)
+			}
+		case SkillStatusActive:
+			if profile.Status != SkillStatusArchived && profile.Status != SkillStatusCold {
+				return fmt.Errorf("%w: cannot restore a %s skill", ErrSkillTransition, profile.Status)
+			}
+		default:
+			return fmt.Errorf("%w: manual transitions support archive|restore", ErrSkillTransition)
+		}
+		if profile.Status == target {
+			out = *profile
+			return nil
+		}
+		profile.VersionHistory = append(profile.VersionHistory, SkillVersionEntry{
+			Version:   profile.CurrentVersion,
+			Action:    "lifecycle:" + string(target),
+			Timestamp: now,
+			Summary:   fmt.Sprintf("manual lifecycle transition: %s -> %s", profile.Status, target),
+		})
+		profile.Status = target
+		out = *profile
+		return nil
+	})
+	if err != nil {
+		return SkillProfile{}, err
+	}
+	if previous == target {
+		return out, nil
+	}
+	// ApplyLifecycleState owns the file side of transitions; manual
+	// archive/restore never target deleted so this is a no-op today, but
+	// routing through it keeps a single file-effects path.
+	if err := ApplyLifecycleState(store.paths, out, target); err != nil {
+		return SkillProfile{}, err
+	}
+	return out, nil
+}
+
+// PruneExpired applies the retention windows to a workspace's evolution
+// state: unclustered task-stream records older than taskDays and rejected
+// drafts older than draftsDays are removed. Clustered records (the
+// accepted history patterns cite via TaskRecordIDs), unsettled drafts
+// (candidate/quarantined), accepted drafts, and pattern records are never
+// pruned. DryRun reports counts without writing.
+func PruneExpired(
+	store *Store,
+	workspace string,
+	now time.Time,
+	taskDays, draftsDays int,
+	dryRun bool,
+) (PruneSummary, error) {
+	summary := PruneSummary{Workspace: workspace, DryRun: dryRun}
+	if store == nil || (taskDays <= 0 && draftsDays <= 0) {
+		return summary, nil
+	}
+
+	if taskDays > 0 {
+		cutoff := now.AddDate(0, 0, -taskDays)
+		records, err := store.LoadTaskRecords()
+		if err != nil {
+			return summary, err
+		}
+		kept := make([]LearningRecord, 0, len(records))
+		for _, record := range records {
+			if recordBelongsToWorkspace(store.paths, workspace, record) &&
+				record.Status != RecordStatus("clustered") &&
+				recordCreatedAt(record).Before(cutoff) {
+				summary.TaskRecordsPruned++
+				continue
+			}
+			kept = append(kept, record)
+		}
+		if !dryRun && summary.TaskRecordsPruned > 0 {
+			if err := store.SaveTaskRecords(kept); err != nil {
+				return summary, err
+			}
+			// LoadTaskRecords merges the legacy learning log — strip its
+			// task-kind lines or pruned records reappear on the next load.
+			if err := store.DropTaskRecordsFromLearningLog(); err != nil {
+				return summary, err
+			}
+		}
+	}
+
+	if draftsDays > 0 {
+		cutoff := now.AddDate(0, 0, -draftsDays)
+		drafts, err := store.LoadDrafts()
+		if err != nil {
+			return summary, err
+		}
+		kept := make([]SkillDraft, 0, len(drafts))
+		for _, draft := range drafts {
+			if draftBelongsToWorkspace(store.paths, workspace, draft) &&
+				draft.Status == DraftStatusRejected &&
+				draftUpdatedAt(draft).Before(cutoff) {
+				summary.DraftsPruned++
+				continue
+			}
+			kept = append(kept, draft)
+		}
+		if !dryRun && summary.DraftsPruned > 0 {
+			if err := store.ReplaceDrafts(kept); err != nil {
+				return summary, err
+			}
+		}
+	}
+
+	return summary, nil
+}
+
+func recordCreatedAt(record LearningRecord) time.Time {
+	if record.UpdatedAt != nil && record.UpdatedAt.After(record.CreatedAt) {
+		return *record.UpdatedAt
+	}
+	return record.CreatedAt
+}
+
+func draftUpdatedAt(draft SkillDraft) time.Time {
+	if draft.UpdatedAt != nil && draft.UpdatedAt.After(draft.CreatedAt) {
+		return *draft.UpdatedAt
+	}
+	return draft.CreatedAt
+}
+
+func recordBelongsToWorkspace(paths Paths, workspace string, record LearningRecord) bool {
+	if record.WorkspaceID == workspace {
+		return true
+	}
+	return record.WorkspaceID == "" && usesDefaultWorkspaceState(paths, workspace)
+}
+
+func draftBelongsToWorkspace(paths Paths, workspace string, draft SkillDraft) bool {
+	if draft.WorkspaceID == workspace {
+		return true
+	}
+	return draft.WorkspaceID == "" && usesDefaultWorkspaceState(paths, workspace)
 }
 
 func inferWorkspaceFromPaths(paths Paths) string {

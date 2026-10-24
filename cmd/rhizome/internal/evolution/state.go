@@ -154,6 +154,8 @@ func newSkillsCommand() *cobra.Command {
 	sel.register(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
 	cmd.AddCommand(newSkillsHistoryCommand())
+	cmd.AddCommand(newSkillTransitionCommand("archive"))
+	cmd.AddCommand(newSkillTransitionCommand("restore"))
 	return cmd
 }
 

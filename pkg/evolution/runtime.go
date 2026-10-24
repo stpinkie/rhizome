@@ -1165,7 +1165,9 @@ func (rt *Runtime) runLifecycleMaintenance(workspace string, store *Store, runID
 		"run_id":    runID,
 	})
 
-	summary, err := RunLifecycleOnce(store, paths, workspace, rt.now())
+	summary, err := RunLifecycleOnceWithRetention(store, paths, workspace, rt.now(),
+		rt.cfg.EffectiveRetentionTaskRecordsDays(),
+		rt.cfg.EffectiveRetentionDraftsDays())
 	if err != nil {
 		logger.WarnCF("evolution", "Lifecycle maintenance failed", map[string]any{
 			"workspace": workspace,

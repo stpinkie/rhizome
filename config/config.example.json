@@ -54,7 +54,9 @@
     "apply_max_per_day": 3,
     "protected_skills": [],
     "max_draft_bytes": 65536,
-    "backup_keep": 5
+    "backup_keep": 5,
+    "retention_task_records_days": 90,
+    "retention_drafts_days": 30
   },
   "model_list": [
     {

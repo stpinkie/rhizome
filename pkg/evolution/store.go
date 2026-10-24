@@ -191,6 +191,28 @@ func (s *Store) SaveTaskRecords(records []LearningRecord) error {
 	return s.saveJSONLRecords(s.paths.TaskRecords, records)
 }
 
+// DropTaskRecordsFromLearningLog rewrites the legacy
+// learning-records.jsonl keeping only non-task kinds. LoadTaskRecords
+// merges this file, so retention pruning has to strip pruned records here
+// too or they reappear on the next load.
+func (s *Store) DropTaskRecordsFromLearningLog() error {
+	unlock := lockStoreFile(s.paths.LearningRecords)
+	defer unlock()
+
+	records, err := s.loadRecordsFromPath(s.paths.LearningRecords)
+	if err != nil {
+		return err
+	}
+	kept := make([]LearningRecord, 0, len(records))
+	for _, record := range records {
+		if isTaskRecordKind(record.Kind) {
+			continue
+		}
+		kept = append(kept, record)
+	}
+	return s.saveJSONLRecordsLocked(s.paths.LearningRecords, kept)
+}
+
 func (s *Store) MarkTaskRecordsClustered(ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -354,6 +376,23 @@ func (s *Store) SaveDrafts(drafts []SkillDraft) error {
 	}
 
 	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(s.paths.SkillDrafts, data, 0o644)
+}
+
+// ReplaceDrafts rewrites the drafts file to exactly the given set — the
+// deletion form SaveDrafts' merge can't express. Callers (retention
+// pruning) must already hold every draft that should survive.
+func (s *Store) ReplaceDrafts(drafts []SkillDraft) error {
+	unlock := lockStoreFile(s.paths.SkillDrafts)
+	defer unlock()
+
+	if drafts == nil {
+		drafts = []SkillDraft{}
+	}
+	data, err := json.MarshalIndent(drafts, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -130,6 +130,29 @@ func (al *AgentLoop) RollbackEvolutionSkill(
 	return bridge.rollbackSkill(ctx, workspace, skillName, req)
 }
 
+// TransitionEvolutionSkill performs a manual lifecycle transition
+// (archive/restore) on a workspace's skill profile.
+func (al *AgentLoop) TransitionEvolutionSkill(
+	workspace, skillName string,
+	target evolution.SkillStatus,
+) (evolution.SkillProfile, error) {
+	bridge := al.currentEvolutionBridge()
+	if bridge == nil {
+		return evolution.SkillProfile{}, errEvolutionUnavailable
+	}
+	return bridge.transitionSkill(workspace, skillName, target)
+}
+
+// PruneEvolutionState runs the retention sweep for a workspace — or just
+// counts it under dryRun.
+func (al *AgentLoop) PruneEvolutionState(workspace string, dryRun bool) (evolution.PruneSummary, error) {
+	bridge := al.currentEvolutionBridge()
+	if bridge == nil {
+		return evolution.PruneSummary{}, errEvolutionUnavailable
+	}
+	return bridge.pruneState(workspace, dryRun)
+}
+
 // EvolutionLastRuns returns the per-workspace record of the most recent
 // cold-path activity the bridge observed.
 func (al *AgentLoop) EvolutionLastRuns() map[string]EvolutionRunRecord {

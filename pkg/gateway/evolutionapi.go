@@ -23,9 +23,12 @@ import (
 //	GET  /evolution/records?workspace=&kind=&limit=  learning records
 //	GET  /evolution/skills?workspace=            skill profiles
 //	POST /evolution/run                          {workspace|agent|all, dry_run}
+//	POST /evolution/prune                        {workspace|agent|all, dry_run}
 //	POST /evolution/drafts/<id>/accept           {workspace?, force?}
 //	POST /evolution/drafts/<id>/reject           {workspace?, reason?}
 //	POST /evolution/skills/<name>/rollback       {workspace?, to?, dry_run?}
+//	POST /evolution/skills/<name>/archive        {workspace?}
+//	POST /evolution/skills/<name>/restore        {workspace?}
 //
 // Reads are store-level and cheap; mutations go through the agent loop's
 // evolution runtime so draft application uses the production applier path.
@@ -58,6 +61,8 @@ func (h *evolutionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleSkills(w, r)
 	case sub == "run" && r.Method == http.MethodPost:
 		h.handleRun(w, r)
+	case sub == "prune" && r.Method == http.MethodPost:
+		h.handlePrune(w, r)
 	case strings.HasPrefix(sub, "drafts/"):
 		h.handleDraftAction(w, r, strings.TrimPrefix(sub, "drafts/"))
 	case strings.HasPrefix(sub, "skills/"):
@@ -71,17 +76,19 @@ func (h *evolutionHandler) handleStatus(w http.ResponseWriter, _ *http.Request) 
 	evCfg := h.evolutionConfig()
 	workspaces := h.workspaces()
 	out := map[string]any{
-		"enabled":              evCfg.Enabled,
-		"mode":                 evCfg.EffectiveMode(),
-		"cold_path_trigger":    evCfg.ColdPathTriggerMode(),
-		"cold_path_times":      evCfg.EffectiveColdPathTimes(),
-		"state_dir":            evCfg.StateDir,
-		"min_task_count":       evCfg.EffectiveMinTaskCount(),
-		"min_success_ratio":    evCfg.EffectiveMinSuccessRatio(),
-		"apply_require_review": evCfg.ApplyRequireReview,
-		"apply_max_per_day":    evCfg.EffectiveApplyMaxPerDay(),
-		"protected_skills":     evCfg.EffectiveProtectedSkills(),
-		"workspaces":           []any{},
+		"enabled":                     evCfg.Enabled,
+		"mode":                        evCfg.EffectiveMode(),
+		"cold_path_trigger":           evCfg.ColdPathTriggerMode(),
+		"cold_path_times":             evCfg.EffectiveColdPathTimes(),
+		"state_dir":                   evCfg.StateDir,
+		"min_task_count":              evCfg.EffectiveMinTaskCount(),
+		"min_success_ratio":           evCfg.EffectiveMinSuccessRatio(),
+		"apply_require_review":        evCfg.ApplyRequireReview,
+		"apply_max_per_day":           evCfg.EffectiveApplyMaxPerDay(),
+		"protected_skills":            evCfg.EffectiveProtectedSkills(),
+		"retention_task_records_days": evCfg.EffectiveRetentionTaskRecordsDays(),
+		"retention_drafts_days":       evCfg.EffectiveRetentionDraftsDays(),
+		"workspaces":                  []any{},
 	}
 	statuses := make([]any, 0, len(workspaces))
 	for _, ws := range workspaces {
@@ -260,6 +267,45 @@ func (h *evolutionHandler) handleRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
+// handlePrune runs the retention sweep — or counts it under dry_run — over
+// the resolved workspaces.
+func (h *evolutionHandler) handlePrune(w http.ResponseWriter, r *http.Request) {
+	if h.agentLoop == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent loop unavailable"})
+		return
+	}
+	var req struct {
+		Workspace string `json:"workspace"`
+		Agent     string `json:"agent"`
+		All       bool   `json:"all"`
+		DryRun    bool   `json:"dry_run"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil &&
+		!errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	workspaces, err := h.resolveRunTargets(req.Workspace, req.Agent, req.All)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	results := make([]evolution.PruneSummary, 0, len(workspaces))
+	for _, ws := range workspaces {
+		summary, err := h.agentLoop.PruneEvolutionState(ws, req.DryRun)
+		if err != nil {
+			summary = evolution.PruneSummary{Workspace: ws, DryRun: req.DryRun}
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":   err.Error(),
+				"results": append(results, summary),
+			})
+			return
+		}
+		results = append(results, summary)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
 func (h *evolutionHandler) handleDraftAction(w http.ResponseWriter, r *http.Request, rest string) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -306,7 +352,7 @@ func (h *evolutionHandler) handleDraftAction(w http.ResponseWriter, r *http.Requ
 }
 
 // handleSkillAction executes POST /evolution/skills/<name>/<action> —
-// currently just "rollback".
+// "rollback", "archive", or "restore".
 func (h *evolutionHandler) handleSkillAction(w http.ResponseWriter, r *http.Request, rest string) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -317,7 +363,8 @@ func (h *evolutionHandler) handleSkillAction(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	name, action, found := strings.Cut(strings.TrimSuffix(rest, "/"), "/")
-	if !found || name == "" || action != "rollback" {
+	if !found || name == "" ||
+		(action != "rollback" && action != "archive" && action != "restore") {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown skill endpoint"})
 		return
 	}
@@ -333,18 +380,39 @@ func (h *evolutionHandler) handleSkillAction(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	result, err := h.agentLoop.RollbackEvolutionSkill(
-		r.Context(), workspace, name, evolution.RollbackRequest{To: req.To, DryRun: req.DryRun})
+	if action == "rollback" {
+		result, err := h.agentLoop.RollbackEvolutionSkill(
+			r.Context(), workspace, name, evolution.RollbackRequest{To: req.To, DryRun: req.DryRun})
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, evolution.ErrRollbackUnavailable) ||
+				strings.Contains(err.Error(), "skill name") {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"rollback": result})
+		return
+	}
+
+	var target evolution.SkillStatus
+	if action == "archive" {
+		target = evolution.SkillStatusArchived
+	} else {
+		target = evolution.SkillStatusActive
+	}
+	profile, err := h.agentLoop.TransitionEvolutionSkill(workspace, name, target)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, evolution.ErrRollbackUnavailable) ||
-			strings.Contains(err.Error(), "skill name") {
+		if errors.Is(err, evolution.ErrSkillTransition) ||
+			strings.Contains(err.Error(), "no profile") {
 			status = http.StatusBadRequest
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rollback": result})
+	writeJSON(w, http.StatusOK, map[string]any{"skill": profile})
 }
 
 // resolveSkillWorkspace locates the workspace owning a skill profile: the
