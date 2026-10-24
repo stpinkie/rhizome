@@ -250,6 +250,19 @@ func TestEvolutionHandlerSkillRollbackNeedsAgentLoop(t *testing.T) {
 	}
 }
 
+func TestEvolutionHandlerFeedback(t *testing.T) {
+	cfg, _ := testEvolutionConfig(t)
+	h := newEvolutionHandler(nil, cfg, testTasksToken)
+
+	// Mutation endpoint — 503 without the agent loop.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodPost, "/evolution/feedback",
+		strings.NewReader(`{"signal":"good","record_id":"task-1"}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestEvolutionHandlerSkillActionMethodNotAllowed(t *testing.T) {
 	cfg, _ := testEvolutionConfig(t)
 	h := newEvolutionHandler(nil, cfg, testTasksToken)

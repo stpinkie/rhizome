@@ -264,7 +264,7 @@ func fillColdPathCounts(summary *ColdPathRunSummary, store *Store, workspace str
 		return err
 	}
 	for _, record := range taskRecords {
-		if record.WorkspaceID != workspace {
+		if !isTaskRecordKind(record.Kind) || record.WorkspaceID != workspace {
 			continue
 		}
 		summary.TaskRecords++
@@ -395,7 +395,19 @@ func LoadRecordsByKind(store *Store, kind string) ([]LearningRecord, error) {
 	case "", "all":
 		return store.LoadLearningRecords()
 	case "task", "case":
-		return store.LoadTaskRecords()
+		records, err := store.LoadTaskRecords()
+		if err != nil {
+			return nil, err
+		}
+		out := make([]LearningRecord, 0, len(records))
+		for _, r := range records {
+			// The task stream also carries feedback records — they answer
+			// to --kind feedback, not task.
+			if isTaskRecordKind(r.Kind) {
+				out = append(out, r)
+			}
+		}
+		return out, nil
 	case "pattern", "rule":
 		return store.LoadPatternRecords()
 	case "feedback":
@@ -405,7 +417,7 @@ func LoadRecordsByKind(store *Store, kind string) ([]LearningRecord, error) {
 		}
 		out := make([]LearningRecord, 0, len(records))
 		for _, r := range records {
-			if string(r.Kind) == "feedback" {
+			if r.Kind == RecordKindFeedback {
 				out = append(out, r)
 			}
 		}

@@ -490,6 +490,15 @@ func (b *evolutionBridge) rollbackSkill(
 	return b.runtime.RollbackSkill(ctx, workspace, skillName, req)
 }
 
+func (b *evolutionBridge) recordFeedback(
+	workspace, signal, recordID, sessionKey, reason string,
+) (evolution.LearningRecord, error) {
+	if b == nil || b.runtime == nil {
+		return evolution.LearningRecord{}, errors.New("evolution runtime unavailable")
+	}
+	return b.runtime.RecordFeedback(workspace, signal, recordID, sessionKey, reason)
+}
+
 // recordRun remembers the latest cold-path activity for a workspace so
 // `evolution status` can show it. Kind is "trigger" (async run scheduled
 // through the coalescing runner) or "run" (completed synchronous run).

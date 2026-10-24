@@ -566,6 +566,8 @@ func (rt *Runtime) recordsForColdPathInputs(
 	admitted := make([]LearningRecord, 0, len(records))
 	evidence := make([]LearningRecord, 0, len(records))
 	judge := rt.successJudgeForWorkspace(workspace)
+	badIDs, badSessions := BadFeedbackLinks(records)
+	goodIDs, goodSessions := GoodFeedbackLinks(records)
 
 	for _, record := range records {
 		if !isTaskRecordKind(record.Kind) || record.WorkspaceID != workspace {
@@ -579,9 +581,24 @@ func (rt *Runtime) recordsForColdPathInputs(
 			})
 			continue
 		}
+		// Operator-marked bad: explicit failure evidence — never admitted,
+		// and it drags the cluster's success ratio down with it.
+		if feedbackLinked(badIDs, badSessions, record) {
+			failed := false
+			evidenceRecord := record
+			evidenceRecord.Success = &failed
+			evidence = append(evidence, evidenceRecord)
+			logger.DebugCF("evolution", "Rejected task record by operator feedback", map[string]any{
+				"workspace": workspace,
+				"record_id": record.ID,
+				"reason":    "feedback:bad",
+			})
+			continue
+		}
 
 		evidenceRecord := record
-		if record.Success != nil && *record.Success && judge != nil {
+		if record.Success != nil && *record.Success &&
+			judge != nil && !feedbackLinked(goodIDs, goodSessions, record) {
 			decision, err := judge.JudgeTaskRecord(ctx, record)
 			if err != nil {
 				return nil, nil, err

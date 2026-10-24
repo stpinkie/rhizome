@@ -23,6 +23,7 @@ import (
 //	GET  /evolution/records?workspace=&kind=&limit=  learning records
 //	GET  /evolution/skills?workspace=            skill profiles
 //	POST /evolution/run                          {workspace|agent|all, dry_run}
+//	POST /evolution/feedback                     {workspace|agent, signal, record_id|session_key, reason?}
 //	POST /evolution/drafts/<id>/accept           {workspace?, force?}
 //	POST /evolution/drafts/<id>/reject           {workspace?, reason?}
 //	POST /evolution/skills/<name>/rollback       {workspace?, to?, dry_run?}
@@ -58,6 +59,8 @@ func (h *evolutionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleSkills(w, r)
 	case sub == "run" && r.Method == http.MethodPost:
 		h.handleRun(w, r)
+	case sub == "feedback" && r.Method == http.MethodPost:
+		h.handleFeedback(w, r)
 	case strings.HasPrefix(sub, "drafts/"):
 		h.handleDraftAction(w, r, strings.TrimPrefix(sub, "drafts/"))
 	case strings.HasPrefix(sub, "skills/"):
@@ -258,6 +261,53 @@ func (h *evolutionHandler) handleRun(w http.ResponseWriter, r *http.Request) {
 		results = append(results, summary)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+// handleFeedback writes an operator feedback record — good/bad against a
+// task record or session, defaulting to the workspace's most recent task
+// record.
+func (h *evolutionHandler) handleFeedback(w http.ResponseWriter, r *http.Request) {
+	if h.agentLoop == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent loop unavailable"})
+		return
+	}
+	var req struct {
+		Workspace  string `json:"workspace"`
+		Agent      string `json:"agent"`
+		Signal     string `json:"signal"`
+		RecordID   string `json:"record_id"`
+		SessionKey string `json:"session_key"`
+		Reason     string `json:"reason"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if !evolution.IsValidFeedbackSignal(req.Signal) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "signal must be good|bad"})
+		return
+	}
+	workspaces, err := h.resolveRunTargets(req.Workspace, req.Agent, false)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(workspaces) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no workspace resolved"})
+		return
+	}
+	record, err := h.agentLoop.RecordEvolutionFeedback(
+		workspaces[0], req.Signal, req.RecordID, req.SessionKey, req.Reason)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, evolution.ErrFeedbackTarget) ||
+			strings.Contains(err.Error(), "signal must be") {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"feedback": record})
 }
 
 func (h *evolutionHandler) handleDraftAction(w http.ResponseWriter, r *http.Request, rest string) {
