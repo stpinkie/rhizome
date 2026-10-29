@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -292,6 +294,94 @@ func TestEvolutionHandlerFeedback(t *testing.T) {
 		strings.NewReader(`{"signal":"good","record_id":"task-1"}`)))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestEvolutionHandlerActivity(t *testing.T) {
+	cfg, _ := testEvolutionConfig(t)
+	home := t.TempDir()
+	t.Setenv("RHIZOME_HOME", home)
+
+	// Seed the audit trail the endpoint tails.
+	path := filepath.Join(home, "evolution-audit.jsonl")
+	lines := []map[string]any{
+		{
+			"ts": "2026-10-29T01:00:00Z", "op": "run.finished", "workspace": "/ws/a", "status": "ok",
+			"drafts_created": 1,
+		},
+		{"ts": "2026-10-29T02:00:00Z", "op": "draft.candidate", "workspace": "/ws/a", "draft_id": "d-1"},
+		{
+			"ts": "2026-10-29T03:00:00Z", "op": "run.finished", "workspace": "/ws/b", "status": "error",
+			"error": "cluster failed",
+		},
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range lines {
+		data, _ := json.Marshal(e)
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	h := newEvolutionHandler(nil, cfg, testTasksToken)
+
+	// Reads work even without an agent loop — the file is the feed.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/evolution/activity", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Events []map[string]any `json:"events"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Events) != 3 {
+		t.Fatalf("events = %d, want 3: %s", len(out.Events), rec.Body.String())
+	}
+
+	// kind filter supports op prefixes.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/evolution/activity?kind=run.*", nil))
+	out.Events = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Events) != 2 {
+		t.Fatalf("kind=run.* events = %d, want 2: %s", len(out.Events), rec.Body.String())
+	}
+
+	// workspace + tail filters narrow the result.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/evolution/activity?workspace=/ws/b&tail=5", nil))
+	out.Events = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Events) != 1 || out.Events[0]["op"] != "run.finished" {
+		t.Fatalf("workspace filter events = %v", out.Events)
+	}
+
+	// since rejects malformed values.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/evolution/activity?since=bogus", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("since=bogus status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	// A missing audit file is an empty feed, not an error.
+	t.Setenv("RHIZOME_HOME", t.TempDir())
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, authedRequest(http.MethodGet, "/evolution/activity", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
 

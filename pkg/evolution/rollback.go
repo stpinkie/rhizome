@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/fileutil"
 	"github.com/stpinkie/rhizome/pkg/skills"
 )
@@ -149,6 +151,14 @@ func (rt *Runtime) RollbackSkill(
 	if err := applier.PruneBackups(workspace, skillName, rt.cfg.EffectiveBackupKeep()); err != nil {
 		return result, fmt.Errorf("prune backups: %w", err)
 	}
+	rt.observe(runtimeevents.KindEvolutionSkillRollback, "skill.rollback", workspace,
+		time.Time{}, map[string]any{
+			"skill":            skillName,
+			"previous_version": result.PreviousVersion,
+			"restored_version": result.RestoredVersion,
+			"removed":          result.Removed,
+			"source":           result.Source,
+		})
 	return result, nil
 }
 

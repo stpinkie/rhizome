@@ -22,6 +22,7 @@ import (
 //	GET  /evolution/drafts?workspace=&state=     skill drafts (all workspaces)
 //	GET  /evolution/records?workspace=&kind=&limit=  learning records
 //	GET  /evolution/skills?workspace=            skill profiles
+//	GET  /evolution/activity?tail=&kind=&workspace=&since=  audit trail tail
 //	POST /evolution/run                          {workspace|agent|all, dry_run}
 //	POST /evolution/prune                        {workspace|agent|all, dry_run}
 //	POST /evolution/feedback                     {workspace|agent, signal, record_id|session_key, reason?}
@@ -54,6 +55,8 @@ func (h *evolutionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case sub == "status" && r.Method == http.MethodGet:
 		h.handleStatus(w, r)
+	case sub == "activity" && r.Method == http.MethodGet:
+		h.handleActivity(w, r)
 	case sub == "drafts" && r.Method == http.MethodGet:
 		h.handleDrafts(w, r)
 	case sub == "records" && r.Method == http.MethodGet:
@@ -112,6 +115,43 @@ func (h *evolutionHandler) handleStatus(w http.ResponseWriter, _ *http.Request) 
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleActivity serves the tail of the evolution audit trail —
+// evolution-audit.jsonl under RHIZOME_HOME — the /network/activity
+// precedent. The file is the durable feed: reading it directly covers
+// restarts and works even when the agent loop is unavailable.
+//
+//	GET /evolution/activity?tail=N&kind=<op|op.*>&workspace=<path>&since=<dur|rfc3339>
+func (h *evolutionHandler) handleActivity(w http.ResponseWriter, r *http.Request) {
+	tail := 50
+	if raw := r.URL.Query().Get("tail"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			tail = n
+		}
+	}
+	if tail > 500 {
+		tail = 500
+	}
+	var filter evolution.AuditFilter
+	q := r.URL.Query()
+	filter.Op = strings.TrimSpace(q.Get("kind"))
+	filter.Workspace = evolution.ResolveWorkspacePath(q.Get("workspace"))
+	if raw := q.Get("since"); raw != "" {
+		since, err := parseSince(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		filter.Since = since
+	}
+	path := evolution.DefaultAuditPath()
+	entries, err := evolution.ReadAuditEntries(path, tail, filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": entries, "path": path})
 }
 
 func (h *evolutionHandler) handleDrafts(w http.ResponseWriter, r *http.Request) {

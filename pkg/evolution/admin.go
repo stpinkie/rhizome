@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 )
 
 // ColdPathRunSummary reports what a manual cold-path run did — or, for a
@@ -105,7 +108,7 @@ func (rt *Runtime) RunColdPathSummary(ctx context.Context, workspace string) Col
 		return summary
 	}
 	summary.Ran = true
-	if err := rt.RunColdPathOnce(ctx, workspace); err != nil {
+	if err := rt.runColdPath(ctx, workspace, "manual"); err != nil {
 		summary.Error = err.Error()
 	}
 	after, snapErr := draftSnapshot(store, workspace)
@@ -180,6 +183,12 @@ func (rt *Runtime) RejectDraft(workspace, draftID, reason string) (SkillDraft, e
 	if err := store.SaveDrafts([]SkillDraft{draft}); err != nil {
 		return SkillDraft{}, err
 	}
+	rt.observe(runtimeevents.KindEvolutionDraftRejected, "draft.rejected", workspace,
+		time.Time{}, map[string]any{
+			"draft_id":     draft.ID,
+			"target_skill": draft.TargetSkillName,
+			"reason":       reason,
+		})
 	return draft, nil
 }
 
@@ -346,6 +355,12 @@ type WorkspaceStatus struct {
 	ReadyPatterns    int            `json:"ready_patterns"`
 	Drafts           map[string]int `json:"drafts"`
 	Skills           map[string]int `json:"skills"`
+	// Acceptance rollup: decided drafts are the operator/agent judgment
+	// record — accepted + rejected (unsettled candidate/quarantined drafts
+	// don't count). The Track 155 status surface reports the rate.
+	AcceptedDrafts int     `json:"accepted_drafts"`
+	RejectedDrafts int     `json:"rejected_drafts"`
+	AcceptanceRate float64 `json:"acceptance_rate"`
 }
 
 // SummarizeWorkspace computes the status counters for one workspace's
@@ -373,6 +388,11 @@ func SummarizeWorkspace(store *Store, workspace string) (WorkspaceStatus, error)
 		if d.WorkspaceID == workspace {
 			out.Drafts[string(d.Status)]++
 		}
+	}
+	out.AcceptedDrafts = out.Drafts[string(DraftStatusAccepted)]
+	out.RejectedDrafts = out.Drafts[string(DraftStatusRejected)]
+	if decided := out.AcceptedDrafts + out.RejectedDrafts; decided > 0 {
+		out.AcceptanceRate = float64(out.AcceptedDrafts) / float64(decided)
 	}
 	profiles, err := store.LoadProfiles()
 	if err != nil {

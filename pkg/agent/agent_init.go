@@ -90,6 +90,7 @@ func NewAgentLoop(
 	}
 	if bridge != nil {
 		bridge.setCurrentCheck(al.isCurrentEvolutionBridge)
+		bridge.runtime.SetEventBus(al.runtimeEvents)
 		if err := bridge.subscribeRuntimeEvents(al.runtimeEvents.Channel()); err != nil {
 			logger.WarnCF("agent", "Failed to subscribe evolution bridge to runtime events", map[string]any{
 				"error": err.Error(),
