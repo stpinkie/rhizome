@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 )
 
 // Feedback signals an operator can attach to a task record or session.
@@ -155,6 +157,12 @@ func (rt *Runtime) RecordFeedback(
 	if err := store.AppendTaskRecord(context.Background(), record); err != nil {
 		return LearningRecord{}, err
 	}
+	rt.observe(runtimeevents.KindEvolutionFeedback, "feedback", workspace, time.Time{}, map[string]any{
+		"signal":     signal,
+		"record_id":  resolvedID,
+		"session_id": sessionKey,
+		"reason":     reason,
+	})
 	return record, nil
 }
 

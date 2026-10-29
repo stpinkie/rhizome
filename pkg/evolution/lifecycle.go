@@ -17,6 +17,16 @@ type LifecycleRunSummary struct {
 	DeletedSkills        int
 	PrunedTaskRecords    int
 	PrunedDrafts         int
+	// Transitions lists the profile status changes the sweep applied — the
+	// observability hook for skill.lifecycle events.
+	Transitions []SkillTransition
+}
+
+// SkillTransition records one lifecycle status change the sweep applied.
+type SkillTransition struct {
+	Skill string
+	From  SkillStatus
+	To    SkillStatus
 }
 
 // PruneSummary reports what a retention sweep removed (or would remove
@@ -121,6 +131,7 @@ func RunLifecycleOnceWithRetention(
 		if err := ApplyLifecycleState(paths, profile, next); err != nil {
 			return summary, err
 		}
+		from := profile.Status
 		profile.VersionHistory = append(profile.VersionHistory, SkillVersionEntry{
 			Version:   profile.CurrentVersion,
 			Action:    "lifecycle:" + string(next),
@@ -133,6 +144,11 @@ func RunLifecycleOnceWithRetention(
 		}
 
 		summary.TransitionedProfiles++
+		summary.Transitions = append(summary.Transitions, SkillTransition{
+			Skill: profile.SkillName,
+			From:  from,
+			To:    next,
+		})
 		if next == SkillStatusDeleted {
 			summary.DeletedSkills++
 		}

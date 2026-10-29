@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/stpinkie/rhizome/pkg/config"
+	runtimeevents "github.com/stpinkie/rhizome/pkg/events"
 	"github.com/stpinkie/rhizome/pkg/fileutil"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/skills"
@@ -35,6 +36,13 @@ type RuntimeOptions struct {
 	SuccessJudgeFactory func(workspace string) SuccessJudge
 	Applier             *Applier
 	ApplierFactory      func(workspace string) *Applier
+	// EventBus receives evolution.* runtime events (Track 155). Nil is
+	// fine — emissions are no-ops without a bus.
+	EventBus runtimeevents.Bus
+	// AuditPath enables the evolution-audit.jsonl trail when non-empty —
+	// pass DefaultAuditPath() for the daemon runtime. Empty disables
+	// audit writes, keeping daemonless/test runtimes write-free.
+	AuditPath string
 }
 
 type Runtime struct {
@@ -52,6 +60,8 @@ type Runtime struct {
 	successJudgeFactory func(workspace string) SuccessJudge
 	applier             *Applier
 	applierFactory      func(workspace string) *Applier
+	events              runtimeevents.Bus
+	audit               *auditLog
 }
 
 type TurnCaseInput struct {
@@ -104,7 +114,69 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 		successJudgeFactory: opts.SuccessJudgeFactory,
 		applier:             opts.Applier,
 		applierFactory:      opts.ApplierFactory,
+		events:              opts.EventBus,
+		audit:               newAuditLog(opts.AuditPath),
 	}, nil
+}
+
+// SetEventBus attaches the runtime event bus after construction — the
+// mesh SetEventBus pattern, wired by the agent loop once its bus exists.
+func (rt *Runtime) SetEventBus(bus runtimeevents.Bus) {
+	if rt == nil {
+		return
+	}
+	rt.events = bus
+}
+
+// observe fans one decision out to the runtime event bus and the audit
+// trail — the auditMeshFields shape. Both sinks are optional and never
+// block the caller: events use PublishNonBlocking, audit failures are
+// silent. op is the audit operation name (the event kind minus the
+// "evolution." prefix); started, when non-zero, stamps duration_ms.
+func (rt *Runtime) observe(
+	kind runtimeevents.Kind,
+	op, workspace string,
+	started time.Time,
+	fields map[string]any,
+) {
+	if rt == nil {
+		return
+	}
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	severity := runtimeevents.SeverityInfo
+	if status, _ := fields["status"].(string); status == "error" {
+		severity = runtimeevents.SeverityError
+	}
+	if rt.events != nil {
+		attrs := make(map[string]any, len(fields)+1)
+		attrs["workspace"] = workspace
+		for k, v := range fields {
+			attrs[k] = v
+		}
+		rt.events.PublishNonBlocking(runtimeevents.Event{
+			Kind:     kind,
+			Time:     rt.now().UTC(),
+			Severity: severity,
+			Source:   runtimeevents.Source{Component: "evolution", Name: workspace},
+			Attrs:    attrs,
+		})
+	}
+	if rt.audit != nil {
+		entry := map[string]any{
+			"ts":        rt.now().UTC().Format(time.RFC3339Nano),
+			"op":        op,
+			"workspace": workspace,
+		}
+		if !started.IsZero() {
+			entry["duration_ms"] = time.Since(started).Milliseconds()
+		}
+		for k, v := range fields {
+			entry[k] = v
+		}
+		rt.audit.Log(entry)
+	}
 }
 
 func (rt *Runtime) FinalizeTurn(ctx context.Context, input TurnCaseInput) error {
@@ -239,6 +311,13 @@ func uniqueTrimmedNames(values []string) []string {
 }
 
 func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error {
+	return rt.runColdPath(ctx, workspace, "auto")
+}
+
+// runColdPath runs one cold-path pass and reports it on the event/audit
+// trail — run.started up front, run.finished on every exit path (defer),
+// so scheduled, auto-triggered, and manual runs all land in the feed.
+func (rt *Runtime) runColdPath(ctx context.Context, workspace, trigger string) (runErr error) {
 	if rt == nil || !rt.cfg.Enabled || workspace == "" {
 		return nil
 	}
@@ -259,6 +338,22 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		"mode":      mode,
 		"run_id":    runID,
 	})
+	started := rt.now()
+	rt.observe(runtimeevents.KindEvolutionRunStarted, "run.started", workspace, time.Time{}, map[string]any{
+		"run_id":  runID,
+		"mode":    mode,
+		"trigger": trigger,
+	})
+	outcome := map[string]any{"run_id": runID, "mode": mode, "trigger": trigger}
+	defer func() {
+		if runErr != nil {
+			outcome["status"] = "error"
+			outcome["error"] = runErr.Error()
+		} else {
+			outcome["status"] = "ok"
+		}
+		rt.observe(runtimeevents.KindEvolutionRunFinished, "run.finished", workspace, started, outcome)
+	}()
 
 	store := rt.storeForWorkspace(workspace)
 	taskRecords, err := store.LoadTaskRecords()
@@ -269,6 +364,8 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 	if err != nil {
 		return err
 	}
+	outcome["task_records"] = len(taskRecords)
+	outcome["pattern_records"] = len(patternRecords)
 	logger.DebugCF("evolution", "Loaded evolution records", map[string]any{
 		"workspace":     workspace,
 		"task_count":    len(taskRecords),
@@ -293,6 +390,7 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			recordsForOrganizer,
 		)
 		admittedCount = countTaskLearningRecords(recordsForOrganizer)
+		outcome["admitted_tasks"] = admittedCount
 		logger.DebugCF("evolution", "Admitted task records for cold path", map[string]any{
 			"workspace":       workspace,
 			"admitted_tasks":  admittedCount,
@@ -323,6 +421,7 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			return err
 		}
 		newRuleCount = countNewPatterns(patternRecords, rules, workspace)
+		outcome["new_patterns"] = newRuleCount
 		logger.DebugCF("evolution", "Built learning patterns", map[string]any{
 			"workspace":      workspace,
 			"pattern_count":  len(rules),
@@ -351,13 +450,14 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			"workspace": workspace,
 			"run_id":    runID,
 		})
-		return rt.runLifecycleMaintenance(workspace, store, runID)
+		return rt.runLifecycleMaintenance(workspace, store, runID, outcome)
 	}
 
 	recaller := rt.skillsRecallerForWorkspace(workspace)
 	applier := rt.applierForWorkspace(workspace)
 	readyRules := filterReadyRules(patternRecords, workspace)
 	readyRules = enrichReadyRulesForDrafts(readyRules, taskRecords)
+	outcome["ready_patterns"] = len(readyRules)
 	if len(readyRules) == 0 {
 		logger.DebugCF("evolution", "Finished cold path run without ready patterns", map[string]any{
 			"workspace":      workspace,
@@ -366,7 +466,7 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			"admitted_tasks": admittedCount,
 			"run_id":         runID,
 		})
-		return rt.runLifecycleMaintenance(workspace, store, runID)
+		return rt.runLifecycleMaintenance(workspace, store, runID, outcome)
 	}
 
 	existingDrafts, err := store.LoadDrafts()
@@ -387,6 +487,7 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 	}
 	appliedExistingDrafts := 0
 	changedExistingDrafts := false
+	draftsQuarantined := 0
 	for _, draft := range existingDrafts {
 		if draft.WorkspaceID != workspace || draft.Status != DraftStatusCandidate {
 			continue
@@ -419,6 +520,15 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, review.Findings...)
 		changedExistingDrafts = true
 		if draft.Status != DraftStatusCandidate {
+			rt.observe(runtimeevents.KindEvolutionDraftQuarantined, "draft.quarantined", workspace,
+				time.Time{}, map[string]any{
+					"run_id":       runID,
+					"draft_id":     draft.ID,
+					"target_skill": draft.TargetSkillName,
+					"findings":     draft.ScanFindings,
+					"trigger":      "re-review",
+				})
+			draftsQuarantined++
 			if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
 				return saveErr
 			}
@@ -465,6 +575,8 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 	})
 
 	processedRules := 0
+	draftsCreated := 0
+	draftsApplied := 0
 	for _, rule := range readyRules {
 		select {
 		case <-ctx.Done():
@@ -516,6 +628,25 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			"status":       string(draft.Status),
 			"run_id":       runID,
 		})
+		decisionFields := map[string]any{
+			"run_id":         runID,
+			"draft_id":       draft.ID,
+			"target_skill":   draft.TargetSkillName,
+			"change_kind":    string(draft.ChangeKind),
+			"source_pattern": draft.SourceRecordID,
+			"matched_skills": len(draft.MatchedSkillRefs),
+		}
+		draftsCreated++
+		switch draft.Status {
+		case DraftStatusCandidate:
+			rt.observe(runtimeevents.KindEvolutionDraftCandidate, "draft.candidate", workspace,
+				time.Time{}, decisionFields)
+		case DraftStatusQuarantined:
+			decisionFields["findings"] = draft.ScanFindings
+			rt.observe(runtimeevents.KindEvolutionDraftQuarantined, "draft.quarantined", workspace,
+				time.Time{}, decisionFields)
+			draftsQuarantined++
+		}
 		if draft.Status == DraftStatusCandidate {
 			if park := rt.autoApplyParkReason(applier, draft, autoApplyBudget); park != "" {
 				draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, park)
@@ -528,6 +659,7 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 				draftSaved = true
 				if draft.Status == DraftStatusAccepted {
 					autoApplyBudget--
+					draftsApplied++
 				}
 			}
 		}
@@ -555,7 +687,10 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		"new_patterns":       newRuleCount,
 		"run_id":             runID,
 	})
-	return rt.runLifecycleMaintenance(workspace, store, runID)
+	outcome["drafts_created"] = draftsCreated
+	outcome["drafts_quarantined"] = draftsQuarantined
+	outcome["drafts_applied"] = appliedExistingDrafts + draftsApplied
+	return rt.runLifecycleMaintenance(workspace, store, runID, outcome)
 }
 
 func (rt *Runtime) recordsForColdPathInputs(
@@ -1171,7 +1306,17 @@ func countTaskLearningRecords(records []LearningRecord) int {
 	return count
 }
 
-func (rt *Runtime) runLifecycleMaintenance(workspace string, store *Store, runID string) error {
+// runLifecycleMaintenance runs the lifecycle sweep + retention prune at
+// the tail of a cold-path run, emitting skill.lifecycle events per
+// transition and an evolution.prune event when the sweep removed
+// anything. Lifecycle counts fold into the run's outcome map for the
+// run.finished emission.
+func (rt *Runtime) runLifecycleMaintenance(
+	workspace string,
+	store *Store,
+	runID string,
+	outcome map[string]any,
+) error {
 	if rt == nil || store == nil || workspace == "" {
 		return nil
 	}
@@ -1192,6 +1337,30 @@ func (rt *Runtime) runLifecycleMaintenance(workspace string, store *Store, runID
 			"error":     err.Error(),
 		})
 		return err
+	}
+
+	for _, tr := range summary.Transitions {
+		rt.observe(runtimeevents.KindEvolutionSkillLifecycle, "skill.lifecycle", workspace,
+			time.Time{}, map[string]any{
+				"run_id":  runID,
+				"skill":   tr.Skill,
+				"from":    string(tr.From),
+				"to":      string(tr.To),
+				"trigger": "sweep",
+			})
+	}
+	if summary.PrunedTaskRecords > 0 || summary.PrunedDrafts > 0 {
+		rt.observe(runtimeevents.KindEvolutionPrune, "prune", workspace, time.Time{}, map[string]any{
+			"run_id":              runID,
+			"trigger":             "sweep",
+			"dry_run":             false,
+			"task_records_pruned": summary.PrunedTaskRecords,
+			"drafts_pruned":       summary.PrunedDrafts,
+		})
+	}
+	if outcome != nil {
+		outcome["lifecycle_transitions"] = summary.TransitionedProfiles
+		outcome["deleted_skills"] = summary.DeletedSkills
 	}
 
 	logger.DebugCF("evolution", "Finished lifecycle maintenance", map[string]any{
@@ -1472,6 +1641,7 @@ func (rt *Runtime) applyCandidateDraft(
 		})
 		draft.Status = DraftStatusQuarantined
 		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, fmt.Sprintf("apply failed: %v", err))
+		rt.observeDraftQuarantine(workspace, draft, runID, via)
 		if auditErr := rt.recordRollbackAudit(store, draft, err); auditErr != nil {
 			draft.ScanFindings = appendUniqueStrings(
 				draft.ScanFindings,
@@ -1528,6 +1698,7 @@ func (rt *Runtime) applyCandidateDraft(
 		})
 		draft.Status = DraftStatusQuarantined
 		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, fmt.Sprintf("provenance write failed: %v", err))
+		rt.observeDraftQuarantine(workspace, draft, runID, via)
 		if rollbackErr := rollback(); rollbackErr != nil {
 			draft.ScanFindings = appendUniqueStrings(
 				draft.ScanFindings,
@@ -1568,6 +1739,7 @@ func (rt *Runtime) applyCandidateDraft(
 		})
 		draft.Status = DraftStatusQuarantined
 		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, fmt.Sprintf("profile save failed: %v", err))
+		rt.observeDraftQuarantine(workspace, draft, runID, via)
 		if rollbackErr := rollback(); rollbackErr != nil {
 			draft.ScanFindings = appendUniqueStrings(
 				draft.ScanFindings,
@@ -1610,7 +1782,34 @@ func (rt *Runtime) applyCandidateDraft(
 		"target_skill": draft.TargetSkillName,
 		"run_id":       runID,
 	})
+	rt.observe(runtimeevents.KindEvolutionDraftAccepted, "draft.accepted", workspace,
+		time.Time{}, map[string]any{
+			"run_id":       runID,
+			"draft_id":     draft.ID,
+			"target_skill": draft.TargetSkillName,
+			"via":          via,
+		})
+	rt.observe(runtimeevents.KindEvolutionSkillApplied, "skill.applied", workspace,
+		time.Time{}, map[string]any{
+			"run_id":   runID,
+			"draft_id": draft.ID,
+			"skill":    draft.TargetSkillName,
+			"via":      via,
+		})
 	return draft, nil
+}
+
+// observeDraftQuarantine reports an apply-time quarantine — the three
+// failure paths inside applyCandidateDraft all funnel the same event.
+func (rt *Runtime) observeDraftQuarantine(workspace string, draft SkillDraft, runID, via string) {
+	rt.observe(runtimeevents.KindEvolutionDraftQuarantined, "draft.quarantined", workspace,
+		time.Time{}, map[string]any{
+			"run_id":       runID,
+			"draft_id":     draft.ID,
+			"target_skill": draft.TargetSkillName,
+			"findings":     draft.ScanFindings,
+			"via":          via,
+		})
 }
 
 func (rt *Runtime) recordRollbackAudit(store *Store, draft SkillDraft, applyErr error) error {

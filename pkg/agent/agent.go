@@ -508,6 +508,7 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	}
 	if newEvolution != nil {
 		newEvolution.setCurrentCheck(al.isCurrentEvolutionBridge)
+		newEvolution.runtime.SetEventBus(al.runtimeEvents)
 		if err := newEvolution.subscribeRuntimeEvents(al.runtimeEvents.Channel()); err != nil {
 			logger.WarnCF("agent", "Failed to subscribe reloaded evolution bridge to runtime events",
 				map[string]any{"error": err.Error()})

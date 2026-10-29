@@ -36,6 +36,7 @@ func NewEvolutionCommand() *cobra.Command {
 		newRollbackCommand(),
 		newPruneCommand(),
 		newFeedbackCommand(),
+		newActivityCommand(),
 	)
 	return cmd
 }

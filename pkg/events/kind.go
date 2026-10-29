@@ -248,6 +248,38 @@ const (
 	KindSwarmContextWritten Kind = "swarm.context.written"
 	// KindSwarmError is emitted when a swarm operation fails.
 	KindSwarmError Kind = "swarm.error"
+	// KindEvolutionRunStarted is emitted when a cold-path run begins
+	// (scheduled, auto-triggered, or manual).
+	KindEvolutionRunStarted Kind = "evolution.run.started"
+	// KindEvolutionRunFinished is emitted when a cold-path run exits — every
+	// path, including early returns and errors; attrs carry the run counts.
+	KindEvolutionRunFinished Kind = "evolution.run.finished"
+	// KindEvolutionDraftCandidate is emitted when a skill draft survives
+	// review as a candidate.
+	KindEvolutionDraftCandidate Kind = "evolution.draft.candidate"
+	// KindEvolutionDraftQuarantined is emitted when review or a failed apply
+	// parks a draft in quarantine.
+	KindEvolutionDraftQuarantined Kind = "evolution.draft.quarantined"
+	// KindEvolutionDraftAccepted is emitted when a draft is marked accepted —
+	// manual accept or auto-apply success.
+	KindEvolutionDraftAccepted Kind = "evolution.draft.accepted"
+	// KindEvolutionDraftRejected is emitted when an operator rejects a draft.
+	KindEvolutionDraftRejected Kind = "evolution.draft.rejected"
+	// KindEvolutionSkillApplied is emitted when a draft's skill body is
+	// written to the workspace.
+	KindEvolutionSkillApplied Kind = "evolution.skill.applied"
+	// KindEvolutionSkillRollback is emitted when a skill profile is rolled
+	// back to a prior version.
+	KindEvolutionSkillRollback Kind = "evolution.skill.rollback"
+	// KindEvolutionSkillLifecycle is emitted on a skill profile status
+	// transition — manual archive/restore or idle-threshold sweep.
+	KindEvolutionSkillLifecycle Kind = "evolution.skill.lifecycle"
+	// KindEvolutionPrune is emitted when the retention sweep removes records
+	// or drafts — cold-path maintenance or manual prune.
+	KindEvolutionPrune Kind = "evolution.prune"
+	// KindEvolutionFeedback is emitted when an operator feedback signal is
+	// recorded against a task or session.
+	KindEvolutionFeedback Kind = "evolution.feedback"
 )
 
 var knownKinds = []Kind{
@@ -352,6 +384,17 @@ var knownKinds = []Kind{
 	KindSwarmContextNote,
 	KindSwarmContextWritten,
 	KindSwarmError,
+	KindEvolutionRunStarted,
+	KindEvolutionRunFinished,
+	KindEvolutionDraftCandidate,
+	KindEvolutionDraftQuarantined,
+	KindEvolutionDraftAccepted,
+	KindEvolutionDraftRejected,
+	KindEvolutionSkillApplied,
+	KindEvolutionSkillRollback,
+	KindEvolutionSkillLifecycle,
+	KindEvolutionPrune,
+	KindEvolutionFeedback,
 }
 
 // KnownKinds returns the runtime event kinds declared by this package.

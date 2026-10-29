@@ -50,7 +50,8 @@ func newEvolutionBridge(
 
 	modelID := resolvedEvolutionModelID(cfg, provider)
 	runtime, err := evolution.NewRuntime(evolution.RuntimeOptions{
-		Config: cfg.Evolution,
+		Config:    cfg.Evolution,
+		AuditPath: evolution.DefaultAuditPath(),
 		PatternClusterer: evolution.NewLLMPatternClusterer(
 			provider,
 			modelID,

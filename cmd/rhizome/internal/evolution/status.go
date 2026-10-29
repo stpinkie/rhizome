@@ -57,6 +57,10 @@ func newStatusCommand() *cobra.Command {
 				if rs, ok := daemonStatus["last_runs"]; ok {
 					out["last_runs"] = rs
 				}
+				out["audit_log"] = rhevo.DefaultAuditPath()
+				if runs := recentRunEntries(); len(runs) > 0 {
+					out["recent_runs"] = runs
+				}
 				data, _ := json.MarshalIndent(out, "", "  ")
 				fmt.Fprintln(w, string(data))
 				return
@@ -100,8 +104,13 @@ func newStatusCommand() *cobra.Command {
 				if len(st.Skills) > 0 {
 					fmt.Fprintf(w, "  skills: %s\n", formatStatusMap(st.Skills))
 				}
+				if decided := st.AcceptedDrafts + st.RejectedDrafts; decided > 0 {
+					fmt.Fprintf(w, "  acceptance: %d/%d decided drafts accepted (%.0f%%)\n",
+						st.AcceptedDrafts, decided, st.AcceptanceRate*100)
+				}
 			}
 			printLastRuns(w, daemonStatus)
+			printRecentRuns(w)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
@@ -237,6 +246,50 @@ func formatStatusMap(m map[string]int) string {
 		out += fmt.Sprintf("%s=%d", k, m[k])
 	}
 	return out
+}
+
+// recentRunEntries returns the last run.finished audit entries — the
+// durable cold-path run history backing `evolution status`.
+func recentRunEntries() []map[string]any {
+	entries, err := rhevo.ReadAuditEntries(
+		rhevo.DefaultAuditPath(), 5, rhevo.AuditFilter{Op: "run.finished"})
+	if err != nil {
+		return nil
+	}
+	return entries
+}
+
+// printRecentRuns prints the audit-derived run history — daemonless, and
+// it survives restarts unlike the daemon's in-memory last_runs.
+func printRecentRuns(w io.Writer) {
+	entries := recentRunEntries()
+	if len(entries) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nRecent runs:")
+	for _, e := range entries {
+		get := func(k string) string {
+			s, _ := e[k].(string)
+			return s
+		}
+		line := fmt.Sprintf("  %s  %s  %s", get("ts"), get("workspace"), get("status"))
+		if v := get("trigger"); v != "" {
+			line += fmt.Sprintf(" (%s)", v)
+		}
+		if ms, ok := e["duration_ms"].(float64); ok {
+			line += fmt.Sprintf("  %dms", int64(ms))
+		}
+		num := func(k string) int64 {
+			f, _ := e[k].(float64)
+			return int64(f)
+		}
+		line += fmt.Sprintf("  +%d drafts, %d applied, %d quarantined",
+			num("drafts_created"), num("drafts_applied"), num("drafts_quarantined"))
+		if v := get("error"); v != "" {
+			line += "  error=" + v
+		}
+		fmt.Fprintln(w, line)
+	}
 }
 
 func printLastRuns(w io.Writer, daemonStatus map[string]any) {
