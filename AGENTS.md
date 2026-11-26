@@ -9,6 +9,11 @@ This is a hard fork/rebrand of PicoClaw. Module path: `github.com/stpinkie/rhizo
   `--repo stpinkie/rhizome` to `gh` commands (`gh pr create`, `gh pr view`,
   `gh issue`, …), or run `gh repo set-default stpinkie/rhizome` once per clone.
 
+> **Bucket alignment:** see `ALIGNMENT.md` (verified 2026-11-26). Sections
+> tagged **[A]**/**[A1]**–**[A6]** are core build surface; **[B]** is parked
+> cross-user economy — document it, don't build on it; untagged sections are
+> harness utility (inherited PicoClaw base — security maintenance only).
+
 ## Build & Test
 
 - Always build/test with the tags used in `Makefile`:
@@ -170,7 +175,7 @@ Anti-rot:
   creds and publishes `nightly`/`nightly-launcher` GHCR images but no
   GitHub release.
 
-## Rhizome P2P Commands
+## Rhizome P2P Commands — **[A5]** (carries parked-economy fields; see ALIGNMENT §3)
 
 - `rhizome network onboard` — create a node identity from a BIP39 mnemonic (now supports `--generate` and `--encrypt {keyring|passphrase|none}`).
 - `rhizome network status` — show the saved node identity (`--json` for machine-readable output).
@@ -207,7 +212,7 @@ Anti-rot:
   - `--no-gateway` starts the P2P node and syncer without the HTTP gateway.
   - `--sync-commit-interval` and `--sync-announce-interval` tune auto-sync.
 
-## Companion Modules
+## Companion Modules — **[A6]** (`rhizome-market` tenant is **[B parked]**; `llama-cpp` is **[A3]**)
 
 `pkg/modules` is the sidecar module system (v0.10.0): catalog-driven binaries
 installed under `<RHIZOME_HOME>/modules/<id>/<version>/`, verified against a
@@ -381,7 +386,7 @@ refused outright; verified catalogs cache under
 only). Releases sign via the `MODULE_CATALOG_SIGNING_KEY` secret; see
 `docs/operations/module-catalog-signing.md`.
 
-## Curated Skills Index (v0.13.0, Track 90)
+## Curated Skills Index (v0.13.0, Track 90) — **[A1]**
 
 The first-party `rhizome` skills registry (`pkg/skills/rhizome_registry.go`,
 enabled by default) serves a signed curated index: `<base_url>/index.json`
@@ -404,7 +409,7 @@ map via `skills.OriginKindForRegistry`). Events:
 (`RegistryManager.SetEventBus`, wired in `agent_init.go`). See
 `docs/operations/skill-index-signing.md`.
 
-## Web3 Read Tools (v0.11.0, Track 68)
+## Web3 Read Tools (v0.11.0, Track 68) — **[A4]**
 
 `pkg/web3` is a dependency-free Ethereum JSON-RPC layer; the `web3_*`
 agent tools live in `pkg/tools/web3` and are **disabled by default**
@@ -431,7 +436,7 @@ needs the explicit opt-in. Transport errors are unwrapped of `url.Error`
 so endpoint URLs (which can embed path keys) never reach tool output.
 Guide: `docs/guides/web3.md`.
 
-## Web3 Wallet & Signing (v0.12.0, Track 77)
+## Web3 Wallet & Signing (v0.12.0, Track 77) — **[A4]**
 
 `pkg/web3` also holds the write side: secp256k1 wallet keystore
 (`keys.go` — XChaCha20-Poly1305 per key on new writes, per-entry `cipher`
@@ -468,7 +473,7 @@ outer gate. Key material never appears in tool output, API responses, or UI.
   `web3.rejected`, `web3.sent`, `web3.done`, `web3.failed` (surfaced in the
   mesh activity feed).
 
-## Web3 Contracts & ENS (v0.12.0, Track 78)
+## Web3 Contracts & ENS (v0.12.0, Track 78) — **[A4]**
 
 Contract interaction builds on the signing stack — still no go-ethereum,
 everything runs through the minimal ABI codec and the human-approval queue.
@@ -504,7 +509,7 @@ everything runs through the minimal ABI codec and the human-approval queue.
   `web3.contract.rejected` — picked up by the activity feed's `web3.*`
   prefix.
 
-## Web3 Wallet Ops, Watches & Channel Approvals (v0.12.0, Track 79)
+## Web3 Wallet Ops, Watches & Channel Approvals (v0.12.0, Track 79) — **[A4]**
 
 - **Wallet CLI**: `rhizome wallet set-default <address>` | `rename
   <address> <label>` | `remove <address>` (with `--confirm`; the default
@@ -535,7 +540,7 @@ everything runs through the minimal ABI codec and the human-approval queue.
   (`pkg/commands/cmd_web3.go`), and the runtime callbacks are only wired
   when `tools.web3.enabled` + a non-empty allowlist.
 
-## Settlement Rail (v0.14.0, Track 101)
+## Settlement Rail (v0.14.0, Track 101) — **[B parked]**
 
 `pkg/settlement` is the market's escrow abstraction (survey:
 `docs/design/escrow-survey.md`). `Rail` (alias `SettlementRail`) =
@@ -594,7 +599,7 @@ keccak256(correlationID)) and shares one contract deployment.
   live in `pkg/settlement/abi.go` (Sepolia factory `0x8227…17c20`) and
   `abi_graduated.go`.
 
-## ACP (Agent Client Protocol)
+## ACP (Agent Client Protocol) — **[A6]** (fork-built, not inherited)
 
 `rhizome acp [--agent <id>]` serves ACP over stdio (Zed/JetBrains drive
 Rhizome as an editor agent). `pkg/acp` contains all
@@ -692,7 +697,7 @@ trusted mesh peer's `acp.server.remote` instead of a subprocess:
   binding without a dialer (mesh off) fails with a descriptive error at
   first use.
 
-## Web Backend Network API
+## Web Backend Network API — **[A5]** (economy/market endpoints are **[B parked]**)
 
 The web console (the launcher) exposes authenticated JSON endpoints that wrap `rhizome network status` so the dashboard can display live mesh/DHT status:
 
@@ -800,7 +805,7 @@ When `mesh.enabled` is true, `rhizome daemon` advertises local capabilities over
 
 Agent identity manifests ride inside the capability payload (`agent_manifests`): each configured agent gets an `agentmanifest.Manifest` signed with the node key and bound to the sender's peer id, and the gateway persists each signed copy to `<workspace>/agents/<id>.manifest.json` so manifests sync to peers. Receivers verify every manifest against the sender's key after the outer capability signature check and drop forgeries (a `mesh.error` event with stage `capability.agent_manifest` is emitted). Manifest model/skill fields honor `advertise_models`/`advertise_skills`; status views (`network status --peers`, saved-peers) expose per-agent fingerprints. Manifests prove *who* issued an identity claim — execution authorization remains governed by trust + ACL.
 
-## Swarm Mode (v0.7.0, Tracks 21–30)
+## Swarm Mode (v0.7.0, Tracks 21–30) — **[A5]**
 
 Swarms are named groups of trusted mesh peers. Membership is always a subset
 of `mesh.trusted_peers`; swarm requires `mesh.enabled`.
@@ -901,7 +906,7 @@ unsupported combinations fail with a clear error rather than being
 silently ignored. `auth status`/`auth logout` inspect and clear stored
 credentials (`pkg/auth`, `<RHIZOME_HOME>/auth.json`).
 
-## BIP39 Onboarding
+## BIP39 Onboarding — **[A1]**
 
 `rhizome network onboard --generate` creates a fresh 24-word BIP39 mnemonic. The `--non-interactive` and `--yes` flags allow fully scripted onboarding:
 
@@ -934,7 +939,7 @@ The swarm integration test builds `rhizome`, starts two daemons joined to a shar
 .\scripts\integration-swarm.ps1
 ```
 
-## Browser Automation (v0.7.1)
+## Browser Automation (v0.7.1) — **[A6]** (fork-built, not inherited)
 
 - `tools.browser.enabled` (default `false`) turns on the eight `browser_*` agent tools.
 - `tools.browser.default_backend` selects the backend (default `agent-browser`); `tools.browser.backends.<id>` holds per-backend settings — `api_key` is a `SecureString` (can live in `.security.yml`); `env` is plaintext — prefer `api_key` for credentials (secret-looking env values are still masked in logs/tool output).
