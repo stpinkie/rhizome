@@ -1,3 +1,5 @@
+//go:build economy
+
 package api
 
 import (

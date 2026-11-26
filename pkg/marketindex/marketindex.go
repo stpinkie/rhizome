@@ -9,6 +9,8 @@
 // before commit — scripts/market-index.go). The index is a repo, not a
 // service: index.json plus a detached Ed25519 index.json.sig over the exact
 // bytes served.
+//go:build economy
+
 package marketindex
 
 import (

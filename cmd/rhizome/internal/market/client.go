@@ -3,6 +3,8 @@
 // module publishes its listener address in <module_dir>/api.addr and the
 // daemon mints its bearer token at <module_dir>/bridge-token; without the
 // module the verbs print the not-installed posture.
+//go:build economy
+
 package market
 
 import (

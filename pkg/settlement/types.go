@@ -6,6 +6,8 @@
 // budget; Track 103 (buy-side) calls Open/Release. Smart Invoice has no
 // unilateral seller-claim path — see docs/design/escrow-survey.md for the
 // claim→lock+resolve semantic mapping and the trade-off register.
+//go:build economy
+
 package settlement
 
 import (

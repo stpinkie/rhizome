@@ -1,3 +1,5 @@
+//go:build economy
+
 package api
 
 // Market dashboard depth (v0.16.0 Track 135): the web Network page's

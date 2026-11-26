@@ -6,6 +6,8 @@
 // Track 133: buy-side depth — redundant fan-out (`market buy
 // --redundant N`) and the local purchase ledger (`market sessions`).
 
+//go:build economy
+
 package main
 
 import (

@@ -3,6 +3,8 @@
 //
 // Copyright (c) 2026 Rhizome contributors
 
+//go:build economy
+
 package main
 
 // Track 128 — session-drawdown settlement: one funded escrow session

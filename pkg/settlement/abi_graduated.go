@@ -1,3 +1,5 @@
+//go:build economy
+
 package settlement
 
 import "github.com/stpinkie/rhizome/pkg/web3"

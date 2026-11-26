@@ -27,6 +27,7 @@ go test -p 1 -tags goolm,stdjson ./...
 ```
 
 - Some packages (e.g. `maunium.net/go/mautrix/crypto/libolm`) require CGO unless the `goolm` build tag is set. The `stdjson` tag selects the standard `encoding/json` fallback.
+- Bucket-B quarantine (ALIGNMENT.md §3): the cross-user economy (market, settlement, paired billing) compiles only under `-tags economy` and is inert by default — `MeshEconomyConfig.Enabled` is forced false, mesh econ runtime is stubbed, and wire fields (`econ`/`charge`/`max_cost`) stay in the schema always-empty. Verify both: `go build -tags goolm,stdjson ./...` and `go build -tags "goolm,stdjson,economy" ./...`.
 - Lint with `make lint` (golangci-lint with the build tags + `scripts/lint-docs.sh`), or directly:
 
 ```powershell

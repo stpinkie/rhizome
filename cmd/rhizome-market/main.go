@@ -8,6 +8,8 @@
 // `rhizome market`, bridges /rhizome/acp/1.0.0 streams, runs escrow-gated
 // sell-side sessions with signed receipts, and writes advert.json for the
 // signed mesh manifest. Buy-side verbs land in Track 103.
+//go:build economy
+
 package main
 
 import (

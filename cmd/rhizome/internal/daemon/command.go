@@ -18,14 +18,12 @@ import (
 	"github.com/stpinkie/rhizome/pkg/gateway"
 	"github.com/stpinkie/rhizome/pkg/logger"
 	"github.com/stpinkie/rhizome/pkg/modules"
-	"github.com/stpinkie/rhizome/pkg/rhizome/econweb3"
 	"github.com/stpinkie/rhizome/pkg/rhizome/mesh"
 	"github.com/stpinkie/rhizome/pkg/rhizome/network"
 	"github.com/stpinkie/rhizome/pkg/rhizome/pair"
 	"github.com/stpinkie/rhizome/pkg/rhizome/swarm"
 	"github.com/stpinkie/rhizome/pkg/rhizome/sync"
 	"github.com/stpinkie/rhizome/pkg/skills"
-	"github.com/stpinkie/rhizome/pkg/web3"
 )
 
 // persistPairedPeer writes a freshly paired peer into mesh.trusted_peers and
@@ -176,26 +174,8 @@ func NewDaemonCommand() *cobra.Command {
 				rhizomeMesh.SetBlobDir(filepath.Join(home, "blobs"))
 				rhizomeMesh.SetEventBus(eventBus)
 
-				// Track 143 web3 close-out: the settle rail shares the
-				// web3 endpoint, wallet, pending queue, and signing
-				// policy — injected only when the operator opted in.
-				if cfg.Mesh.Economy.SettleBackend == "web3" {
-					stack, serr := web3.OpenSigningStack(home, &cfg.Tools.Web3.Signing)
-					if serr != nil {
-						logger.WarnCF("mesh", "economy web3 signing stack failed; close-out disabled",
-							map[string]any{"error": serr.Error()})
-					} else if settler, serr := econweb3.New(
-						web3.NewProvider(cfg), stack, econweb3.Options{
-							Signer:     cfg.Mesh.Economy.SettleSigner,
-							From:       cfg.Mesh.Economy.SettleFrom,
-							ApproveTTL: cfg.Tools.Web3.Signing.GetApprovalTimeout(),
-						}); serr != nil {
-						logger.WarnCF("mesh", "economy web3 settle backend failed; close-out disabled",
-							map[string]any{"error": serr.Error()})
-					} else {
-						rhizomeMesh.SetEconSettler(settler)
-					}
-				}
+				// Track 143 web3 close-out (economy tag only).
+				wireEconSettler(cfg, home, rhizomeMesh)
 
 				if err := rhizomeMesh.Start(ctx); err != nil {
 					return fmt.Errorf("failed to start mesh: %w", err)
@@ -218,7 +198,7 @@ func NewDaemonCommand() *cobra.Command {
 					},
 					// Minted bundles echo the node's advertised settlement
 					// terms so acceptors see the price sheet before trusting.
-					Economy: cfg.Mesh.Economy.Advert,
+					Economy: econAdvertHook(cfg),
 				})
 				go func() { _ = pairMgr.Start(ctx) }()
 				gateway.SetPairManager(pairMgr)

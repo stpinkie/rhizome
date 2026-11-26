@@ -204,58 +204,6 @@ export async function removeNetworkPeer(peerID: string): Promise<void> {
   })
 }
 
-// --- Mesh economy (/api/network/economy — Track 146) ---
-
-/** One ledger charge row (econ.Entry). */
-export interface EconEntry {
-  entry_id: string
-  ts: string
-  peer_id: string
-  /** payable (we owe) | receivable (we are owed) */
-  direction: "payable" | "receivable"
-  task_id?: string
-  correlation_id?: string
-  unit: string
-  amount: string
-  result_sha256?: string
-  sheet_digest?: string
-  /** accrued | settled | disputed | written_off */
-  state: string
-  settle_id?: string
-  settle_tx?: string
-  note?: string
-}
-
-/** One payer-side web3 close-out record (econ.InflightRecord). */
-export interface EconInflight {
-  peer_id: string
-  unit: string
-  /** offered | paying | awaiting_approval | broadcast | stalled … */
-  state: string
-  pending_id?: string
-  tx_hash?: string
-  settle_id?: string
-  attempts: number
-  error?: string
-  created_at: string
-  updated_at: string
-}
-
-/** Economy snapshot — the daemon's GET /network/economy shape. */
-export interface NetworkEconomyResponse {
-  enabled: boolean
-  unit?: string
-  settle_threshold?: string
-  settle_grace_period?: string
-  peers?: Record<string, PeerEconSummary>
-  recent_charges?: EconEntry[]
-  inflight?: EconInflight[]
-}
-
-export async function getNetworkEconomy(): Promise<NetworkEconomyResponse> {
-  return request<NetworkEconomyResponse>(`/api/network/economy`)
-}
-
 // --- Remote task operations (/api/network/tasks) ---
 
 export interface MeshTaskInfo {

@@ -1,3 +1,5 @@
+//go:build economy
+
 package gateway
 
 import (
@@ -23,19 +25,6 @@ import (
 	"github.com/stpinkie/rhizome/pkg/rhizome/testutil"
 	toolshared "github.com/stpinkie/rhizome/pkg/tools/shared"
 )
-
-const testTasksToken = "secret-token"
-
-func authedRequest(method, target string, body *strings.Reader) *http.Request {
-	var req *http.Request
-	if body != nil {
-		req = httptest.NewRequest(method, target, body)
-	} else {
-		req = httptest.NewRequest(method, target, nil)
-	}
-	req.Header.Set("Authorization", "Bearer "+testTasksToken)
-	return req
-}
 
 func TestNetworkTasksHandlerRequiresAuth(t *testing.T) {
 	h := newNetworkTasksHandler(nil, testTasksToken)

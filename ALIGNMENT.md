@@ -168,9 +168,14 @@ unrelated).
 ## 3. Bucket B — PARKED (cross-user economy; NOT deleted)
 
 **Location:** `archive/pre-alignment` branch (history intact — not erased,
-just not stood on). **Status: nominal only** — the branch exists at
-`834c005d`, identical to `main`; no quarantine has run yet (§8 step 3
-pending). All bucket-B code is live on `main` today.
+just not stood on). **Status: quarantined on `aligned`** — the INERT
+strategy landed: B packages carry `//go:build economy`, mesh econ runtime
+is stubbed under `!economy` (`MeshEconomyConfig.Enabled` forced false),
+wire/persisted fields (`econ`, `charge`, `max_cost`, `econ_sig`) stay in
+the schema always-empty, and `pkg/rhizome/econ` remains compiled as dead
+code. Default build `go build -tags goolm,stdjson ./...` is green and
+inert; `-tags economy` restores full function. `main` still has B live —
+the quarantine reaches it at §8 step 5.
 
 - Open agent work market: escrow Solidity contracts, Kleros adapter,
   settlement rail, paired credit ledgers, market DHT + signed curated
@@ -285,12 +290,16 @@ browser, and overstated/understated counts):
 
 1. ~~`git branch archive/pre-alignment main && git tag v0.17-pre-alignment`~~
    — **DONE** (both exist at `834c005d`).
-2. `git switch -c aligned` — the new line starts here.
-3. On `aligned`: quarantine bucket B per §3's map (Go build tag `economy`
-   or move to `/attic`; resolve the four entanglement points first),
-   build + tests green.
-4. Trim `.todo.md` to bucket A; rewrite README; add `ROADMAP.md` whose
-   single milestone is the two-node E2E demo.
+2. `git switch -c aligned` — the new line starts here. **DONE**.
+3. ~~On `aligned`: quarantine bucket B~~ — **DONE** via the `economy`
+   build tag (INERT strategy; entanglement points resolved by keeping
+   wire schema + `pkg/rhizome/econ` compiled and gating runtime behind
+   `!economy` stubs). Build + vet + affected tests green under both
+   tag sets.
+4. Trim `.todo.md` to bucket A — **DONE** (B sections collapsed to
+   parked notes; Tracks 132/136 kept as parked open items). Remaining:
+   rewrite README; add `ROADMAP.md` whose single milestone is the
+   two-node E2E demo.
 5. Only after green: `git push origin aligned:main` — fast-forward, since
    `main` never moved. (Fork: 1 star, zero external consumers — repointing
    costs nobody anything.)

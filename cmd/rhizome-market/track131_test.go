@@ -7,6 +7,8 @@
 // the platform probe seam, config validation, and the buy-side
 // snapshot that surfaces the claim in `market session`.
 
+//go:build economy
+
 package main
 
 import (

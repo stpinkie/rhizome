@@ -7,6 +7,8 @@
 // commits, graduated-rail evidence submission + kleros auto-escalation,
 // and the operator evidence/escalate verbs.
 
+//go:build economy
+
 package main
 
 import (

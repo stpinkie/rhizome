@@ -14,6 +14,8 @@
 //
 // sign reads the curator seed from MARKET_INDEX_SIGNING_KEY (or
 // MODULE_CATALOG_SIGNING_KEY — same trust root) as a base64 Ed25519 seed.
+//go:build economy
+
 package main
 
 import (

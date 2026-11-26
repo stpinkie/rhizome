@@ -6,6 +6,8 @@
 // Track 103: buy-side purchasing — find → buy → escrow → ACP session →
 // receipt → release, all over net.Pipe against a shared MockRail.
 
+//go:build economy
+
 package main
 
 import (

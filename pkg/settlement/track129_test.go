@@ -1,3 +1,5 @@
+//go:build economy
+
 package settlement
 
 // Track 129 — decentralized arbitration: the RhizomeKlerosAdapter in

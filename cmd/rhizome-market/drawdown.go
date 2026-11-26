@@ -3,6 +3,8 @@
 //
 // Copyright (c) 2026 Rhizome contributors
 
+//go:build economy
+
 package main
 
 // Drawdown settlement (Track 128): instead of one escrow per task, the

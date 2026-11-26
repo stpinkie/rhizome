@@ -6,6 +6,8 @@
 // the shared pending-approval queue (default) or the wallet signer
 // opt-in (the market's settlement_signer=wallet posture), plus the
 // payee-side on-chain verification.
+//go:build economy
+
 package econweb3
 
 import (

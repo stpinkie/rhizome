@@ -1,3 +1,5 @@
+//go:build economy
+
 package econweb3
 
 import (

@@ -7,6 +7,8 @@
 // attestations, the sig → peer → terms verify chain, the bounded
 // seller store, and the advert rendering path.
 
+//go:build economy
+
 package main
 
 import (

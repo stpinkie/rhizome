@@ -7,6 +7,8 @@
 // exercised over the real RPC rail against FakeChain (raw signed txs
 // land on-chain, getLogs drives purchase transitions).
 
+//go:build economy
+
 package main
 
 import (

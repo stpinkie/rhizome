@@ -1,3 +1,5 @@
+//go:build economy
+
 package gateway
 
 import (

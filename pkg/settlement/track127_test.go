@@ -1,3 +1,5 @@
+//go:build economy
+
 package settlement
 
 // Track 127 — escrow graduation: the session-keyed RhizomeEscrow rail

@@ -3,6 +3,8 @@
 //
 // Copyright (c) 2026 Rhizome contributors
 
+//go:build economy
+
 package main
 
 import (

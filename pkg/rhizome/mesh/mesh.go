@@ -313,6 +313,13 @@ func NewMesh(
 	cfg config.MeshConfig,
 	runFunc func(ctx context.Context, req agentrpc.Request) (*toolshared.ToolResult, *toolshared.RemoteUsage, error),
 ) *Mesh {
+	// Bucket-B quarantine (ALIGNMENT.md §3): without the `economy` build tag
+	// the paired-settlement runtime is inert — config types still parse, but
+	// Enabled is forced off so adverts, negotiation, billing, and settle
+	// paths all no-op.
+	if !economyBuild {
+		cfg.Economy.Enabled = false
+	}
 	m := &Mesh{
 		node:            node,
 		syncer:          syncer,
@@ -325,16 +332,18 @@ func NewMesh(
 		stop:            make(chan struct{}),
 		replay:          newReplayGuard(cfg.RequestMaxSkew),
 		econSent:        make(map[string]econSentRecord),
-		inflight:        econ.OpenInflightJournal(econ.InflightJournalPath(config.GetHome())),
 		settleDrive:     make(map[string]bool),
 		overdueNotified: make(map[string]time.Time),
 	}
-	if l, err := econ.OpenLedger(defaultLedgerPath()); err != nil {
-		logger.WarnCF("mesh", "economy ledger open failed; charges will not be journaled", map[string]any{
-			"error": err.Error(),
-		})
-	} else {
-		m.econLedger = l
+	if economyBuild {
+		m.inflight = econ.OpenInflightJournal(econ.InflightJournalPath(config.GetHome()))
+		if l, err := econ.OpenLedger(defaultLedgerPath()); err != nil {
+			logger.WarnCF("mesh", "economy ledger open failed; charges will not be journaled", map[string]any{
+				"error": err.Error(),
+			})
+		} else {
+			m.econLedger = l
+		}
 	}
 	if cfg.AuditLog {
 		m.auditLog = newAuditLogger(defaultAuditPath())
@@ -2228,17 +2237,19 @@ func (m *Mesh) rankedCandidates(
 		if !ok || !capabilityServes(c, agentID, op, req) {
 			continue
 		}
-		if adv := m.peerEconAdvert(pid); adv != nil {
-			if maxCap != "" &&
-				econ.PriceFloorExceeded(adv.PriceSheet.MinCharge, maxCap) {
-				continue
-			}
-			// est_cost: the zero-usage charge — max(min_charge, per_task).
-			if est, _, err := econ.Compute(adv.PriceSheet, nil, ""); err == nil {
-				if r, ok := econ.ParseDecimal(est); ok && r.Sign() > 0 {
-					ests[pid] = r
-					if minEst == nil || r.Cmp(minEst) < 0 {
-						minEst = r
+		if economyBuild {
+			if adv := m.peerEconAdvert(pid); adv != nil {
+				if maxCap != "" &&
+					econ.PriceFloorExceeded(adv.PriceSheet.MinCharge, maxCap) {
+					continue
+				}
+				// est_cost: the zero-usage charge — max(min_charge, per_task).
+				if est, _, err := econ.Compute(adv.PriceSheet, nil, ""); err == nil {
+					if r, ok := econ.ParseDecimal(est); ok && r.Sign() > 0 {
+						ests[pid] = r
+						if minEst == nil || r.Cmp(minEst) < 0 {
+							minEst = r
+						}
 					}
 				}
 			}

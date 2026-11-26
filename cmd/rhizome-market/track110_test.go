@@ -6,6 +6,8 @@
 // Track 110: ACP-over-HTTPS — TLS listener, websocket upgrade, ndjson
 // adaptation, advert endpoints/fingerprint, and buyer-side wss TOFU.
 
+//go:build economy
+
 package main
 
 import (
